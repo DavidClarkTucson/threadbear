@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
-use threadbear_desktop_lib::config::RunnerConfig;
-use threadbear_desktop_lib::runner::{Client, Sink, Status};
+use threadbear_client::config::RunnerConfig;
+use threadbear_client::runner::{Client, Sink, Status};
 use tokio::sync::mpsc;
 
 struct Mock {

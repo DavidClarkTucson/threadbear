@@ -45,7 +45,7 @@ sleep 1
 # WebKitGTK draws nothing on Xvfb with its GPU paths on, and GTK waits 25
 # seconds for a desktop session bus a server doesn't have, so it gets its own.
 DISPLAY="$display" THREADBEAR_HOME="$home" NO_AT_BRIDGE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- \
-  "$here/src-tauri/target/debug/threadbear-desktop" > "$tmp/app.log" 2>&1 &
+  "${THREADBEAR_DESKTOP_BIN:-$here/target/debug/threadbear-desktop}" > "$tmp/app.log" 2>&1 &
 pids+=($!)
 sleep "$wait"
 wid="$(DISPLAY="$display" xdotool search --onlyvisible --name '^Threadbear$' | head -1 || true)"

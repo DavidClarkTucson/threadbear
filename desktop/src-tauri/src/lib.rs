@@ -1,11 +1,8 @@
 // Threadbear's desktop app: a Tauri shell around a web interface. The Rust
-// side owns the runner connection (runner.rs); the interface asks it to
-// make calls and listens for what the runner pushes.
-pub mod auth;
-pub mod config;
-pub mod runner;
-
-use runner::{Client, RpcError, Sink, Status};
+// side owns the runner connection (../client, shared with the GPUI app);
+// the interface asks it to make calls and listens for what the runner pushes.
+use threadbear_client::config;
+use threadbear_client::runner::{Client, RpcError, Sink, Status};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};

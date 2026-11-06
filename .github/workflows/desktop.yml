@@ -1,8 +1,9 @@
-# The desktop app (desktop/, a Tauri spike) on Linux, Mac and Windows: its
-# interface tests, the Rust client's tests (including signing in to the mock
-# runner), and a build of each platform's app to download from the run's
-# artifacts. Nothing is signed: the Mac app needs right-click Open the first
-# time, and Windows SmartScreen asks once.
+# The desktop apps (desktop/: the Tauri spike and the GPUI spike, sharing
+# one runner connection) on Linux, Mac and Windows: the Tauri interface's
+# tests, every Rust test (including signing in to the mock runner), and a
+# build of each platform's apps to download from the run's artifacts.
+# Nothing is signed: the Mac app needs right-click Open the first time, and
+# Windows SmartScreen asks once.
 name: Desktop app
 
 on:
@@ -57,10 +58,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: desktop
       - name: Linux libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev libvulkan-dev
       - name: Install
         run: |
           npm ci --prefix desktop
@@ -69,15 +70,19 @@ jobs:
         working-directory: desktop
         run: npm run typecheck && npm test
       - name: Rust tests (with the mock runner)
-        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
-      - name: Build the app
+        run: cargo test --manifest-path desktop/Cargo.toml
+      - name: Build the Tauri app
         working-directory: desktop
         run: npx tauri build --bundles ${{ matrix.bundles }}
+      - name: Build the GPUI app
+        run: cargo build --release --manifest-path desktop/Cargo.toml -p threadbear-gpui
       - uses: actions/upload-artifact@v4
         with:
           name: threadbear-desktop-${{ matrix.name }}
           path: |
-            desktop/src-tauri/target/release/bundle/deb/*.deb
-            desktop/src-tauri/target/release/bundle/dmg/*.dmg
-            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/target/release/bundle/deb/*.deb
+            desktop/target/release/bundle/dmg/*.dmg
+            desktop/target/release/bundle/nsis/*.exe
+            desktop/target/release/threadbear-gpui
+            desktop/target/release/threadbear-gpui.exe
           if-no-files-found: error

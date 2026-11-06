@@ -1,0 +1,262 @@
+// The sidebar's sections: a Rust port of the website's web/src/sections.ts
+// (the Mac's ThreadSections and the phone's InboxSections follow the same
+// rules). The TypeScript apps share that file; this one can't, so its tests
+// copy desktop/test/inbox.test.ts's cases and the two must change together.
+use serde::Deserialize;
+use serde_json::Value;
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ThreadSummary {
+    pub id: String,
+    pub title: String,
+    pub cwd: String,
+    pub provider: String,
+    pub model: Option<String>,
+    pub model_in_use: Option<String>,
+    pub status: String,
+    pub needs_you: bool,
+    pub needs: Option<String>,
+    pub asks: Option<Vec<OpenAsk>>,
+    pub asks_seq: Option<u64>,
+    pub pending_reviews: Option<u64>,
+    pub last_activity_at: String,
+    pub snoozed_until: Option<String>,
+    pub snoozed_until_restart: Option<bool>,
+    pub starred_at: Option<String>,
+    pub archived_at: Option<String>,
+    pub waiting_for_room: Option<Value>,
+    pub background: Option<Vec<Background>>,
+    pub projects: Option<Vec<Project>>,
+    pub preview: String,
+    pub last_seq: u64,
+    pub last_seen_seq: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OpenAsk {
+    pub action: String,
+    pub why: Option<String>,
+    pub options: Option<Vec<String>>,
+    pub suggested: Option<usize>,
+    pub ticked: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Background {
+    pub kind: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Project {
+    pub id: String,
+    pub title: String,
+}
+
+impl ThreadSummary {
+    pub fn unread(&self) -> bool {
+        self.last_seq > self.last_seen_seq
+    }
+    pub fn busy(&self) -> bool {
+        self.status == "running" || self.status == "starting"
+    }
+    /// Sub-agents or a workflow still going: not waiting on Mike yet,
+    /// whatever its last turn said (docs/protocol.md, "Needs you").
+    pub fn working(&self) -> bool {
+        self.background.iter().flatten().any(|b| b.kind == "agent" || b.kind == "other")
+    }
+    /// What `needs` the website's rows see: left out while sub-agents run.
+    fn needs_seen(&self) -> Option<&str> {
+        if self.working() { None } else { self.needs.as_deref() }
+    }
+    fn review_waiting(&self) -> bool {
+        self.pending_reviews.unwrap_or(0) > 0 && !self.busy() && !self.working()
+    }
+    fn needs_answer(&self) -> bool {
+        self.status == "waiting"
+    }
+    fn waiting_on_mike(&self) -> bool {
+        if self.needs_seen() != Some("you") || self.busy() {
+            return false;
+        }
+        let asks = self.asks.as_deref().unwrap_or(&[]);
+        asks.is_empty() || asks.iter().any(|a| a.ticked != Some(true))
+    }
+    pub fn snoozed(&self, now_ms: i64) -> bool {
+        self.snoozed_until_restart == Some(true) || self.snoozed_until.as_deref().and_then(parse_ms).is_some_and(|t| t > now_ms)
+    }
+    fn urgency(&self) -> u8 {
+        let broken = self.status == "error" || self.status == "stopped";
+        if self.review_waiting() || self.needs_answer() {
+            0
+        } else if self.needs_you || self.unread() {
+            if broken { 1 } else { 2 }
+        } else if broken {
+            3
+        } else {
+            4
+        }
+    }
+    pub fn wants_you(&self) -> bool {
+        self.status == "waiting" || self.needs_you || (self.needs_seen() == Some("you") && !self.busy())
+    }
+    pub fn place(&self) -> String {
+        match self.projects.as_deref() {
+            Some([first, ..]) => first.title.clone(),
+            _ => folder_name(&self.cwd),
+        }
+    }
+    pub fn activity_ms(&self) -> i64 {
+        parse_ms(&self.last_activity_at).unwrap_or(0)
+    }
+}
+
+pub struct Section {
+    #[allow(dead_code)] // the tests find sections by it
+    pub key: &'static str,
+    pub title: &'static str,
+    pub rows: Vec<ThreadSummary>,
+}
+
+pub fn sections<'a>(threads: impl IntoIterator<Item = &'a ThreadSummary>, now_ms: i64) -> Vec<Section> {
+    let (mut starred, mut inbox, mut running, mut hibernating) = (vec![], vec![], vec![], vec![]);
+    for t in threads {
+        if t.archived_at.is_some() {
+            continue;
+        }
+        if t.starred_at.is_some() {
+            starred.push(t.clone());
+        } else if t.snoozed(now_ms) {
+            hibernating.push(t.clone());
+        } else if t.review_waiting() || t.needs_answer() || t.waiting_on_mike() || (t.needs_you && !t.working()) {
+            inbox.push(t.clone());
+        } else if t.busy() || t.working() {
+            running.push(t.clone());
+        } else {
+            inbox.push(t.clone());
+        }
+    }
+    let newest_first = |a: &ThreadSummary, b: &ThreadSummary| b.activity_ms().cmp(&a.activity_ms()).then_with(|| a.id.cmp(&b.id));
+    starred.sort_by(|a, b| a.starred_at.cmp(&b.starred_at).then_with(|| a.id.cmp(&b.id)));
+    inbox.sort_by(|a, b| a.urgency().cmp(&b.urgency()).then_with(|| newest_first(a, b)));
+    running.sort_by(newest_first);
+    let wakes = |t: &ThreadSummary| t.snoozed_until.as_deref().and_then(parse_ms).unwrap_or(i64::MAX);
+    hibernating.sort_by(|a, b| wakes(a).cmp(&wakes(b)).then_with(|| newest_first(a, b)));
+    [("starred", "Starred", starred), ("inbox", "Inbox", inbox), ("running", "Running", running), ("hibernating", "Hibernating", hibernating)]
+        .into_iter()
+        .filter(|(key, _, rows)| !rows.is_empty() || *key == "inbox")
+        .map(|(key, title, rows)| Section { key, title, rows })
+        .collect()
+}
+
+/// The last part of a folder's path, on any platform.
+pub fn folder_name(path: &str) -> String {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    trimmed.rsplit(['/', '\\']).next().filter(|s| !s.is_empty()).unwrap_or(path).to_string()
+}
+
+/// "now", "5m", "3h", "2d", then the date, as web/src/format.ts's `ago`.
+pub fn ago(ms: i64, now_ms: i64) -> String {
+    let s = ((now_ms - ms) / 1000).max(0);
+    match s {
+        0..60 => "now".into(),
+        60..3600 => format!("{}m", s / 60),
+        3600..86400 => format!("{}h", s / 3600),
+        _ if s < 86400 * 7 => format!("{}d", s / 86400),
+        _ => format!("{}w", s / (86400 * 7)),
+    }
+}
+
+/// ISO 8601 in UTC (the protocol's times) to milliseconds since 1970.
+pub fn parse_ms(iso: &str) -> Option<i64> {
+    let b = iso.as_bytes();
+    if b.len() < 19 {
+        return None;
+    }
+    let num = |r: std::ops::Range<usize>| iso.get(r)?.parse::<i64>().ok();
+    let (y, mo, d, h, mi, s) = (num(0..4)?, num(5..7)?, num(8..10)?, num(11..13)?, num(14..16)?, num(17..19)?);
+    let frac = if b.get(19) == Some(&b'.') {
+        let digits: String = iso[20..].chars().take_while(|c| c.is_ascii_digit()).take(3).collect();
+        format!("{digits:0<3}").parse::<i64>().unwrap_or(0)
+    } else {
+        0
+    };
+    // Days from 1970-01-01 (Howard Hinnant's days_from_civil).
+    let y2 = if mo <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doy = (153 * (mo + if mo > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some(((days * 24 + h) * 60 + mi) * 60_000 + s * 1000 + frac)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // The cases of desktop/test/inbox.test.ts.
+    fn thread(n: u32, over: Value) -> ThreadSummary {
+        let mut v = json!({
+            "id": format!("t{n}"), "title": format!("Thread {n}"), "cwd": "/home/mike/dev/x",
+            "provider": "claude", "status": "idle", "needsYou": false,
+            "lastActivityAt": format!("2026-11-06T10:{n:02}:00Z"), "preview": "", "lastSeq": 10, "lastSeenSeq": 10
+        });
+        v.as_object_mut().unwrap().extend(over.as_object().unwrap().clone());
+        serde_json::from_value(v).unwrap()
+    }
+    fn ids(s: &[Section], key: &str) -> Vec<String> {
+        s.iter().find(|x| x.key == key).map(|x| x.rows.iter().map(|r| r.id.clone()).collect()).unwrap_or_default()
+    }
+    fn now() -> i64 {
+        parse_ms("2026-11-06T12:00:00Z").unwrap()
+    }
+
+    #[test]
+    fn threads_go_under_the_headings_the_mac_app_uses() {
+        let asks = thread(1, json!({ "needs": "you", "needsYou": true, "asks": [{ "action": "Ship it?" }] }));
+        let running = thread(2, json!({ "status": "running" }));
+        let done = thread(3, json!({}));
+        let asleep = thread(4, json!({ "snoozedUntil": "2026-11-07T00:00:00Z" }));
+        let starred = thread(5, json!({ "starredAt": "2026-11-06T09:00:00Z" }));
+        let all = [asks, running, done, asleep, starred];
+        let s = sections(&all, now());
+        assert_eq!(ids(&s, "inbox"), ["t1", "t3"]);
+        assert_eq!(ids(&s, "running"), ["t2"]);
+        assert_eq!(ids(&s, "hibernating"), ["t4"]);
+        assert_eq!(ids(&s, "starred"), ["t5"]);
+    }
+
+    #[test]
+    fn a_thread_stuck_on_an_answer_comes_first_then_newest() {
+        let all = [thread(1, json!({})), thread(2, json!({})), thread(3, json!({ "status": "waiting" }))];
+        assert_eq!(ids(&sections(&all, now()), "inbox"), ["t3", "t2", "t1"]);
+    }
+
+    #[test]
+    fn sub_agents_still_going_keep_it_running() {
+        let all = [thread(1, json!({ "needs": "you", "background": [{ "kind": "agent" }] }))];
+        assert_eq!(ids(&sections(&all, now()), "running"), ["t1"]);
+    }
+
+    #[test]
+    fn unread_and_an_empty_inbox() {
+        assert!(thread(1, json!({ "lastSeq": 12 })).unread());
+        assert!(!thread(1, json!({})).unread());
+        let none: [ThreadSummary; 0] = [];
+        assert_eq!(sections(&none, now()).iter().map(|s| s.key).collect::<Vec<_>>(), ["inbox"]);
+    }
+
+    #[test]
+    fn dates_and_folders() {
+        assert_eq!(parse_ms("1970-01-01T00:00:01.5Z"), Some(1500));
+        assert_eq!(parse_ms("2026-11-06T12:00:00Z").unwrap() - parse_ms("2026-11-06T11:00:00Z").unwrap(), 3_600_000);
+        assert_eq!(folder_name("/home/mike/dev/x/"), "x");
+        assert_eq!(folder_name(r"C:\Users\mike\dev\y"), "y");
+        assert_eq!(ago(now() - 5 * 60_000, now()), "5m");
+    }
+}
