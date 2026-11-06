@@ -1,7 +1,14 @@
-# Threadbear for Linux, Windows and Mac (spike)
+# Threadbear for Linux, Windows and Mac (spikes)
 
-A cross-platform Threadbear app, built with [Tauri](https://tauri.app): a
-Rust shell with the interface written in React. Like the Mac app (`app/`),
+Two cross-platform Threadbear apps with the same scope, built to compare:
+
+- `src-tauri/` + `src/`: [Tauri](https://tauri.app), a Rust shell with the
+  interface written in React.
+- `gpui/`: native Rust, drawn with [GPUI](https://gpui.rs) (Zed's UI
+  framework) and [gpui-kit](https://gpui-kit.com)'s components.
+
+Both use `client/`, the runner connection with no UI in it. The three are
+one Cargo workspace (`Cargo.toml` here). Like the Mac app (`app/`),
 it holds no agent state of its own. It talks to a runner (`runner/`) over the
 protocol in [`../docs/protocol.md`](../docs/protocol.md).
 
@@ -12,12 +19,18 @@ Threadbear's projects has the plan and what's left.
 
 ## How it's put together
 
-- **`src-tauri/`, the Rust side.** It owns the runner connection
-  (`runner.rs`): the challenge sign-in (`auth.rs`, the same HMAC as
-  `runner/src/rpc-auth.ts`), hello, requests and replies, and reconnecting
-  when the runner restarts. The interface calls `runner_call(method,
+- **`client/`, the runner connection** (`runner.rs`): the challenge
+  sign-in (`auth.rs`, the same HMAC as `runner/src/rpc-auth.ts`), hello,
+  requests and replies, and reconnecting when the runner restarts.
+  `tests/mock_runner.rs` signs in to the mock runner.
+- **`src-tauri/`, the Tauri shell.** The interface calls `runner_call(method,
   params)` and listens for `runner-status` and `runner-notification`
   events. The token never reaches the web view.
+- **`gpui/`, the GPUI app.** GPUI has no tokio, so the connection runs on
+  its own runtime and its events cross on a channel (`main.rs`). The inbox
+  rules (`inbox.rs`) and transcript folding (`transcript.rs`) are Rust ports
+  of the TypeScript ones, with the same test cases, so the two must change
+  together.
 - **`src/`, the interface.** Plain React, no framework. It shares code
   with the rest of the repo rather than copying it: the protocol's types
   come from `runner/src/protocol.ts`, and the inbox's sections from the
@@ -44,7 +57,8 @@ and WebView2 (already on Windows 10 and 11).
 ```bash
 npm ci
 npm ci --prefix ../app/Tools/mock-runner    # for the tests and the mock
-npx tauri dev                               # the app, with the interface hot-reloading
+npx tauri dev                               # the Tauri app, with the interface hot-reloading
+cargo run -p threadbear-gpui                # the GPUI app
 THREADBEAR_HOME=/tmp/tb-mock npx tauri dev  # against a mock runner (below)
 npx tauri build                             # an installable app in src-tauri/target/release/bundle
 ```
@@ -58,7 +72,7 @@ the Rust side rebuilds and restarts the app.
 
 ```bash
 npm run typecheck && npm test                        # the interface: inbox sections, transcript folding, the auth vector
-cargo test --manifest-path src-tauri/Cargo.toml      # the Rust side, including signing in to the mock runner
+cargo test                                           # all the Rust: the connection (with the mock), the GPUI app's rules
 ```
 
 - `test/auth-vector.test.ts` works out a sign-in proof with the runner's own
@@ -71,6 +85,7 @@ cargo test --manifest-path src-tauri/Cargo.toml      # the Rust side, including 
 
 ## Seeing it on a server
 
+Set `THREADBEAR_DESKTOP_BIN=target/debug/threadbear-gpui` for the GPUI app.
 `scripts/shot.sh OUT_DIR [--home DIR] [--click X,Y | --type TEXT | --key KEY]...` runs the debug
 build on a virtual display (Xvfb) against the mock (or the runner in
 `--home`) and saves screenshots: `0.png` before any step, then one after
@@ -79,6 +94,22 @@ around two things a desktop never needs: WebKitGTK draws nothing on Xvfb
 with its GPU paths on, and GTK waits 25 seconds for a session bus a server
 doesn't have. Native tooltips draw as black boxes there; that's Xvfb, not
 the app.
+
+## Tauri and GPUI compared
+
+Measured on this Linux server (4 cores, software rendering, so GPUI's GPU
+paths ran on the CPU), each app against the mock with a thread open:
+
+| | Tauri | GPUI |
+|---|---|---|
+| A change to the interface | under a second, hot reloaded, state kept | about 12 s, then the app restarts |
+| A change to its Rust | about 12 s | about 12 s |
+| First build | about 2 min | about 4 min |
+| Release binary (stripped) | 10 MB, plus the system's web view | 41 MB, all in |
+| Memory | 372 MB over 5 processes | 187 MB over 3 |
+| Interface code | 618 lines (TSX and CSS) | 658 lines of Rust |
+| Logic shared with the rest of the repo | the inbox rules, the protocol's types | none: ported, with copied tests |
+| Web pages in panels (patches, Convex) | it is a web view | needs a web view embedded, not in gpui-kit |
 
 ## Known gaps
 
