@@ -10,6 +10,8 @@ public struct RunnerStatus: Sendable, Equatable, Decodable {
     public var pendingRestart: PendingRestart?
     /// The Convex deployment the runner mirrors to (`sync.url`), if sync is on.
     public var syncURL: String?
+    /// Where its website is (`sync.site`), from a runner that says.
+    public var syncSite: String?
 
     public init(version: String = "", release: String? = nil, running: [String] = [], pendingRestart: PendingRestart? = nil, syncURL: String? = nil) {
         self.version = version
@@ -19,9 +21,11 @@ public struct RunnerStatus: Sendable, Equatable, Decodable {
         self.syncURL = syncURL
     }
 
-    /// The website (docs/website.md) is served from the same deployment's
-    /// .convex.site host, so a thread's link is `<site>/t/<threadId>`.
+    /// The website (docs/website.md), so a thread's link is
+    /// `<site>/t/<threadId>`: where the runner says it is, or else a cloud
+    /// deployment's .convex.site host.
     public var websiteURL: URL? {
+        if let syncSite { return URL(string: syncSite) }
         guard let syncURL, syncURL.contains(".convex.cloud") else { return nil }
         return URL(string: syncURL.replacingOccurrences(of: ".convex.cloud", with: ".convex.site"))
     }
@@ -32,10 +36,12 @@ public struct RunnerStatus: Sendable, Equatable, Decodable {
         release = try? c.decodeIfPresent(String.self, forKey: .release)
         running = ((try? c.decodeIfPresent([String].self, forKey: .running)) ?? nil) ?? []
         pendingRestart = try? c.decodeIfPresent(PendingRestart.self, forKey: .pendingRestart)
-        syncURL = (try? c.decodeIfPresent(Sync.self, forKey: .sync))?.url
+        let sync = try? c.decodeIfPresent(Sync.self, forKey: .sync)
+        syncURL = sync?.url
+        syncSite = sync?.site
     }
 
-    private struct Sync: Decodable { var url: String? }
+    private struct Sync: Decodable { var url: String?; var site: String? }
 
     enum CodingKeys: String, CodingKey { case version, release, running, pendingRestart, sync }
 }

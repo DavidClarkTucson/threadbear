@@ -425,9 +425,16 @@ import UniformTypeIdentifiers
         #expect(try #require(Pairing.parse(URL(string: "threadbear://pair?url=https://x.convex.cloud&token=t")!)).runnerKeys.isEmpty)
     }
 
-    @Test func refusesOtherHosts() {
-        #expect(Pairing.parse(URL(string: "threadbear://pair?url=https://evil.example.com&token=t")!) == nil)
+    /// A self-hosted backend is any https host, taken as it is.
+    @Test func takesASelfHostedBackend() throws {
+        let url = URL(string: "threadbear://pair?url=https://convex.example.com&token=t")!
+        #expect(try #require(Pairing.parse(url)).deploymentURL.absoluteString == "https://convex.example.com")
+    }
+
+    @Test func refusesPlainHTTP() {
         #expect(Pairing.parse(URL(string: "threadbear://pair?url=http://a.convex.cloud&token=t")!) == nil)
+        #expect(Pairing.parse(URL(string: "threadbear://pair?url=http://convex.example.com&token=t")!) == nil)
+        #expect(Pairing.parse(URL(string: "threadbear://pair?url=ftp://convex.example.com&token=t")!) == nil)
     }
 }
 

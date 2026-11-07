@@ -3587,6 +3587,10 @@ the mirror back as state. The Mac app doesn't use it.
   turns it off; so does `THREADBEAR_SYNC=off` in the environment, which
   check.sh sets so no test runner writes to the real project.
   `THREADBEAR_SYNC_URL` points a dev or test runner at its own deployment.
+  A self-hosted backend's `sync.url` is any URL it serves its API from,
+  and `sync.siteUrl` (or `THREADBEAR_SYNC_SITE_URL`) is where it serves
+  its HTTP routes, the website; a cloud deployment's is its `.convex.site`
+  host, so it needs none.
   `sync.name` is what the phone calls this runner (default: the Mac's
   hostname without `.local` or `.localdomain`); `sync.runnerId` is made
   once and written back to `runner.json`, so a data dir stays one runner
@@ -3776,7 +3780,7 @@ the mirror back as state. The Mac app doesn't use it.
   aren't scrubbed. `src/withhold.ts` says which tool calls' output must never
   upload; no tool output goes up today, so nothing calls it on the way up yet.
 - **Status.** `runner.status` has `sync: { state: "off" | "ok" | "error",
-  reason?, url?, runnerId?, name?, threads?, messages?, lastSyncAt?,
+  reason?, url?, site?, runnerId?, name?, threads?, messages?, lastSyncAt?,
   lastError?, pending?, retryAt?, commands?: { state: "off" | "on" |
   "error", applied, failed, lastError? }, scrub?: { rulesVersion, knownValues,
   foldersUnread?, changed, failed, lastFailure?, backendChecks? } }`, and `secretCheck: { state:
