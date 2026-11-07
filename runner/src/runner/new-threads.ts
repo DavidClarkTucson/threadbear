@@ -182,7 +182,9 @@ export const newThreadsPart = {
       accountId,
       ...(poolId ? { poolId } : {}),
       provider: account.provider,
-      permissionMode: params.permissionMode ?? 'full',
+      // A schedule's thread starts on Auto, as the app's composer does,
+      // where the login has it (Claude); anything else on Full access.
+      permissionMode: params.permissionMode ?? (params.origin === 'schedule' && account.provider === 'claude' ? 'auto' : 'full'),
       status: 'idle',
       createdAt: now,
       updatedAt: now,

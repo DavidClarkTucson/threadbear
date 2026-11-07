@@ -49,6 +49,16 @@ test('a thread on a Codex account is a Codex thread, with the runner\'s Codex de
   assert.equal(hello.defaults.model, 'claude-haiku-5-5');
 });
 
+test('a schedule\'s thread with no mode starts on Auto on Claude and Full access on Codex', () => {
+  const h = codexHarness();
+  const run = (accountId: string, permissionMode?: 'ask') =>
+    h.runner.create({ text: 'Nightly', accountId, origin: 'schedule', scheduleId: 'sc1', permissionMode }).thread.permissionMode;
+  assert.equal(run('claude-main'), 'auto');
+  assert.equal(run('codex-main'), 'full');
+  assert.equal(run('claude-main', 'ask'), 'ask', 'a schedule\'s own mode wins');
+  assert.equal(h.runner.create({ text: 'hi', accountId: 'claude-main' }).thread.permissionMode, 'full', 'other new threads are as before');
+});
+
 test('an old-shape client sending sonnet for a Codex account gets the Codex default and a note', () => {
   const h = codexHarness();
   // No runner default: the account's own, by its title.

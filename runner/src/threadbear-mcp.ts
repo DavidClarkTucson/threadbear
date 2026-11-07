@@ -448,7 +448,7 @@ export function buildThreadbearTools(
         pool: z.string().optional().describe('With new_thread, instead of account: pool id or title (list_accounts); each run starts on its login with the most room.'),
         model: z.string().optional().describe("With new_thread: model id, one of the account's (list_accounts shows them)."),
         effort: effortEnum.optional().describe('With new_thread: reasoning effort (ultra is Codex only).'),
-        permissionMode: z.enum(['full', 'ask', 'auto']).optional().describe('With new_thread: "full" (default), "ask" or "auto".'),
+        permissionMode: z.enum(['full', 'ask', 'auto']).optional().describe('With new_thread. Default: "auto" ("full" on Codex).'),
         runner: z
           .string()
           .optional()
