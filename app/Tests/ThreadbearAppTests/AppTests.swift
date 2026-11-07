@@ -443,6 +443,31 @@ final class DraftTests: XCTestCase {
         XCTAssertEqual(app.scheduleEditor?.permissionMode, .ask)
     }
 
+    /// Each runner has its own default mode for new Claude threads, kept
+    /// across launches; a pick on the composer beats it for that draft, and
+    /// Codex drafts start on Full access whatever the default says.
+    func testDefaultPermissionByRunner() {
+        defer { UserDefaults.standard.removeObject(forKey: AppModel.defaultPermissionsKey) }
+        UserDefaults.standard.removeObject(forKey: AppModel.defaultPermissionsKey)
+        let app = AppModel()
+        XCTAssertEqual(app.newThreadPermission, .auto, "Auto where none is set")
+        app.setDefaultPermission(.ask, onRunner: nil)
+        app.setDefaultPermission(.full, onRunner: "pi")
+        XCTAssertEqual(app.newThreadPermission(for: "claude"), .ask, "this Mac's default")
+        XCTAssertEqual(app.newThreadPermission(for: "codex"), .full, "Codex keeps Full access")
+        app.newThreadRunnerId = "pi"
+        XCTAssertEqual(app.newThreadPermission(for: "claude"), .full, "the other runner's default")
+        app.newThreadRunnerId = "elsewhere"
+        XCTAssertEqual(app.newThreadPermission(for: "claude"), .auto)
+        app.newThreadPermission = .ask
+        XCTAssertEqual(app.newThreadPermission(for: "claude"), .ask, "a pick beats the default")
+        XCTAssertEqual(app.newThreadPermission(for: "codex"), .ask, "and counts on Codex too")
+
+        let relaunched = AppModel()
+        XCTAssertEqual(relaunched.defaultPermission(onRunner: nil), .ask)
+        XCTAssertEqual(relaunched.defaultPermission(onRunner: "pi"), .full)
+    }
+
     /// The folder, "Ask before edits" and a picked account were for the
     /// one thread; the model and effort are what the next thread starts on
     /// too, and survive a relaunch. The account used becomes the last-used

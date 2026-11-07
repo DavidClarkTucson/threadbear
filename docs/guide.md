@@ -238,14 +238,17 @@ shown on the composer (the box you type in) and changed by clicking it.
   or runs a command. A card shows in the thread with Allow, Always allow and
   Deny. Always allow only lasts for that thread. A Codex thread in this mode
   can read files but not change them unless you agree.
-- **Auto** (the default for Claude threads; Claude only): a separate safety check approves or blocks
+- **Auto** (the default for Claude threads unless you change it; Claude only): a separate safety check approves or blocks
   each action, and a card shows only when it can't decide. It's for work on
   text you didn't write, like an error report or a web page. It catches a lot
   but it's no guarantee, and on a Codex thread it behaves like Ask before edits.
 
-The mode belongs to one thread. A new Claude thread starts on Auto again
-unless you pick otherwise (a Codex one on Full access), so if you're unsure about a task, switch it to Ask
-before edits before you send. Deleting a thread is one thing an agent always
+The mode belongs to one thread. A new Claude thread starts on the default
+for the machine it runs on, Auto unless you change it (a Codex one always
+starts on Full access), so if you're unsure about a task, switch it to Ask
+before edits before you send. Set each machine's default in Settings >
+Runners, under Default access, or from Default on the composer's mode menu,
+where a star marks it. Deleting a thread is one thing an agent always
 has to ask about, whatever the mode.
 
 ### When an agent needs a password or a key
