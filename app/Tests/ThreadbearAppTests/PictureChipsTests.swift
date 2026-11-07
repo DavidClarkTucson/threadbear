@@ -147,6 +147,31 @@ final class PictureChipsTests: XCTestCase {
         XCTAssertEqual(to.draftNow, Draft(text: "> x \(m) y", images: [red]))
     }
 
+    /// A screenshot copied to the clipboard is a PNG and nothing else. A
+    /// plain-text box greys Paste out for that, so ⌘V did nothing; a
+    /// picture copied in a browser worked only as it brings HTML along (7 Nov).
+    func testAPictureOnlyClipboardPastes() async throws {
+        let (_, textView) = composer()
+        let board = NSPasteboard(name: NSPasteboard.Name("threadbear-test-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        textView.pasteSource = board
+        textView.pictures = .init(allowed: { true }, importOne: { url in ImageRef(path: "/inbox/" + url.lastPathComponent, mediaType: "image/png") })
+        let paste = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+
+        board.clearContents()
+        XCTAssertFalse(textView.validateUserInterfaceItem(paste), "nothing to paste")
+
+        let png = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            .representation(using: .png, properties: [:])!
+        board.clearContents()
+        board.setData(png, forType: .png)
+        XCTAssertTrue(textView.validateUserInterfaceItem(paste), "a screenshot on the clipboard can be pasted")
+        textView.paste(nil)
+        try await until { textView.draftNow.images.count == 1 }
+        XCTAssertEqual(chips(textView).map(\.number), [1])
+    }
+
     /// His bubble draws the markers that place a picture as chips; others stay words.
     func testTheBubbleDrawsMarkersAsChips() {
         let text = RowRenderer.userText(UserMessage(text: "see [Picture 1] and [Picture 2], not [Picture 3]", images: [red, blue]))

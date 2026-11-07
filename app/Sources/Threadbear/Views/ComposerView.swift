@@ -997,9 +997,21 @@ final class ComposerTextView: NSTextView {
         nextResponder?.tryToPerform(#selector(NSResponder.cancelOperation(_:)), with: sender)
     }
 
+    /// Where ⌘V reads from: the clipboard, or a test's own board.
+    var pasteSource: NSPasteboard = .general
+
     override func paste(_ sender: Any?) {
-        if takeImages(from: .general) { return }
+        if takeImages(from: pasteSource) { return }
         super.paste(sender)
+    }
+
+    /// A plain-text box only offers Paste for its readable types, and a
+    /// picture isn't one, so a screenshot copied to the clipboard (a PNG
+    /// and nothing else) greyed Paste out and ⌘V did nothing. One copied
+    /// in a browser worked only as it brings HTML along (7 Nov).
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)), isEditable, hasFiles(pasteSource) { return true }
+        return super.validateUserInterfaceItem(item)
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
