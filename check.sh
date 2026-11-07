@@ -319,8 +319,12 @@ if [ "$QUICK" = 0 ]; then
 fi
 # The iPhone app's logic and source checks (ios/ThreadbearKit), on the Mac.
 # The app itself only builds with Xcode; ios/scripts/sim-shots.sh does that.
+# Convex's Swift library (convex-swift) ships for Apple silicon only, so
+# on an Intel Mac the kit can't build at all.
 if [ "$RUNNER_ONLY" = 1 ]; then
   :
+elif [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" != arm64 ]; then
+  printf 'skip  %-20s (%s)\n' "iphone kit tests" "Convex's Swift library is Apple silicon only"
 elif needed "$IOS_NEEDS"; then
   swift_test_step "iphone kit tests" "$ROOT/ios/ThreadbearKit" "${LIMITED[@]}" swift test --disable-keychain
 else
