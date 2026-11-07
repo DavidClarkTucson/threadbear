@@ -276,7 +276,7 @@ extension AppModel {
                     // from the defaults again, on whichever account then
                     // has the most room. The model and effort stick.
                     newThreadCwd = nil
-                    newThreadPermission = .auto
+                    newThreadPermissionPick = nil
                     newThreadAccount = nil
                     newThreadPool = nil
                     newThreadProvider = nil
@@ -324,7 +324,7 @@ extension AppModel {
                 // typed first message (send): the next one starts afresh.
                 rememberLastAccount(request.poolId == nil ? account : thread.accountId)
                 newThreadCwd = nil
-                newThreadPermission = .full
+                newThreadPermissionPick = nil
                 newThreadAccount = nil
                 newThreadPool = nil
                 newThreadProvider = nil

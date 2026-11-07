@@ -652,10 +652,31 @@ struct ThreadSettings {
         // Auto is Claude Code's; Codex has nothing like it, so it's only offered
         // for Claude (or if a thread is somehow on it already).
         let modes: [PermissionMode] = provider == "claude" || permissionMode == .auto ? [.full, .auto, .ask, .plan] : [.full, .ask, .plan]
+        // A new Claude thread starts on its runner's default (Settings >
+        // Runners), set right here too and starred, as the runner menu's is.
+        // Codex drafts always start on Full access, so they have none.
+        let draftRunner = draftRunnerId
+        let byDefault = thread == nil && provider == "claude" ? app.defaultPermission(onRunner: draftRunner) : nil
         for mode in modes {
             let item = ActionMenuItem(mode.composerTitle, symbol: mode.composerIcon, checked: permissionMode == mode) { setPermission(mode) }
             item.subtitle = mode.composerHelp
+            if byDefault == mode { item.markDefault() }
             menu.addItem(item)
+        }
+        if let byDefault {
+            menu.addItem(.separator())
+            let defaults = NSMenu()
+            // Plan first is for one thread at a time, not a default.
+            for mode in modes where mode != .plan {
+                defaults.addItem(ActionMenuItem(mode.composerTitle, symbol: mode.composerIcon, checked: byDefault == mode) {
+                    app.setDefaultPermission(mode, onRunner: draftRunner)
+                    app.newThreadPermissionPick = nil
+                })
+            }
+            let runnerTitle = draftRunner.flatMap { id in app.remoteRunners.first { $0.id == id }?.name } ?? "This Mac"
+            let defaultItem = NSMenuItem(title: "Default on \(runnerTitle)", symbol: "star", action: nil)
+            defaultItem.submenu = defaults
+            menu.addItem(defaultItem)
         }
         return menu
     }

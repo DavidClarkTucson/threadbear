@@ -370,11 +370,41 @@ final class AppModel {
     /// kept across launches: a Codex model is no use to a Claude thread.
     private(set) var lastModels: [String: String] = AppModel.loadMemory(AppModel.lastModelKey)
     private(set) var lastEfforts: [String: String] = AppModel.loadMemory(AppModel.lastEffortKey)
-    /// New threads start on Auto; a Codex draft shows and sends Full access
-    /// instead (`newThreadPermission(for:)`), since Auto is Claude Code's.
-    var newThreadPermission: PermissionMode = .auto
+    /// The mode Mike picked on the composer for the next new thread, for
+    /// that draft only; nil starts it on the default for where it runs.
+    var newThreadPermissionPick: PermissionMode?
+    /// The mode a new Claude thread starts on, by the runner it runs on
+    /// (Settings > Runners, and Default in the composer's mode menu): keyed
+    /// by runner id, `thisMacPermissionKey` for this Mac, Auto where none is
+    /// set. This Mac's own choice, kept across launches. Codex threads
+    /// start on Full access whatever it says (`newThreadPermission(for:)`).
+    private(set) var defaultPermissions: [String: PermissionMode] = AppModel.loadDefaultPermissions() {
+        didSet { UserDefaults.standard.set(defaultPermissions.mapValues(\.rawValue), forKey: Self.defaultPermissionsKey) }
+    }
+    static let defaultPermissionsKey = "defaultPermissions"
+    static let thisMacPermissionKey = "this-mac"
+    func defaultPermission(onRunner runnerId: String?) -> PermissionMode {
+        defaultPermissions[runnerId ?? Self.thisMacPermissionKey] ?? .auto
+    }
+    func setDefaultPermission(_ mode: PermissionMode, onRunner runnerId: String?) {
+        defaultPermissions[runnerId ?? Self.thisMacPermissionKey] = mode
+    }
+    private static func loadDefaultPermissions() -> [String: PermissionMode] {
+        let raw = UserDefaults.standard.dictionary(forKey: defaultPermissionsKey) as? [String: String] ?? [:]
+        return raw.compactMapValues(PermissionMode.init(rawValue:))
+    }
+    /// The draft's mode: Mike's pick, else the default for its runner.
+    var newThreadPermission: PermissionMode {
+        get { newThreadPermissionPick ?? defaultPermission(onRunner: newThreadRunnerId) }
+        set { newThreadPermissionPick = newValue }
+    }
+    /// What a draft on `provider` shows and sends. The defaults are for
+    /// Claude only: a Codex draft starts on Full access unless Mike picked
+    /// Ask, since Auto is Claude Code's and acts like Ask on Codex.
     func newThreadPermission(for provider: String) -> PermissionMode {
-        newThreadPermission == .auto && provider != "claude" ? .full : newThreadPermission
+        if provider == "claude" { return newThreadPermission }
+        let mode = newThreadPermissionPick ?? .full
+        return mode == .auto ? .full : mode
     }
     /// What the runner says about the Claude and Codex CLIs (`clis.list`,
     /// `clis.updated`). Empty until it's said anything.
