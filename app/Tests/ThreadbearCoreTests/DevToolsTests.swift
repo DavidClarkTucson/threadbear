@@ -139,18 +139,6 @@ final class RunnerRestartTests: XCTestCase {
         XCTAssertEqual(sparse.running, [])
         XCTAssertNil(sparse.pendingRestart)
     }
-
-    /// The website's address: the runner's `sync.site` (a self-hosted
-    /// backend's `sync.siteUrl`), or, from a runner older than that, a cloud
-    /// deployment's .convex.site name.
-    func testWebsiteURL() throws {
-        func status(_ sync: String) throws -> RunnerStatus {
-            try JSONDecoder().decode(RunnerStatus.self, from: Data(#"{"running":[],"sync":\#(sync)}"#.utf8))
-        }
-        XCTAssertEqual(try status(#"{"url":"https://convex.example.com","site":"https://site.example.com"}"#).websiteURL?.absoluteString, "https://site.example.com")
-        XCTAssertEqual(try status(#"{"url":"https://x.convex.cloud"}"#).websiteURL?.absoluteString, "https://x.convex.site")
-        XCTAssertNil(try status(#"{"url":"https://convex.example.com"}"#).websiteURL)
-    }
 }
 
 /// "Copy debug info" and the automation dump.

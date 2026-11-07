@@ -54,19 +54,8 @@ Built 28 Oct 2026 (thread 66935d23).
   page (below). Unknown paths fall back to `index.html`, so `/t/<id>`
   works cold.
 - The Mac app's thread `...` menu has **Open on the web**. It takes the site
-  from `runner.status`'s `sync.site`: runner.json's `sync.siteUrl` for a
-  self-hosted backend (below), or else `sync.url` with `.convex.cloud` →
-  `.convex.site`. So it only shows while sync is on.
-- **Self-hosted Convex** (the open-source backend in Docker) runs it too,
-  tried on 6 Nov 2026. It serves the API and the HTTP routes from two
-  origins of its own (`CONVEX_CLOUD_ORIGIN`, `CONVEX_SITE_ORIGIN`), so
-  runner.json names both: `sync.url` and `sync.siteUrl`. Both origins
-  have to be reachable from inside the container too, as the static
-  component fetches its files from the backend's own URL. Deploying is
-  `CONVEX_SELF_HOSTED_URL` and `CONVEX_SELF_HOSTED_ADMIN_KEY` in place
-  of a deploy key, and the upload without `--prod`, which the CLI refuses
-  for a self-hosted backend (`runner/scripts/deploy-backend.mjs` does
-  both).
+  from `runner.status`'s `sync.url` (`.convex.cloud` → `.convex.site`), so
+  it only shows while sync is on.
 
 ## Sharing
 

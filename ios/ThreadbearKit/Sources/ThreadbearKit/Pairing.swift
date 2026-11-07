@@ -36,10 +36,9 @@ public struct Pairing: Sendable, Hashable {
         return keys
     }
 
-    /// Any backend over https: a Convex cloud deployment or a self-hosted
-    /// one. Limiting it to .convex.cloud kept no one out, as anyone can make
-    /// a deployment there. `allowLocal` (Debug builds, for the simulator)
-    /// also takes the local dev backend on this Mac, `http://127.0.0.1:3210`.
+    /// Only Convex cloud deployments, over https. `allowLocal` (Debug builds,
+    /// for the simulator) also takes the local dev backend on this Mac,
+    /// `http://127.0.0.1:3210`.
     public static func parse(_ url: URL, allowLocal: Bool = false) -> Pairing? {
         guard url.scheme == "threadbear", url.host() == "pair",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
@@ -51,8 +50,8 @@ public struct Pairing: Sendable, Hashable {
         if allowLocal, deployment.scheme == "http", host == "127.0.0.1" || host == "localhost" {
             return Pairing(deploymentURL: deployment, token: token, runnerKeys: keys)
         }
-        guard deployment.scheme == "https" else { return nil }
-        // The client talks to .convex.cloud; a cloud .site link works too.
+        guard deployment.scheme == "https", host.hasSuffix(".convex.cloud") || host.hasSuffix(".convex.site") else { return nil }
+        // The client talks to .convex.cloud; a .site link works too.
         let cloud = host.hasSuffix(".convex.site")
             ? URL(string: "https://" + host.replacingOccurrences(of: ".convex.site", with: ".convex.cloud"))!
             : deployment

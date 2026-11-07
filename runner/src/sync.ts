@@ -96,23 +96,12 @@ const ALL: ('inbox' | 'snoozed' | 'archived')[] = ['inbox', 'snoozed', 'archived
 export type SyncConfig = {
   enabled: boolean;
   url?: string;
-  siteUrl?: string;
   name?: string;
   runnerId?: string;
   icon?: string;
   rpcUrl?: string;
   pastedPictures?: boolean;
 };
-
-// The website (docs/website.md): `sync.siteUrl` when runner.json names one
-// (a self-hosted backend serves it from a host of its own), or else a cloud
-// deployment's .convex.site host. A local URL without one has no site.
-export function siteOf(url: string | undefined, siteUrl?: string): string | undefined {
-  if (!url) return undefined;
-  if (siteUrl) return siteUrl.replace(/\/+$/, '');
-  if (!url.includes('.convex.cloud')) return undefined;
-  return url.replace(/\/+$/, '').replace('.convex.cloud', '.convex.site');
-}
 
 // runner.status's `sync` (docs/protocol.md, "Sync").
 // The backend API version this runner was built for (convex/version.ts; a unit
@@ -259,7 +248,6 @@ export type SyncStatus = {
   state: 'off' | 'ok' | 'error';
   reason?: string; // why it's off
   url?: string;
-  site?: string; // the website's address, when there is one
   runnerId?: string;
   name?: string;
   threads?: number; // rows written since start
@@ -1237,7 +1225,6 @@ export class ConvexSync {
     const s: SyncStatus = {
       state: this.lastError && this.retryAt !== undefined ? 'error' : 'ok',
       url: this.deps.config.url,
-      ...(this.site() ? { site: this.site() } : {}),
       runnerId: this.runnerId,
       name: this.name,
       threads: this.written,
@@ -1292,11 +1279,6 @@ export class ConvexSync {
   /** The deployment's URL (`sync.url`), while sync is on. */
   url(): string | undefined {
     return this.off ? undefined : this.deps.config.url;
-  }
-
-  /** The website's address (devices.ts siteOf), while sync is on. */
-  site(): string | undefined {
-    return siteOf(this.url(), this.deps.config.siteUrl);
   }
 
   async issueToken(args: { kind: DeviceKind; name: string; days?: number }): Promise<{ id: string; token: string; expiresAt: string }> {

@@ -9,9 +9,8 @@
 // It deploys from a clean `git archive` of the commit in a temp folder, never
 // the checkout, whose .env.local points at the dev deployment. The deploy key
 // is `CONVEX_DEPLOY_KEY=...` in <home>/secrets/convex-deploy.env (made with
-// `npx convex deployment token create threadbear-runner --prod --save-env <file>`),
-// or for a self-hosted backend `CONVEX_SELF_HOSTED_URL=...` and
-// `CONVEX_SELF_HOSTED_ADMIN_KEY=...`; with no key file it does nothing and says so. What it last deployed is in
+// `npx convex deployment token create threadbear-runner --prod --save-env <file>`);
+// with no key file it does nothing and says so. What it last deployed is in
 // <home>/backend.json. Node built-ins only, like deploy.mjs.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -67,9 +66,8 @@ function writeJson(file, value) {
   fs.renameSync(tmp, file);
 }
 
-// The key is read, never printed. A cloud key's "prod:<name>|..." prefix
-// names the deployment, and a self-hosted backend's URL is beside its admin
-// key; either has to be the one the runner mirrors to (runner.json
+// The key is read, never printed. Its "prod:<name>|..." prefix names the
+// deployment, which has to be the one the runner mirrors to (runner.json
 // sync.url), or this would deploy one backend and the runner use another.
 function readKey(home) {
   const file = path.join(home, 'secrets', 'convex-deploy.env');
@@ -79,14 +77,7 @@ function readKey(home) {
   } catch {
     return { file };
   }
-  const line = (name) => text.match(new RegExp(`^${name}=["']?([^"'\\n]+)["']?\\s*$`, 'm'))?.[1];
-  const selfHostedUrl = line('CONVEX_SELF_HOSTED_URL');
-  if (selfHostedUrl) {
-    const adminKey = line('CONVEX_SELF_HOSTED_ADMIN_KEY');
-    if (!adminKey) throw new Fail(`${file} has no CONVEX_SELF_HOSTED_ADMIN_KEY= line.`);
-    return { file, selfHosted: { url: selfHostedUrl.replace(/\/+$/, ''), adminKey } };
-  }
-  const key = line('CONVEX_DEPLOY_KEY');
+  const key = text.match(/^CONVEX_DEPLOY_KEY=["']?([^"'\n]+)["']?\s*$/m)?.[1];
   if (!key) throw new Fail(`${file} has no CONVEX_DEPLOY_KEY= line.`);
   const deployment = key.match(/^[a-z]+:([a-z0-9-]+)\|/)?.[1];
   return { file, key, deployment };
@@ -193,19 +184,15 @@ function main(argv) {
     say('This Mac has a runner key of its own, so it leaves deploying the backend to the main Mac.');
     return 0;
   }
-  const { file: keyFile, key, deployment: cloudDeployment, selfHosted } = readKey(home);
-  if (!key && !selfHosted) {
+  const { file: keyFile, key, deployment } = readKey(home);
+  if (!key) {
     say(`No deploy key in ${keyFile}, so the backend isn't deployed automatically. Make one with:\n  npx convex deployment token create threadbear-runner --prod --save-env "${keyFile}"`);
     return 0;
   }
   const sync = syncDeployment(home);
-  if (selfHosted && sync?.url && sync.url.replace(/\/+$/, '') !== selfHosted.url) {
-    throw new Fail(`The deploy key is for ${selfHosted.url}, but the runner mirrors to ${sync.url}. Make a key for that deployment.`);
+  if (sync?.name && deployment && sync.name !== deployment) {
+    throw new Fail(`The deploy key is for ${deployment}, but the runner mirrors to ${sync.url}. Make a key for that deployment.`);
   }
-  if (!selfHosted && sync?.name && cloudDeployment && sync.name !== cloudDeployment) {
-    throw new Fail(`The deploy key is for ${cloudDeployment}, but the runner mirrors to ${sync.url}. Make a key for that deployment.`);
-  }
-  const deployment = selfHosted?.url ?? cloudDeployment;
   const what = [todo.functions && 'functions', todo.site && 'website'].filter(Boolean).join(' and ');
   if (v['dry-run']) {
     say(`Would deploy the ${what} at ${short} to ${deployment ?? 'the key\'s deployment'}.`);
@@ -222,10 +209,8 @@ function main(argv) {
 
   // Only the key picks the deployment: anything left over from a checkout's
   // .env.local or a thread's environment could point somewhere else.
-  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? ''}` };
-  for (const k of ['CONVEX_DEPLOYMENT', 'CONVEX_URL', 'CONVEX_DEPLOY_KEY', 'CONVEX_SELF_HOSTED_URL', 'CONVEX_SELF_HOSTED_ADMIN_KEY']) delete env[k];
-  if (selfHosted) Object.assign(env, { CONVEX_SELF_HOSTED_URL: selfHosted.url, CONVEX_SELF_HOSTED_ADMIN_KEY: selfHosted.adminKey });
-  else env.CONVEX_DEPLOY_KEY = key;
+  const env = { ...process.env, CONVEX_DEPLOY_KEY: key, PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? ''}` };
+  for (const k of ['CONVEX_DEPLOYMENT', 'CONVEX_URL', 'CONVEX_SELF_HOSTED_URL', 'CONVEX_SELF_HOSTED_ADMIN_KEY']) delete env[k];
   const npm = path.join(path.dirname(process.execPath), 'npm');
   const npx = path.join(path.dirname(process.execPath), 'npx');
   const opts = { cwd: tmp, env };
@@ -249,8 +234,7 @@ function main(argv) {
   }
   if (todo.site) {
     try {
-      // A self-hosted backend has only the one deployment, and its CLI refuses --prod.
-      step(`Uploading the website at ${short}`, npx, ['static-hosting', 'upload', '--build', '--build-command', 'npm run web:build', '--dist', 'web/dist', ...(selfHosted ? [] : ['--prod'])], opts);
+      step(`Uploading the website at ${short}`, npx, ['static-hosting', 'upload', '--build', '--build-command', 'npm run web:build', '--dist', 'web/dist', '--prod'], opts);
     } catch (e) {
       failed('website', e);
     }

@@ -3,10 +3,7 @@
 // token never goes anywhere but the reply.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { makeHarness, tmpDir } from '../helpers/fakes.ts';
-import { loadConfig } from '../../src/config.ts';
+import { makeHarness } from '../helpers/fakes.ts';
 import { ConvexSync } from '../../src/sync.ts';
 import { devicesMethods, pairingLink, signInLink, siteOf } from '../../src/devices.ts';
 import { RpcError } from '../../src/protocol.ts';
@@ -14,7 +11,7 @@ import type { Logger } from '../../src/log.ts';
 
 type Call = { kind: string; fn: string; args: Record<string, unknown> };
 
-function setup(opts: { url?: string; siteUrl?: string; key?: string; boxKey?: string; fail?: (fn: string) => Error | undefined } = {}) {
+function setup(opts: { url?: string; key?: string; boxKey?: string; fail?: (fn: string) => Error | undefined } = {}) {
   const h = makeHarness();
   const calls: Call[] = [];
   const logged: string[] = [];
@@ -40,7 +37,7 @@ function setup(opts: { url?: string; siteUrl?: string; key?: string; boxKey?: st
     return null;
   };
   const sync = new ConvexSync({
-    config: { enabled: true, url: 'url' in opts ? opts.url : 'https://x.convex.cloud', runnerId: 'r1', ...(opts.siteUrl ? { siteUrl: opts.siteUrl } : {}) },
+    config: { enabled: true, url: 'url' in opts ? opts.url : 'https://x.convex.cloud', runnerId: 'r1' },
     key: 'key' in opts ? opts.key : 'k',
     runner: h.runner,
     version: '0.1.0+test',
@@ -59,9 +56,6 @@ test('links: the pairing link carries the deployment and the token, the sign-in 
   assert.equal(siteOf('https://x.convex.cloud/'), 'https://x.convex.site');
   assert.equal(siteOf('http://127.0.0.1:3210'), undefined);
   assert.equal(siteOf(undefined), undefined);
-  // A self-hosted backend names its website in sync.siteUrl.
-  assert.equal(siteOf('https://convex.example.com', 'https://site.example.com/'), 'https://site.example.com');
-  assert.equal(siteOf('https://x.convex.cloud', 'https://threads.example.com'), 'https://threads.example.com');
 });
 
 test('links: the pairing link carries each runner key the phone may seal to', () => {
@@ -136,30 +130,11 @@ test('a backend without the token functions is said in words, and other failures
   await assert.rejects(down.methods['devices.pair']({ kind: 'browser' }) as Promise<unknown>, (e: RpcError) => e.code === -32000 && e.message === 'fetch failed');
 });
 
-test('a self-hosted backend with sync.siteUrl pairs both, and says where its website is', async () => {
-  const { sync, methods } = setup({ url: 'https://convex.example.com', siteUrl: 'https://site.example.com' });
-  const phone = (await methods['devices.pair']({ kind: 'phone' })) as { pairingLink?: string };
-  assert.ok(phone.pairingLink?.startsWith('threadbear://pair?url=https%3A%2F%2Fconvex.example.com&'));
-  const browser = (await methods['devices.pair']({ kind: 'browser' })) as { signInLink?: string };
-  assert.equal(browser.signInLink, 'https://site.example.com/#token=tb_secret2');
-  assert.equal(((await methods['devices.list']({})) as { site?: string }).site, 'https://site.example.com');
-  assert.equal(sync.status().site, 'https://site.example.com');
-});
-
-test('a browser needs a website: a local backend without sync.siteUrl has none', async () => {
+test('a browser needs a cloud deployment: a local one has no website', async () => {
   const { methods } = setup({ url: 'http://127.0.0.1:3210' });
   const phone = (await methods['devices.pair']({ kind: 'phone' })) as { pairingLink?: string };
   assert.ok(phone.pairingLink?.startsWith('threadbear://pair?url=http%3A%2F%2F127.0.0.1%3A3210'));
   await assert.rejects(methods['devices.pair']({ kind: 'browser' }) as Promise<unknown>, (e: RpcError) => e.code === -32000 && /website/.test(e.message));
   const list = (await methods['devices.list']({})) as { site?: string };
   assert.equal(list.site, undefined);
-});
-
-test('sync.siteUrl comes from runner.json, and THREADBEAR_SYNC_SITE_URL wins over it', () => {
-  const home = tmpDir();
-  fs.writeFileSync(path.join(home, 'runner.json'), JSON.stringify({ sync: { url: 'https://convex.example.com', siteUrl: ' https://site.example.com ' } }));
-  assert.equal(loadConfig({ THREADBEAR_HOME: home, THREADBEAR_PORT: '0' }).sync.siteUrl, 'https://site.example.com');
-  assert.equal(loadConfig({ THREADBEAR_HOME: home, THREADBEAR_PORT: '0', THREADBEAR_SYNC_SITE_URL: 'http://127.0.0.1:3211' }).sync.siteUrl, 'http://127.0.0.1:3211');
-  fs.writeFileSync(path.join(home, 'runner.json'), JSON.stringify({ sync: { url: 'https://x.convex.cloud' } }));
-  assert.equal(loadConfig({ THREADBEAR_HOME: home, THREADBEAR_PORT: '0' }).sync.siteUrl, undefined);
 });

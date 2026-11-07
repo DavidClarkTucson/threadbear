@@ -109,7 +109,7 @@ export type Config = {
   // The Convex mirror (src/sync.ts): the project's URL, whether it's on,
   // the name the phone shows for this runner and its id (made once).
   // THREADBEAR_SYNC=off turns it off for tests and dev runners.
-  sync: { enabled: boolean; url?: string; siteUrl?: string; name?: string; runnerId?: string; icon?: string; rpcUrl?: string; pastedPictures?: boolean };
+  sync: { enabled: boolean; url?: string; name?: string; runnerId?: string; icon?: string; rpcUrl?: string; pastedPictures?: boolean };
   // The silent on-device secret check (src/secret-check.ts): off unless asked.
   secretCheck?: boolean;
   // Mike's Connectors gateway's base URL (connectors.ts), for the app's
@@ -154,9 +154,8 @@ export type RunnerJson = {
   // icon: an SF Symbol for this runner in lists (machine.ts works one out).
   // rpcUrl: how a Mac app reaches this runner over the tailnet (step 6 part 2).
   // pastedPictures: false keeps pictures you paste off your Convex deployment
-  // (docs/on-your-mac.md). siteUrl: where a self-hosted backend serves its
-  // HTTP routes (the website), which a cloud one's .convex.site name implies.
-  sync?: { enabled?: boolean; url?: string; siteUrl?: string; name?: string; runnerId?: string; icon?: string; rpcUrl?: string; pastedPictures?: boolean };
+  // (docs/on-your-mac.md).
+  sync?: { enabled?: boolean; url?: string; name?: string; runnerId?: string; icon?: string; rpcUrl?: string; pastedPictures?: boolean };
   secretCheck?: { enabled?: boolean };
   // The gateway, when it isn't the `connectors` MCP server in
   // ~/.claude.json; url "" or enabled: false turns the panel's polling off.
@@ -284,8 +283,6 @@ function syncConfig(raw: RunnerJson['sync'], env: NodeJS.ProcessEnv): Config['sy
   const url = nonEmpty(env.THREADBEAR_SYNC_URL) ?? nonEmpty(raw?.url);
   const out: Config['sync'] = { enabled: env.THREADBEAR_SYNC === 'off' ? false : raw?.enabled !== false };
   if (url) out.url = url;
-  const siteUrl = nonEmpty(env.THREADBEAR_SYNC_SITE_URL) ?? nonEmpty(raw?.siteUrl);
-  if (siteUrl) out.siteUrl = siteUrl;
   const name = nonEmpty(raw?.name);
   if (name) out.name = name;
   const runnerId = nonEmpty(raw?.runnerId);

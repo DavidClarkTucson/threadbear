@@ -16,17 +16,15 @@ import AppKit
 import CoreImage
 
 // The sites of this install's deployments: production from runner.json's
-// sync.siteUrl (a self-hosted backend's) or sync.url (what setup wrote), dev
-// from the repo's .env.local. A .convex.cloud address turns into
-// .convex.site, where the website is.
+// sync.url (what setup wrote), dev from the repo's .env.local. Both
+// .convex.cloud addresses turned into .convex.site, where the website is.
 func siteOf(_ cloud: String?) -> String? {
     guard let cloud, cloud.contains(".convex.cloud") else { return nil }
     return cloud.replacingOccurrences(of: ".convex.cloud", with: ".convex.site").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 }
 let dataDir = ProcessInfo.processInfo.environment["THREADBEAR_HOME"] ?? (NSHomeDirectory() + "/Library/Application Support/Threadbear")
 let runnerJson = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: dataDir + "/runner.json")))) as? [String: Any]
-let runnerSync = runnerJson?["sync"] as? [String: Any]
-let prodURL = (runnerSync?["siteUrl"] as? String).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "/")) } ?? siteOf(runnerSync?["url"] as? String)
+let prodURL = siteOf((runnerJson?["sync"] as? [String: Any])?["url"] as? String)
 let envLocal = (try? String(contentsOfFile: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path + "/.env.local", encoding: .utf8)) ?? ""
 let devURL = siteOf(envLocal.split(separator: "\n").first { $0.hasPrefix("CONVEX_URL=") }.map { String($0.dropFirst("CONVEX_URL=".count)).components(separatedBy: " ").first ?? "" })
 
