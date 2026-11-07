@@ -78,7 +78,7 @@ test('a tail past what is held asks for the gap; one that overlaps just merges',
 });
 
 type Call = { kind: string; fn: string; args: Record<string, unknown> };
-function harness(opts: { online?: boolean } = {}) {
+function harness(opts: { online?: boolean; row?: () => RelayThreadRow & { share?: unknown } } = {}) {
   const calls: Call[] = [];
   const subs = new Map<string, { args: Record<string, unknown>; onUpdate: (v: unknown) => void; closed: boolean }[]>();
   const published: unknown[] = [];
@@ -94,7 +94,7 @@ function harness(opts: { online?: boolean } = {}) {
       key: 'owner',
       post: async (kind, fn, args) => {
         calls.push({ kind, fn, args });
-        if (fn === 'relay:remoteThread') return idle;
+        if (fn === 'relay:remoteThread') return opts.row?.() ?? idle;
         if (fn === 'relay:remoteMessages') return { messages: rows, hasMore: false };
         if (fn === 'relay:queueCommand') return `cmd${++commandN}`;
         if (fn === 'relay:remoteAccounts') return [{ runnerId: 'bruce', id: 'claude-main', provider: 'claude', title: 'Claude' }];
@@ -281,16 +281,99 @@ test("a change from elsewhere wins once the row shows ours, and one that went th
   assert.equal(((await h.relay.call(T, 'threads.markSeen', { threadId: T, seq: 1 })) as { thread: { title: string } }).thread.title, 'C');
 });
 
-test("a link can be turned off but not made: that command gives back no link, so it shared and then said it failed", async () => {
+test("the sidebar's list keeps an archive made here until the backend's row shows it", async () => {
+  // A list sent for some other thread's change, before this row caught up,
+  // put the thread just archived back in the inbox.
   const h = harness();
-  await assert.rejects(h.relay.call(T, 'threads.share', { threadId: T, access: 'link' }), /Sharing a link isn't possible through Convex yet/);
-  await assert.rejects(h.relay.call(T, 'threads.share', { threadId: T, access: 'off', newLink: true }), /isn't possible/);
-  assert.equal(h.calls.filter((c) => c.fn === 'relay:queueCommand').length, 0);
+  assert.equal(h.relay.overlay(h.remote), h.remote, 'nothing changed here: the list as it is');
+  const archive = h.relay.call(T, 'threads.update', { threadId: T, archived: true });
+  await new Promise((r) => setImmediate(r));
+  h.subs.get('relay:commandState')![0]!.onUpdate({ state: 'done' });
+  await archive;
+  assert.equal(typeof h.relay.overlay(h.remote).threads[0]!.archivedAt, 'string');
+  assert.equal(h.remote.threads[0]!.archivedAt, undefined, "the backend's own list isn't changed");
+  // The row catches up; then the phone unarchives it, and that shows.
+  h.remote.threads[0]!.archivedAt = at(5);
+  assert.equal(h.relay.overlay(h.remote).threads[0]!.archivedAt, at(5));
+  delete h.remote.threads[0]!.archivedAt;
+  assert.equal(h.relay.overlay(h.remote).threads[0]!.archivedAt, undefined);
+});
+
+test("sharing answers with the link, read from that runner's row once it shows it", async () => {
+  let share: { access: string; slug: string } | undefined;
+  const h = harness({ row: () => ({ ...idle, ...(share ? { share } : {}) }) });
+  const done = async (i: number) => {
+    await new Promise((r) => setImmediate(r));
+    h.subs.get('relay:commandState')![i]!.onUpdate({ state: 'done' });
+  };
+  const on = h.relay.call(T, 'threads.share', { threadId: T, access: 'link' });
+  await done(0);
+  // Its row hasn't caught up the first time it's read: read again a moment later.
+  await new Promise((r) => setImmediate(r));
+  share = { access: 'link', slug: 'abc' };
+  h.clock.advance(1000);
+  assert.deepEqual(((await on) as { thread: { share: unknown } }).thread.share, { access: 'link', slug: 'abc' });
+  assert.deepEqual(h.calls.filter((c) => c.fn === 'relay:queueCommand').at(-1)!.args, { key: 'owner', runnerId: 'bruce', threadId: T, kind: 'share', args: { access: 'link' } });
+  // A new link: not done until the slug isn't the old one.
+  const fresh = h.relay.call(T, 'threads.share', { threadId: T, access: 'link', newLink: true });
+  await done(1);
+  await new Promise((r) => setImmediate(r));
+  share = { access: 'link', slug: 'def' };
+  h.clock.advance(1000);
+  assert.equal(((await fresh) as { thread: { share: { slug: string } } }).thread.share.slug, 'def');
+  // Off keeps the slug, so sharing again brings the same link back.
+  share = { access: 'off', slug: 'def' };
+  const off = h.relay.call(T, 'threads.share', { threadId: T, access: 'off' });
+  await done(2);
+  assert.deepEqual(((await off) as { thread: { share: unknown } }).thread.share, { access: 'off', slug: 'def' });
+  await assert.rejects(h.relay.call(T, 'threads.share', { threadId: T, access: 'people' }), /access must be/);
+});
+
+test("a link that never reaches the row says so, rather than showing none", async () => {
+  const h = harness();
+  const on = h.relay.call(T, 'threads.share', { threadId: T, access: 'link' });
+  await new Promise((r) => setImmediate(r));
+  h.subs.get('relay:commandState')![0]!.onUpdate({ state: 'done' });
+  const said = assert.rejects(on, /has shared it, but its link hasn't reached Convex yet/);
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => setImmediate(r));
+    h.clock.advance(1000);
+  }
+  await said;
+});
+
+test("an open thread's share changing there (the website's New link, Stop sharing) is said to the app", async () => {
+  const h = harness({ row: () => ({ ...idle, share: { access: 'link', slug: 'abc' } }) });
+  await h.relay.call(T, 'threads.subscribe', { threadId: T, afterSeq: 0 });
+  const said = () => h.published.filter((n) => (n as { method: string }).method === 'thread.updated').map((n) => (n as { params: { thread: { id: string; runnerId: string; share?: unknown } } }).params.thread);
+  // Opened, and it's shared: the app hears so, as the sidebar's rows never say.
+  assert.deepEqual(said().map((t) => [t.id, t.runnerId, t.share]), [[T, 'bruce', { access: 'link', slug: 'abc' }]]);
+  const row = h.subs.get('relay:remoteThread')![0]!;
+  row.onUpdate({ ...idle, status: 'running', share: { access: 'link', slug: 'abc' } });
+  assert.equal(said().length, 1, 'nothing new about the share, nothing said');
+  row.onUpdate({ ...idle, share: { access: 'link', slug: 'def' } });
+  row.onUpdate({ ...idle, share: { access: 'people', slug: 'def' } });
+  assert.deepEqual(said().slice(1).map((t) => t.share), [{ access: 'link', slug: 'def' }, { access: 'off', slug: 'def' }]);
+  // An app that subscribes again (relaunched) hears it again, as it may not know.
+  await h.relay.call(T, 'threads.subscribe', { threadId: T, afterSeq: 0 });
+  assert.equal(said().length, 4);
+  // A thread never shared says nothing on opening.
+  const plain = harness();
+  await plain.relay.call(T, 'threads.subscribe', { threadId: T, afterSeq: 0 });
+  assert.equal(plain.published.filter((n) => (n as { method: string }).method === 'thread.updated').length, 0);
+});
+
+test("stopping a share that Convex doesn't show yet says so, rather than seeming done", async () => {
+  const h = harness({ row: () => ({ ...idle, share: { access: 'link', slug: 'abc' } }) });
   const off = h.relay.call(T, 'threads.share', { threadId: T, access: 'off' });
   await new Promise((r) => setImmediate(r));
   h.subs.get('relay:commandState')![0]!.onUpdate({ state: 'done' });
-  assert.equal(((await off) as { thread: { id: string } }).thread.id, T);
-  assert.deepEqual(h.calls.at(-1)!.args, { key: 'owner', runnerId: 'bruce', threadId: T, kind: 'share', args: { access: 'off' } });
+  const said = assert.rejects(off, /has stopped sharing it, but Convex doesn't show that yet/);
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => setImmediate(r));
+    h.clock.advance(1000);
+  }
+  await said;
 });
 
 test('a failed command says why, and an offline runner is said at once', async () => {
@@ -319,4 +402,68 @@ test("a new thread there, a folder there and that runner's logins", async () => 
   const logins = await h.relay.logins('bruce');
   assert.equal(logins.defaults.cwd, '/Users/b/x');
   assert.deepEqual(logins.accounts, [{ id: 'claude-main', provider: 'claude', title: 'Claude', configDir: '' }]);
+});
+
+test('an opened tool fills in from its body: its real call, result and diffs, in seqs of their own', () => {
+  const bodies = new Map([[14, { state: 'text' as const, text: 'all passed', ok: true, input: JSON.stringify({ command: 'npm test' }), diffs: JSON.stringify([{ path: 'a.ts', hunks: [] }, { path: 'b.ts', hunks: [] }, { path: 'c.ts', hunks: [] }]), images: 2 }]]);
+  const ev = relayEvents(T, rows, idle, [], false, 'bruce', true, bodies);
+  const of = (n: number) => ev.find((e) => e.seq === 14 * SCALE + n) as Record<string, unknown> | undefined;
+  assert.equal(of(2)!.type, 'tool.result', 'the stub stays, and is replaced by itemId');
+  assert.deepEqual(of(5)!.input, { command: 'npm test' });
+  assert.equal(of(5)!.itemId, of(2)!.itemId);
+  assert.equal(of(3)!.path, 'a.ts');
+  assert.equal(of(4)!.path, 'b.ts');
+  assert.match(String(of(6)!.text), /all passed[\s\S]*Also changed: c\.ts[\s\S]*2 pictures are kept on bruce/);
+  assert.equal(of(6)!.heldBack, undefined, 'nothing more to ask for');
+  assert.equal(new Set(ev.map((e) => e.seq)).size, ev.length, 'every seq once');
+  assert.deepEqual(ev.map((e) => e.seq), [...ev.map((e) => e.seq)].sort((a, b) => a - b));
+});
+
+test("a body that's withheld says so, and one that's missing changes nothing", () => {
+  const withheld = relayEvents(T, rows, idle, [], false, 'bruce', true, new Map([[14, { state: 'withheld' as const, reason: 'environment' }]]));
+  assert.match(String((withheld.find((e) => e.seq === 14 * SCALE + 6) as { text?: string }).text), /can hold secrets/);
+  const plain = relayEvents(T, rows, idle, [], false, 'bruce');
+  for (const body of [null, { state: 'expired' as const }]) assert.deepEqual(relayEvents(T, rows, idle, [], false, 'bruce', true, new Map([[14, body]])), plain);
+});
+
+test("a card from an older runner keeps its seqs: the body's diffs make way", () => {
+  const card = { pending: { approvalId: 'a', kind: 'approval' as const, name: 'Bash', title: 'x', options: [] }, slot: 14 * SCALE + 3 };
+  const ev = relayEvents(T, rows, idle, [card], false, 'bruce', true, new Map([[14, { state: 'text' as const, text: 'x', diffs: JSON.stringify([{ path: 'a.ts', hunks: [] }]) }]]));
+  assert.equal(new Set(ev.map((e) => e.seq)).size, ev.length);
+  assert.match(String((ev.find((e) => e.seq === 14 * SCALE + 6) as { text?: string }).text), /Also changed: a\.ts/);
+});
+
+test("an agent's archive goes to that runner with by: agent", async () => {
+  const h = harness();
+  h.subscribed.add(T);
+  const done = h.relay.call(T, 'threads.update', { threadId: T, archived: true, archivedBy: 'agent' });
+  await new Promise((r) => setImmediate(r));
+  for (const s of h.subs.get('relay:commandState') ?? []) s.onUpdate({ state: 'done' });
+  await done;
+  const q = h.calls.find((c) => c.fn === 'relay:queueCommand')!;
+  assert.deepEqual(q.args.args, { archive: true, by: 'agent' });
+});
+
+// Daybreak, 7 Nov 2026 ("Remote Plan first threads silently start with full
+// access"): Relay.create forwarded only ask, full and auto, so a Plan first
+// thread started on another Mac went with no mode and got full access.
+test('a new thread there keeps every mode; Plan first goes as Ask plus a flag, and an unknown mode is refused', async () => {
+  const sent = async (permissionMode: unknown) => {
+    const h = harness();
+    const made = h.relay.create('bruce', { text: 'Start', permissionMode });
+    await new Promise((r) => setImmediate(r));
+    h.subs.get('relay:commandState')![0]!.onUpdate({ state: 'done', threadId: 'new1' });
+    await made;
+    return h.calls.filter((c) => c.fn === 'relay:queueCommand').at(-1)!.args.args as Record<string, unknown>;
+  };
+  for (const mode of ['full', 'ask', 'auto'] as const) assert.deepEqual(await sent(mode), { text: 'Start', permissionMode: mode });
+  const plan = await sent('plan');
+  assert.deepEqual(plan, { text: 'Start', permissionMode: 'ask', plan: true });
+  // What a runner from before Plan first reads of it: Ask, never the full-access default.
+  const oldReceiver = (a: Record<string, unknown>) => (a.permissionMode === 'ask' || a.permissionMode === 'full' || a.permissionMode === 'auto' ? a.permissionMode : 'full');
+  assert.equal(oldReceiver(plan), 'ask');
+  assert.deepEqual(await sent(undefined), { text: 'Start' });
+  const h = harness();
+  await assert.rejects(h.relay.create('bruce', { text: 'Start', permissionMode: 'yolo' }), /permissionMode must be one of/);
+  assert.equal(h.calls.filter((c) => c.fn === 'relay:queueCommand').length, 0, 'nothing queued');
 });
