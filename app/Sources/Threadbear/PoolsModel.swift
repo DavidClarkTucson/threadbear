@@ -83,12 +83,12 @@ extension AppModel {
                 model = logins.defaults.model(for: provider) ?? logins.account(newThreadAccountId)?.defaultModel
             }
             return NewThreadRequest(text: text, images: images, cwd: cwd, poolId: poolId, model: model,
-                                    effort: lastEfforts[provider], permissionMode: ask)
+                                    effort: lastEfforts[provider], permissionMode: newThreadPermission(for: provider))
         }
         let account = newThreadAccountId
         let provider = logins.account(account)?.provider ?? "claude"
         return NewThreadRequest(text: text, images: images, cwd: cwd, accountId: account,
-                                model: lastModels[provider], effort: lastEfforts[provider], permissionMode: ask)
+                                model: lastModels[provider], effort: lastEfforts[provider], permissionMode: newThreadPermission(for: provider))
     }
 
     /// A model picked in a pool's column of the picker. For a new thread

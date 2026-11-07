@@ -196,7 +196,7 @@ struct ThreadSettings {
     var provider: String { thread?.provider ?? (logins.account(account)?.provider ?? "claude") }
     var model: String? { thread == nil ? app.lastModels[provider] : thread?.model }
     var effort: String? { thread == nil ? app.lastEfforts[provider] : thread?.effort }
-    var permissionMode: PermissionMode { thread?.permissionMode ?? app.newThreadPermission }
+    var permissionMode: PermissionMode { thread?.permissionMode ?? app.newThreadPermission(for: provider) }
     /// A new thread for another runner: its folders are paths on that Mac.
     var draftRunnerId: String? { thread == nil ? app.newThreadRunnerId : nil }
     /// Another runner's thread, or a new one for another runner.
