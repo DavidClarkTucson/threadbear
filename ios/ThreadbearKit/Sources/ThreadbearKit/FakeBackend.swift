@@ -194,14 +194,14 @@ public final class FakeBackend: Backend, @unchecked Sendable {
     // MARK: A thread with pictures
 
     /// `-ThreadbearPictures`: one thread with each way a picture can come:
-    /// wide in a reply, tall in a reply, animated, pinned, and one only on the
+    /// photos sent with Mike's message, wide in a reply, tall in a reply, animated, pinned, and one only on the
     /// Mac.
     private static func pictureThread(now: Date) -> (thread: PhoneThread, messages: [PhoneMessage], images: [MessageImage]) {
         let ago = { (minutes: Double) in now.addingTimeInterval(-minutes * 60) }
         let thread = PhoneThread(threadId: "pics", title: "Back panel screw layout", cwd: "~/dev/workbench", preview: "Here's where the screws go.", lastActivityAt: ago(2))
         let wide = "/Users/you/guide/back-screws.png", tall = "/Users/you/guide/case-side.png", moving = "/Users/you/guide/which-way.gif"
         let messages = [
-            PhoneMessage(seq: 1, role: .user, text: "Where do the back screws go?", at: ago(9)),
+            PhoneMessage(seq: 1, role: .user, text: "Where do the back screws go? This is the sheet that came with it.\n\n[2 pictures]", origin: "phone", at: ago(9)),
             PhoneMessage(seq: 2, role: .tool, text: "Wrote guide/back-screws.png", toolKind: "write", at: ago(7)),
             PhoneMessage(seq: 3, role: .tool, text: "threadbear: pin", toolKind: "mcp", at: ago(6)),
             PhoneMessage(seq: 4, role: .assistant, text: """
@@ -226,6 +226,9 @@ public final class FakeBackend: Backend, @unchecked Sendable {
             """, at: ago(2)),
         ]
         let images = [
+            // The two photos sent with the question, as the runner puts them up.
+            MessageImage(seq: 1, src: "picture:1", url: samplePicture("sent-1", width: 1200, height: 1600, hue: 0.12), width: 1200, height: 1600),
+            MessageImage(seq: 1, src: "picture:2", url: samplePicture("sent-2", width: 1600, height: 1200, hue: 0.75), width: 1600, height: 1200),
             MessageImage(seq: 3, pinned: true, url: samplePicture("pinned", width: 900, height: 900, hue: 0.33), width: 900, height: 900),
             MessageImage(seq: 4, src: wide, url: samplePicture("wide", width: 1600, height: 900, hue: 0.58), width: 1600, height: 900),
             MessageImage(seq: 4, src: tall, url: samplePicture("tall", width: 800, height: 2000, hue: 0.08), width: 800, height: 2000),

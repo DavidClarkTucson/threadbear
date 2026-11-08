@@ -134,6 +134,9 @@ struct ReplyPicture: View {
     var alt: String
     var width: Int?
     var height: Int?
+    /// Smaller for the photos over Mike's own bubble, which sit to the right.
+    var tallest: CGFloat = Self.maxHeight
+    var alignment: Alignment = .leading
 
     @State private var loaded: LoadedPicture?
     @State private var failed = false
@@ -191,7 +194,7 @@ struct ReplyPicture: View {
 
     @ViewBuilder private var picture: some View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        PictureFit(pixels: size, maxHeight: Self.maxHeight) {
+        PictureFit(pixels: size, maxHeight: tallest) {
             Group {
                 if let loaded {
                     if case .frames = loaded.motion {
@@ -207,7 +210,7 @@ struct ReplyPicture: View {
             .clipShape(shape)
             .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
     }
 

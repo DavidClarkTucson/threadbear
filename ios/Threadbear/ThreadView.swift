@@ -747,6 +747,7 @@ struct MessageView: View {
     var pinned: [MessageImage] = []
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.threadPictures) private var pictures
 
     var body: some View {
         switch message.role {
@@ -754,11 +755,21 @@ struct MessageView: View {
             AgentMessageCard(header: message.agentHeader!, seq: message.seq)
         case .user:
             VStack(alignment: .trailing, spacing: 4) {
-                userText
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(BubbleBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)))
+                // The photos he sent, over his words as the Mac shows them,
+                // from the copies the runner put up for his website (Mike,
+                // 8 Nov: a bare "[2 pictures]" looked like they'd been lost).
+                ForEach(pictures.pasted(seq: message.seq)) { image in
+                    if let url = URL(string: image.url) {
+                        ReplyPicture(url: url, alt: "", width: image.width, height: image.height, tallest: 220, alignment: .trailing)
+                    }
+                }
+                if !shownText.isEmpty {
+                    userText
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(BubbleBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)))
+                }
                 if message.origin == "phone" {
                     PhoneMark()
                 } else if let origin = originText {
@@ -799,12 +810,15 @@ struct MessageView: View {
             }
         } else {
             // Its [Picture N] markers as chips, as the Mac draws them.
-            PhotoChip.text(message.text, font: .preferredFont(forTextStyle: .body), traits: UITraitCollection { traits in
+            PhotoChip.text(shownText, font: .preferredFont(forTextStyle: .body), traits: UITraitCollection { traits in
                 traits.userInterfaceStyle = colorScheme == .dark ? .dark : .light
                 traits.displayScale = displayScale
             })
         }
     }
+
+    /// Without the "[2 pictures]" line once the photos are over it.
+    private var shownText: String { pictures.words(of: message.text, seq: message.seq) }
 
     private var originText: String? {
         switch message.origin {
