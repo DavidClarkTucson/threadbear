@@ -899,10 +899,18 @@ test("a runner key's threads and messages are bounded in all: past the budget ne
   const t = await setup();
   await t.bruce.upsert(thread('OLD', BRUCE));
   await t.bruce.append('OLD', 'old one', 1);
+  // The budget just what's stored (a real count, not a made-up one, which
+  // eviction now puts right once there's nothing left to take).
   const usage = t.rows('runnerStorage').find((x) => x.runnerId === BRUCE)!;
-  await t.ctx.db.patch(usage._id, { messageBytes: CAP.messageBytes });
+  const cap = CAP.messageBytes;
+  CAP.messageBytes = usage.messageBytes;
   await t.bruce.upsert(thread('NEW', BRUCE));
-  const res = await call(t.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: [1, 2, 3].map((seq) => ({ threadId: 'NEW', seq, role: 'user', text: `m${seq}`, at: 'a' })) });
+  let res: { skipped: string[] };
+  try {
+    res = await call(t.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: [1, 2, 3].map((seq) => ({ threadId: 'NEW', seq, role: 'user', text: `m${seq}`, at: 'a' })) });
+  } finally {
+    CAP.messageBytes = cap;
+  }
   assert.deepEqual(textsOf(t.rows('messages'), 'OLD'), [], 'the old one went');
   assert.deepEqual(textsOf(t.rows('messages'), 'NEW'), ['m1'], 'one in for the one out');
   assert.deepEqual(res.skipped, ['NEW:2', 'NEW:3'], 'the rest said, to be sent again');
@@ -1013,15 +1021,21 @@ test("a runner key at its budget can't grow a row with buttons: it waits, and th
   const msgs = (buttons?: unknown[]) => [1, 2, 3].map((seq) => ({ threadId: 'B', seq, role: 'assistant', text: `m${seq}`, at: 'a', ...(buttons ? { buttons } : {}) }));
   await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: msgs() });
   const usage = s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!;
-  // Full, as if by its other rows.
-  await s.ctx.db.patch(usage._id, { messageBytes: CAP.messageBytes - 100 });
-  const r = await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: msgs(bigButtons()) });
+  // Nearly full: the budget just above what's stored.
+  const cap = CAP.messageBytes;
+  CAP.messageBytes = usage.messageBytes + 100;
+  let r: { skipped: string[] };
+  try {
+    r = await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: msgs(bigButtons()) });
+  } finally {
+    CAP.messageBytes = cap;
+  }
   const left = s.rows('messages').filter((m) => m.threadId === 'B');
   // The row being grown is never the one evicted to make room for itself; the
   // others may go, and whatever's still there has no room for the buttons.
   assert.ok(left.every((m) => !m.buttons?.length), JSON.stringify(left.map((m) => m.buttons?.length)));
   assert.ok(r.skipped.length >= 1, 'said, to be sent again');
-  assert.ok(s.rows('runnerStorage').find((x) => x.runnerId === BRUCE)!.messageBytes <= CAP.messageBytes);
+  assert.ok(s.rows('runnerStorage').find((x) => x.runnerId === BRUCE)!.messageBytes <= usage.messageBytes + 100);
 });
 
 test("the owner's rows sent again with buttons still just take them", async () => {
@@ -1104,4 +1118,19 @@ test('codex 8 Nov: growing many old rows at the budget reads about as many rows 
   // Each grown row: its own lookup, the storage row, and a row or two per
   // eviction; passing over every grown row again for each eviction read 453.
   assert.ok(read < 350, `read ${read} rows`);
+});
+
+test("codex 8 Nov: a count left above what a runner key's rows hold is put back once there's nothing left to evict", async () => {
+  const s = await setup();
+  const { RUNNER_KEY_CAPS: CAP } = sync as { RUNNER_KEY_CAPS: { messageBytes: number } };
+  await s.bruce.upsert(thread('B', BRUCE));
+  await s.bruce.append('B', 'only one', 1);
+  const usage = s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!;
+  // Phantom bytes, as a stale recount could leave.
+  await s.ctx.db.patch(usage._id, { messageBytes: CAP.messageBytes + 5_000_000 });
+  const r = await s.bruce.append('B', 'next', 2);
+  assert.deepEqual(r.skipped, []);
+  assert.deepEqual(textsOf(s.rows('messages'), 'B'), ['next']);
+  const after = s.rows('runnerStorage').find((x) => x.runnerId === BRUCE)!.messageBytes;
+  assert.ok(after < 10_000, `count back to what's stored, not ${after}`);
 });

@@ -1412,7 +1412,15 @@ async function roomForMessage(ctx: MutationCtx, runnerId: string, size: number, 
       if (!insertedNow.has(String(m._id))) victim = m;
       break;
     }
-    if (!victim) break;
+    if (!victim) {
+      // Nothing older left: all there is is this call's rows and the one
+      // being grown, so a count above theirs is bytes no row holds (a sum
+      // gone stale, Codex's review, 8 Nov). It's put back to what they hold.
+      let held = 0;
+      for await (const m of ctx.db.query('messages').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))) held += storedBytes(m);
+      used = Math.min(used, held);
+      break;
+    }
     await ctx.db.delete(victim._id);
     used = Math.max(0, used - storedBytes(victim));
     budget.evicted++;
