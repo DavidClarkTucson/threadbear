@@ -723,6 +723,8 @@ export type EventBody =
       title: string;
       input: Record<string, unknown>;
       options: ApprovalOption[];
+      // Why it's asking (Auto's safety check, a rule, a hook), when the CLI says.
+      reason?: string;
     }
   | { type: 'question.requested'; approvalId: string; itemId?: string; questions: Question[] }
   // An agent's ask_secret (docs/protocol.md, "Secrets"): never the value.

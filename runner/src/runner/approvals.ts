@@ -151,6 +151,7 @@ export const approvalsPart = {
       options: req.canAlwaysAllow ? ['allow', 'allowAlways', 'deny'] : ['allow', 'deny'],
     };
     if (req.toolUseId) body.itemId = req.toolUseId;
+    if (req.reason) body.reason = req.reason;
     const plan = req.name === 'ExitPlanMode' && req.toolUseId && req.toolUseId === st.rec.openPlan ? req.toolUseId : undefined;
     return new Promise((resolve) => {
       // A card offered without "Always allow" never answers with it, even

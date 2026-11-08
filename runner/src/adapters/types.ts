@@ -172,6 +172,8 @@ export type ToolApprovalRequest = {
   input: Record<string, unknown>;
   canAlwaysAllow: boolean;
   signal: AbortSignal;
+  // Why the CLI is asking, in a sentence for the card (askReason in the Claude adapter).
+  reason?: string;
 };
 
 // mode: the permission mode to switch to as the call goes ahead (approving
