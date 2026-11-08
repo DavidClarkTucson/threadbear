@@ -31,9 +31,16 @@ struct ThreadView: View {
     /// From API 2: the newest `limit` messages and tool lines, from Convex.
     @State private var page: MessagePage?
     @State private var limit = ThreadView.firstPage
-    /// The rows on screen when older ones were asked for, to stay on once they
-    /// arrive above them.
-    @State private var keepAbove: [Int]?
+    /// A finger's on the list, or it's still gliding from a flick.
+    @State private var scrolling = false
+    /// A page with older rows that came while `scrolling`, put in once it stops.
+    @State private var heldPage: MessagePage?
+    /// Older rows have just gone in above: until then, the list's next growth
+    /// is theirs, and the view moves down by it to stay on the same rows.
+    /// Older rows that fold into what's there (more of a cut-off turn's work)
+    /// may not change the height, so it doesn't wait for one for long.
+    @State private var prependedUntil: Date?
+    @State private var scrollPosition = ScrollPosition()
     /// Answers picked on the open card of asks (ask index to choice), until
     /// they're sent; the composer sends them along with what's typed.
     @State private var picks: [Int: Int] = [:]
@@ -134,7 +141,6 @@ struct ThreadView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if canLoadMore {
                         EarlierButton(loading: loadingMore, fromMac: !paged) {
-                            keepAbove = items.map(\.id)
                             loadMore(thread, detail: detail, paged: paged)
                         }
                         // Scrolling up to it loads by itself, like any chat.
@@ -146,7 +152,6 @@ struct ThreadView: View {
                         // wherever the row is.
                         .onScrollVisibilityChange { visible in
                             guard visible, items.count >= 20 else { return }
-                            keepAbove = items.map(\.id)
                             loadMore(thread, detail: detail, paged: paged)
                         }
                     }
@@ -212,6 +217,30 @@ struct ThreadView: View {
                 .animation(Juice.card, value: cardShowing(thread, messages: messages))
             }
             .defaultScrollAnchor(.bottom)
+            .scrollPosition($scrollPosition)
+            .onScrollPhaseChange { _, phase in
+                scrolling = phase.isScrolling
+                if !scrolling, let held = heldPage { putIn(held) }
+            }
+            // Older rows have gone in above: down by their height, so the rows
+            // on screen stay put. By height rather than back to a row, as a
+            // row can be cut in two by the page's edge and get a new id once
+            // more of its turn comes, and a long one may be half on screen.
+            // Only growth: if a turn folds below in the same moment and the
+            // list comes out shorter, it stays where it is rather than going up.
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { old, new in
+                let grew = new.contentSize.height - old.contentSize.height
+                guard let until = prependedUntil, grew != 0 else { return }
+                prependedUntil = nil
+                guard grew > 0, Date.now < until else { return }
+                scrollPosition.scrollTo(y: new.contentOffset.y + new.contentInsets.top + grew)
+            }
+            // A backend before API 2: older text messages come in through
+            // phone:thread, not as a page.
+            .onChange(of: messages.first?.seq) { old, new in
+                guard !paged, let old, let new, new < old else { return }
+                prependedUntil = .now + 0.5
+            }
             .scrollDismissesKeyboard(.interactively)
             // Swipe left for Forward (and right for Back before iOS 26).
             .pageSwipes()
@@ -224,15 +253,6 @@ struct ThreadView: View {
             // The first page takes over from phone:thread's newest text
             // messages, usually at a different height. Stay on the newest.
             .onChange(of: page != nil) { proxy.scrollTo("bottom", anchor: .bottom) }
-            // Older rows have arrived above: back to the row that was at the
-            // top. The first one still here, as a turn cut off by the page's
-            // edge gets a new id once more of it has come.
-            .onChange(of: items.first?.id) {
-                guard let keep = keepAbove else { return }
-                keepAbove = nil
-                let now = Set(items.map(\.id))
-                if let row = keep.first(where: now.contains) { proxy.scrollTo(row, anchor: .top) }
-            }
             // A voice follow-up's reply is read out once the turn's over, so it's the answer and
             // not a line the agent wrote on the way.
             .onChange(of: "\(messages.last?.seq ?? 0):\(thread.isBusy)", initial: true) {
@@ -452,10 +472,40 @@ struct ThreadView: View {
     private func followMessages() async {
         guard model.hasMessagePages, let backend = model.backend else { return }
         do {
-            for try await value in backend.messages(threadId, limit: limit) { page = value }
+            for try await value in backend.messages(threadId, limit: limit) { receive(value) }
         } catch {
             model.report(error)
         }
+    }
+
+    /// Older rows wait while the list is moving. Scrolling up to the top
+    /// loads them, so they often land mid-flick or while the list is still
+    /// bouncing off the top, and a scroll made then was ignored: you were
+    /// left at the very top of the new rows with Load earlier showing, so
+    /// the next pull loaded another page, and so on (8 Nov, seen on a real
+    /// 7,500-message thread with real flicks on Tinker Desk). Meanwhile the
+    /// rows already on screen keep up, so a new message isn't held back.
+    private func receive(_ value: MessagePage) {
+        guard let shown = page?.messages.first?.seq, let first = value.messages.first?.seq, first < shown else {
+            heldPage = nil
+            page = value
+            return
+        }
+        if scrolling {
+            heldPage = value
+            // And only their pictures: one pinned above them would find no
+            // reply of its own and land under the first one shown.
+            page = MessagePage(messages: value.messages.filter { $0.seq >= shown }, hasMore: true, images: value.images.filter { $0.seq >= shown })
+        } else {
+            putIn(value)
+        }
+    }
+
+    /// A page with older rows above the ones shown, in place.
+    private func putIn(_ value: MessagePage) {
+        heldPage = nil
+        prependedUntil = .now + 0.5
+        page = value
     }
 
     /// Older messages: from API 2 a bigger page from Convex (works with the
