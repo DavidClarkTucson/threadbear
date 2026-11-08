@@ -4323,7 +4323,12 @@ project in an `icons/` folder, then favicons and logos. Wide pictures,
 template (menu bar) icons, other image sets, and anything under
 `node_modules`, build output, docs or tests are passed over, as is one
 under a folder named for something else (`public/inventory/icon.svg` is
-the inventory's). The best is copied in, so the app never reads a repo. It
+the inventory's). A manifest's icon counts only if it's named like a
+picture and is a file of the repo's own, not a link out of it. The best is
+copied in, so the app never reads a repo, and only if its bytes say it's a
+picture; on Linux ImageMagick gets it with its decoder named (never one it
+picks, as its MSL and MVG ones are scripts), and an SVG is drawn only by
+rsvg-convert. It
 looks again a few seconds after a project is made or its folders change,
 and every hour at all of them, copying again when the file has changed or
 a better one has turned up. A project with no picture gets an SF Symbol:
