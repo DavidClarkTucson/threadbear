@@ -7,7 +7,7 @@ mod inbox;
 mod thread;
 mod transcript;
 
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, StyledExt as _};
+use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, StyledExt as _, Theme};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -58,10 +58,15 @@ struct Threadbear {
     selected: Option<String>,
     pane: Option<Entity<ThreadPane>>,
     _events: Task<()>,
+    _appearance: Subscription,
 }
 
 impl Threadbear {
-    fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // gpui-kit starts in its light theme whatever the system says; follow
+        // the system's light or dark, and keep following it when it changes.
+        Theme::sync_system_appearance(Some(window), cx);
+        let appearance = window.observe_window_appearance(|window, cx| Theme::sync_system_appearance(Some(window), cx));
         let (tx, mut rx) = mpsc::unbounded_channel();
         let client = Client::new(RunnerConfig::from_env(), ChannelSink(tx));
         RT.spawn(client.clone().run());
@@ -73,7 +78,7 @@ impl Threadbear {
             }
         });
         let status = client.status();
-        Threadbear { client, status, threads: HashMap::new(), list_error: None, selected: None, pane: None, _events: events }
+        Threadbear { client, status, threads: HashMap::new(), list_error: None, selected: None, pane: None, _events: events, _appearance: appearance }
     }
 
     fn on_seen(&mut self, seen: Seen, cx: &mut Context<Self>) {
