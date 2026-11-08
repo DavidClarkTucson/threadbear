@@ -825,7 +825,12 @@ test("R5: a repo's filter drivers don't run: its own are refused, and your own d
   git(repo, 'add', 'a.txt', '.gitattributes');
   git(repo, 'commit', '-qm', 'two');
   fs.rmSync(marker, { force: true });
-  fs.appendFileSync(path.join(repo, 'a.txt'), 'two\n');
+  // Same size, a later mtime: git has to read it (through the filter) to
+  // know. Appending changed the size, which git takes as changed unread, so
+  // whether the filter ran hung on .gitattributes being racily clean.
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'two\n');
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(path.join(repo, 'a.txt'), later, later);
   const env: Record<string, string | undefined> = { ...process.env, GIT_CONFIG_GLOBAL: global };
   const e = { ...env, ...liveCommandEnv(env) } as NodeJS.ProcessEnv;
   for (const cmd of ['git merge-base --is-ancestor HEAD HEAD', 'git rev-list --count HEAD', "git branch -a --no-merged HEAD --format='%(refname:short)'"]) {
