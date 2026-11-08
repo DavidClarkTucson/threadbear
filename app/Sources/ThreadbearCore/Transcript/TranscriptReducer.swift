@@ -827,6 +827,20 @@ public struct TranscriptModel: Sendable {
             let toolId = request.itemId.flatMap { $0.isEmpty ? nil : "t:" + $0 }
             if let toolId { approvalForTool[toolId] = id }
             let shown = toolId.map { itemIndex[$0] != nil } ?? false
+            // One card per approval id. The runner never asks twice under
+            // one id, but another runner can: a harmless card, then a start
+            // request under the same id, left two cards up, and Allow on the
+            // harmless one answered the start request (by id) with the
+            // fingerprint of what the other card read (Codex's review, 8
+            // Nov). The newer request takes the card's place instead, and a
+            // card already answered stays as it was.
+            if let index = itemIndex[id], index < items.count {
+                guard case .approval(let old) = items[index].content, old.resolution == nil else { break }
+                let replacement = ApprovalItem(request: request, root: root, toolShown: shown, startRequest: startRequests[request.approvalId])
+                update(id) { content in content = .approval(replacement) }
+                tailDirty = true
+                break
+            }
             append(TranscriptRow(id: id, seq: seq, turnId: turnId, content: .approval(ApprovalItem(request: request, root: root, toolShown: shown, startRequest: startRequests[request.approvalId]))))
             pendingCards[id] = turnId ?? ""
             tailDirty = true

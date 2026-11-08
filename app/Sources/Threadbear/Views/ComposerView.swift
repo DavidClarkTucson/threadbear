@@ -69,7 +69,7 @@ struct ComposerView: View {
         // The box: the open card over a line, then the message.
         VStack(alignment: .leading, spacing: 0) {
         if let cardRow, let controller {
-            ComposerCard(row: cardRow, collapsed: cardCollapsed, controller: controller)
+            ComposerCard(row: cardRow, threadId: thread?.id, collapsed: cardCollapsed, controller: controller)
                 .padding(.horizontal, Self.padding)
                 .padding(.top, zoomed(8))
                 .padding(.bottom, zoomed(10))

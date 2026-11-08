@@ -50,9 +50,13 @@ final class OpenGateSourceTests: XCTestCase {
         var missing: [String] = []
         for case let file as URL in files where file.pathExtension == "swift" {
             let source = try String(contentsOf: file, encoding: .utf8)
-            if source.contains("AttributedString(markdown"), !source.contains("OpenGate.urlAction") { missing.append(file.lastPathComponent) }
+            // inlineMarkdown parses in ProjectPage.swift, so the files that
+            // show what it makes are checked too: the review window, a
+            // window of its own, missed this (Codex's review, 8 Nov).
+            let parses = source.contains("AttributedString(markdown") || source.contains("inlineMarkdown(") || source.contains("TextSection.markdown(")
+            if parses, !source.contains("OpenGate.urlAction") { missing.append(file.lastPathComponent) }
         }
-        XCTAssertEqual(missing, [], "set .environment(\\.openURL, OpenGate.urlAction) on the Text")
+        XCTAssertEqual(missing, [], "set .environment(\\.openURL, OpenGate.urlAction) on the Text, or the window's root")
     }
 
     /// ThreadbearCore can't reach OpenGate, so Markdown parsed there (the

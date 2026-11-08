@@ -1976,7 +1976,10 @@ second after Allow, which looked like the same card coming back (Mike,
   alone. The app ignores an `approval.queued` for that card, and leaves
   any such call out of another card's list (it asks with its own card),
   as both come from the runner that owns the thread, which may be one
-  the app doesn't trust with this Mac.
+  the app doesn't trust with this Mac. For the same reason one approval
+  id is one card: an `approval.requested` under an id the app already
+  shows replaces that card while it waits, and changes nothing once it's
+  answered.
 
 ## Plan first
 

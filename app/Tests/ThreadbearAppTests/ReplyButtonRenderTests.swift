@@ -84,6 +84,8 @@ final class ReplyButtonRenderTests: XCTestCase {
         let session = ThreadSession(threadId: b, app: app)
         controller.show(session)
         let card = ComposerCardHost(controller: controller)
+        let ask = TranscriptRow(id: "ak:1", seq: 1, turnId: "t1", content: .asks(AsksCard(seq: 1, asks: [Ask(action: "Press [Ship it](button:\(id))", why: "")])))
+        card.show(ask, threadId: b)
         let text = TranscriptTextView()
         card.addSubview(text)
         XCTAssertEqual(text.transcriptThreadId, b, "the card's own thread, not the selection")
@@ -92,7 +94,17 @@ final class ReplyButtonRenderTests: XCTestCase {
         XCTAssertEqual(app.errorMessage, "That button belongs to another thread, so it can't be pressed from here.")
         XCTAssertNil(ReplyButtons.shared.known(id)?.button.pressed)
 
+        // The controller moving on to A before the card has B's asks out
+        // of it: a press then is nobody's, not A's (Codex's review).
+        let sessionA = ThreadSession(threadId: a, app: app)
+        controller.show(sessionA)
+        XCTAssertNil(text.transcriptThreadId)
+        card.show(ask, threadId: a)
+        XCTAssertEqual(text.transcriptThreadId, a, "once it's A's card, it's A's")
+        _ = sessionA
+
         // A card with no thread, or text in no thread's view, presses nothing.
+        card.show(ask, threadId: b)
         controller.show(nil)
         XCTAssertNil(text.transcriptThreadId)
         let loose = TranscriptTextView()

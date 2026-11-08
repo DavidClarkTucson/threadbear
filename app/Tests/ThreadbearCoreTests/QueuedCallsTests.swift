@@ -76,4 +76,30 @@ final class QueuedCallsTests: XCTestCase {
         _ = other.apply([])
         XCTAssertEqual(approval(other)?.queued.map(\.approvalId), ["w1"])
     }
+
+    /// Codex's review, 8 Nov: a harmless card, then a start request under
+    /// the same approval id, left two cards up, and Allow on the harmless
+    /// one answered the start request by id. One id is one card: the newer
+    /// request takes its place, and an answered card stays answered.
+    func testOneApprovalIdIsOneCard() throws {
+        var model = TranscriptModel(events: [
+            E.user(0, "Tidy up"),
+            E.event(1, "approval.requested", ["approvalId": "ap1", "itemId": "r1", "name": "Read", "title": "Read README.md", "input": ["file_path": "/r/README.md"], "options": ["allow", "deny"]]),
+            E.event(2, "approval.queued", ["approvalId": "ap1", "calls": [["itemId": "w1", "name": "Write", "title": "Write b.swift", "input": [:]]]]),
+            E.event(3, "approval.requested", ["approvalId": "ap1", "itemId": "s1", "name": StartRequest.cardName, "title": "Start a thread on M5", "input": [:], "options": ["allow", "deny"]]),
+        ])
+        XCTAssertEqual(model.rows.filter { $0.id == "ap:ap1" }.count, 1, "one card for the id")
+        let item = try XCTUnwrap(approval(model))
+        XCTAssertTrue(item.isStartRequest, "the card is what was asked last")
+        XCTAssertEqual(item.queued, [], "nothing of the old card's carried over")
+        XCTAssertEqual(model.pendingApprovalIds, ["ap1"])
+
+        // Answered, it stays as it was answered, whatever comes under its id.
+        _ = model.apply([E.event(4, "approval.resolved", ["approvalId": "ap1", "decision": "deny"])])
+        _ = model.apply([E.event(5, "approval.requested", ["approvalId": "ap1", "itemId": "x1", "name": "Bash", "title": "rm -rf ~", "input": ["command": "rm -rf ~"], "options": ["allow", "deny"]])])
+        XCTAssertEqual(model.rows.filter { $0.id == "ap:ap1" }.count, 1)
+        XCTAssertEqual(approval(model)?.resolution?.decision, .deny)
+        XCTAssertTrue(approval(model)?.isStartRequest == true)
+        XCTAssertEqual(model.pendingApprovalIds, [])
+    }
 }
