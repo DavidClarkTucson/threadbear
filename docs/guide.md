@@ -648,7 +648,8 @@ files out of Highlights into other apps.
 An agent can pin a file or link to Highlights, under Pinned, with its
 `pin` tool and a short note on why you should look at it: a mockup it
 made for you to check, a preview address, a pull request. It can also
-open the pin straight away, in the panel beside the thread. Files it
+open the pin in the panel beside the thread: straight away if you're
+looking at that thread, or else when you next open it. Files it
 writes and links it mentions show up by themselves, so pins are for the
 few things that matter most. To have something pinned, ask the thread
 ("pin the mockup for me").

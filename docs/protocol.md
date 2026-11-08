@@ -3875,7 +3875,7 @@ type Highlight = {
   path?: string         // file: absolute
   how: "pinned" | "written" | "opened" | "mentioned" | "created" | "committed"
   note?: string         // a pin's reason, in the agent's words
-  show?: true           // a pin the agent asked to have shown straight away
+  show?: true           // no longer sent: an older runner's pin asked to be shown
   sha?: string          // commit: short sha
   branch?: string       // commit
   pushed?: true         // commit: a later git push in the thread sent its branch
@@ -3916,8 +3916,17 @@ time a client asks and then from where it got to:
 note?, show? }` (a path relative to its folder is fine; it must exist;
 a url is at most 2,000 characters).
 A pin of something already found is the same item, now pinned. `show`
-asks the app to open it in the pane now, so an agent shows Mike a
-mockup there instead of running `open`. Only the pane: a file shown this
+asks the app to open it in the pane, so an agent shows Mike a mockup
+there instead of running `open`. It's a `panelRequest` (see Showing
+panels) with `panel: "highlights"` and `highlight` naming the pin, so it
+opens when Mike is looking at the thread, now or later, and every pin
+with `show` asks again: the same page pinned after an edit comes up
+again. (It was a `show` flag on the item until 8 Nov 2026, which the app
+only acted on the first time it saw it, and never for a thread it hadn't
+fetched yet.) The app opens the pin over Highlights, fetching the
+thread's highlights first if it hasn't got that one, then calls
+`threads.panelShown`; one that's gone opens Highlights. The tool waits
+up to 2 seconds for that, as `show_panel` does, and says which. Only the pane: a file shown this
 way never opens in its app (a project file included), and a link only
 opens by itself if it's a web page, where a click on it would go. `unpin { id }` takes one off
 again. The tools' descriptions say when to use them.
@@ -4013,6 +4022,7 @@ type PanelRequest = {
   panel: string         // "highlights", "patches", "usage", "updates", "connectors", or one of the thread's panels' ids
   title: string         // the panel's name: "Highlights", "Convex"
   where?: "tab" | "left" | "right" | "top" | "bottom" | "window"
+  highlight?: string    // pin with show: the pin to open (panel is "highlights")
   at: string            // when the agent asked
 }
 ```
@@ -5809,6 +5819,10 @@ Either side may be upgraded first, so each tolerates the other:
 - An app older than Showing panels ignores `panelRequest`, so a request
   waits until Mike's next message clears it, and `show_panel` says it's
   waiting. A newer app never sees one from an older runner.
+- An app older than a pin's `highlight` request opens Highlights for it,
+  and no longer opens the pin by itself (the runner stopped sending
+  `show`). A newer app talking to an older runner never opens a shown pin
+  by itself; it's in Highlights.
 - An app older than pools sends `accountId` with every `threads.create`,
   so its threads are pinned as before, and it ignores `pools`, `poolId`,
   `waitingForRoom` and `pools.updated`. A newer app talking to a runner

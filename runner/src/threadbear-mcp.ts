@@ -734,8 +734,10 @@ export function buildThreadbearTools(
       handle(async (input, extra) => {
         if (!control.pin) throw new Error("This runner doesn't keep highlights yet.");
         await confirm('pin', await confinedReason(`Pin ${input.path ?? input.url ?? 'something'} for the user to open`), input, extra?.signal);
-        const { id, scriptsOff } = await control.pin(selfId, input);
-        const pinned = `Pinned (${id})${input.show ? ', and shown in the side pane' : ''}.`;
+        const { id, scriptsOff, shown } = await control.pin(selfId, input);
+        // Older runners (a handover) don't say whether it showed.
+        const where = !input.show ? '' : shown === false ? ". It opens in the side pane when the user next looks at this thread in the Mac app; they aren't right now (it waits until then, or until their next message)" : ', and open in the side pane in front of the user now';
+        const pinned = `Pinned (${id})${where}.`;
         // Older runners (a handover) don't say; then nothing's added.
         return scriptsOff
           ? `${pinned} This page has scripts. The side pane opens it with them off, and the user has to choose Run them there before anything it draws with JavaScript shows (and again whenever the file changes), so mention that.`

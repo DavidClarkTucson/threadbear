@@ -40,6 +40,14 @@ public enum PanelRequests {
         }
     }
 
+    /// The pin a `pin` with `show` request opens, from the thread's
+    /// highlights as fetched. Nil for a plain panel request, or when the
+    /// pin isn't in them (not fetched yet, or unpinned since).
+    public static func pin(_ request: PanelRequest, in highlights: ThreadHighlights?) -> Highlight? {
+        guard request.panel == "highlights", let id = request.highlight else { return nil }
+        return highlights?.highlights.first { $0.id == id }
+    }
+
     /// Where it opens if it's closed. Anything unknown is the usual place.
     public static func place(_ request: PanelRequest) -> RequestedPlace {
         switch request.where {
