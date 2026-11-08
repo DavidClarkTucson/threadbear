@@ -273,3 +273,16 @@ test('cardReviewer: deleting the thread settles a call under review', async () =
   h.runner.delete(id);
   assert.equal((await a).decision, 'expired');
 });
+
+test('cardReviewer: a subagent\'s call reviewed while Mike wrote goes to him, not through on the old verdict', async () => {
+  const { h, allow } = slow();
+  const { id, s } = thread(h);
+  void s.sink.requestApproval({ name: 'Edit', title: 'Edit .claude/settings.json', input: { file_path: '/w/.claude/settings.json' }, canAlwaysAllow: false, signal: new AbortController().signal });
+  await tick();
+  h.runner.send(id, 'Leave the settings file alone');
+  allow();
+  await tick();
+  await tick();
+  assert.ok(h.events(id).some((e) => e.type === 'approval.requested'));
+  assert.ok(!h.events(id).some((e) => e.type === 'system.note' && /^Allowed by the reviewer/.test(e.text)));
+});

@@ -181,7 +181,8 @@ export const approvalsPart = {
       resolveCancel(a);
     };
     const id = crypto.randomUUID();
-    (rt.reviews ??= new Map()).set(id, { main, cancel });
+    const entry: { main: boolean; cancel: typeof cancel; stale?: boolean } = { main, cancel };
+    (rt.reviews ??= new Map()).set(id, entry);
     const onAbort = () => cancel({ decision: 'expired', message: 'Cancelled.' });
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) onAbort();
@@ -197,7 +198,7 @@ export const approvalsPart = {
     }
     if (rt.generation !== gen || rt.closing || rt.deleted || this.stopping) return { decision: 'expired', message: 'The thread is shutting down.' };
     // Still on Auto: switched to Ask or Plan meanwhile, it's Mike's card.
-    if (verdict.allow && reviewsCards(this, st)) {
+    if (verdict.allow && !entry.stale && reviewsCards(this, st)) {
       this.emit(st, { type: 'system.note', text: `Allowed by the reviewer: ${card.title}. ${verdict.why}` }, rt.turn?.turnId);
       return { decision: 'allow' };
     }

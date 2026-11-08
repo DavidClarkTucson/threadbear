@@ -2659,7 +2659,9 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   most) with a non-empty `why`. The thread stays `running` while the
   reviewer thinks, and the call sits in `rt.reviews`: Stop or the turn
   ending answers it `expired` at once, and a message from Mike `deny`
-  (as for a card he wrote instead of answering), and deleting the thread
+  (as for a card he wrote instead of answering; a subagent's call, which
+  his message doesn't decline, gets a card rather than the verdict made
+  before he wrote), and deleting the thread
   `expired`, with no card. A thread
   switched out of Auto meanwhile gets the card. Ask, Full access and plans
   are never reviewed.
