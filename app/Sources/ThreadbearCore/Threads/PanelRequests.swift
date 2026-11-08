@@ -75,4 +75,9 @@ public struct PanelRequestGate: Sendable {
         taken.insert(request.id)
         return request
     }
+
+    /// Hands a taken request back, unshown: a pin whose highlights didn't
+    /// come, or that Mike moved away from while they were fetched. The
+    /// next look at its thread takes it again.
+    public mutating func release(_ requestId: String) { taken.remove(requestId) }
 }

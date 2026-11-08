@@ -92,18 +92,22 @@ extension AppModel {
         }
     }
 
-    func fetchHighlights(_ threadId: String) async {
-        guard let client = client(for: threadId) else { return }
+    /// Whether it got them.
+    @discardableResult
+    func fetchHighlights(_ threadId: String) async -> Bool {
+        guard let client = client(for: threadId) else { return false }
         do {
             let fresh = try await client.threadHighlights(threadId: threadId)
             if highlights[threadId] != fresh { highlights[threadId] = fresh }
             // A pin the agent asked to show comes up through the thread's
             // panelRequest (PanelRequestModel), not from here.
+            return true
         } catch RPCError.server(let code, _) where code == RPCError.methodNotFound {
             highlightsUnsupported = true
         } catch {
             AppLog.write("rpc", "threads.highlights failed: \(error.localizedDescription)")
         }
+        return false
     }
 
     /// Takes a highlight off for good. It goes from the list straight away;

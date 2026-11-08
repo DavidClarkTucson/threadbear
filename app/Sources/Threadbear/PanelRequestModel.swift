@@ -32,12 +32,19 @@ extension AppModel {
     /// still opens Highlights.
     private func showPinned(_ request: PanelRequest, in thread: ThreadSummary) {
         Task { @MainActor in
-            if PanelRequests.pin(request, in: highlights[thread.id]) == nil { await fetchHighlights(thread.id) }
-            // Moved on while it fetched (well under a second): left, as
-            // a pane for a thread he's left would be no use. It's still in
-            // Highlights, and the runner's request goes with his next message.
-            guard selection == thread.id else { return }
-            let current = threads[thread.id] ?? thread
+            if PanelRequests.pin(request, in: highlights[thread.id]) == nil, !(await fetchHighlights(thread.id)) {
+                // Not shown, so not said to be: his next look tries again.
+                panelRequestGate.release(request.id)
+                return
+            }
+            // The fetch let other things happen: he may have moved on, or
+            // sent a message (which clears it) or had a newer request
+            // replace it. Shown only if it's still his to see now.
+            guard openProjectId == nil, !showsHomePage, isLooking, selection == thread.id,
+                  let current = threads[thread.id], current.panelRequest?.id == request.id else {
+                panelRequestGate.release(request.id)
+                return
+            }
             showRequested(.section(.highlights), at: .usual, in: current)
             if let pin = PanelRequests.pin(request, in: highlights[thread.id]) {
                 // Only the pane: an agent showing a file never starts its

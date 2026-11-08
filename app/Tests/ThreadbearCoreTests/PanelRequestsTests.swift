@@ -75,6 +75,9 @@ final class PanelRequestsTests: XCTestCase {
         XCTAssertNil(gate.take(nil, looking: true))
         XCTAssertEqual(gate.take(waiting, looking: true)?.id, "r1")
         XCTAssertNil(gate.take(waiting, looking: true), "a summary still carrying it while the runner clears it")
+        // Handed back unshown (a pin's fetch failed, or Mike moved on): taken again next look.
+        gate.release("r1")
+        XCTAssertEqual(gate.take(waiting, looking: true)?.id, "r1")
         let next = try thread(#","panelRequest":{"id":"r2","panel":"highlights","title":"Highlights","at":"2026-10-28T08:02:00Z"}"#)
         XCTAssertEqual(gate.take(next, looking: true)?.id, "r2")
         XCTAssertNil(gate.take(try thread(""), looking: true))

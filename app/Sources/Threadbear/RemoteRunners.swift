@@ -531,6 +531,9 @@ extension AppModel {
                     next[thread.id] = thread
                 }
                 if next != threads { threads = next }
+                // The table's row has no panelRequest, so one waiting on the
+                // thread he already has open only turns up here.
+                if let selection, threads[selection]?.runnerId == runnerId, threads[selection]?.panelRequest != nil { servePanelRequest() }
             }
             // A transcript still loaded from before picks up where it was.
             for session in openSessions where session.state == .loaded && threads[session.threadId]?.runnerId == runnerId {
