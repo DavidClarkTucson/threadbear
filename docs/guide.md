@@ -529,7 +529,8 @@ pages you've had open, as a browser does. A mouse's side buttons do the same,
 and so does a trackpad swipe, as in Safari: with natural scrolling right for
 Back and left for Forward, and the other way round without it. A card in the
 middle of the window says which thread or page you'll land on, and fills the
-way your fingers go, turning blue once letting go will go. A swipe that starts mostly up or down is a scroll, so a long thread still
+way your fingers go, turning blue once letting go will go. With nowhere to go
+that way, it says so. A swipe that starts mostly up or down is a scroll, so a long thread still
 scrolls. It follows Swipe between pages in System Settings > Trackpad (two or
 three fingers). Over a thread's row a swipe left still archives it. A thread
 you start takes the place of the new-thread screen, so Back from it goes to

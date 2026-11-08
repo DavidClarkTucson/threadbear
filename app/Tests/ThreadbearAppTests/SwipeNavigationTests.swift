@@ -77,7 +77,7 @@ final class SwipeNavigationTests: XCTestCase {
         move(8, .began)
         XCTAssertEqual(swipes.swipe.direction, .back)
         XCTAssertFalse(swipes.swipe.armed)
-        move(120, .changed)
+        move(160, .changed)
         XCTAssertTrue(swipes.swipe.armed)
         XCTAssertEqual(app.selection, "b", "not until the fingers lift")
         move(0, .ended)
@@ -92,12 +92,21 @@ final class SwipeNavigationTests: XCTestCase {
         XCTAssertEqual(app.selection, "b")
     }
 
-    /// Nothing to go forward to: a swipe left is left to whatever's under it.
-    func testNowhereToGoLeavesTheEventsAlone() async {
+    /// Nothing to go forward to: the card says so (Mike took nothing
+    /// showing for Forward not working, 8 Nov), and it goes nowhere.
+    func testNowhereToGoSaysSo() async {
         let app = await app()
         let swipes = swipeNavigation(app)
-        let taken = gesture(swipes, [(-8, 0), (-40, 0), (-40, 0)])
-        XCTAssertEqual(taken, [false, false, false, false])
+        func send(_ dx: Double, _ phase: RowSwipeEvents.Phase) -> Bool {
+            RowSwipeEvents.event(dx: dx, phase: phase, content: true).map { swipes.handle($0, in: window) } ?? false
+        }
+        XCTAssertTrue(send(-8, .began))
+        XCTAssertEqual(swipes.swipe.direction, .forward)
+        XCTAssertTrue(swipes.swipe.isEmpty)
+        XCTAssertNil(app.destination(back: false))
+        XCTAssertTrue(send(-300, .changed))
+        XCTAssertFalse(swipes.swipe.armed)
+        _ = send(0, .ended)
         XCTAssertEqual(app.selection, "b")
     }
 

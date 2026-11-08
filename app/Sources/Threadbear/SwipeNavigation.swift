@@ -148,9 +148,13 @@ final class SwipeNavigation {
         natural = event.isDirectionInvertedFromDevice
         // A row only ever lets fingers going right by.
         let overRow = RowSwipeController.listening?.isHovered == true
-        let ways = ways(at: event.locationInWindow, in: window, scrolls: true, app: app)
+        let free = freeWays(at: event.locationInWindow, in: window, scrolls: true)
+        let ways = free.intersection(historyWays(app))
         let fingersRight: NavigationSwipe.Direction = event.isDirectionInvertedFromDevice ? .back : .forward
-        swipe.begin(allowed: overRow ? ways.intersection([fingersRight]) : ways, holds: !overRow)
+        // Over a row, a way with nowhere to go is the row's (it gives a
+        // little and stops); elsewhere the card says there's nowhere to go.
+        swipe.begin(allowed: overRow ? ways.intersection([fingersRight]) : ways,
+                    empty: overRow ? [] : free.subtracting(ways), holds: !overRow)
     }
 
     /// A movement with no gesture under way, or after a scroll that went
@@ -227,7 +231,7 @@ final class SwipeNavigation {
     /// AppKit's swipe event, one per gesture: a positive deltaX is the
     /// fingers going left, which is Forward, as Safari has it.
     private func threeFingers(_ event: NSEvent, in window: NSWindow, app: AppModel) -> Bool {
-        let ways = ways(at: event.locationInWindow, in: window, scrolls: false, app: app)
+        let ways = freeWays(at: event.locationInWindow, in: window, scrolls: false).intersection(historyWays(app))
         if event.deltaX < 0, ways.contains(.back) { go(.back, app: app); return true }
         if event.deltaX > 0, ways.contains(.forward) { go(.forward, app: app); return true }
         return false
@@ -241,18 +245,23 @@ final class SwipeNavigation {
         }
     }
 
-    /// The ways a swipe at `point` can go: somewhere in the history that
-    /// way, and nothing under the pointer that scrolls sideways that way
-    /// first (a wide table, a row of chips), as Safari leaves a wide page
-    /// to scroll until it's at its edge. Back moves the content right, which
-    /// shows what's to its left, whichever way the system scrolls. A web page
-    /// in a panel keeps every swipe, as it scrolls (and goes back) by itself.
-    /// `scrolls`: false for a three-finger swipe, which doesn't scroll
-    /// anything, so only a web page can want it first.
-    private func ways(at point: NSPoint, in window: NSWindow, scrolls: Bool, app: AppModel) -> Set<NavigationSwipe.Direction> {
+    private func historyWays(_ app: AppModel) -> Set<NavigationSwipe.Direction> {
         var ways: Set<NavigationSwipe.Direction> = []
         if app.canGoBack { ways.insert(.back) }
         if app.canGoForward { ways.insert(.forward) }
+        return ways
+    }
+
+    /// The ways a swipe at `point` is the window's rather than what's under
+    /// the pointer: nothing there scrolls sideways that way first (a wide
+    /// table, a row of chips), as Safari leaves a wide page to scroll until
+    /// it's at its edge. Back moves the content right, which shows what's to
+    /// its left, whichever way the system scrolls. A web page in a panel
+    /// keeps every swipe, as it scrolls (and goes back) by itself.
+    /// `scrolls`: false for a three-finger swipe, which doesn't scroll
+    /// anything, so only a web page can want it first.
+    private func freeWays(at point: NSPoint, in window: NSWindow, scrolls: Bool) -> Set<NavigationSwipe.Direction> {
+        var ways: Set<NavigationSwipe.Direction> = [.back, .forward]
         // The frame view has no superview, so the window's point is its own.
         var view = (window.contentView?.superview ?? window.contentView)?.hitTest(point)
         while let v = view, !ways.isEmpty {
@@ -281,17 +290,21 @@ struct SwipeNavigationArrow: View {
     private var nav: SwipeNavigation { SwipeNavigation.shared }
 
     var body: some View {
-        if let direction = nav.swipe.direction, let place = app.destination(back: direction == .back) {
-            card(back: direction == .back, place: place)
+        if let direction = nav.swipe.direction {
+            let back = direction == .back
+            // Nowhere to go: said, rather than nothing showing at all.
+            let place = app.destination(back: back) ?? (back ? "Nothing to go back to" : "Nothing to go forward to", nil)
+            card(back: back, place: place, empty: nav.swipe.isEmpty || app.destination(back: back) == nil)
                 // In as soon as it's clear it's a swipe, not with the line.
-                .opacity(min(1, 0.4 + nav.swipe.progress * 2))
+                // A nowhere-to-go card only gives a little, so it's solid at once.
+                .opacity(nav.swipe.isEmpty ? 1 : min(1, 0.4 + nav.swipe.progress * 2))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
     }
 
-    private func card(back: Bool, place: (title: String, detail: String?)) -> some View {
+    private func card(back: Bool, place: (title: String, detail: String?), empty: Bool) -> some View {
         let armed = nav.swipe.armed
         let accent = Color(nsColor: .controlAccentColor)
         let shape = RoundedRectangle(cornerRadius: zoomed(14), style: .continuous)
@@ -305,11 +318,14 @@ struct SwipeNavigationArrow: View {
                 .frame(width: zoomed(34), height: zoomed(34))
                 .background(Circle().fill(armed ? accent : Color.primary.opacity(0.08)))
             VStack(alignment: .leading, spacing: zoomed(2)) {
-                Text(back ? "Back to" : "Forward to")
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.secondary)
+                if !empty {
+                    Text(back ? "Back to" : "Forward to")
+                        .font(.system(size: TypeScale.label))
+                        .foregroundStyle(.secondary)
+                }
                 Text(place.title)
-                    .font(.system(size: zoomed(14), weight: .semibold))
+                    .font(.system(size: zoomed(14), weight: empty ? .regular : .semibold))
+                    .foregroundStyle(empty ? Color.secondary : Color.primary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail = place.detail {
