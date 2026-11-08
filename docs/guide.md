@@ -1418,6 +1418,9 @@ first. If you edit it by hand and leave it broken (a trailing comma, say),
 the runner won't start until it's fixed, and never writes over it: `tb logs`
 names the file and what's wrong.
 
+Drag the Settings window wider for more room; each tab still sets how tall
+it is.
+
 When something goes wrong, the app says so in an orange bar at the top of
 the thread. Investigate on that bar starts a thread in your Threadbear
 folder with the error, the thread it came up in, what you were doing and
