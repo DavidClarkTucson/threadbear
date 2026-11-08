@@ -507,9 +507,9 @@ sees you talking about it in another thread, it wakes this one and says
 where.
 
 When a thread is done, archive it: press ⌘E, hover its row and press the
-box, or swipe the row left with two fingers on the trackpad (or drag it
-left with the mouse) and let go once the space behind it turns blue (a
-quick flick works too). However it's archived (⌘E, a button, or an agent
+box, or swipe the row left with two fingers on the trackpad (right with
+natural scrolling off), or drag it left with the mouse, and let go once the
+space behind it turns blue (a quick flick works too). However it's archived (⌘E, a button, or an agent
 or your phone doing it), its row slides off the same way. Archive the
 thread you have open and its page drops into the Archived heading as the
 next thread comes in. If it was the last one, the bear comes up over the
