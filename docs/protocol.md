@@ -2843,10 +2843,10 @@ action runs on the thread (Land), when a client subscribes to it (at most
 every 5 seconds), and when a thread it started completes a turn or is
 archived. Clients show an unknown `kind` as its `text`.
 
-The Mac app draws "Nothing left open" beside Done when no end other than
-`scheduled` is left, else lists them under "Still open" (a `thread` one
-links `thread:<id>`); `scheduled` ones alone go under "Coming back". The
-phone doesn't show them yet.
+The Mac app lists them under "Still open" (a `thread` one links
+`thread:<id>`); `scheduled` ones alone go under "Coming back". With none
+left it shows just Done (a "Nothing left open" label beside it was cut on
+9 Nov). The phone doesn't show them yet.
 
 ## Secrets
 
