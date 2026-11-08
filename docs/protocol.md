@@ -2634,6 +2634,22 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   `check` from API 51 and `checkTimeoutSecs` from API 55; the agent
   tools take `check` and `checkTimeoutSecs` only while the experiment
   is on.
+- **Card reviewer** (experiment `cardReviewer`, off unless `runner.json`
+  has `"experiments": { "cardReviewer": true }`;
+  `runner/src/runner/card-review.ts`). In a thread whose `permissionMode`
+  is `auto`, a tool approval (`requestApproval`, except `ExitPlanMode`)
+  or a threadbear tool's own card (`requestAgentApproval`) first goes to a
+  small-jobs `generate` with `strong` (Opus, no tools), shown the card's
+  title, its whole input, the thread's opening message and its latest one,
+  under a system prompt that treats all of that as data. Only an answer
+  whose JSON has `"verdict": "allow"` allows: the call goes ahead with a
+  `system.note` "Allowed by the reviewer: <title>. <why>" and no
+  `approval.requested` is ever sent. Anything else (`ask`, unreadable, the
+  call failing, a private folder, input over 40,000 characters) puts the
+  card up as before, after a `system.note` with the reviewer's reason when
+  it gave one. The thread stays `running` while the reviewer thinks; Stop
+  or the turn ending meanwhile answers the call `expired` and no card goes
+  up. Ask, Full access and plans are never reviewed.
 - **Review by another lab** (experiment `labReview`, off unless
   `runner.json` has `"experiments": { "labReview": true }`;
   `runner/src/runner/lab-review.ts`). A turn that would count as finished

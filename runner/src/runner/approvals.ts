@@ -14,6 +14,7 @@ import { matchAnswers } from '../runner.ts';
 import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN, type SecretFiles } from '../secrets.ts';
 import { START_CARD, type RequestAnswer } from '../cross-runner.ts';
 import { REMOTE_ALLOW_REFUSED, remoteCardShowsAll } from '../tools.ts';
+import { reviewCard, reviewsCards, type CardForReview } from './card-review.ts';
 
 export type SecretRequest = { label: string; reason: string; placeholder?: string; timeoutMinutes?: number; toolUseId?: string; signal?: AbortSignal };
 export type SecretAnswer = ({ status: 'saved' } & SecretFiles) | { status: 'declined' | 'expired'; message?: string };
@@ -153,6 +154,31 @@ export const approvalsPart = {
 
   requestApproval(this: Runner, st: ThreadState, gen: number, req: ToolApprovalRequest): Promise<ToolApprovalAnswer> {
     if (!this.turnForRequest(st, gen, Boolean(req.toolUseId))) return Promise.resolve({ decision: 'expired', message: 'The thread is shutting down.' });
+    // A plan is Mike's to approve, whatever the mode.
+    if (req.name !== 'ExitPlanMode' && reviewsCards(this, st)) {
+      const title = approvalTitle(req.name, req.input, (q) => this.findThread(q)) ?? req.title;
+      return this.reviewThenCard(st, gen, { name: req.name, title, input: req.input }, req.signal, () => this.approvalCard(st, req));
+    }
+    return this.approvalCard(st, req);
+  },
+
+  // An Auto thread's card goes past the reviewer first (runner/card-review.ts):
+  // allowed there, the call goes ahead with a note saying so; otherwise
+  // `show` puts the card up for Mike, after a note with the reviewer's reason.
+  async reviewThenCard(this: Runner, st: ThreadState, gen: number, card: CardForReview, signal: AbortSignal | undefined, show: () => Promise<ToolApprovalAnswer>): Promise<ToolApprovalAnswer> {
+    const verdict = await reviewCard(this, st, card);
+    if (signal?.aborted) return { decision: 'expired', message: 'Cancelled.' };
+    if (st.rt.generation !== gen || st.rt.closing || st.rt.deleted || this.stopping) return { decision: 'expired', message: 'The thread is shutting down.' };
+    if (verdict.allow) {
+      this.emit(st, { type: 'system.note', text: `Allowed by the reviewer: ${card.title}. ${verdict.why}` }, st.rt.turn?.turnId);
+      return { decision: 'allow' };
+    }
+    if (verdict.why) this.emit(st, { type: 'system.note', text: `The reviewer left this one for you: ${verdict.why}` }, st.rt.turn?.turnId);
+    return show();
+  },
+
+  // The card itself, for Mike.
+  approvalCard(this: Runner, st: ThreadState, req: ToolApprovalRequest): Promise<ToolApprovalAnswer> {
     const approvalId = crypto.randomUUID();
     const body: EventBody = {
       type: 'approval.requested',
@@ -182,6 +208,11 @@ export const approvalsPart = {
   requestAgentApproval(this: Runner, threadId: string, req: AgentApprovalRequest): Promise<ToolApprovalAnswer> {
     const st = this.mustGet(threadId);
     if (!this.turnForRequest(st, st.rt.generation)) return Promise.resolve({ decision: 'expired', message: 'The thread is not running a turn.' });
+    if (reviewsCards(this, st)) return this.reviewThenCard(st, st.rt.generation, req, req.signal, () => this.agentApprovalCard(st, req));
+    return this.agentApprovalCard(st, req);
+  },
+
+  agentApprovalCard(this: Runner, st: ThreadState, req: AgentApprovalRequest): Promise<ToolApprovalAnswer> {
     const approvalId = crypto.randomUUID();
     const body: EventBody = { type: 'approval.requested', approvalId, name: req.name, title: req.title, input: req.input, options: ['allow', 'deny'] };
     return new Promise((resolve) => {
