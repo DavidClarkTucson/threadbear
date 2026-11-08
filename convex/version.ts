@@ -289,4 +289,10 @@
 //    weren't queued, and sync:pruneFiles any left after a day. A runner
 //    sends pictures to another runner only from 63: an older backend would
 //    drop them and send the words alone.
-export const API_VERSION = 63;
+// 64: moving a thread to another runner (docs/protocol.md, "Moving a thread
+//    to another runner"; convex/moves.ts). The threadMoves table, startMove
+//    and cancelMove for the main Mac, moves and each step for the move's
+//    own runners, and move chunks through /runner/upload outside a runner
+//    key's picture allowances. An older runner never starts one or watches
+//    its moves, so a move to or from it fails when nobody answers.
+export const API_VERSION = 64;
