@@ -129,8 +129,9 @@ struct ReplyPicture: View {
     /// A page of text shouldn't be pushed off screen by one tall picture.
     static let maxHeight: CGFloat = 360
     static let maxPixels = 1400
-    /// More than the top bar or the reply box (with its chips) is tall.
-    static let underBars: CGFloat = 300
+    /// More than the top bar or the reply box is tall, even with the slash
+    /// palette (up to 260 pt of results) and photo chips open in it (Codex review).
+    static let underBars: CGFloat = 450
 
     var url: URL
     var alt: String
