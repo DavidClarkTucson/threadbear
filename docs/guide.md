@@ -19,6 +19,8 @@ has how it all works inside.
 ## Threads
 <!-- slug: threads -->
 
+<!-- picture: /clips/inbox.mp4 alt: Your threads down the left, the one you picked in the middle, and its Highlights on the right -->
+
 A thread is one conversation with an agent, working in one folder on your
 Mac. You say what you want done, the agent does it (reading files, running
 commands, making changes) and replies. You can have as many threads going as
@@ -285,6 +287,8 @@ Copy Image.
 ## Full access or Ask before edits
 <!-- slug: full-access -->
 
+<!-- picture: /docs-img/full-access.webp alt: Ask before edits: the agent waits for Allow, Always allow or Deny before it runs a command -->
+
 Read this before your first thread. Every thread runs in one of four modes,
 shown on the composer (the box you type in) and changed by clicking it.
 
@@ -369,6 +373,8 @@ thread as leaked and replace it, since the AI provider has seen it too.
 
 ## Your first thread
 <!-- slug: first-thread -->
+
+<!-- picture: /clips/decisions.mp4 alt: A thread ends with what it needs from you, and one tap answers each -->
 
 Press ⌘N, or click New thread (the pencil beside the search at the top of
 the list), type a message and press Return.
@@ -481,6 +487,8 @@ with a slash, such as a file path, goes to the agent as words.
 ## Hibernate and archive
 <!-- slug: hibernate-and-archive -->
 
+<!-- picture: /docs-img/archive.webp alt: An archived thread, still there to read, search and pick up again -->
+
 To put a thread away for a while, hibernate it: hover its row and press
 the moon, or use the Thread menu or the ... menu. Pick when it should
 come back: in an hour, this evening, tomorrow, next Monday, or a day on a calendar and a
@@ -549,6 +557,8 @@ anyway, a day unless it says otherwise.
 ## Panels
 <!-- slug: panels -->
 
+<!-- picture: /docs-img/panels.webp alt: A panel beside the thread: this one lists a project's previews -->
+
 The window is made of panels you can move around: the list of threads,
 the thread you're reading, Highlights, a project's panels, Patches, and
 the ones you open from the left-hand rail, such as Usage and Updates. Each
@@ -594,6 +604,8 @@ layout between launches.
 
 ## Highlights
 <!-- slug: highlights -->
+
+<!-- picture: /docs-img/highlights.webp alt: Highlights: what the thread pinned, the files it wrote, its links and its changes -->
 
 Highlights is the panel beside the thread that collects what the thread
 has made and shared, so you can find it without scrolling back through
@@ -657,6 +669,8 @@ few things that matter most. To have something pinned, ask the thread
 ## Projects
 <!-- slug: projects -->
 
+<!-- picture: /docs-img/projects.webp alt: The Projects view: each project with its threads, what it's for and where it's up to -->
+
 A project gathers the threads about one thing, whatever folder they ran
 in: an app you're building, a trip, a house move. Each has goals, a few
 lines on where it's up to, notes for later threads (decisions and
@@ -701,6 +715,8 @@ project's page says so and nothing is read.
 ## The librarian
 <!-- slug: librarian -->
 
+<!-- picture: /clips/librarian.mp4 alt: The librarian files each thread into its project and keeps the notes -->
+
 The librarian reads your threads as they go and keeps your projects tidy.
 It files each thread in a project, making one when none fits, keeps each
 project's state up to date, adds a repo to a project's folders once its
@@ -729,6 +745,8 @@ project and it won't put it back.
 
 ## Schedules
 <!-- slug: schedules -->
+
+<!-- picture: /docs-img/schedules.webp alt: The Scheduled view: what runs next, what's paused, and what's done -->
 
 A schedule sends a message at a set time, once or over and over: to a
 thread, or to a new thread each time (a morning summary, say). Make one in
@@ -826,6 +844,8 @@ to change it.
 
 ## Accounts, pools and Usage
 <!-- slug: accounts -->
+
+<!-- picture: /docs-img/usage.webp alt: The Usage panel: how much of each login's limits your threads have used -->
 
 Threadbear uses the Claude Code and Codex logins already on your Mac: the
 Claude Code login in `~/.claude` and the Codex login in `~/.codex`. It never
@@ -933,6 +953,8 @@ as it is for now.
 ## Keyboard shortcuts
 <!-- slug: keyboard -->
 
+<!-- picture: /docs-img/tall-keyboard.webp alt: Settings > Keyboard, where any command can have a key of your own -->
+
 Hold ⌘ to see the keys beside the buttons that have them. Settings (⌘,) >
 Keyboard lists every command in the menus that can have a key, and you can
 change any of them there. Click a command's key and press the new one. Esc
@@ -986,6 +1008,8 @@ to `f20`.
 ## Experiments
 <!-- slug: experiments -->
 
+<!-- picture: /img/bear-dizzy.webp alt: Experiments are off until you turn them on -->
+
 Some new features start as experiments: off unless you turn them on, while
 they're tried out. Each has a switch under `experiments` in `runner.json`
 in Threadbear's data folder, read at every turn, so there's nothing to
@@ -1006,6 +1030,8 @@ themselves so it stays true.
 
 ## Connectors
 <!-- slug: connectors -->
+
+<!-- picture: /docs-img/connectors.webp alt: The Connectors panel, bottom left: each service and whether it's signed in -->
 
 Agents get services like Notion, Sentry and Cloudflare from your Connectors
 gateway, and Gmail, Drive and the like from claude.ai's connectors on each
@@ -1034,6 +1060,8 @@ the thread runs on.
 
 ## The prompts macOS shows you
 <!-- slug: macos-prompts -->
+
+<!-- picture: /img/bear-sit.webp alt: macOS asks once for each thing, and what each answer means -->
 
 - **Notifications.** The first time the app opens, macOS asks whether
   Threadbear may send notifications. Either answer is fine: with them on,
@@ -1069,6 +1097,8 @@ the thread runs on.
 
 ## Your phone and a browser
 <!-- slug: phone-and-browser -->
+
+<!-- picture: /clips/phone.mp4 alt: Your threads on your iPhone, answered from anywhere -->
 
 The Threadbear iPhone app is for when you're away from the Mac: ask a
 thread a question, steer it, answer the ones that need you, start new
@@ -1230,6 +1260,8 @@ repo has how it's put together, backing up, upgrading and taking it out.
 ## Patches: your own buttons and panels
 <!-- slug: patches -->
 
+<!-- picture: /clips/patches.mp4 alt: A patch adds a button or a panel to a project's threads -->
+
 A patch adds buttons and panels (beside the thread) for the threads in a
 folder. A button can run a command, like your tests, send the agent a
 message you use a lot, or open a web page in your browser (App Store
@@ -1332,6 +1364,8 @@ the ones its folders give its threads.
 
 ## Changing Threadbear itself
 <!-- slug: changing-threadbear -->
+
+<!-- picture: /clips/fork.mp4 alt: Ask a thread to change Threadbear itself, and it lands on your own copy -->
 
 You can change Threadbear by asking a thread to. Start one in your
 Threadbear folder (your fork, the copy setup ran from) and say what you'd
@@ -1436,6 +1470,8 @@ some of it, that's part of its thread like anything else it reads.
 ## Privacy
 <!-- slug: privacy -->
 
+<!-- picture: /img/bear-patch.webp alt: What goes where, and what stays on your Mac -->
+
 Your threads are mirrored to a Convex deployment in your own Convex account,
 which setup made: the thread list, the text of each message, one line for
 each thing an agent did, and your logins' emails and usage. Anything that
@@ -1464,6 +1500,8 @@ you turn it on, and it stays on your Mac.
 ## Getting help
 <!-- slug: getting-help -->
 
+<!-- picture: /img/bear-wave.webp alt: Ask a thread first: it knows where this guide is -->
+
 - Ask a thread. Its agent knows where this guide is and can read it, or
   look at the code and tell you how something works.
 - Ask a thread to run `tb status`, which says what the runner is doing:
@@ -1477,6 +1515,8 @@ you turn it on, and it stays on your Mac.
 
 ## The tour and Finish setting up
 <!-- slug: finish-setting-up -->
+
+<!-- picture: /docs-img/setup.webp alt: Finish setting up, bottom left: it ticks itself off as you go -->
 
 The first time the app opens it shows you round the window, one part at a
 time, with a few made-up sample threads to try things on: you hibernate one,
