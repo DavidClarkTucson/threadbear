@@ -157,5 +157,25 @@ test('a long link destination costs no more than a short one', () => {
   });
   assert.ok(ms < 100, `took ${ms.toFixed(0)} ms`);
   // Ordinary ones still read.
-  assert.deepEqual(readLink(`work:${'a%20'.repeat(300)}`), { kind: 'step', quote: 'a '.repeat(300).trim() });
+  assert.deepEqual(readLink(`work:${'a%20'.repeat(200)}`), { kind: 'step', quote: 'a '.repeat(200).trim() });
+});
+
+test('thousands of links to one long destination cost little more than the links', () => {
+  // Codex, second look: 79 rows of `[r] ` 1,600 times with `[r]: work:` and a
+  // destination just under the limit, so each link was decoded and normalised.
+  const body = 'x%20'.repeat(249);
+  const page = [{ seq: 0, role: 'user' as const, text: 'Go' }, { seq: 1, role: 'tool' as const, text: 'Ran it' }];
+  for (let i = 2; i <= 80; i++) page.push({ seq: i, role: 'assistant' as const, text: `${'[r] '.repeat(1600)}\n\n[r]: work:${body}` } as never);
+  // A fresh copy of the destination for every link, as a renderer may hand over.
+  const hrefs = Array.from({ length: 1600 }, (_, i) => `work:${body}`.split('').join(''));
+  const ms = cpuMs(() => {
+    for (let m = 2; m <= 80; m++) {
+      for (const href of hrefs) {
+        readLink(href);
+        const link = readLink(href);
+        if (link?.kind === 'step') findStep(link.quote, m, page);
+      }
+    }
+  });
+  assert.ok(ms < 250, `took ${ms.toFixed(0)} ms for 126,400 links`);
 });

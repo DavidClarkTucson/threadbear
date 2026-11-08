@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 // @ts-expect-error plain .mjs without types
-import { checkPrivateDir, checkPrivateTree } from '../../../ios/scripts/private-dir.mjs';
+import { aclAllows, checkPrivateDir, checkPrivateTree } from '../../../ios/scripts/private-dir.mjs';
 
 const repo = resolve(fileURLToPath(import.meta.url), '../../../..');
 const script = join(repo, 'ios/scripts/appstore-upload.sh');
@@ -67,7 +67,8 @@ test('checks, and hands back, the real path a symlink leads to', () => {
   // A link through a folder others can write to a private one: the script is handed the private
   // folder's real path, so swapping the link afterwards changes nothing.
   const good = join(root, 'good');
-  mkdirSync(good, { mode: 0o700 });
+  checkPrivateDir(good);
+  mkdirSync(join(good, 'sub'));
   symlinkSync(good, join(shared, 'relay'));
   symlinkSync(join(shared, 'relay'), join(root, 'out'));
   assert.equal(checkPrivateDir(join(root, 'out')), realpathSync(good));
@@ -75,8 +76,11 @@ test('checks, and hands back, the real path a symlink leads to', () => {
   assert.equal(checkPrivateDir(join(root, 'out', 'sub', '..')), realpathSync(good));
 });
 
+// An archive in an OUT the script made.
+const newArchive = () => join(checkPrivateDir(join(fresh(), 'out')), 'Threadbear.xcarchive');
+
 test('refuses an archive with something in it that others could have written', () => {
-  const archive = join(fresh(), 'Threadbear.xcarchive');
+  const archive = newArchive();
   mkdirSync(join(archive, 'Products'), { recursive: true, mode: 0o700 });
   writeFileSync(join(archive, 'Info.plist'), 'x', { mode: 0o600 });
   checkPrivateTree(archive);
@@ -85,15 +89,48 @@ test('refuses an archive with something in it that others could have written', (
   assert.throws(() => checkPrivateTree(archive), /written by other accounts/);
 });
 
-test('refuses an archive with a link out of it', () => {
-  const root = fresh();
-  const archive = join(root, 'Threadbear.xcarchive');
-  mkdirSync(join(archive, 'Products'), { recursive: true, mode: 0o700 });
+test('refuses an archive with a link out of it, or through anywhere else', () => {
+  const archive = newArchive();
+  const root = join(archive, '..');
+  mkdirSync(join(archive, 'Products/A'), { recursive: true, mode: 0o700 });
   mkdirSync(join(root, 'elsewhere'), { mode: 0o700 });
-  symlinkSync('../Products', join(archive, 'Products', 'inside'));
+  symlinkSync('A', join(archive, 'Products', 'Current'));
   checkPrivateTree(archive);
   symlinkSync(join(root, 'elsewhere'), join(archive, 'Products', 'Threadbear.app'));
-  assert.throws(() => checkPrivateTree(archive), /links outside/);
+  assert.throws(() => checkPrivateTree(archive), /links out/);
+  rmSync(join(archive, 'Products', 'Threadbear.app'));
+  // Back inside in the end, but by way of a folder outside that someone could change later.
+  symlinkSync('../../elsewhere/../Threadbear.xcarchive/Products/A', join(archive, 'Products', 'B'));
+  assert.throws(() => checkPrivateTree(archive), /links out/);
+  rmSync(join(archive, 'Products', 'B'));
+  symlinkSync(join(archive, 'Products', 'A'), join(archive, 'Products', 'B'));
+  assert.throws(() => checkPrivateTree(archive), /links out/);
+  rmSync(join(archive, 'Products', 'B'));
+  checkPrivateTree(archive);
+  // Nor is the archive itself a link.
+  const real = join(root, 'real.xcarchive');
+  mkdirSync(real, { mode: 0o700 });
+  symlinkSync(real, join(root, 'linked.xcarchive'));
+  assert.throws(() => checkPrivateTree(join(root, 'linked.xcarchive')), /is a link/);
+});
+
+test('refuses a private folder these scripts did not make', () => {
+  // Derived data from when it was in /tmp, say: private now, but who knows what's in it.
+  const dir = join(fresh(), 'dd');
+  mkdirSync(dir, { mode: 0o700 });
+  assert.throws(() => checkPrivateDir(dir), /wasn't made by these scripts/);
+  const made = join(fresh(), 'dd');
+  checkPrivateDir(made);
+  checkPrivateDir(made);
+});
+
+test('reads ACL entries, names with spaces too, and counts odd ones as allowing everything', () => {
+  assert.deepEqual(aclAllows(' 0: group:everyone deny delete\n'), []);
+  assert.deepEqual(aclAllows(' 0: user:someone allow write,append\n'), [['write', 'append']]);
+  assert.deepEqual(aclAllows(' 0: group:Domain Users allow list,search,add_file\n'), [['list', 'search', 'add_file']]);
+  assert.deepEqual(aclAllows(' 1: group:Domain Users inherited allow add_file,file_inherit\n'), [['add_file', 'file_inherit']]);
+  assert.equal(aclAllows(' 0: something we have never seen\n')[0]!.includes('write'), true);
+  assert.deepEqual(aclAllows('drwx------  3 me  staff  96 Nov  8 22:00 a folder allow write\n'), []);
 });
 
 // ACLs are macOS's; mode bits don't show them.
@@ -115,7 +152,7 @@ test('refuses a folder above with an ACL letting others write', { skip: !acl && 
 });
 
 test('refuses an archive with a file an ACL lets others write', { skip: !acl && 'macOS ACLs' }, () => {
-  const archive = join(fresh(), 'Threadbear.xcarchive');
+  const archive = newArchive();
   mkdirSync(join(archive, 'Products'), { recursive: true, mode: 0o700 });
   writeFileSync(join(archive, 'Products', 'Threadbear'), 'x', { mode: 0o600 });
   checkPrivateTree(archive);
@@ -167,7 +204,7 @@ function run(env: Record<string, string>, s: ReturnType<typeof setup>) {
 test('an archive already in OUT is built afresh unless BUILD_NUMBER asks for it', { skip: !mac && 'needs macOS' }, () => {
   const s = setup();
   const out = join(s.root, 'out');
-  mkdirSync(out, { mode: 0o700 });
+  checkPrivateDir(out);
   plant(out, true);
   const r = run({ OUT: out }, s);
   assert.notEqual(r.status, 0);
@@ -191,7 +228,7 @@ test('refuses to reuse from a folder others can write', { skip: !mac && 'needs m
 test('refuses to reuse an archive the script never finished', { skip: !mac && 'needs macOS' }, () => {
   const s = setup();
   const out = join(s.root, 'out');
-  mkdirSync(out, { mode: 0o700 });
+  checkPrivateDir(out);
   plant(out, false);
   const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
   assert.notEqual(r.status, 0);
@@ -202,7 +239,7 @@ test('refuses to reuse an archive the script never finished', { skip: !mac && 'n
 test('refuses to reuse an archive with a file others can write', { skip: !mac && 'needs macOS' }, () => {
   const s = setup();
   const out = join(s.root, 'out');
-  mkdirSync(out, { mode: 0o700 });
+  checkPrivateDir(out);
   plant(out, true);
   chmodSync(join(out, 'Threadbear.xcarchive/Products/Applications/Threadbear.app/Threadbear'), 0o666);
   const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
@@ -214,7 +251,7 @@ test('refuses to reuse an archive with a file others can write', { skip: !mac &&
 test('reuses its own finished archive when BUILD_NUMBER names it', { skip: !mac && 'needs macOS' }, () => {
   const s = setup();
   const out = join(s.root, 'out');
-  mkdirSync(out, { mode: 0o700 });
+  checkPrivateDir(out);
   plant(out, true);
   const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
   assert.match(r.stdout, /Using the archive already at/);

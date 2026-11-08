@@ -54,14 +54,26 @@ function decoded(text: string): string {
 }
 
 // What a link means, or undefined for anywhere else (a web page).
+//
+// Every link on the page is read here as it renders (twice), and one
+// reference definition (`[r]: work:...`) can stand behind thousands of `[r]`
+// links, so each destination is read once and remembered, and one too long
+// for any step's words or id is shown as plain text without decoding it.
 export function readLink(href: string): LinkTarget | undefined {
+  const known = links.get(href);
+  if (known !== undefined) return known ?? undefined;
+  const target = read(href);
+  if (links.size >= 10_000) links.clear();
+  links.set(href, target ?? null);
+  return target;
+}
+
+const links = new Map<string, LinkTarget | null>();
+
+function read(href: string): LinkTarget | undefined {
   const match = /^(work|thread|review|button):/i.exec(href);
   if (!match) return undefined;
   const body = href.slice(match[0].length);
-  // Longer than any step's words or id an agent would write: shown as plain
-  // text without decoding it. Every link on the page is read here as it
-  // renders (twice), and one long reference definition used by hundreds of
-  // `[x][r]` links made that hundreds of long decodes.
   if (body.length > MAX_LINK) return { kind: 'plain' };
   const words = decoded(body).trim();
   switch (match[1]!.toLowerCase()) {
@@ -89,11 +101,18 @@ export function readLink(href: string): LinkTarget | undefined {
 // in all; past that a link reads as plain text, as one that finds nothing does.
 export function findStep(quote: string, seq: number, rows: readonly Row[]): number | undefined {
   if (quote.length > MAX_LINK) return undefined;
-  const q = normal(quote);
-  if (!q) return undefined;
+  // Remembered by the words as given, before any work on them.
   const page = pageFor(rows);
-  const key = `${seq}\n${q}`;
-  if (page.found.has(key)) return page.found.get(key);
+  let found = page.found.get(seq);
+  if (!found) page.found.set(seq, (found = new Map()));
+  if (found.has(quote)) return found.get(quote);
+  const step = search(normal(quote), seq, rows, page);
+  found.set(quote, step);
+  return step;
+}
+
+function search(q: string, seq: number, rows: readonly Row[], page: Page): number | undefined {
+  if (!q) return undefined;
   let step: number | undefined;
   const from = page.index.get(seq);
   for (let i = (from ?? 0) - 1; i >= 0; i--) {
@@ -108,7 +127,6 @@ export function findStep(quote: string, seq: number, rows: readonly Row[]): numb
       break;
     }
   }
-  page.found.set(key, step);
   return step;
 }
 
@@ -116,9 +134,9 @@ export const SCAN_BUDGET = 2_000_000;
 // The longest link destination (escaped, so three characters for some) read
 // as a step's words or an id. Keeps each link's own cost small, whatever the
 // page.
-export const MAX_LINK = 1_500;
+export const MAX_LINK = 1_000;
 
-type Page = { index: Map<number, number>; found: Map<string, number | undefined>; left: number };
+type Page = { index: Map<number, number>; found: Map<number, Map<string, number | undefined>>; left: number };
 const pages = new WeakMap<readonly Row[], Page>();
 const texts = new WeakMap<Row, string | null>();
 

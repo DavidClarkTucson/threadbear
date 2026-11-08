@@ -80,7 +80,10 @@ export function createSiteServer(folder = fileURLToPath(new URL("../dist/", impo
     const file = normalize(join(dist, pathname === "/" ? "index.html" : pathname));
     if (isFile(file)) return send(req, res, 200, file, pathname);
     if (isFile(`${file}.html`)) return send(req, res, 200, `${file}.html`, pathname);
-    send(req, res, 404, join(dist, "404.html"), pathname);
+    // The 404 page goes through the same check: a 404.html linking out of dist isn't served either.
+    const notFound = join(dist, "404.html");
+    if (isFile(notFound)) return send(req, res, 404, notFound, pathname);
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("Not found");
   }
 
   // Whatever else a request finds, it ends that request, never the server.

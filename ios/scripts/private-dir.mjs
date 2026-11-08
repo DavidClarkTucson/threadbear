@@ -16,7 +16,7 @@
 // symlinks and `..` resolved by the kernel, and the script then uses that path, so no link on
 // the way can be swapped later. Exits 1 with the reason when one doesn't pass.
 import { spawnSync } from 'node:child_process';
-import { lstatSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,12 +38,17 @@ function chain(dir) {
 
 // The "allow" entries of macOS ACLs in `ls -le` output, each as its list of rights. Mode bits
 // alone miss them: `chmod +a "everyone allow write"` leaves the mode as it was. `ls` prints
-// them indented under each file as ` 0: user:someone allow write,append`.
-function aclAllows(lsOutput) {
+// them indented under each file as ` 0: user:someone allow write,append`, and a name may have
+// spaces in it (`group:Domain Users`). An entry line this can't read counts as allowing
+// everything, so an odd one is refused rather than skipped.
+const EVERYTHING = [...WRITE_RIGHTS];
+export function aclAllows(lsOutput) {
   const allows = [];
   for (const line of lsOutput.split('\n')) {
-    const m = /^\s*\d+: \S+ (?:inherited )?allow (\S+)/.exec(line);
-    if (m) allows.push(m[1].split(','));
+    if (!/^\s*\d+: /.test(line)) continue;
+    const m = / (?:inherited )?(allow|deny) ([a-z_,]+)\s*$/.exec(line);
+    if (!m) allows.push(EVERYTHING);
+    else if (m[1] === 'allow') allows.push(m[2].split(','));
   }
   return allows;
 }
@@ -81,13 +86,28 @@ function checkFolder(p, uid, last) {
 
 // Makes `dir` (mode 700) when missing and `make`, checks it and every folder above it on its
 // real path, and returns that path, for the caller to use from then on.
+//
+// Only a folder this made (empty, and private from the start) passes: it leaves MARKER in it,
+// and one already there without it is refused. Being private now says nothing about what
+// was put in it before (derived data that had been in /tmp, a link out to a shared cache).
+export const MARKER = '.made-private';
 export function checkPrivateDir(dir, { uid = process.getuid(), make = true } = {}) {
+  const existed = existsSync(dir);
   // Made before it's checked, as wherever it lands is refused below unless it's private.
   if (make) mkdirSync(dir, { recursive: true, mode: 0o700 });
   // The kernel's answer (realpath(3)), not path.resolve's: `/tmp/..` is /private to the kernel.
   const real = realpathSync.native(dir);
   const parts = chain(real);
   parts.forEach((p, i) => checkFolder(p, uid, i === parts.length - 1));
+  const marker = join(real, MARKER);
+  if (!existed && make) {
+    writeFileSync(marker, '', { flag: 'wx', mode: 0o600 });
+  } else {
+    const st = lstatSync(marker, { throwIfNoEntry: false });
+    if (!st?.isFile() || st.uid !== uid) {
+      throw new Error(`${real} wasn't made by these scripts; move it away so a fresh one is made`);
+    }
+  }
   return real;
 }
 
@@ -95,6 +115,8 @@ export function checkPrivateDir(dir, { uid = process.getuid(), make = true } = {
 // by anyone else, by mode or ACL, and any link in it stays inside it.
 // It sits in a private folder (OUT), so it needn't be one itself, as Xcode makes it.
 export function checkPrivateTree(dir, { uid = process.getuid() } = {}) {
+  // Not a link itself: the script goes on using this path, and a link could lead elsewhere later.
+  if (lstatSync(dir).isSymbolicLink()) throw new Error(`${dir} is a link`);
   const root = realpathSync.native(dir);
   checkPrivateDir(dirname(root), { uid, make: false });
   const top = lstatSync(root);
@@ -107,6 +129,11 @@ export function checkPrivateTree(dir, { uid = process.getuid() } = {}) {
       const st = lstatSync(child);
       if (st.uid !== uid) throw new Error(`${child} belongs to another account (uid ${st.uid})`);
       if (st.isSymbolicLink()) {
+        // Only links that go down from where they are (`Current -> A`): one through `..` or an
+        // absolute path could pass through a folder someone else can change, even if it ends
+        // up back inside today.
+        const target = readlinkSync(child);
+        if (target.startsWith('/') || target.split('/').includes('..')) throw new Error(`${child} links out through ${target}`);
         let to;
         try {
           to = realpathSync.native(child);

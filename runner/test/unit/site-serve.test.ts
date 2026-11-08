@@ -79,11 +79,27 @@ test('an address that does not decode gets a 400, and the server carries on', as
   assert.equal((await get('/')).status, 200);
 });
 
-test('anything else that goes wrong is a 500 for that request only', async () => {
+test('with no 404 page, a plain 404', async () => {
   rmSync(join(dist, '404.html'));
-  assert.equal((await get('/nowhere')).status, 500);
-  writeFileSync(join(dist, '404.html'), 'missing');
   assert.equal((await get('/nowhere')).status, 404);
+  writeFileSync(join(dist, '404.html'), 'missing');
+  assert.equal((await get('/nowhere')).body, 'missing');
+});
+
+test('a 404 page that links out of dist is not served', async () => {
+  const outside = mkdtempSync(join(tmpdir(), 'tb-site-outside-'));
+  cleanup.push(outside);
+  writeFileSync(join(outside, 'secret.txt'), 'secret');
+  rmSync(join(dist, '404.html'));
+  symlinkSync(join(outside, 'secret.txt'), join(dist, '404.html'));
+  try {
+    const r = await get('/nowhere');
+    assert.equal(r.status, 404);
+    assert.notEqual(r.body, 'secret');
+  } finally {
+    rmSync(join(dist, '404.html'));
+    writeFileSync(join(dist, '404.html'), 'missing');
+  }
 });
 
 test('npm run serve only listens on this Mac', async (t) => {
