@@ -129,6 +129,8 @@ struct ReplyPicture: View {
     /// A page of text shouldn't be pushed off screen by one tall picture.
     static let maxHeight: CGFloat = 360
     static let maxPixels = 1400
+    /// More than the top bar or the reply box (with its chips) is tall.
+    static let underBars: CGFloat = 300
 
     var url: URL
     var alt: String
@@ -170,14 +172,22 @@ struct ReplyPicture: View {
                     .accessibilityHint(loaded?.isVideo == true ? "Plays it full screen" : "Shows it full screen")
             }
         }
-        // Any sliver counts as on screen. The default is half, so a picture
-        // partly up under the top bar, or pushed there by the bounce past the
-        // end of the thread, was let go and left blank while still in sight.
-        .onScrollVisibilityChange(threshold: 0.01) { visible in
-            if visible { seen = true }
-            // Not while it's open full screen, which shows this one first.
-            offscreen = !visible && !fullScreen
-            if offscreen { loaded = nil }
+        // Watched from a band reaching well past the picture, not the picture
+        // itself. Scroll visibility only counts the clear middle of the screen,
+        // but the top bar and the reply box are see-through: a picture under
+        // either was let go and showed as a gap behind them (8 Nov, Mike's
+        // recording). And any sliver of the band counts, not the default half.
+        .background {
+            Color.clear
+                .onScrollVisibilityChange(threshold: 0.01) { visible in
+                    if visible { seen = true }
+                    // Not while it's open full screen, which shows this one first.
+                    offscreen = !visible && !fullScreen
+                    if offscreen { loaded = nil }
+                }
+                // Taller than either bar, so it's still "on screen" until
+                // it has gone from behind them too.
+                .padding(.vertical, -Self.underBars)
         }
         .task(id: wantsPicture ? url : nil) {
             guard wantsPicture else { return }
