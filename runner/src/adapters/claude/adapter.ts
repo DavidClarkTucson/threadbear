@@ -785,7 +785,7 @@ class ClaudeSession implements AgentSession {
   private async canUseTool(
     name: string,
     input: Record<string, unknown>,
-    o: { signal: AbortSignal; suggestions?: PermissionUpdate[]; toolUseID: string; title?: string; suppressAlwaysAllowRule?: boolean; agentID?: string },
+    o: { signal: AbortSignal; suggestions?: PermissionUpdate[]; toolUseID: string; title?: string; suppressAlwaysAllowRule?: boolean; agentID?: string; decisionReason?: string; decisionReasonType?: string },
   ): Promise<PermissionResult> {
     // A subagent's tool calls stay inside its Agent call (the normaliser
     // drops them), so there's no tool.call to wait for or point at.
@@ -843,9 +843,12 @@ class ClaudeSession implements AgentSession {
       waiting = { toolUseId: o.toolUseID, queued: this.queueAfter(o.toolUseID, grants), grants };
       this.waitingCards.add(waiting);
     }
+    // A code write's title already says why it asks.
+    const reason = code ? undefined : askReason(o.decisionReason, o.decisionReasonType);
     let ans: Awaited<ReturnType<SessionSink['requestApproval']>>;
     try {
       ans = await this.sink.requestApproval({
+        ...(reason ? { reason } : {}),
         toolUseId: itemId,
         name,
         title: code ? `${title} (${codeWriteNote(code)})` : title,
@@ -1061,6 +1064,16 @@ export function commandFile(name: string, base: string): string | undefined {
 // would change more than the user agreed to and outlive the thread, so
 // those are dropped and every rule is session-scoped. The runner keeps the
 // rules on the thread and passes them back as allowedTools after a resume.
+// Why the CLI is asking, for the card: Auto's safety check handing the call
+// to Mike, a rule or a hook that asks. Not the mode itself, which every card
+// in Ask before edits would say. David, 8 Nov 2026: a deploy's card gave no
+// reason, and he couldn't tell what the check had balked at.
+export function askReason(reason: string | undefined, type: string | undefined): string | undefined {
+  const text = typeof reason === 'string' ? reason.trim().slice(0, 1000) : '';
+  if (!text || type === 'mode') return undefined;
+  return type === 'classifier' ? `Auto mode's safety check couldn't clear this: ${text}` : text;
+}
+
 export function alwaysAllow(name: string, suggestions: PermissionUpdate[] | undefined): { updates: PermissionUpdate[]; rules: string[] } {
   const updates: PermissionUpdate[] = [];
   const rules: string[] = [];

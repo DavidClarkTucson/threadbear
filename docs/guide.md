@@ -309,7 +309,9 @@ shown on the composer (the box you type in) and changed by clicking it.
   refuses them all. The iPhone shows the first and asks about the rest one
   at a time.
 - **Auto** (the default for Claude threads unless you change it; Claude only): a separate safety check approves or blocks
-  each action, and a card shows only when it can't decide. It's for work on
+  each action, and a card shows only when it can't decide. The card says
+  why it couldn't, in the check's own words, and an action it stops
+  outright leaves a note in the thread saying why. It's for work on
   text you didn't write, like an error report or a web page. It catches a lot
   but it's no guarantee, and on a Codex thread it behaves like Ask before edits.
 - **Plan first**: the agent looks around and writes a plan, but changes

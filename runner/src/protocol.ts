@@ -731,6 +731,8 @@ export type EventBody =
       title: string;
       input: Record<string, unknown>;
       options: ApprovalOption[];
+      // Why it's asking (Auto's safety check, a rule, a hook), when the CLI says.
+      reason?: string;
     }
   // The agent's other calls from the same reply, waiting behind this card
   // (docs/protocol.md, "Queued calls"). A later one replaces the list.

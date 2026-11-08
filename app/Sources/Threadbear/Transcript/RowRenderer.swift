@@ -1091,9 +1091,10 @@ enum RowRenderer {
                 output.append(NSAttributedString(string: "  " + folder, attributes: attributes))
             }
         }
-        // Codex says why it's asking, in the model's own words ("Allow
-        // creating b.txt in the current directory?").
-        if let reason = item.request.input["reason"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
+        // Why it's asking: Claude's CLI says (Auto's safety check, a rule, a
+        // hook), and Codex says in the model's own words ("Allow creating
+        // b.txt in the current directory?").
+        if let reason = (item.request.reason ?? item.request.input["reason"]?.stringValue)?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
             output.append(NSAttributedString(string: "\n" + reason, attributes: Theme.text(Theme.detailFont, color: Theme.quietText, line: TypeScale.scaled(19))))
         }
         return output

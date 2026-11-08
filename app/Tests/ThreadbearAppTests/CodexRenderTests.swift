@@ -22,6 +22,16 @@ final class CodexRenderTests: XCTestCase {
         XCTAssertTrue(title.hasSuffix("\nAllow creating b.txt in the current directory?"), title)
     }
 
+    // David, 8 Nov 2026: a Claude card says why the CLI asked (Auto's
+    // safety check, a rule, a hook), under its title as Codex's reason is.
+    func testApprovalCardShowsWhyClaudeAsked() {
+        let request = ApprovalRequest(approvalId: "ap1", itemId: "c1", name: "Bash", title: "./deploy.sh",
+                                      input: .object(["command": .string("./deploy.sh")]),
+                                      reason: "Auto mode's safety check couldn't clear this: Deploys to production.")
+        let title = RowRenderer.approvalTitleText(ApprovalItem(request: request)).string
+        XCTAssertTrue(title.hasSuffix("\nAuto mode's safety check couldn't clear this: Deploys to production."), title)
+    }
+
     // Daybreak, 7 Nov 2026: the card showed a command's first 12 lines and a
     // tool's fields cut to 6 lines, and Allow ran all of it.
     func testApprovalCardShowsTheWholeCommandAndEveryField() {
