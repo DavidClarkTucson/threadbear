@@ -154,15 +154,45 @@ public struct DockView: View {
 }
 
 extension EnvironmentValues {
-    @Entry var dockContent = DockContent(title: { $0 }, view: { _ in AnyView(EmptyView()) })
-    @Entry var dockOptions = DockOptions()
-    @Entry var dockNamespace: Namespace.ID?
+    // Written out rather than @Entry: SwiftUI's macros ship with Xcode
+    // only, and this builds with the command line tools too.
+    var dockContent: DockContent {
+        get { self[DockContentKey.self] }
+        set { self[DockContentKey.self] = newValue }
+    }
+    var dockOptions: DockOptions {
+        get { self[DockOptionsKey.self] }
+        set { self[DockOptionsKey.self] = newValue }
+    }
+    var dockNamespace: Namespace.ID? {
+        get { self[DockNamespaceKey.self] }
+        set { self[DockNamespaceKey.self] = newValue }
+    }
     /// True for a panel's content drawn in the ghost that follows a drag:
     /// a second copy of what's in the panel. Content that hands out one
     /// shared AppKit view (a transcript, a web view) should draw a picture
     /// of it here instead, or the ghost takes the view and the panel is
     /// left blank once the ghost goes.
-    @Entry public var isDockGhost = false
+    public var isDockGhost: Bool {
+        get { self[IsDockGhostKey.self] }
+        set { self[IsDockGhostKey.self] = newValue }
+    }
+}
+
+private struct DockContentKey: EnvironmentKey {
+    static var defaultValue: DockContent { DockContent(title: { $0 }, view: { _ in AnyView(EmptyView()) }) }
+}
+
+private struct DockOptionsKey: EnvironmentKey {
+    static var defaultValue: DockOptions { DockOptions() }
+}
+
+private struct DockNamespaceKey: EnvironmentKey {
+    static var defaultValue: Namespace.ID? { nil }
+}
+
+private struct IsDockGhostKey: EnvironmentKey {
+    static var defaultValue: Bool { false }
 }
 
 extension View {
