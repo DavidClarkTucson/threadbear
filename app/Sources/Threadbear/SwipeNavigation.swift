@@ -40,6 +40,9 @@ final class SwipeNavigation {
     static let shared = SwipeNavigation()
 
     private(set) var swipe = NavigationSwipe()
+    /// Natural scrolling, for the gesture under way: the content and the
+    /// fingers go the same way. The card fills the way the fingers go.
+    private(set) var natural = true
     @ObservationIgnored weak var app: AppModel?
     @ObservationIgnored private var monitor: Any?
     /// The events held back while deciding, to hand on if it's a scroll.
@@ -142,6 +145,7 @@ final class SwipeNavigation {
         eatingMomentum = false
         release()
         guard scrollSwipesOn() else { return swipe.reset() }
+        natural = event.isDirectionInvertedFromDevice
         // A row only ever lets fingers going right by.
         let overRow = RowSwipeController.listening?.isHovered == true
         let ways = ways(at: event.locationInWindow, in: window, scrolls: true, app: app)
@@ -267,19 +271,20 @@ final class SwipeNavigation {
 }
 
 /// The card in the middle of the window while a page swipe is under way:
-/// which thread or page letting go will open, with a bar that fills to the
-/// line and turns blue there, as the arrow and the bar both do. Mike picked
-/// this from four designs on 8 Nov (big arrow, this, a ring at the pointer,
-/// a pill sliding in) for saying where Back goes, as it crosses views.
+/// which thread or page letting go will open. The card fills as the fingers
+/// go, from the side they start on, and is blue at the line. Mike picked the
+/// card from four designs on 8 Nov for saying where Back goes, as it crosses
+/// views; its first bar filled left to right whichever way he swiped, which
+/// he found confusing, and he picked this fill from four more the same day.
 struct SwipeNavigationArrow: View {
     @Environment(AppModel.self) private var app
-    private var swipe: NavigationSwipe { SwipeNavigation.shared.swipe }
+    private var nav: SwipeNavigation { SwipeNavigation.shared }
 
     var body: some View {
-        if let direction = swipe.direction, let place = app.destination(back: direction == .back) {
+        if let direction = nav.swipe.direction, let place = app.destination(back: direction == .back) {
             card(back: direction == .back, place: place)
                 // In as soon as it's clear it's a swipe, not with the line.
-                .opacity(min(1, 0.4 + swipe.progress * 2))
+                .opacity(min(1, 0.4 + nav.swipe.progress * 2))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -287,47 +292,51 @@ struct SwipeNavigationArrow: View {
     }
 
     private func card(back: Bool, place: (title: String, detail: String?)) -> some View {
-        let armed = swipe.armed
+        let armed = nav.swipe.armed
         let accent = Color(nsColor: .controlAccentColor)
         let shape = RoundedRectangle(cornerRadius: zoomed(14), style: .continuous)
-        return VStack(alignment: .leading, spacing: zoomed(14)) {
-            HStack(spacing: zoomed(12)) {
-                Image(systemName: back ? "chevron.left" : "chevron.right")
+        // Back moves the content right; the fingers go that way too with
+        // natural scrolling, the other way without.
+        let fingersLeft = back != nav.natural
+        return HStack(spacing: zoomed(12)) {
+            Image(systemName: back ? "chevron.left" : "chevron.right")
+                .font(.system(size: zoomed(14), weight: .semibold))
+                .foregroundStyle(armed ? Color.white : Color.secondary)
+                .frame(width: zoomed(34), height: zoomed(34))
+                .background(Circle().fill(armed ? accent : Color.primary.opacity(0.08)))
+            VStack(alignment: .leading, spacing: zoomed(2)) {
+                Text(back ? "Back to" : "Forward to")
+                    .font(.system(size: TypeScale.label))
+                    .foregroundStyle(.secondary)
+                Text(place.title)
                     .font(.system(size: zoomed(14), weight: .semibold))
-                    .foregroundStyle(armed ? Color.white : Color.secondary)
-                    .frame(width: zoomed(34), height: zoomed(34))
-                    .background(Circle().fill(armed ? accent : Color.primary.opacity(0.08)))
-                VStack(alignment: .leading, spacing: zoomed(2)) {
-                    Text(back ? "Back to" : "Forward to")
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detail = place.detail {
+                    Text(detail)
                         .font(.system(size: TypeScale.label))
                         .foregroundStyle(.secondary)
-                    Text(place.title)
-                        .font(.system(size: zoomed(14), weight: .semibold))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let detail = place.detail {
-                        Text(detail)
-                            .font(.system(size: TypeScale.label))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.1))
-                    Capsule().fill(armed ? accent : Color.primary.opacity(0.45))
-                        .frame(width: geo.size.width * swipe.progress)
+                        .lineLimit(1)
                 }
             }
-            .frame(height: 3)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, zoomed(18))
         .padding(.vertical, zoomed(16))
         .frame(width: zoomed(340))
         .background {
-            shape.fill(.regularMaterial)
+            // The fill, from the side the fingers start on.
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(armed ? accent.opacity(0.32) : Color.primary.opacity(0.07))
+                    .frame(width: geo.size.width * nav.swipe.progress)
+                    .frame(maxWidth: .infinity, alignment: fingersLeft ? .trailing : .leading)
+            }
+            .clipShape(shape)
+        }
+        .background {
+            // Solid: the transcript mustn't show through behind the name.
+            shape.fill(Color(nsColor: .windowBackgroundColor))
                 .shadow(color: .black.opacity(0.4), radius: zoomed(20), y: zoomed(6))
         }
         .overlay(shape.strokeBorder(armed ? accent : Color(nsColor: .separatorColor), lineWidth: armed ? 1 : 0.5))
