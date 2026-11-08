@@ -246,7 +246,9 @@ export const worktreesPart = {
       // thread, brought back, never carries on in it (leavesRemovedWorktree).
       if (result.spare || result.taken) w.spare = true;
       if (deleted) return;
-      const text = result.taken
+      const text = result.branchLeft
+        ? `Removed this thread's worktree, but its branch ${w.branch} stays: ${result.branchLeft}. Everything on it is on main, so git -C ${w.mainCheckout} branch -D ${w.branch} loses nothing.`
+        : result.taken
         ? `This thread's worktree had already gone, and its folder ${w.path} is another checkout's now, so it was left alone. Its branch ${w.branch} is gone too.`
         : w.spare
           ? `Deleted this thread's branch ${w.branch} (everything on it is on main) and kept its worktree, build caches and all, for the next thread.`

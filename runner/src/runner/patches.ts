@@ -16,7 +16,7 @@ import type { AgentWrite } from '../adapters/types.ts';
 import { CLAUDE_PATCH_ID, claudeCommands, claudeOptions, settingsCommands, settingsNamedPaths, type ClaudeOptions } from '../claude-trust.ts';
 import { canonicalPath, runsAsCodeByName, type CodeWrite } from '../code-writes.ts';
 import type { PatchInfo } from '../protocol.ts';
-import { actionRunProblem, automaticTrust, EMPTY_PATCH_SET, PATCH_EXTENSIONS, patchDirs, projectRoots, hookApplies, loadPatchSet, applyLive, hasLive, projectPanels, renderListPanel, renderPanel, runCommand, type CommandOutcome, type PanelRender, type PatchSet, type ProjectFolder, projectPatchFiles } from '../patches.ts';
+import { actionRunProblem, automaticTrust, isInside, EMPTY_PATCH_SET, PATCH_EXTENSIONS, patchDirs, projectRoots, hookApplies, loadPatchSet, applyLive, hasLive, projectPanels, renderListPanel, renderPanel, runCommand, type CommandOutcome, type PanelRender, type PatchSet, type ProjectFolder, projectPatchFiles } from '../patches.ts';
 import { liveCommandEnv } from '../shell-allowlist.ts';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -709,6 +709,13 @@ export const patchesPart = {
       const started = Date.now();
       await this.openUrl(action.url ?? '');
       return { ok: true, durationMs: Date.now() - started };
+    }
+    // A thread whose worktree was removed hasn't moved out of it until its
+    // next message (leaveRemovedWorktree), and the folder may be another
+    // thread's or a borrower's by now, so nothing runs there (Codex, 8 Nov).
+    const gone = st.rec.worktree;
+    if (gone?.removedAt && isInside(action.folder ?? st.rec.cwd, gone.path)) {
+      throw new RpcError(ErrorCode.other, `Didn't run ${action.title}: this thread's worktree at ${gone.path} was removed when it was archived, and the folder may be another thread's now. Send the thread a message first, and it carries on in the main checkout.`);
     }
     const running = (st.rt.runningActions ??= new Set());
     if (running.has(actionId)) throw new RpcError(ErrorCode.busy, `${action.title} is already running.`);

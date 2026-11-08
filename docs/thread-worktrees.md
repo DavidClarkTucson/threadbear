@@ -155,9 +155,10 @@ With `keep`:
 - Cleaning up a landed one detaches it, deletes its branch and locks it
   (`git worktree lock --reason "threadbear spare"`): a spare. Past six
   spares (`MAX_SPARES`), it's removed as before.
-- A new thread takes a spare if there is one: unlocking is the claim, so
-  two threads (or a thread and `borrow-worktree.sh`) never get the same
-  one. Then `git reset --hard`, `git clean -ffdx` with the kept folders
+- A new thread takes a spare if there is one: renaming git's `locked`
+  file away is the claim, so two threads (or a thread and
+  `borrow-worktree.sh`) never get the same one. (`git worktree unlock`
+  isn't: two at once both succeed.) Then `git reset --hard`, `git clean -ffdx` with the kept folders
   left out (an old thread's `node_modules` goes, its build cache stays),
   and `git checkout -b thread/<id8> main`. Setup runs as for a new one.
 - The record keeps `keep`, and `spare: true` once it's set aside. A

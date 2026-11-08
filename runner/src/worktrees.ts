@@ -169,8 +169,7 @@ async function makeWorktreeNow(opts: { cwd: string; threadId: string; patch: Wor
 
   if (keep) {
     for (const spare of await spares(mainCheckout, threads)) {
-      // Unlocking is the claim: a second unlock of the same spare fails.
-      if (!(await git(mainCheckout, ['worktree', 'unlock', spare])).ok) continue;
+      if (!(await claimSpare(spare))) continue;
       if (await reuse(spare, branch, base, keep)) return done(spare);
       // Couldn't be put right: it stays unlocked, out of the pool, for
       // someone to look at, and the thread gets a new slot.
@@ -214,6 +213,25 @@ async function spares(mainCheckout: string, threads: string): Promise<string[]> 
     .filter((c) => c.locked === SPARE && path.dirname(realpath(c.path)) === dir && isDir(c.path))
     .map((c) => c.path)
     .sort();
+}
+
+// Takes a spare out of the pool, or says another got there first. Not
+// `git worktree unlock`: two at once both read the lock, and the second
+// one's unlink finding no file still counts as success, so both took the
+// spare (Codex, 8 Nov). A rename of git's lock file is atomic, so only
+// one claimer wins; borrow-worktree.sh claims the same way.
+async function claimSpare(spare: string): Promise<boolean> {
+  const admin = await gitOut(spare, ['rev-parse', '--absolute-git-dir']);
+  if (!admin) return false;
+  const lock = path.join(admin, 'locked');
+  const claimed = `${lock}.claimed-${process.pid}-${Date.now()}`;
+  try {
+    fs.renameSync(lock, claimed);
+  } catch {
+    return false;
+  }
+  fs.rmSync(claimed, { force: true });
+  return true;
 }
 
 // A claimed spare, made like new on `branch` at `base`. The kept folders
@@ -526,7 +544,9 @@ export async function landTargetFromGit(cwd: string, threadId?: string): Promise
 // `taken`: the folder is another checkout's now (another thread's worktree,
 // a spare or a borrowed one), so it was left alone; only this thread's
 // landed branch, if it was still there, went.
-export type Cleanup = { removed: true; spare?: boolean; taken?: boolean } | { removed: false; reason: string };
+// `branchLeft`: the folder went but its branch couldn't be deleted. Still
+// removed, as the folder can be made again for someone else (Codex, 8 Nov).
+export type Cleanup = { removed: true; spare?: boolean; taken?: boolean; branchLeft?: string } | { removed: false; reason: string };
 
 // Whether a worktree the record still has is gone: its branch has, and its
 // folder either has too ('gone') or is another checkout's now ('taken', a
@@ -604,7 +624,7 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
   if (branchThere) {
     if (!stillOurs()) return LET_GO;
     const del = await git(w.mainCheckout, ['branch', '-D', w.branch]);
-    if (!del.ok) return { removed: false, reason: `the worktree went, but deleting ${w.branch} failed: ${firstLine(del.stderr)}` };
+    if (!del.ok) return { removed: true, branchLeft: `deleting ${w.branch} failed: ${firstLine(del.stderr)}` };
   }
   // The <repo>-threads folder, once it's empty.
   try {
