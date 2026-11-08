@@ -1879,7 +1879,9 @@ thread to another login when the one it's on runs out of room.
   to the API partway through that turn. This thread carries on by itself
   once it's back."). The runner probes the provider's API host (a TCP
   connection to api.anthropic.com or chatgpt.com on 443, or a CONNECT
-  through `HTTPS_PROXY`) 5, 10, 20, 40 seconds apart and then every
+  through `HTTPS_PROXY`, over TLS with its certificate checked when that's
+  an `https://` URL; each probe gets 5 seconds in all and reads at most
+  1 KB of the proxy's answer) 5, 10, 20, 40 seconds apart and then every
   minute, and once it answers sends a runner-origin message: "The
   connection to the API dropped partway through that turn and is back
   now. Carry on from where you left off." A carry-on that can't get
