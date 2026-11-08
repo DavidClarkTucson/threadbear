@@ -713,6 +713,8 @@ export const patchesPart = {
     // A thread whose worktree was removed hasn't moved out of it until its
     // next message (leaveRemovedWorktree), and the folder may be another
     // thread's or a borrower's by now, so nothing runs there (Codex, 8 Nov).
+    // An archive's cleanup running now decides whether the folder stays.
+    while (st.rt.cleaning) await st.rt.cleaning;
     const gone = st.rec.worktree;
     if (gone?.removedAt && isInside(action.folder ?? st.rec.cwd, gone.path)) {
       throw new RpcError(ErrorCode.other, `Didn't run ${action.title}: this thread's worktree at ${gone.path} was removed when it was archived, and the folder may be another thread's now. Send the thread a message first, and it carries on in the main checkout.`);
@@ -769,6 +771,8 @@ export const patchesPart = {
       return { ok: outcome.ok, exitCode: outcome.exitCode, durationMs: outcome.durationMs, seq: event.seq };
     } finally {
       running.delete(actionId);
+      // An archive held for it (archiveWhenGone) goes ahead now.
+      if (running.size === 0) this.archiveWhenGone(st);
     }
   },
 };

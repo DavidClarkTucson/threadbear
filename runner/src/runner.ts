@@ -2966,10 +2966,11 @@ export class Runner {
   // folder the cleanup would remove or hand on, and on 7 Nov a typecheck
   // lost its files that way, "failed", and woke the thread just archived.
   // Waiting also means a real failure finds the worktree still there, as
-  // sendTo brings the thread back before the cleanup looks.
+  // sendTo brings the thread back before the cleanup looks. A patch action
+  // still running holds it the same way (runAction comes back here).
   archiveWhenGone(st: ThreadState): void {
     const { rec, rt } = st;
-    if (!rt.archivePending || rt.session || rt.closing || rt.deleted || rt.hooksRunning) return;
+    if (!rt.archivePending || rt.session || rt.closing || rt.deleted || rt.hooksRunning || rt.runningActions?.size) return;
     rt.archivePending = false;
     if (rec.archivedAt) {
       this.archiveNative(st);

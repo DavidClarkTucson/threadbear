@@ -590,7 +590,8 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
       if (branchThere) {
         if (!stillOurs()) return LET_GO;
         const del = await git(w.mainCheckout, ['branch', '-D', w.branch]);
-        if (!del.ok) return { removed: false, reason: `deleting ${w.branch} failed: ${firstLine(del.stderr)}` };
+        // The folder's someone else's either way, so it counts as removed.
+        if (!del.ok) return { removed: true, taken: true, branchLeft: `deleting ${w.branch} failed: ${firstLine(del.stderr)}` };
       }
       return { removed: true, taken: true };
     }

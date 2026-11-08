@@ -823,6 +823,21 @@ test("archiving whose branch can't be deleted after the folder went still counts
   assert.equal(h.adapter.last.opts.cwd, path.join(main, 'runner'), 'not the folder made again');
 });
 
+test("archiving waits for a patch action that's running in the worktree", async () => {
+  const { main } = makeRepo(`export default { worktree: { setup: "true" }, actions: [{ title: "Go", run: "sleep 1; touch ran-here" }] };\n`);
+  const h = harness();
+  const { id, w } = await threadWithWorktree(h, main);
+  commit(w.path, { 'runner/b.ts': '2\n' }, 'Landed work');
+  assert.equal(await land({ path: w.path, branch: w.branch, mainCheckout: main }, capture().opts), 0);
+  const action = h.runner.runAction(id, 'checks.go');
+  await until(() => (h.runner as any).threads.get(id).rt.runningActions?.size === 1, 'the action to start');
+  h.runner.update({ threadId: id, archived: true });
+  const r = await action;
+  assert.equal(r.ok, true, 'the folder was still there for it');
+  await until(() => notes(h, id).some((n) => n.startsWith('Removed')), 'the cleanup, once it finished');
+  assert.ok(!fs.existsSync(w.path));
+});
+
 test("an action never runs in a removed worktree's folder made again for someone else", async () => {
   const { main } = makeRepo(`export default { worktree: { setup: "true" }, actions: [{ title: "Go", run: "touch ran-here" }] };\n`);
   const h = harness();
