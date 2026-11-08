@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { execFileSync } from 'node:child_process';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
 import { Projects, projectMethods } from '../../src/projects.ts';
 import { Librarian, ICON_SOON_MS, ICON_SWEEP_MS } from '../../src/librarian.ts';
@@ -270,18 +271,17 @@ test("storing an icon that isn't a picture by its bytes is refused, not copied o
 });
 
 test('an SVG is never drawn by ImageMagick on Linux', { skip: process.platform === 'darwin' }, async () => {
+  // In a process of its own: images.ts remembers what it found on PATH, and
+  // this one's PATH has only a magick that notes it ran.
   const dir = tmpDir();
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, 'magick'), `#!/bin/sh\ntouch ${JSON.stringify(path.join(dir, 'ran'))}\n`, { mode: 0o755 });
-  const PATH = process.env.PATH;
-  process.env.PATH = bin;
-  try {
-    const svg = path.join(dir, 'a.svg');
-    fs.writeFileSync(svg, '<svg viewBox="0 0 1 1"><image href="msl:/tmp/x.msl"/></svg>');
-    assert.equal(await svgToPng(svg, path.join(dir, 'a.png'), 64), false);
-    assert.ok(!fs.existsSync(path.join(dir, 'ran')));
-  } finally {
-    process.env.PATH = PATH;
-  }
+  const svg = path.join(dir, 'a.svg');
+  fs.writeFileSync(svg, '<svg viewBox="0 0 1 1"><image href="msl:/tmp/x.msl"/></svg>');
+  const images = new URL('../../src/images.ts', import.meta.url).href;
+  const script = `const { svgToPng } = await import(${JSON.stringify(images)}); console.log(await svgToPng(${JSON.stringify(svg)}, ${JSON.stringify(path.join(dir, 'a.png'))}, 64));`;
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, PATH: bin }, encoding: 'utf8' });
+  assert.equal(out.trim(), 'false');
+  assert.ok(!fs.existsSync(path.join(dir, 'ran')), 'ImageMagick was not run');
 });

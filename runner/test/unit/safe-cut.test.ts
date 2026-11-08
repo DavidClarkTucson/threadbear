@@ -272,3 +272,14 @@ test("daybreak 8 Nov: a check's output whose start was let go of isn't begun at 
   assert.ok(!c.output.includes('suffix phrase') && !leaks(c.output), c.output.slice(0, 80));
   assert.match(c.output, /last line$/);
 });
+
+test("codex 8 Nov: spaces at the end of a check's output can't pull a password's middle to the front without its start", async () => {
+  const dir = tmpDir('tb-safe-cut-pad-');
+  fs.writeFileSync(path.join(dir, 'out.txt'), `log\n{"password":"first-word ${PASSWORD}"}\n${' '.repeat(15_960)}`);
+  const c = await runCheck({ command: 'cat out.txt', cwd: dir, home: dir, scheduleId: 'pad', timeoutMs: 10_000 });
+  assert.ok(!leaks(c.output), JSON.stringify(c.output));
+  // And with the spaces split over many writes.
+  fs.writeFileSync(path.join(dir, 'a'), `log\n{"password":"first-word ${PASSWORD}"}\n`);
+  const s = await runCheck({ command: `cat a; for i in 1 2 3 4; do printf '%3990s' ''; sleep 0.05; done`, cwd: dir, home: dir, scheduleId: 'pad2', timeoutMs: 10_000 });
+  assert.ok(!leaks(s.output), JSON.stringify(s.output));
+});

@@ -1031,3 +1031,37 @@ test("the owner's rows sent again with buttons still just take them", async () =
   await call(s.ctx, sync.appendMessages, { key: OWNER, messages: [{ threadId: 'O', seq: 1, role: 'assistant', text: 'hi', at: 'a', buttons: bigButtons(3) }] });
   assert.equal(s.rows('messages')[0]!.buttons.length, 3);
 });
+
+test("codex 8 Nov: growing a runner key's oldest row at its budget evicts the next oldest instead", async () => {
+  const s = await setup();
+  const { RUNNER_KEY_CAPS: CAP } = sync as { RUNNER_KEY_CAPS: { messageBytes: number } };
+  await s.bruce.upsert(thread('B', BRUCE));
+  const row = (seq: number, buttons?: unknown[]) => ({ threadId: 'B', seq, role: 'assistant', text: `m${seq}`.padEnd(200, '.'), at: 'a', ...(buttons ? { buttons } : {}) });
+  await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: [1, 2, 3].map((seq) => row(seq)) });
+  const usage = s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!;
+  await s.ctx.db.patch(usage._id, { messageBytes: CAP.messageBytes - 10 });
+  const r = await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: [row(1, bigButtons(1))] });
+  assert.deepEqual(r.skipped, []);
+  const left = s.rows('messages').filter((m) => m.threadId === 'B');
+  assert.equal(left.find((m) => m.seq === 1)?.buttons?.length, 1, 'the oldest grew');
+  assert.ok(!left.some((m) => m.seq === 2), 'the next oldest made room');
+});
+
+test("codex 8 Nov: a runner key's message count left short is put right by the recount", async () => {
+  const s = await setup();
+  await s.bruce.upsert(thread('B', BRUCE));
+  for (const seq of [1, 2, 3]) await s.bruce.append('B', `m${seq}`, seq);
+  // As the old backend left it: rows grown without counting.
+  for (const m of s.rows('messages')) await s.ctx.db.patch(m._id, { buttons: bigButtons() });
+  const counted = () => s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.messageBytes;
+  const stored = s.rows('messages').filter((m) => m.runnerId === BRUCE).reduce((n, m) => n + storedOf(m), 0);
+  assert.ok(counted() < stored);
+  // The cron's run schedules one per runner key; each pages through its rows.
+  const runs: Record<string, unknown>[] = [{}];
+  while (runs.length) {
+    const before = s.scheduled.length;
+    await call(s.ctx, sync.recountMessageBytes, runs.shift()!);
+    for (const j of s.scheduled.slice(before)) runs.push((j as { args: Record<string, unknown> }).args);
+  }
+  assert.equal(counted(), stored);
+});

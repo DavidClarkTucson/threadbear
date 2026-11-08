@@ -1381,18 +1381,28 @@ export const appendMessages = mutation({
 // Room in a runner key's CAP.messageBytes for `size` more bytes: past it,
 // its oldest messages anywhere go first, at most CAP.evictPerWrite a call
 // (`budget` counts them), never one this call has put in or is growing
-// (`keep`). True, and the bytes counted, when there's room; false, and
-// nothing counted, when there isn't (the caller skips the row, and the
-// runner sends it again).
+// (`keep`), which are passed over. True, and the bytes counted, when there's
+// room; false, and nothing counted, when there isn't (the caller skips the
+// row, and the runner sends it again).
 async function roomForMessage(ctx: MutationCtx, runnerId: string, size: number, keep: Set<string>, budget: { evicted: number }): Promise<boolean> {
   const usage = await ctx.db.query('runnerStorage').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId)).unique();
   let used = usage?.messageBytes ?? 0;
   while (used + size > CAP.messageBytes && budget.evicted < CAP.evictPerWrite) {
-    const oldest = await ctx.db.query('messages').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId)).first();
-    // Only older ones than this call's: never one it has just put in.
-    if (!oldest || keep.has(String(oldest._id))) break;
-    await ctx.db.delete(oldest._id);
-    used = Math.max(0, used - storedBytes(oldest));
+    // The oldest not in `keep`. This call's inserts are the newest, so
+    // reaching one means nothing older is left; a row being grown can be
+    // the oldest, and the next one along goes instead (Codex's review, 8 Nov).
+    let victim: Doc<'messages'> | undefined;
+    let passed = 0;
+    for await (const m of ctx.db.query('messages').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))) {
+      if (!keep.has(String(m._id))) {
+        victim = m;
+        break;
+      }
+      if (++passed > keep.size) break;
+    }
+    if (!victim) break;
+    await ctx.db.delete(victim._id);
+    used = Math.max(0, used - storedBytes(victim));
     budget.evicted++;
   }
   if (used + size > CAP.messageBytes) {
@@ -1403,6 +1413,37 @@ async function roomForMessage(ctx: MutationCtx, runnerId: string, size: number, 
   else await ctx.db.insert('runnerStorage', { runnerId, bytes: 0, messageBytes: size });
   return true;
 }
+
+// Each runner key's message bytes counted again from its rows, a page at a
+// time, and the count set to that: a count left short (rows grown by their
+// buttons before that was counted, Daybreak 8 Nov) or long (rows gone some
+// way that didn't count them) is put right within a day. A write meanwhile
+// to a row already passed may be off by its own change until the next run.
+const RECOUNT_PAGE = 200;
+export const recountMessageBytes = internalMutation({
+  args: { runnerId: v.optional(v.string()), cursor: v.optional(v.union(v.string(), v.null())), sum: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, { runnerId, cursor, sum }) => {
+    if (runnerId === undefined) {
+      for (const k of await ctx.db.query('runnerKeys').collect()) await ctx.scheduler.runAfter(0, internal.sync.recountMessageBytes, { runnerId: k.runnerId, cursor: null, sum: 0 });
+      return null;
+    }
+    const page = await ctx.db
+      .query('messages')
+      .withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))
+      .paginate({ numItems: RECOUNT_PAGE, cursor: cursor ?? null });
+    const total = (sum ?? 0) + page.page.reduce((n, m) => n + storedBytes(m), 0);
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.sync.recountMessageBytes, { runnerId, cursor: page.continueCursor, sum: total });
+      return null;
+    }
+    const usage = await ctx.db.query('runnerStorage').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId)).unique();
+    if (usage) {
+      if (usage.messageBytes !== total) await ctx.db.patch(usage._id, { messageBytes: total });
+    } else if (total > 0) await ctx.db.insert('runnerStorage', { runnerId, bytes: 0, messageBytes: total });
+    return null;
+  },
+});
 
 // A press is final: a slower, older send of the row (one queued before the
 // press) mustn't turn a pressed button back into one that can be pressed

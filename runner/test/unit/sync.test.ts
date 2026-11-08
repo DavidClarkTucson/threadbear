@@ -437,7 +437,7 @@ type Fake = { h: ReturnType<typeof makeHarness>; sync: ConvexSync; calls: Call[]
 // What the fake deployment's photos were fetched from, across setupFull calls in a test.
 const downloads: string[] = [];
 
-function setupFull(opts: { heads?: { threadId: string; lastSeq: number }[]; taken?: Set<string>; failApply?: boolean | 'async'; log?: Logger; apiVersion?: number; hold?: (fn: string, args: Record<string, unknown>) => Promise<void> | undefined } = {}): Fake {
+function setupFull(opts: { heads?: { threadId: string; lastSeq: number }[]; taken?: Set<string>; failApply?: boolean | 'async'; log?: Logger; apiVersion?: number; hold?: (fn: string, args: Record<string, unknown>) => Promise<void> | undefined; answer?: (fn: string, args: Record<string, unknown>) => unknown } = {}): Fake {
   const h = makeHarness();
   const calls: Call[] = [];
   // In the order they finish, with hold() keeping some back.
@@ -448,6 +448,8 @@ function setupFull(opts: { heads?: { threadId: string; lastSeq: number }[]; take
     const held = opts.hold?.(fn, args);
     if (held) await held;
     landed.push({ kind, fn, args });
+    const answer = opts.answer?.(fn, args);
+    if (answer !== undefined) return answer;
     if (fn === 'sync:messageHeads') return opts.heads ?? [];
     if (fn === 'sync:heartbeat' && opts.apiVersion !== undefined) return { apiVersion: opts.apiVersion };
     if (fn === 'sync:takeCommand') {
@@ -3217,5 +3219,64 @@ test('the phone asks for a thread\'s slash commands: the list goes back as the c
   assert.equal(done.args.ok, true);
   const list = JSON.parse(done.args.result as string) as { name: string }[];
   assert.deepEqual(list.map((c) => c.name), ['model', 'effort', 'compact', 'deslop']);
+  await sync.stop();
+});
+
+// Codex's review of the share-order fix (8 Nov): a Stop sharing from the
+// phone whose row the backend left out still let the thread's messages go,
+// and a phone's page of earlier messages went around the wait altogether.
+const sentTexts = (calls: Call[]) => calls.filter((c) => c.fn === 'sync:appendMessages').flatMap((c) => c.args.messages as { threadId: string; text: string }[]);
+
+test("commands: a phone's Stop sharing the backend leaves out keeps the thread's messages back", async () => {
+  let skip = false;
+  const { h, sync, push, calls } = setupFull({
+    apiVersion: BACKEND_API_VERSION,
+    answer: (fn, args) => (skip && fn === 'sync:upsertThreads' ? { skipped: (args.threads as { threadId: string }[]).map((t) => t.threadId) } : undefined),
+  });
+  sync.start();
+  await sync.flushNow();
+  const t = h.runner.create({ text: 'hello', cwd: h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  h.runner.share(t.id, { access: 'link' });
+  await sync.flushNow();
+  skip = true;
+  push([{ commandId: 'off', kind: 'share', threadId: t.id, args: { access: 'off' }, createdAt: 1 }]);
+  await tick(10);
+  assert.equal(h.runner.get(t.id).share?.access, 'off');
+  h.runner.send(t.id, 'PRIVATE AFTER THE STOP');
+  await tick();
+  await sync.flushNow();
+  assert.ok(!sentTexts(calls).some((m) => m.text === 'PRIVATE AFTER THE STOP'), 'held while the mirror may still have the link');
+  skip = false;
+  // Tried again within a minute, though nothing about the thread changed.
+  h.clock.advance(60_000);
+  await tick(10);
+  await sync.flushNow();
+  await sync.flushNow();
+  assert.ok(sentTexts(calls).some((m) => m.text === 'PRIVATE AFTER THE STOP'), 'goes once the stop is written');
+  await sync.stop();
+});
+
+test("commands: a page of earlier messages waits too while the thread's row still has a stopped link", async () => {
+  let fail = false;
+  const { h, sync, push, calls } = setupFull({
+    apiVersion: BACKEND_API_VERSION,
+    answer: (fn) => {
+      if (fail && fn === 'sync:upsertThreads') throw new Error('down');
+      return undefined;
+    },
+  });
+  sync.start();
+  await sync.flushNow();
+  const t = h.runner.create({ text: 'hello', cwd: h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  h.runner.share(t.id, { access: 'link' });
+  await sync.flushNow();
+  fail = true;
+  h.runner.share(t.id, { access: 'off' });
+  h.runner.send(t.id, 'PRIVATE DURING THE RETRY');
+  await tick();
+  await sync.flushNow();
+  push([{ commandId: 'p1', kind: 'page', threadId: t.id, args: { beforeSeq: h.runner.get(t.id).lastSeq + 1 }, createdAt: 1 }]);
+  await tick(10);
+  assert.ok(!sentTexts(calls).some((m) => m.text === 'PRIVATE DURING THE RETRY'));
   await sync.stop();
 });

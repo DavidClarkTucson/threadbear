@@ -95,6 +95,8 @@ export const USAGE_COPY_MS = 10 * 60_000;
 export const SETTLE_MS = 20_000;
 // linkSent's "the mirror's link isn't known": never a slug.
 const LINK_UNKNOWN = '?';
+// How often a row whose thread's messages are held for it is tried again.
+export const ROW_RETRY_MS = 60_000;
 // How often what's been sent is saved (sync-cache.ts), and on stopping.
 const CACHE_SAVE_MS = 30_000;
 const BACKOFF_MIN_MS = 5000;
@@ -1204,6 +1206,9 @@ export class ConvexSync {
   // again once the row is up (histories()).
   private heldForRow = new Set<string>();
   private historiesDue = false;
+  // Their rows tried again every ROW_RETRY_MS while held: one the backend
+  // left out isn't written again till the thread next changes.
+  private rowRetryTimer?: TimerHandle;
   private imagesDue = new Set<string>();
   private imagesDrop = new Set<string>();
   private pendingImages: (ShareImage & { threadId: string })[] = [];
@@ -1355,6 +1360,7 @@ export class ConvexSync {
     // until then (a crash between a write landing and the file saying so, a
     // stop while sync was off), and the file only holds a digest.
     this.linkSent.clear();
+    this.heldForRow.clear();
     for (const t of this.deps.runner.list(ALL)) {
       if (!t.share) continue;
       this.linkSent.set(t.id, LINK_UNKNOWN);
@@ -1397,6 +1403,8 @@ export class ConvexSync {
     this.presenceTimer?.cancel();
     this.settleTimer?.cancel();
     this.settling = false;
+    this.rowRetryTimer?.cancel();
+    this.rowRetryTimer = undefined;
     this.missingTimer?.cancel();
     this.missingTimer = undefined;
     this.heldTimer?.cancel();
@@ -2407,7 +2415,17 @@ export class ConvexSync {
       // against this row, not the one before, or one back to that (a share
       // stopped again at once) was dropped as nothing new.
       this.writing.set(threadId, { digest: digest(JSON.stringify(row)), by: me });
-      await this.post('mutation', 'sync:upsertThreads', { key: this.deps.key, threads: [row] });
+      const left = this.noteSkipped('sync:upsertThreads', await this.post('mutation', 'sync:upsertThreads', { key: this.deps.key, threads: [row] }));
+      // Left out (over what a runner key may write, its id's rows still
+      // going): not written, so not what the mirror has (linkSent stays as
+      // it was, and the thread's messages keep waiting if it's behind).
+      // Codex's review, 8 Nov: a Stop sharing left out let messages through.
+      if (left.includes(threadId)) {
+        this.sent.delete(threadId);
+        this.lastWrite.delete(threadId);
+        this.noteSent();
+        return;
+      }
       this.recordSent(row);
       if (this.dirty.get(threadId) === doc) this.dirty.delete(threadId);
       this.written++;
@@ -2752,23 +2770,15 @@ export class ConvexSync {
       this.historiesDue = false;
       const { docs: history, threadIds: filling } = this.histories();
       // A new thread's first messages are both live and its history: once each.
-      // None for a thread whose row is still shared by a link it isn't any
-      // more (rowBehind): its whole history goes once the row is up.
       const seen = new Set<string>();
-      const behind = new Set<string>();
       messages = [...history, ...messages].filter((m) => {
         const k = `${m.threadId}:${m.seq}`;
         if (seen.has(k)) return false;
         seen.add(k);
-        if (behind.has(m.threadId) || this.rowBehind(m.threadId)) {
-          behind.add(m.threadId);
-          return false;
-        }
         return true;
       });
-      this.holdForRow([...behind]);
       const notFilled = await this.appendMessages(messages);
-      this.markFilled(filling.filter((id) => !notFilled.has(id) && !behind.has(id)));
+      this.markFilled(filling.filter((id) => !notFilled.has(id)));
       // A message left out of a closed id: its whole history goes again once
       // it opens (histories()), as messages after it may have gone up, and
       // catching up from the newest would never fill the gap.
@@ -3105,6 +3115,21 @@ export class ConvexSync {
   // The threads with a message left out, so their history isn't counted as up.
   private async appendMessages(all: MessageDoc[]): Promise<Set<string>> {
     const notFilled = new Set<string>();
+    // None for a thread whose row is still shared by a link it isn't any
+    // more (rowBehind), whichever way they came (a flush, a phone's page of
+    // earlier ones): its whole history goes once the row is up.
+    const behind = new Set<string>();
+    all = all.filter((m) => {
+      if (behind.has(m.threadId) || this.rowBehind(m.threadId)) {
+        behind.add(m.threadId);
+        return false;
+      }
+      return true;
+    });
+    if (behind.size) {
+      this.holdForRow([...behind]);
+      for (const id of behind) notFilled.add(id);
+    }
     // A backend from before API 2 can't take tool rows; it's deployed before
     // the runner, so this only matters when that deploy was skipped.
     const v = this.backendApiVersion;
@@ -3254,6 +3279,27 @@ export class ConvexSync {
     }
     if (had) this.saveFilled();
     this.deps.log.info('convex sync: messages wait for their thread\'s share link to be written', { threads: threadIds.length });
+    this.armRowRetry();
+  }
+
+  private armRowRetry(): void {
+    if (this.rowRetryTimer || !this.heldForRow.size || !this.running) return;
+    this.rowRetryTimer = this.deps.clock.setTimeout(() => {
+      this.rowRetryTimer = undefined;
+      for (const id of this.heldForRow) {
+        let t: ThreadSummary;
+        try {
+          t = this.deps.runner.get(id);
+        } catch {
+          continue; // its removal is queued
+        }
+        this.sent.delete(id);
+        this.lastWrite.delete(id);
+        this.mark(t, true);
+      }
+      this.scheduleFlush();
+      this.armRowRetry();
+    }, ROW_RETRY_MS);
   }
 
   private markUnfilled(threadIds: string[]): void {

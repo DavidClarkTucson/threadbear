@@ -209,12 +209,14 @@ export function runCheck(p: { command: string; cwd: string; home: string; schedu
 
 // Its last part, begun where no secret is cut in two (safe-cut.ts). One whose
 // start was let go of (cutFront) is never begun in the run it was let go in,
-// and the place is checked against what's kept before it.
+// and the place is found in the buffer as kept, before anything's trimmed:
+// it's always CHECK_OUTPUT_CHARS in, so that much before it is looked at.
+// Trimmed first, spaces at the end pulled a password's middle to the front
+// with its start gone (Codex's review, 8 Nov).
 function clip(s: string, cutFront: boolean): string {
-  const t = cutFront ? s.trimEnd() : s.trim();
-  const from = Math.max(0, t.length - CHECK_OUTPUT_CHARS);
-  if (cutFront) return '…' + t.slice(safeStartOfPartial(t, from)).trimStart();
-  return from > 0 ? '…' + t.slice(safeStart(t, from)) : t;
+  if (cutFront) return '…' + s.slice(safeStartOfPartial(s, Math.max(0, s.length - CHECK_OUTPUT_CHARS))).trim();
+  const t = s.trim();
+  return t.length > CHECK_OUTPUT_CHARS ? '…' + t.slice(safeStart(t, t.length - CHECK_OUTPUT_CHARS)) : t;
 }
 
 // What goes under the scheduled message, or that the run is skipped.
