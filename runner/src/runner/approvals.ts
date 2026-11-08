@@ -191,7 +191,7 @@ export const approvalsPart = {
   },
 
   requestQuestion(this: Runner, st: ThreadState, gen: number, req: QuestionRequest): Promise<QuestionAnswer> {
-    if (!this.turnForRequest(st, gen, Boolean(req.toolUseId))) return Promise.resolve({ answers: null, message: 'Threadbear closed this question before Mike saw it: the thread is shutting down.' });
+    if (!this.turnForRequest(st, gen, Boolean(req.toolUseId))) return Promise.resolve({ answers: null, message: 'Threadbear closed this question before the user saw it: the thread is shutting down.' });
     const approvalId = crypto.randomUUID();
     const body: EventBody = { type: 'question.requested', approvalId, questions: req.questions };
     if (req.toolUseId) body.itemId = req.toolUseId;

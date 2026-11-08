@@ -525,7 +525,7 @@ export function buildThreadbearTools(
       t.waitingForRoom ? `waiting for room until: ${t.waitingForRoom.until}` : '',
       `model: ${t.model ?? 'default'}${t.modelInUse ? ` (running as ${t.modelInUse})` : ''}`,
       `effort: ${t.effort ?? 'default'}${t.effortInUse ? ` (${t.effortInUse} last turn)` : ''}`,
-      `permissions: ${t.permissionMode === 'full' ? 'full access' : t.permissionMode === 'auto' ? 'auto (a classifier checks each action)' : t.permissionMode === 'plan' ? 'plan first (changes nothing until Mike approves its plan)' : 'ask before edits'}`,
+      `permissions: ${t.permissionMode === 'full' ? 'full access' : t.permissionMode === 'auto' ? 'auto (a classifier checks each action)' : t.permissionMode === 'plan' ? 'plan first (changes nothing until the user approves its plan)' : 'ask before edits'}`,
       t.snoozedUntil ? `snoozed until: ${snoozeEnd(t)}` : '',
       t.archivedAt ? `archived: ${t.archivedAt}${archivedHow(t)}` : '',
       `last activity: ${relativeTime(t.lastActivityAt, now())}`,
