@@ -225,3 +225,51 @@ test('cardReviewer: it sees the latest message however long the turn has run sin
   await edit(s);
   assert.match(h.asked[0].prompt, /Do not touch the settings files/);
 });
+
+test('cardReviewer: it reads the whole input, not the card\'s shortened one', async () => {
+  const h = setup();
+  const { s } = thread(h);
+  await s.sink.requestApproval({ toolUseId: 'tu-w', name: 'Write', title: 'Write a.ts', input: { file_path: '/w/a.ts', content: 'ok…' }, wholeInput: { file_path: '/w/a.ts', content: 'ok then DISABLE_AUTH' }, canAlwaysAllow: false, signal: new AbortController().signal });
+  assert.match(h.asked[0].prompt, /DISABLE_AUTH/);
+});
+
+test('cardReviewer: a call cancelled before it got here puts up no card', async () => {
+  const h = setup();
+  const { id } = thread(h);
+  const ctl = new AbortController();
+  ctl.abort();
+  const a = await h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__schedule_message', title: 'Schedule', input: {}, signal: ctl.signal });
+  assert.equal(a.decision, 'expired');
+  await tick();
+  assert.equal(h.runner.get(id).needsYou, false);
+  assert.equal(h.runner.threads.get(id)!.rt.approvals.size, 0);
+});
+
+test('cardReviewer: Mike\'s latest message is shown as his, and a runner message apart from it', async () => {
+  const h = setup();
+  const { id, s } = thread(h);
+  h.runner.send(id, 'Do not change settings');
+  h.runner.send(id, 'Carry on where you left off.', [], { origin: 'runner' });
+  await edit(s);
+  const p = h.asked[0].prompt;
+  assert.match(p, /Mike's latest message to it:\nBEGIN \w+\nDo not change settings/);
+  assert.match(p, /not from Mike \(from runner\):\nBEGIN \w+\nCarry on/);
+});
+
+test('cardReviewer: a brief too long to show whole goes to Mike', async () => {
+  const h = setup();
+  const { id, s } = thread(h, 'auto', 'x'.repeat(13_000));
+  void edit(s);
+  await tick();
+  assert.equal(h.asked.length, 0);
+  assert.ok(h.events(id).some((e) => e.type === 'system.note' && /too long for the reviewer/.test(e.text)));
+});
+
+test('cardReviewer: deleting the thread settles a call under review', async () => {
+  const { h } = slow();
+  const { id } = thread(h);
+  const a = h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__send_message', title: 'Send', input: { text: 'hi' } });
+  await tick();
+  h.runner.delete(id);
+  assert.equal((await a).decision, 'expired');
+});

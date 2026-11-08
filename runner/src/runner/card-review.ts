@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import type { Runner, ThreadState } from '../runner.ts';
 import { experimentOn } from '../experiments.ts';
 import { cutOut } from '../store.ts';
+import { fromMike } from '../runner.ts';
 
 export const CARD_REVIEWER = 'cardReviewer';
 // The most of a card's input the reviewer is shown. More than this and it
@@ -29,8 +30,6 @@ export const CARD_REVIEW_MAX_INPUT = 40_000;
 // The thread's opening brief and latest message, as context for what the
 // action is for.
 const BRIEF_CHARS = 12_000;
-// A brief cut to fit says so, so the reviewer knows more was said.
-const upTo = (text: string): string => (text.length > BRIEF_CHARS ? `${text.slice(0, BRIEF_CHARS)}\n[cut here: ${text.length - BRIEF_CHARS} more characters not shown]` : text);
 
 export type CardForReview = { name: string; title: string; input: Record<string, unknown> };
 export type CardVerdict = { allow: true; why: string } | { allow: false; why?: string };
@@ -59,17 +58,20 @@ export function reviewsCards(runner: Runner, st: ThreadState): boolean {
 }
 
 // What the reviewer is shown: the thread, why it's running, and the card.
-export function reviewPrompt(runner: Runner, st: ThreadState, card: CardForReview, input: string, tag = crypto.randomBytes(9).toString('hex')): string {
+export function reviewPrompt(runner: Runner, st: ThreadState, card: CardForReview, input: string, tag = crypto.randomBytes(9).toString('hex')): string | undefined {
   const { rec } = st;
   const opening = runner.opening(rec.id, rec).text ?? '';
-  const latest = latestMessage(runner, st);
+  const { mike, other } = latestMessages(runner, st);
+  // Too long to show whole, and what's cut might be what forbids this.
+  if ([opening, mike ?? '', other?.text ?? ''].some((t) => t.length > BRIEF_CHARS)) return undefined;
   const started = rec.startedBy ? `${rec.startedBy.kind}${rec.startedBy.label ? ` (${rec.startedBy.label})` : ''}` : 'Mike';
   const piece = (label: string, text: string) => `${label}\nBEGIN ${tag}\n${text}\nEND ${tag}`;
   return [
     `The thread is on Auto. Started by: ${started}.`,
     piece('Its title and folder:', `${rec.title}\n${rec.cwd}`),
-    piece('What it was first asked:', upTo(opening)),
-    latest && latest !== opening ? piece('The latest message it was sent:', upTo(latest)) : '',
+    piece('What it was first asked:', opening),
+    mike && mike !== opening ? piece("Mike's latest message to it:", mike) : '',
+    other && other.text !== opening ? piece(`A newer message, not from Mike (from ${other.from}):`, other.text) : '',
     piece(`The action held back (tool ${card.name}), its title:`, card.title),
     piece('Its input, in full:', input),
   ]
@@ -77,18 +79,22 @@ export function reviewPrompt(runner: Runner, st: ThreadState, card: CardForRevie
     .join('\n\n');
 }
 
-// The newest message the thread was sent, a page at a time from the end,
-// as a long turn can put thousands of events after it.
-function latestMessage(runner: Runner, st: ThreadState): string | undefined {
+// The newest message from Mike, and a newer one from anything else (the
+// runner, a schedule, another thread's agent) if there is one, a page at a
+// time from the end, as a long turn can put thousands of events after them.
+function latestMessages(runner: Runner, st: ThreadState): { mike?: string; other?: { text: string; from: string } } {
   const log = runner.store.log(st.rec.id);
+  let other: { text: string; from: string } | undefined;
   for (let to = log.lastSeq; to >= 1; to -= 200) {
     const page = log.read(Math.max(1, to - 199), to);
     for (let i = page.length - 1; i >= 0; i--) {
       const e = page[i];
-      if (e.type === 'user.message' && !cutOut(st.rec, e.seq)) return e.text;
+      if (e.type !== 'user.message' || cutOut(st.rec, e.seq)) continue;
+      if (fromMike(e.text, { origin: e.origin })) return { mike: e.text, ...(other ? { other } : {}) };
+      other ??= { text: e.text, from: e.origin ?? 'another thread\'s agent' };
     }
   }
-  return undefined;
+  return other ? { other } : {};
 }
 
 // Reads the model's answer. Anything but a clear allow is an ask.
@@ -117,7 +123,9 @@ export async function reviewCard(runner: Runner, st: ThreadState, card: CardForR
   }
   if (input.length > CARD_REVIEW_MAX_INPUT) return { allow: false, why: 'It was too long for the reviewer to read whole.' };
   try {
-    const res = await runner.models.generate({ feature: 'cardReviewer', cwd: st.rec.cwd, system: REVIEW_SYSTEM, prompt: reviewPrompt(runner, st, card, input), maxTokens: 400, strong: true });
+    const prompt = reviewPrompt(runner, st, card, input);
+    if (!prompt) return { allow: false, why: "The thread's messages were too long for the reviewer to read whole." };
+    const res = await runner.models.generate({ feature: 'cardReviewer', cwd: st.rec.cwd, system: REVIEW_SYSTEM, prompt, maxTokens: 400, strong: true });
     if (!res.ok) {
       runner.log.info('card reviewer could not run', { threadId: st.rec.id, reason: res.reason });
       return { allow: false };

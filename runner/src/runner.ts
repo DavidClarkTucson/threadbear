@@ -2895,6 +2895,7 @@ export class Runner {
       settleDeclined(p, 'expired', 'The thread was deleted.');
     }
     rt.approvals.clear();
+    for (const r of [...(rt.reviews?.values() ?? [])]) r.cancel({ decision: 'expired', message: 'The thread was deleted.' });
     const session = rt.session;
     rt.session = undefined;
     const ended = session?.end({ hard: true }).catch((e: unknown) => this.log.warn('stopping a deleted thread failed', { threadId, error: String(e) }));

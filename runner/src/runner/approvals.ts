@@ -159,7 +159,7 @@ export const approvalsPart = {
     // comes as edit.diff), so the reviewer couldn't see what it allows.
     if (req.name !== 'ExitPlanMode' && st.rec.provider === 'claude' && reviewsCards(this, st)) {
       const title = approvalTitle(req.name, req.input, (q) => this.findThread(q)) ?? req.title;
-      return this.reviewThenCard(st, gen, { name: req.name, title, input: req.input }, req.signal, () => this.approvalCard(st, req), Boolean(req.toolUseId));
+      return this.reviewThenCard(st, gen, { name: req.name, title, input: req.wholeInput ?? req.input }, req.signal, () => this.approvalCard(st, req), Boolean(req.toolUseId));
     }
     return this.approvalCard(st, req);
   },
@@ -171,8 +171,15 @@ export const approvalsPart = {
     const { rt } = st;
     // Settled at once by Stop, the turn ending or Mike writing (expireApprovals,
     // send), as a card would be, without waiting for the model.
-    let cancel!: (a: ToolApprovalAnswer) => void;
-    const cancelled = new Promise<ToolApprovalAnswer>((r) => (cancel = r));
+    // `settled` is kept as well as raced: a verdict ready in the same tick
+    // (a card never reviewed) can win the race after a cancel.
+    let settled: ToolApprovalAnswer | undefined;
+    let resolveCancel!: (a: ToolApprovalAnswer) => void;
+    const cancelled = new Promise<ToolApprovalAnswer>((r) => (resolveCancel = r));
+    const cancel = (a: ToolApprovalAnswer) => {
+      settled ??= a;
+      resolveCancel(a);
+    };
     const id = crypto.randomUUID();
     (rt.reviews ??= new Map()).set(id, { main, cancel });
     const onAbort = () => cancel({ decision: 'expired', message: 'Cancelled.' });
@@ -182,6 +189,7 @@ export const approvalsPart = {
     try {
       const r = await Promise.race([reviewCard(this, st, card).then((v) => ({ v })), cancelled.then((a) => ({ a }))]);
       if ('a' in r) return r.a;
+      if (settled) return settled;
       verdict = r.v;
     } finally {
       rt.reviews?.delete(id);
@@ -333,6 +341,8 @@ export const approvalsPart = {
     rt.idleTimer = undefined;
     this.markDirty(st);
     signal.addEventListener('abort', () => this.expireApproval(st, pending.approvalId, 'Cancelled.'), { once: true });
+    // Cancelled before the card went up: no abort is coming to close it.
+    if (signal.aborted) this.expireApproval(st, pending.approvalId, 'Cancelled.');
   },
 
   resolveApproval(this: Runner, st: ThreadState, approvalId: string, decision: ApprovalDecision, message?: string): void {

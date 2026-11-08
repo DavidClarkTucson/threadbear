@@ -2644,7 +2644,10 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   `create_thread`, `update_thread`, `schedule_message`, `update_schedule`
   and `move_thread`, whose access lasts past the call) first goes to a
   small-jobs `generate` with `strong` (Opus, no tools), shown the card's
-  title, its whole input, the thread's opening message and its latest one,
+  title, the call's whole input (`wholeInput` on the request, as the card's
+  `input` may have parts cut short), the thread's opening message, Mike's
+  latest message and any newer one not from him, labelled as such (a brief
+  over 12,000 characters means the card goes to Mike),
   under a system prompt that treats all of that as data, each piece between
   `BEGIN <tag>` and `END <tag>` lines with a random tag per call. Only an answer
   whose JSON has `"verdict": "allow"` allows: the call goes ahead with a
@@ -2656,7 +2659,8 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   most) with a non-empty `why`. The thread stays `running` while the
   reviewer thinks, and the call sits in `rt.reviews`: Stop or the turn
   ending answers it `expired` at once, and a message from Mike `deny`
-  (as for a card he wrote instead of answering), with no card. A thread
+  (as for a card he wrote instead of answering), and deleting the thread
+  `expired`, with no card. A thread
   switched out of Auto meanwhile gets the card. Ask, Full access and plans
   are never reviewed.
 - **Review by another lab** (experiment `labReview`, off unless
