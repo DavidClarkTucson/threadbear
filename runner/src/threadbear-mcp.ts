@@ -283,11 +283,16 @@ export function buildThreadbearTools(
     // A whole id is looked up by itself. Listing every thread for it cost a
     // draining runner 2.8 MB from the primary per call, and parallel calls
     // piled up until the primary closed its link (THREADBEAR-F, 7 Nov).
-    if (id.length >= 36) {
-      const t = await Promise.resolve(control.get(id)).catch(() => undefined);
+    // One that isn't here can only be another runner's (no id is longer than
+    // a whole one), so this runner's list isn't fetched for it either: on a
+    // draining runner that's the same list from the primary, per call.
+    const whole = id.length >= 36;
+    if (whole) {
+      // In an async function so a get that throws rather than rejects is caught too.
+      const t = await (async () => control.get(id))().catch(() => undefined);
       if (t?.id === id) return { id };
     }
-    const hits = (await all()).filter((t) => t.id === id || t.id.startsWith(id));
+    const hits = whole ? [] : (await all()).filter((t) => t.id === id || t.id.startsWith(id));
     // A whole id here needs nothing from the backend.
     if (hits.some((t) => t.id === id)) return { id };
     const rt = await others();

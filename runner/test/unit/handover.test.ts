@@ -886,29 +886,7 @@ test('primaryRemote: a draining runner reaches other runners\' threads through t
   const remote = primaryRemote(link);
   const listed = await remote.list();
   assert.equal(listed.threads[0].threadId, 'ba5bb5ec-1');
+  assert.deepEqual(calls[0], ['remoteThreads.list', { forTools: true }], 'the primary waits for the rows, as for its own tools');
   await remote.call('ba5bb5ec-1', 'threads.send', { text: 'hi' });
   assert.deepEqual(calls.at(-1), ['threads.send', { threadId: 'ba5bb5ec-1', text: 'hi' }]);
-});
-
-test('primaryRemote: waits up to 3 s for the primary to hear from the backend, and not again for a minute after a wait runs out', async () => {
-  let answers = 0;
-  let heardAfter = Infinity;
-  const link = {
-    call: async <T,>(): Promise<T> => {
-      answers++;
-      return (answers > heardAfter ? { runners: [{ id: 'cloud', name: 'c', online: true, lastSeenAt: '' }], threads: [] } : {}) as T;
-    },
-  };
-  let t = 0;
-  let slept = 0;
-  const remote = primaryRemote(link, { sleep: async (ms) => { slept += ms; t += ms; }, now: () => t });
-  assert.equal((await remote.list()).runners.length, 0);
-  assert.equal(slept, 3000);
-  slept = 0;
-  await remote.list();
-  assert.equal(slept, 0, 'a wait that ran out is not repeated within the minute');
-  t += 61_000;
-  heardAfter = answers + 2;
-  assert.equal((await remote.list()).runners.length, 1);
-  assert.equal(slept, 400);
 });

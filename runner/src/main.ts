@@ -607,7 +607,13 @@ async function main(): Promise<void> {
   // tb updates (docs/protocol.md, "Mike's releases").
   methods['upstream.status'] = () => ({ upstream: upstream.status() });
   // Other runners' threads, for the Mac app's sidebar (step 6 part 2).
-  methods['remoteThreads.list'] = () => relayRef?.overlay(sync.remoteThreads()) ?? sync.remoteThreads();
+  // `forTools`: a draining runner's agent tools (handover.ts primaryRemote),
+  // given what this runner's own tools get, the wait for the rows included.
+  methods['remoteThreads.list'] = (p) => {
+    const tools = p.forTools === true ? remoteControl() : undefined;
+    if (tools) return tools.list();
+    return relayRef?.overlay(sync.remoteThreads()) ?? sync.remoteThreads();
+  };
   // Every runner's machine figures, for the Mac app's Runners panel.
   methods['runners.stats'] = async () => ({ stats: await sync.runnerStats() });
   // Mike's runner order (docs/protocol.md, "Other runners' threads"): every

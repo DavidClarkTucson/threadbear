@@ -547,29 +547,15 @@ export function primaryElsewhere(link: PrimaryLink, runner: Pick<Runner, 'has'>)
 // primary: a draining runner has stopped its own sync, but its kept turns
 // still have to reach them. On 8 Nov a thread started from the cloud runner
 // finished its turn on a draining M5 runner and couldn't send_message the
-// cloud thread its brief said to report to. The primary lists them as it
-// does for the Mac app (remoteThreads.list), and passes a call for one of
-// them on through its relay (rpc.ts, THREAD_METHODS). Until the primary has
-// heard from the backend the list has no runners; then this waits up to 3 s
-// for it, and once that wait has run out, the next minute's calls don't.
-export function primaryRemote(link: Pick<PrimaryLink, 'call'>, opts: { sleep?: (ms: number) => Promise<void>; now?: () => number } = {}): RemoteControl {
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const now = opts.now ?? Date.now;
-  let waitSpentAt = -Infinity;
-  const ask = async (): Promise<RemoteThreads> => {
-    const r = await link.call<RemoteThreads>('remoteThreads.list', {});
-    return { runners: r?.runners ?? [], threads: r?.threads ?? [], ...(r?.order ? { order: r.order } : {}) };
-  };
+// cloud thread its brief said to report to. The primary lists them as its
+// own tools have them (remoteThreads.list with forTools, which waits there
+// for the backend's rows), and passes a call for one of them on through its
+// relay (rpc.ts, THREAD_METHODS).
+export function primaryRemote(link: Pick<PrimaryLink, 'call'>): RemoteControl {
   return {
     list: async () => {
-      let r = await ask();
-      if (r.runners.length || now() - waitSpentAt < 60_000) return r;
-      for (let waited = 0; !r.runners.length && waited < 3000; waited += 200) {
-        await sleep(200);
-        r = await ask();
-      }
-      if (!r.runners.length) waitSpentAt = now();
-      return r;
+      const r = await link.call<RemoteThreads>('remoteThreads.list', { forTools: true });
+      return { runners: r?.runners ?? [], threads: r?.threads ?? [], ...(r?.order ? { order: r.order } : {}) };
     },
     call: (threadId, method, params) => link.call(method, { threadId, ...params }),
   };
