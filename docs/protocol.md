@@ -4936,6 +4936,13 @@ the mirror back as state. The Mac app doesn't use it.
   removes any whose thread is gone (after the same two minutes) and writes
   again any it has stopped sharing, so a stop or a delete the mirror never
   got (a write lost after it landed, a crash) can't leave a link readable.
+  A thread ever shared has its row written as soon as sync starts, settling
+  or not, and a share change never waits for the settle. Until the mirror's
+  row has the link the thread has now (written, not just sent: a write that
+  failed or was left out doesn't count), none of that thread's messages go
+  up; its whole history goes once the row is there. `share:view` reads the
+  row's share, so a message going first was readable through a link
+  already stopped.
   Each write in flight is tracked as that write's own, so a flush that
   fails after its rows went never forgets another write's row on its way,
   and a row write that fails may have landed, so the next change to that

@@ -93,6 +93,8 @@ export const USAGE_COPY_MS = 10 * 60_000;
 // thread's patch links load a moment after the runner starts, so comparing at
 // once sees every thread with links as changed (464 of Mike's 716, each start).
 export const SETTLE_MS = 20_000;
+// linkSent's "the mirror's link isn't known": never a slug.
+const LINK_UNKNOWN = '?';
 // How often what's been sent is saved (sync-cache.ts), and on stopping.
 const CACHE_SAVE_MS = 30_000;
 const BACKOFF_MIN_MS = 5000;
@@ -1190,6 +1192,18 @@ export class ConvexSync {
   // ones no longer shared, whose pictures the mirror drops; pictures waiting
   // to go up; and what's up already, per thread, as "seq path".
   private sharedNow = new Map<string, boolean>();
+  // The link each thread's row had in the mirror as last written there, by
+  // slug ('?' when a write that may have landed left it unknown; none when
+  // the row isn't shared). A thread whose row is behind (shared there by a
+  // link it isn't shared by here any more) has its messages held back until
+  // the row catches up: share:view reads the mirror's row, and a message
+  // going first was readable through a link Mike had already stopped
+  // (Daybreak, 8 Nov: a Stop sharing in the 20 s settle after a start).
+  private linkSent = new Map<string, string>();
+  // Ones whose messages were held back like that: their whole history goes
+  // again once the row is up (histories()).
+  private heldForRow = new Set<string>();
+  private historiesDue = false;
   private imagesDue = new Set<string>();
   private imagesDrop = new Set<string>();
   private pendingImages: (ShareImage & { threadId: string })[] = [];
@@ -1336,9 +1350,21 @@ export class ConvexSync {
     this.sharesDue = true;
     this.seedFromCache();
     this.unsub = this.deps.runner.onNotification((n) => this.onNotification(n));
+    // A thread ever shared has its row written now, settling or not, and its
+    // messages wait for it: what the mirror has of its link isn't known
+    // until then (a crash between a write landing and the file saying so, a
+    // stop while sync was off), and the file only holds a digest.
+    this.linkSent.clear();
+    for (const t of this.deps.runner.list(ALL)) {
+      if (!t.share) continue;
+      this.linkSent.set(t.id, LINK_UNKNOWN);
+      this.sent.delete(t.id);
+      this.lastWrite.delete(t.id);
+    }
     if (this.seeded) {
       this.settling = true;
       this.settleTimer = this.deps.clock.setTimeout(() => this.settled(), SETTLE_MS);
+      for (const t of this.deps.runner.list(ALL)) if (t.share) this.mark(t, true);
     } else for (const t of this.deps.runner.list(ALL)) this.mark(t);
     this.lists = {
       projects: this.deps.runner.listProjects?.(),
@@ -2095,7 +2121,9 @@ export class ConvexSync {
     // settled() looks at every thread, as they are by then. Not a new one: its
     // row has to go up before it needs Mike, or no push ever fires for it (a
     // push is needsYou going from false to true on a row that's there).
-    if (this.settling && !now_ && this.sent.has(t.id)) return;
+    // Nor one ever shared: a stop or a new link mustn't wait behind the
+    // settle while the thread's new messages go up (linkSent).
+    if (this.settling && !now_ && this.sent.has(t.id) && !t.share && !this.linkSent.has(t.id)) return;
     // Its folder's .env files are what a thread's words are likely to quote.
     if (!t.archivedAt) this.scrubber.known.noteFolder(t.cwd);
     // A thread that isn't waiting any more lost its approval some other
@@ -2207,11 +2235,40 @@ export class ConvexSync {
     }
   }
 
+  // A write of this row may have landed: if it carried a link, or the row
+  // had one, which link the mirror has isn't known till the next write.
+  private linkUnsure(threadId: string, row?: { share?: { access: string } }): void {
+    if (row?.share?.access === 'link' || this.linkSent.has(threadId)) this.linkSent.set(threadId, LINK_UNKNOWN);
+  }
+
+  // The mirror's row shared by a link this thread isn't shared by here (or
+  // may be): its messages wait. One that isn't here any more waits too, for
+  // its row's removal.
+  private rowBehind(threadId: string): boolean {
+    const was = this.linkSent.get(threadId);
+    if (was === undefined) return false;
+    let t: ThreadSummary;
+    try {
+      t = this.deps.runner.get(threadId);
+    } catch {
+      return true;
+    }
+    return !(t.share?.access === 'link' && t.share.slug === was);
+  }
+
   private sharesCheckDue(): boolean {
     return this.sharesDue && !this.settling && (this.backendApiVersion ?? 0) >= SHARED_THREADS_API_VERSION;
   }
 
   private recordSent(row: ThreadDoc): void {
+    // Written, so the mirror's row has this link (or none): replace() takes
+    // out a share the row leaves out.
+    if (row.share?.access === 'link') this.linkSent.set(row.threadId, row.share.slug);
+    else this.linkSent.delete(row.threadId);
+    if (this.heldForRow.has(row.threadId) && !this.rowBehind(row.threadId)) {
+      this.heldForRow.delete(row.threadId);
+      this.historiesDue = true;
+    }
     this.sent.set(row.threadId, digest(JSON.stringify(row)));
     this.lastWrite.set(row.threadId, { at: this.deps.clock.now(), steady: steadyDigest(row) });
     this.noteSent();
@@ -2339,12 +2396,13 @@ export class ConvexSync {
   private async writeRowNow(threadId: string): Promise<void> {
     const me = Symbol('writeRowNow');
     let failed = false;
+    let row: ThreadDoc | undefined;
     const done = await this.rowTurn();
     try {
       this.mark(this.deps.runner.get(threadId), true);
       const doc = this.dirty.get(threadId);
       if (!doc) return;
-      const row = forBackend(doc, this.backendApiVersion ?? 0, this.deps.clock.now());
+      row = forBackend(doc, this.backendApiVersion ?? 0, this.deps.clock.now());
       // As a flush's batch is: a change while it's on its way is weighed
       // against this row, not the one before, or one back to that (a share
       // stopped again at once) was dropped as nothing new.
@@ -2353,12 +2411,14 @@ export class ConvexSync {
       this.recordSent(row);
       if (this.dirty.get(threadId) === doc) this.dirty.delete(threadId);
       this.written++;
+      if (this.historiesDue) this.scheduleFlush();
     } catch (e) {
       // It may have landed all the same (an answer lost on the way back), so
       // what the mirror has is no longer known: the next mark writes, even a
       // change back to what was sent before (Stop sharing after a link).
       this.sent.delete(threadId);
       this.lastWrite.delete(threadId);
+      this.linkUnsure(threadId, row);
       failed = true;
       this.deps.log.debug('new thread row not written yet', { threadId, error: String(e) });
     } finally {
@@ -2576,7 +2636,7 @@ export class ConvexSync {
     // Project pictures waiting (picturesDue) count too: one an upload
     // allowance held back goes once its pause is over, idle or not.
     const picturesWaiting = this.picturesDue && (this.backendApiVersion ?? 0) >= ICONS_API_VERSION && !this.picturesPaused();
-    if (!picturesWaiting && !this.closedRetryDue && !this.bodies.length && !this.dirty.size && !this.removed.size && !this.messages.length && !this.dirtyLists.size && !this.full && !this.catchUpDue && !this.imagesDue.size && !this.imagesDrop.size && !this.pendingImages.length && !this.replyDue.size && !this.pendingReplyImages.length && !this.sharesCheckDue()) return;
+    if (!picturesWaiting && !this.closedRetryDue && !this.bodies.length && !this.dirty.size && !this.removed.size && !this.messages.length && !this.dirtyLists.size && !this.full && !this.catchUpDue && !this.imagesDue.size && !this.imagesDrop.size && !this.pendingImages.length && !this.replyDue.size && !this.pendingReplyImages.length && !this.historiesDue && !this.sharesCheckDue()) return;
     const now = this.deps.clock.now();
     let delay = Math.max(0, this.lastFlushAt + SYNC_COALESCE_MS - now);
     if (this.retryAt !== undefined) delay = Math.max(delay, this.retryAt - now);
@@ -2643,6 +2703,8 @@ export class ConvexSync {
           this.removedFromFile.delete(id);
           // Its messages went with it: one that turns up again gets its whole history.
           this.filledThreads().delete(id);
+          this.linkSent.delete(id);
+          this.heldForRow.delete(id);
         }
         this.noteSent();
       }
@@ -2687,17 +2749,26 @@ export class ConvexSync {
       }
       // What it finds is written with the next flush (scheduleFlush, below).
       if (this.sharesCheckDue()) await this.reconcileShares(key);
+      this.historiesDue = false;
       const { docs: history, threadIds: filling } = this.histories();
       // A new thread's first messages are both live and its history: once each.
+      // None for a thread whose row is still shared by a link it isn't any
+      // more (rowBehind): its whole history goes once the row is up.
       const seen = new Set<string>();
+      const behind = new Set<string>();
       messages = [...history, ...messages].filter((m) => {
         const k = `${m.threadId}:${m.seq}`;
         if (seen.has(k)) return false;
         seen.add(k);
+        if (behind.has(m.threadId) || this.rowBehind(m.threadId)) {
+          behind.add(m.threadId);
+          return false;
+        }
         return true;
       });
+      this.holdForRow([...behind]);
       const notFilled = await this.appendMessages(messages);
-      this.markFilled(filling.filter((id) => !notFilled.has(id)));
+      this.markFilled(filling.filter((id) => !notFilled.has(id) && !behind.has(id)));
       // A message left out of a closed id: its whole history goes again once
       // it opens (histories()), as messages after it may have gone up, and
       // catching up from the newest would never fill the gap.
@@ -2727,6 +2798,7 @@ export class ConvexSync {
       for (const id of unsure) {
         this.sent.delete(id);
         this.lastWrite.delete(id);
+        this.linkUnsure(id, docs.find((d) => d.threadId === id));
       }
       for (const d of docs) {
         try {
@@ -3101,7 +3173,7 @@ export class ConvexSync {
     const docs: MessageDoc[] = [];
     const threadIds: string[] = [];
     for (const t of this.deps.runner.list(ALL)) {
-      if (filled.has(t.id) || this.closedHistories.has(t.id)) continue;
+      if (filled.has(t.id) || this.closedHistories.has(t.id) || this.heldForRow.has(t.id)) continue;
       const got = this.messagesAfter(t, 0, true);
       if (!got) continue;
       docs.push(...got);
@@ -3168,6 +3240,20 @@ export class ConvexSync {
     const filled = this.filledThreads();
     for (const id of threadIds) filled.add(id);
     this.saveFilled();
+  }
+
+  // Messages held back for a row still on its way (rowBehind): the thread's
+  // whole history goes again once it's up, rather than keeping them here.
+  private holdForRow(threadIds: string[]): void {
+    if (!threadIds.length) return;
+    const filled = this.filledThreads();
+    let had = false;
+    for (const id of threadIds) {
+      this.heldForRow.add(id);
+      if (filled.delete(id)) had = true;
+    }
+    if (had) this.saveFilled();
+    this.deps.log.info('convex sync: messages wait for their thread\'s share link to be written', { threads: threadIds.length });
   }
 
   private markUnfilled(threadIds: string[]): void {
