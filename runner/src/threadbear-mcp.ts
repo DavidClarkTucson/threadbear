@@ -15,7 +15,7 @@ import type { ToolApprovalAnswer } from './adapters/types.ts';
 import { cardInput, tooLongForCard } from './tools.ts';
 import { usageLine } from './usage.ts';
 import { findPool, poolLine } from './pools.ts';
-import { AGENT_MESSAGE_PREFIX, EFFORT_LEVELS, MOVE_MESSAGE_PREFIX, sentByAgent } from './protocol.ts';
+import { AGENT_MESSAGE_PREFIX, EFFORT_LEVELS, ErrorCode, MOVE_MESSAGE_PREFIX, RpcError, sentByAgent } from './protocol.ts';
 import type { Scheduler } from './schedules.ts';
 import { MAX_CHECK_TIMEOUT_SECS } from './schedule-check.ts';
 import { checkDigest, type CheckCard } from './patch-trust.ts';
@@ -288,8 +288,13 @@ export function buildThreadbearTools(
     // draining runner that's the same list from the primary, per call.
     const whole = id.length >= 36;
     if (whole) {
-      // In an async function so a get that throws rather than rejects is caught too.
-      const t = await (async () => control.get(id))().catch(() => undefined);
+      // In an async function so a get that throws rather than rejects is caught
+      // too. Only "not found" means look elsewhere: anything else (the
+      // primary's link failing) says so, rather than "No thread".
+      const t = await (async () => control.get(id))().catch((e: unknown) => {
+        if (e instanceof RpcError && e.code === ErrorCode.threadNotFound) return undefined;
+        throw e;
+      });
       if (t?.id === id) return { id };
     }
     const hits = whole ? [] : (await all()).filter((t) => t.id === id || t.id.startsWith(id));

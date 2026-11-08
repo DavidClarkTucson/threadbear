@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { ErrorCode, RpcError } from '../../src/protocol.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1777,4 +1778,21 @@ test("another runner's thread by its whole id doesn't list every thread here", a
   assert.equal(Boolean(r.isError), false, r.content[0].text);
   assert.match(r.content[0].text, /Sent to ba5bb5ec .* on Cloud/);
   assert.equal(lists, 0);
+});
+
+test('a whole id whose lookup fails for another reason says so, not "No thread"', async () => {
+  const h = makeHarness();
+  const { thread: me } = start(h, 'Report back');
+  const other = start(h, 'Here all along').thread;
+  const flaky = new Proxy(h.runner, {
+    get(target, prop, recv) {
+      if (prop === 'get') return (id: string) => (id === other.id ? Promise.reject(new RpcError(ErrorCode.busy, "The other runner couldn't be reached; try again in a moment.")) : target.get(id));
+      const v = Reflect.get(target, prop, recv);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+  const tools = buildThreadbearTools(flaky, me.id, () => Date.parse('2026-10-26T12:00:00Z'), undefined, undefined, undefined, { remote: () => farRelay().control, sleep: async () => undefined });
+  const r = (await tools.find((x) => x.name === 'send_message')!.handler({ threadId: other.id, text: 'hi' } as never, {})) as { content: { text: string }[]; isError?: boolean };
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /try again in a moment/);
 });
