@@ -1978,8 +1978,8 @@ second after Allow, which looked like the same card coming back (Mike,
   as both come from the runner that owns the thread, which may be one
   the app doesn't trust with this Mac. For the same reason one approval
   id is one card: an `approval.requested` under an id the app already
-  shows replaces that card while it waits, and changes nothing once it's
-  answered.
+  shows replaces that card while it waits, unless it's a start request,
+  and changes nothing once it's answered.
 
 ## Plan first
 

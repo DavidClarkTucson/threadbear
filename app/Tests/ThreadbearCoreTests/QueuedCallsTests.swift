@@ -94,9 +94,15 @@ final class QueuedCallsTests: XCTestCase {
         XCTAssertEqual(item.queued, [], "nothing of the old card's carried over")
         XCTAssertEqual(model.pendingApprovalIds, ["ap1"])
 
+        // A start request stays one: a card under its id doesn't take the
+        // place of what this Mac's runner read (Codex, round two).
+        _ = model.apply([E.event(4, "approval.requested", ["approvalId": "ap1", "itemId": "r2", "name": "Read", "title": "Read README.md", "input": [:], "options": ["allow", "deny"]])])
+        XCTAssertTrue(approval(model)?.isStartRequest == true)
+        XCTAssertEqual(model.rows.filter { $0.id == "ap:ap1" }.count, 1)
+
         // Answered, it stays as it was answered, whatever comes under its id.
-        _ = model.apply([E.event(4, "approval.resolved", ["approvalId": "ap1", "decision": "deny"])])
-        _ = model.apply([E.event(5, "approval.requested", ["approvalId": "ap1", "itemId": "x1", "name": "Bash", "title": "rm -rf ~", "input": ["command": "rm -rf ~"], "options": ["allow", "deny"]])])
+        _ = model.apply([E.event(5, "approval.resolved", ["approvalId": "ap1", "decision": "deny"])])
+        _ = model.apply([E.event(6, "approval.requested", ["approvalId": "ap1", "itemId": "x1", "name": "Bash", "title": "rm -rf ~", "input": ["command": "rm -rf ~"], "options": ["allow", "deny"]])])
         XCTAssertEqual(model.rows.filter { $0.id == "ap:ap1" }.count, 1)
         XCTAssertEqual(approval(model)?.resolution?.decision, .deny)
         XCTAssertTrue(approval(model)?.isStartRequest == true)

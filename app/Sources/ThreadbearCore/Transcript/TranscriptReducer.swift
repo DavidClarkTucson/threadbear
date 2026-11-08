@@ -832,10 +832,12 @@ public struct TranscriptModel: Sendable {
             // request under the same id, left two cards up, and Allow on the
             // harmless one answered the start request (by id) with the
             // fingerprint of what the other card read (Codex's review, 8
-            // Nov). The newer request takes the card's place instead, and a
-            // card already answered stays as it was.
+            // Nov). The newer request takes the card's place instead. A card
+            // already answered stays as it was, and so does a start request:
+            // it shows what this Mac's runner read, so nothing the asking
+            // runner sends under its id takes its place (Codex, round two).
             if let index = itemIndex[id], index < items.count {
-                guard case .approval(let old) = items[index].content, old.resolution == nil else { break }
+                guard case .approval(let old) = items[index].content, old.resolution == nil, !old.isStartRequest else { break }
                 let replacement = ApprovalItem(request: request, root: root, toolShown: shown, startRequest: startRequests[request.approvalId])
                 update(id) { content in content = .approval(replacement) }
                 tailDirty = true
