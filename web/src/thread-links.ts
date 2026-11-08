@@ -69,20 +69,71 @@ export function readLink(href: string): LinkTarget | undefined {
 // turn with the words in it, as the Mac picks it. Undefined when none has,
 // which a step's one line makes likelier than on the Mac (a command with a
 // description comes as only the description).
-export function findStep(quote: string, seq: number, rows: Row[]): number | undefined {
+//
+// Every work link in every message on the page calls this while rendering, so
+// a transcript (whose words a model, and so a cloned repo, can steer) must not
+// be able to make it slow (Daybreak, 8 Nov: a few crafted rows froze the page
+// for 15 seconds). Each row's text is made searchable once, answers are
+// remembered, and one page of rows gets SCAN_BUDGET characters of searching
+// in all; past that a link reads as plain text, as one that finds nothing does.
+export function findStep(quote: string, seq: number, rows: readonly Row[]): number | undefined {
   const q = normal(quote);
   if (!q) return undefined;
-  for (let i = rows.findIndex((r) => r.seq === seq) - 1; i >= 0; i--) {
+  const page = pageFor(rows);
+  const key = `${seq}\n${q}`;
+  if (page.found.has(key)) return page.found.get(key);
+  let step: number | undefined;
+  const from = page.index.get(seq);
+  for (let i = (from ?? 0) - 1; i >= 0; i--) {
     const row = rows[i]!;
-    if (row.role === 'user') return undefined;
-    if (row.role === 'tool' ? normal(row.text).includes(q) : mentions(row, q)) return row.seq;
+    if (row.role === 'user') break;
+    const text = searchable(row);
+    if (text === undefined) continue;
+    page.left -= text.length;
+    if (page.left < 0) break;
+    if (text.includes(q)) {
+      step = row.seq;
+      break;
+    }
   }
-  return undefined;
+  page.found.set(key, step);
+  return step;
 }
 
-// A line that links to a step isn't the step, nor is the summary.
-function mentions(row: Row, q: string): boolean {
-  return !row.summary && normal(row.text.replace(/\]\(work:[^)\n]*\)/g, ']')).includes(q);
+export const SCAN_BUDGET = 2_000_000;
+
+type Page = { index: Map<number, number>; found: Map<string, number | undefined>; left: number };
+const pages = new WeakMap<readonly Row[], Page>();
+const texts = new WeakMap<Row, string | null>();
+
+// One page of rows (the same array while it's on screen) and what's been
+// worked out about it.
+function pageFor(rows: readonly Row[]): Page {
+  let page = pages.get(rows);
+  if (!page) {
+    page = { index: new Map(rows.map((r, i) => [r.seq, i])), found: new Map(), left: SCAN_BUDGET };
+    pages.set(rows, page);
+  }
+  return page;
+}
+
+// What a row's words are searched as, or undefined for a summary: a line that
+// links to a step isn't the step, nor is the summary.
+function searchable(row: Row): string | undefined {
+  let text = texts.get(row);
+  if (text === undefined) {
+    text = row.role === 'assistant' && row.summary ? null : normal(row.role === 'tool' ? row.text : withoutWorkLinks(row.text));
+    texts.set(row, text);
+  }
+  return text ?? undefined;
+}
+
+// `](work:...)` taken out of a message's own text. A destination with no `)`
+// before the line ends is left as it is, and the match takes the rest of that
+// line with it, so nothing is scanned twice: `/\]\(work:[^)\n]*\)/g` tried
+// again from every later `](work:` on the line, quadratic in its length.
+function withoutWorkLinks(text: string): string {
+  return text.replace(/\]\(work:[^)\n]*(\))?/g, (whole, closed: string | undefined) => (closed ? ']' : whole));
 }
 
 // Lowercase, one space, and home as the runner's step lines write it, so

@@ -1,0 +1,176 @@
+// ios/scripts/appstore-upload.sh only builds and trusts archives in folders that are this
+// account's alone (Daybreak, 8 Nov: another account could make the /tmp folder first and plant an
+// archive the upload then signed and sent). The checks are in ios/scripts/private-dir.mjs; the
+// script runs here with a fake xcodebuild that records what it was asked to do.
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+// @ts-expect-error plain .mjs without types
+import { checkPrivateDir, checkPrivateTree } from '../../../ios/scripts/private-dir.mjs';
+
+const repo = resolve(fileURLToPath(import.meta.url), '../../../..');
+const script = join(repo, 'ios/scripts/appstore-upload.sh');
+const base = mkdtempSync(join(tmpdir(), 'tb-appstore-'));
+after(() => rmSync(base, { recursive: true, force: true }));
+let n = 0;
+const fresh = () => {
+  const d = join(base, `case-${n++}`);
+  mkdirSync(d, { mode: 0o700 });
+  return d;
+};
+const uid = process.getuid!();
+
+test('makes a missing folder for this account only', () => {
+  const dir = join(fresh(), 'a/b');
+  checkPrivateDir(dir);
+  assert.ok(existsSync(dir));
+});
+
+test('refuses a folder another account made first', () => {
+  // The attack: someone else's uid owns the folder (or one above it) before the operator runs.
+  const dir = join(fresh(), 'out');
+  mkdirSync(dir);
+  assert.throws(() => checkPrivateDir(dir, { uid: uid + 1 }), /another account/);
+  assert.throws(() => checkPrivateDir(join(dir, 'build'), { uid: uid + 1 }), /another account/);
+});
+
+test('refuses a folder, or one above it, that others can write', () => {
+  const parent = join(fresh(), 'shared');
+  mkdirSync(parent);
+  chmodSync(parent, 0o777);
+  assert.throws(() => checkPrivateDir(parent), /written by other accounts/);
+  assert.throws(() => checkPrivateDir(join(parent, 'out')), /written by other accounts/);
+  // Sticky isn't enough unless root owns it (as /tmp): a sticky folder of ours can still be
+  // written by others, and the folder itself must never be.
+  chmodSync(parent, 0o1777);
+  assert.throws(() => checkPrivateDir(join(parent, 'out')), /written by other accounts/);
+});
+
+test('checks where a symlink leads, not just the link', () => {
+  const root = fresh();
+  const shared = join(root, 'shared');
+  mkdirSync(shared);
+  chmodSync(shared, 0o777);
+  symlinkSync(shared, join(root, 'link'));
+  assert.throws(() => checkPrivateDir(join(root, 'link')), /written by other accounts/);
+});
+
+test('refuses an archive with something in it that others could have written', () => {
+  const archive = join(fresh(), 'Threadbear.xcarchive');
+  mkdirSync(join(archive, 'Products'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(archive, 'Info.plist'), 'x', { mode: 0o600 });
+  checkPrivateTree(archive);
+  assert.throws(() => checkPrivateTree(archive, { uid: uid + 1 }), /another account/);
+  chmodSync(join(archive, 'Info.plist'), 0o666);
+  assert.throws(() => checkPrivateTree(archive), /written by other accounts/);
+});
+
+// The script itself: zsh, PlistBuddy and strings, so on a Mac only.
+const mac = process.platform === 'darwin' && existsSync('/usr/libexec/PlistBuddy');
+
+function setup() {
+  const root = fresh();
+  const bin = join(root, 'bin');
+  const keys = join(root, 'keys');
+  mkdirSync(bin);
+  mkdirSync(keys);
+  writeFileSync(join(keys, 'AuthKey_TESTKEY.p8'), 'not a key');
+  const calls = join(root, 'calls.log');
+  // Records each call; archiving fails (so a test stops there), and so does exporting.
+  writeFileSync(join(bin, 'xcodebuild'), `#!/bin/sh\necho "$@" >> '${calls}'\nexit 1\n`, { mode: 0o755 });
+  return { root, bin, keys, calls };
+}
+
+// What an attacker would plant: an archive that passes every content check in the script.
+function plant(out: string, finished: boolean) {
+  const app = join(out, 'Threadbear.xcarchive/Products/Applications/Threadbear.app');
+  mkdirSync(app, { recursive: true });
+  const plist = (file: string, dict: string) =>
+    writeFileSync(file, `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>${dict}</dict></plist>`);
+  plist(
+    join(out, 'Threadbear.xcarchive/Info.plist'),
+    '<key>ApplicationProperties</key><dict><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>7</string></dict>',
+  );
+  plist(join(app, 'Info.plist'), '<key>ThreadbearAPSEnvironment</key><string>production</string>');
+  writeFileSync(join(app, 'Threadbear'), 'planted');
+  writeFileSync(join(app, 'PrivacyInfo.xcprivacy'), '');
+  if (finished) writeFileSync(join(out, 'archived.txt'), 'archived from commit abc');
+}
+
+function run(env: Record<string, string>, s: ReturnType<typeof setup>) {
+  const r = spawnSync('/bin/zsh', [script], {
+    env: { PATH: `${s.bin}:/usr/bin:/bin:/usr/sbin:${process.env.PATH}`, HOME: s.root, KEY_DIR: s.keys, ASC_KEY_ID: 'TESTKEY', DD: join(s.root, 'dd'), ...env },
+    encoding: 'utf8',
+  });
+  const calls = existsSync(s.calls) ? readFileSync(s.calls, 'utf8') : '';
+  return { ...r, calls };
+}
+
+test('an archive already in OUT is built afresh unless BUILD_NUMBER asks for it', { skip: !mac && 'needs macOS' }, () => {
+  const s = setup();
+  const out = join(s.root, 'out');
+  mkdirSync(out, { mode: 0o700 });
+  plant(out, true);
+  const r = run({ OUT: out }, s);
+  assert.notEqual(r.status, 0);
+  assert.match(r.calls, /^archive /m, r.stdout + r.stderr);
+  assert.doesNotMatch(r.calls, /-exportArchive/);
+  assert.doesNotMatch(r.stdout, /Using the archive/);
+});
+
+test('refuses to reuse from a folder others can write', { skip: !mac && 'needs macOS' }, () => {
+  const s = setup();
+  const out = join(s.root, 'out');
+  mkdirSync(out);
+  plant(out, true);
+  chmodSync(out, 0o777);
+  const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /written by other accounts/);
+  assert.equal(r.calls, '');
+});
+
+test('refuses to reuse an archive the script never finished', { skip: !mac && 'needs macOS' }, () => {
+  const s = setup();
+  const out = join(s.root, 'out');
+  mkdirSync(out, { mode: 0o700 });
+  plant(out, false);
+  const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /wasn't finished by this script/);
+  assert.equal(r.calls, '');
+});
+
+test('refuses to reuse an archive with a file others can write', { skip: !mac && 'needs macOS' }, () => {
+  const s = setup();
+  const out = join(s.root, 'out');
+  mkdirSync(out, { mode: 0o700 });
+  plant(out, true);
+  chmodSync(join(out, 'Threadbear.xcarchive/Products/Applications/Threadbear.app/Threadbear'), 0o666);
+  const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /written by other accounts/);
+  assert.equal(r.calls, '');
+});
+
+test('reuses its own finished archive when BUILD_NUMBER names it', { skip: !mac && 'needs macOS' }, () => {
+  const s = setup();
+  const out = join(s.root, 'out');
+  mkdirSync(out, { mode: 0o700 });
+  plant(out, true);
+  const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
+  assert.match(r.stdout, /Using the archive already at/);
+  assert.doesNotMatch(r.calls, /^archive /m);
+  assert.match(r.calls, /-exportArchive/);
+});
+
+test('the default folders are private ones under the home folder', { skip: !mac && 'needs macOS' }, () => {
+  const s = setup();
+  const r = run({ DD: '' }, s);
+  assert.match(r.calls, new RegExp(`-archivePath ${s.root}/Library/Caches/Threadbear/ios-builds/appstore/\\d{10}/Threadbear.xcarchive`));
+  assert.match(r.calls, new RegExp(`-derivedDataPath ${s.root}/Library/Caches/Threadbear/ios-builds/dd-appstore`));
+});
