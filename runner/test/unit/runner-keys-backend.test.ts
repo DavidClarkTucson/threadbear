@@ -1047,21 +1047,61 @@ test("codex 8 Nov: growing a runner key's oldest row at its budget evicts the ne
   assert.ok(!left.some((m) => m.seq === 2), 'the next oldest made room');
 });
 
-test("codex 8 Nov: a runner key's message count left short is put right by the recount", async () => {
+test("codex 8 Nov: a runner key's message count left short is put right once, from its heartbeat, and never lowered", async () => {
   const s = await setup();
   await s.bruce.upsert(thread('B', BRUCE));
   for (const seq of [1, 2, 3]) await s.bruce.append('B', `m${seq}`, seq);
   // As the old backend left it: rows grown without counting.
   for (const m of s.rows('messages')) await s.ctx.db.patch(m._id, { buttons: bigButtons() });
-  const counted = () => s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.messageBytes;
-  const stored = s.rows('messages').filter((m) => m.runnerId === BRUCE).reduce((n, m) => n + storedOf(m), 0);
-  assert.ok(counted() < stored);
-  // The cron's run schedules one per runner key; each pages through its rows.
-  const runs: Record<string, unknown>[] = [{}];
-  while (runs.length) {
-    const before = s.scheduled.length;
-    await call(s.ctx, sync.recountMessageBytes, runs.shift()!);
-    for (const j of s.scheduled.slice(before)) runs.push((j as { args: Record<string, unknown> }).args);
-  }
-  assert.equal(counted(), stored);
+  const usage = () => s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!;
+  const stored = () => s.rows('messages').filter((m) => m.runnerId === BRUCE).reduce((n, m) => n + storedOf(m), 0);
+  assert.ok(usage().messageBytes < stored());
+  const drain = async () => {
+    const runs = s.scheduled.splice(0) as { fn: string; args: Record<string, unknown> }[];
+    while (runs.length) {
+      const j = runs.shift()!;
+      if (!j.fn.includes('recountMessageBytes')) continue;
+      await call(s.ctx, sync.recountMessageBytes, j.args);
+      runs.push(...(s.scheduled.splice(0) as { fn: string; args: Record<string, unknown> }[]));
+    }
+  };
+  const hb = () => call(s.ctx, sync.heartbeat, { key: BRUCE_KEY, runner: { runnerId: BRUCE, name: 'bruce', version: 'v', startedAt: 'x', draining: false, threadCount: 1 } });
+  await hb();
+  await drain();
+  assert.equal(usage().messageBytes, stored(), 'raised to what is stored');
+  assert.equal(usage().messagesRecounted, true);
+  // Once: the next heartbeat starts nothing.
+  await hb();
+  assert.ok(!(s.scheduled as { fn: string }[]).some((j) => j.fn.includes('recountMessageBytes')));
+  // A sum gone stale (a row grown while the pages were read) never lowers a right count.
+  await s.ctx.db.patch(usage()._id, { messageBytes: stored() + 5_000 });
+  await call(s.ctx, sync.recountMessageBytes, { runnerId: BRUCE, cursor: null, sum: 0 });
+  assert.equal(usage().messageBytes, stored() + 5_000);
+});
+
+test("codex 8 Nov: a row sent again can't end up over a row's cap, its old text with new buttons", async () => {
+  const s = await setup();
+  await s.bruce.upsert(thread('B', BRUCE));
+  await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: [{ threadId: 'B', seq: 1, role: 'assistant', text: 'x'.repeat(10_000), at: 'a' }] });
+  const r = await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: [{ threadId: 'B', seq: 1, role: 'assistant', text: 'short', at: 'a', buttons: bigButtons() }] });
+  assert.deepEqual(r.skipped, ['B:1']);
+  const row = s.rows('messages').find((m) => m.threadId === 'B')!;
+  assert.ok(!row.buttons?.length);
+  assert.ok(storedOf(row) <= 12_288 + 64);
+});
+
+test('codex 8 Nov: growing many old rows at the budget reads about as many rows as it evicts', async () => {
+  const s = await setup();
+  const { RUNNER_KEY_CAPS: CAP } = sync as { RUNNER_KEY_CAPS: { messageBytes: number } };
+  await s.bruce.upsert(thread('B', BRUCE));
+  const row = (seq: number, buttons?: unknown[]) => ({ threadId: 'B', seq, role: 'assistant', text: `m${seq}`.padEnd(1_000, '.'), at: 'a', ...(buttons ? { buttons } : {}) });
+  for (let i = 0; i < 300; i += 50) await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: Array.from({ length: 50 }, (_, j) => row(i + j + 1)) });
+  const usage = s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!;
+  await s.ctx.db.patch(usage._id, { messageBytes: CAP.messageBytes });
+  const before = s.reads();
+  await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: Array.from({ length: 50 }, (_, j) => row(j + 1, bigButtons())) });
+  const read = s.reads() - before;
+  // Each grown row: its own lookup, the storage row, and a row or two per
+  // eviction; passing over every grown row again for each eviction read 453.
+  assert.ok(read < 350, `read ${read} rows`);
 });

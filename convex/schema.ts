@@ -316,6 +316,8 @@ export default defineSchema({
     messageBytes: v.optional(v.number()),
     // Its tool output's bytes (eventBodies), against CAP.bodyBytes.
     bodyBytes: v.optional(v.number()),
+    // messageBytes counted again from its rows (sync.ts recountMessageBytes), once.
+    messagesRecounted: v.optional(v.boolean()),
     pushMinute: v.optional(v.number()),
     pushes: v.optional(v.number()),
   }).index('by_runnerId', ['runnerId']),

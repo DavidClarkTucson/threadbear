@@ -2243,6 +2243,17 @@ export class ConvexSync {
     }
   }
 
+  // A row carrying a link is on its way: from now the mirror may have that
+  // link (or the one it had), whatever the answer says later, so a stop
+  // straight after holds the thread's messages back even before it's
+  // answered (Codex's review, 8 Nov: a page asked for meanwhile went).
+  private linkOnItsWay(row: ThreadDoc): void {
+    if (row.share?.access !== 'link') return;
+    const was = this.linkSent.get(row.threadId);
+    if (was === undefined) this.linkSent.set(row.threadId, row.share.slug);
+    else if (was !== row.share.slug) this.linkSent.set(row.threadId, LINK_UNKNOWN);
+  }
+
   // A write of this row may have landed: if it carried a link, or the row
   // had one, which link the mirror has isn't known till the next write.
   private linkUnsure(threadId: string, row?: { share?: { access: string } }): void {
@@ -2415,6 +2426,7 @@ export class ConvexSync {
       // against this row, not the one before, or one back to that (a share
       // stopped again at once) was dropped as nothing new.
       this.writing.set(threadId, { digest: digest(JSON.stringify(row)), by: me });
+      this.linkOnItsWay(row);
       const left = this.noteSkipped('sync:upsertThreads', await this.post('mutation', 'sync:upsertThreads', { key: this.deps.key, threads: [row] }));
       // Left out (over what a runner key may write, its id's rows still
       // going): not written, so not what the mirror has (linkSent stays as
@@ -2692,7 +2704,10 @@ export class ConvexSync {
       const v = this.backendApiVersion ?? 0;
       for (let i = 0; i < docs.length; i += SYNC_BATCH) {
         const batch = docs.slice(i, i + SYNC_BATCH).map((d) => forBackend(d, v, this.deps.clock.now()));
-        for (const d of batch) this.writing.set(d.threadId, { digest: digest(JSON.stringify(d)), by: me });
+        for (const d of batch) {
+          this.writing.set(d.threadId, { digest: digest(JSON.stringify(d)), by: me });
+          this.linkOnItsWay(d);
+        }
         unsure = batch.map((d) => d.threadId);
         const left = await this.writeRows('sync:upsertThreads', 'threads', batch, (d) => d.threadId, { key });
         unsure = [];

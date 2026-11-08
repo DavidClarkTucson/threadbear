@@ -4946,7 +4946,8 @@ the mirror back as state. The Mac app doesn't use it.
   A thread ever shared has its row written as soon as sync starts, settling
   or not, and a share change never waits for the settle. Until the mirror's
   row has the link the thread has now (written, not just sent: a write that
-  failed or was left out doesn't count), none of that thread's messages go
+  failed or was left out doesn't count, and a row with a link counts as
+  there from when it's sent), none of that thread's messages go
   up, by any path (a phone's page of earlier ones included), and its row is
   tried again every minute; its whole history goes once the row is there.
   `share:view` reads the
@@ -5442,8 +5443,10 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
     write; one there's still no room for waits (`skipped`) and is sent
     again, so a new thread's are never the ones lost. A row sent again
     that grows (its buttons) is counted the same way (never evicting
-    itself), and gives the bytes back when it shrinks. Each runner key's
-    count is checked against its rows once a day (`recountMessageBytes`).
+    itself), must still fit a row's 12 KB whole, and gives the bytes back
+    when it shrinks. Each runner key's count is checked against its rows
+    once, started by its heartbeat (`recountMessageBytes`), and only ever
+    raised by that.
   - A waiting question keeps exactly what its answer is matched on (its
     text, header and option labels); only option descriptions are cut, and
     if it still doesn't fit the card says to answer it on the Mac.

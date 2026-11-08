@@ -1066,6 +1066,15 @@ export const heartbeat = mutation({
     await seedHeads(ctx);
     // 7 Nov 2026: rows from before the backend's limits, once (limitsMigration).
     await startLimitsMigration(ctx);
+    // 8 Nov 2026: a runner key's message bytes counted again, once
+    // (recountMessageBytes). Marked before it runs, like linkProjects.
+    if (!caller.owner) {
+      const usage = await ctx.db.query('runnerStorage').withIndex('by_runnerId', (q) => q.eq('runnerId', runner.runnerId)).unique();
+      if (usage && !usage.messagesRecounted) {
+        await ctx.db.patch(usage._id, { messagesRecounted: true });
+        await ctx.scheduler.runAfter(0, internal.sync.recountMessageBytes, { runnerId: runner.runnerId, cursor: null, sum: 0 });
+      }
+    }
     const failing = caller.owner ? pushFailing(await ctx.db.query('pushHealth').first(), Date.now()) : null;
     return { apiVersion: API_VERSION, ...(existing ? {} : { firstSeen: true }), ...(caller.owner && process.env.RUNNER_KEY_NEXT ? { ownerKeyRotating: true } : {}), ...(caller.owner && pushOff(process.env) ? { pushOff: true } : {}), ...(failing ? { pushFailing: failing } : {}) };
   },
@@ -1361,10 +1370,15 @@ export const appendMessages = mutation({
         // small, then again with 20 buttons each, stored past the budget
         // while the count stayed where the small ones left it).
         if (!caller.owner) {
+          // Whole, as it would be stored, within a row's cap: its old text
+          // with new buttons can be over it though each fit as sent.
+          if (storedBytes({ ...existing, ...patch, runnerId: undefined }) > CAP.messageDoc) {
+            skipped.push(`${m.threadId}:${m.seq}`);
+            continue;
+          }
           const grow = storedBytes({ ...existing, ...patch }) - storedBytes(existing);
           if (grow > 0) {
-            insertedNow.add(String(existing._id));
-            const room = await roomForMessage(ctx, caller.runnerId, grow, insertedNow, budget);
+            const room = await roomForMessage(ctx, caller.runnerId, grow, insertedNow, budget, existing._id);
             if (!room) {
               skipped.push(`${m.threadId}:${m.seq}`);
               continue;
@@ -1380,25 +1394,23 @@ export const appendMessages = mutation({
 
 // Room in a runner key's CAP.messageBytes for `size` more bytes: past it,
 // its oldest messages anywhere go first, at most CAP.evictPerWrite a call
-// (`budget` counts them), never one this call has put in or is growing
-// (`keep`), which are passed over. True, and the bytes counted, when there's
-// room; false, and nothing counted, when there isn't (the caller skips the
-// row, and the runner sends it again).
-async function roomForMessage(ctx: MutationCtx, runnerId: string, size: number, keep: Set<string>, budget: { evicted: number }): Promise<boolean> {
+// (`budget` counts them), never one this call has put in (`insertedNow`,
+// the newest, so reaching one means nothing older is left) nor the row
+// being grown (`growing`, passed over). True, and the bytes counted, when
+// there's room; false, and nothing counted, when there isn't (the caller
+// skips the row, and the runner sends it again).
+async function roomForMessage(ctx: MutationCtx, runnerId: string, size: number, insertedNow: Set<string>, budget: { evicted: number }, growing?: Id<'messages'>): Promise<boolean> {
   const usage = await ctx.db.query('runnerStorage').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId)).unique();
   let used = usage?.messageBytes ?? 0;
   while (used + size > CAP.messageBytes && budget.evicted < CAP.evictPerWrite) {
-    // The oldest not in `keep`. This call's inserts are the newest, so
-    // reaching one means nothing older is left; a row being grown can be
-    // the oldest, and the next one along goes instead (Codex's review, 8 Nov).
+    // The oldest but the row being grown, which can be the oldest: the next
+    // one along goes instead (Codex's review, 8 Nov). At most one row is
+    // passed over each time, so what's read stays as bounded as the deletes.
     let victim: Doc<'messages'> | undefined;
-    let passed = 0;
     for await (const m of ctx.db.query('messages').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))) {
-      if (!keep.has(String(m._id))) {
-        victim = m;
-        break;
-      }
-      if (++passed > keep.size) break;
+      if (m._id === growing) continue;
+      if (!insertedNow.has(String(m._id))) victim = m;
+      break;
     }
     if (!victim) break;
     await ctx.db.delete(victim._id);
@@ -1414,33 +1426,29 @@ async function roomForMessage(ctx: MutationCtx, runnerId: string, size: number, 
   return true;
 }
 
-// Each runner key's message bytes counted again from its rows, a page at a
-// time, and the count set to that: a count left short (rows grown by their
-// buttons before that was counted, Daybreak 8 Nov) or long (rows gone some
-// way that didn't count them) is put right within a day. A write meanwhile
-// to a row already passed may be off by its own change until the next run.
+// A runner key's message bytes counted again from its rows, a page at a
+// time, once per runner (its heartbeat starts it, runnerStorage
+// .messagesRecounted): rows grown by their buttons before that was counted
+// (Daybreak, 8 Nov) left counts short. The count is only ever raised: a
+// write while the pages are read can make the sum stale either way, and
+// lowering a right count to a stale one would reopen the budget, while one
+// a little high only evicts a little early.
 const RECOUNT_PAGE = 200;
 export const recountMessageBytes = internalMutation({
-  args: { runnerId: v.optional(v.string()), cursor: v.optional(v.union(v.string(), v.null())), sum: v.optional(v.number()) },
+  args: { runnerId: v.string(), cursor: v.union(v.string(), v.null()), sum: v.number() },
   returns: v.null(),
   handler: async (ctx, { runnerId, cursor, sum }) => {
-    if (runnerId === undefined) {
-      for (const k of await ctx.db.query('runnerKeys').collect()) await ctx.scheduler.runAfter(0, internal.sync.recountMessageBytes, { runnerId: k.runnerId, cursor: null, sum: 0 });
-      return null;
-    }
     const page = await ctx.db
       .query('messages')
       .withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))
-      .paginate({ numItems: RECOUNT_PAGE, cursor: cursor ?? null });
-    const total = (sum ?? 0) + page.page.reduce((n, m) => n + storedBytes(m), 0);
+      .paginate({ numItems: RECOUNT_PAGE, cursor });
+    const total = sum + page.page.reduce((n, m) => n + storedBytes(m), 0);
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.sync.recountMessageBytes, { runnerId, cursor: page.continueCursor, sum: total });
       return null;
     }
     const usage = await ctx.db.query('runnerStorage').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId)).unique();
-    if (usage) {
-      if (usage.messageBytes !== total) await ctx.db.patch(usage._id, { messageBytes: total });
-    } else if (total > 0) await ctx.db.insert('runnerStorage', { runnerId, bytes: 0, messageBytes: total });
+    if (usage && total > (usage.messageBytes ?? 0)) await ctx.db.patch(usage._id, { messageBytes: total });
     return null;
   },
 });

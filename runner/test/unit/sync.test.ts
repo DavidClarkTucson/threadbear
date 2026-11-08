@@ -3280,3 +3280,30 @@ test("commands: a page of earlier messages waits too while the thread's row stil
   assert.ok(!sentTexts(calls).some((m) => m.text === 'PRIVATE DURING THE RETRY'));
   await sync.stop();
 });
+
+test("commands: a page asked for while a row sharing the thread is on its way waits once the share's stopped", async () => {
+  let release: (() => void) | undefined;
+  let holding = false;
+  const { h, sync, push, calls } = setupFull({
+    apiVersion: BACKEND_API_VERSION,
+    hold: (fn) => (holding && fn === 'sync:upsertThreads' && !release ? new Promise<void>((r) => (release = r)) : undefined),
+  });
+  sync.start();
+  await sync.flushNow();
+  const t = h.runner.create({ text: 'hello', cwd: h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  await sync.flushNow();
+  holding = true;
+  h.runner.share(t.id, { access: 'link' });
+  const flushing = sync.flushNow();
+  await tick();
+  assert.ok(release, 'the row with the link is on its way, unanswered');
+  h.runner.share(t.id, { access: 'off' });
+  h.runner.send(t.id, 'PRIVATE WHILE THE LINK WAS ON ITS WAY');
+  await tick();
+  push([{ commandId: 'p1', kind: 'page', threadId: t.id, args: { beforeSeq: h.runner.get(t.id).lastSeq + 1 }, createdAt: 1 }]);
+  await tick(10);
+  assert.ok(!sentTexts(calls).some((m) => m.text === 'PRIVATE WHILE THE LINK WAS ON ITS WAY'));
+  release!();
+  await flushing;
+  await sync.stop();
+});

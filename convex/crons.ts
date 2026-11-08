@@ -9,7 +9,4 @@ crons.interval('prune old rows', { hours: 6 }, internal.sync.pruneOld, {});
 crons.interval('prune old files', { hours: 6 }, internal.sync.pruneFiles, {});
 // Tool output past its 30 days, a batch at a time (each row is read to be deleted).
 crons.interval('prune old tool output', { minutes: 15 }, internal.sync.pruneBodies, {});
-// Each runner key's message byte count checked against its rows (sync.ts,
-// recountMessageBytes), so one that's drifted doesn't stay wrong.
-crons.interval('recount runner message bytes', { hours: 24 }, internal.sync.recountMessageBytes, {});
 export default crons;
