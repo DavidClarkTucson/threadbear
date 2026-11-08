@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { phoneCommands, ThreadRouter } from '../../src/handover.ts';
+import { phoneCommands, primaryRemote, ThreadRouter } from '../../src/handover.ts';
 import { FakeAccounts, FakeAdapter, makeHarness, testConfig, tick, type Harness } from '../helpers/fakes.ts';
 import { Runner, SAVE_RETRY_MS, type Notification } from '../../src/runner.ts';
 import { ThreadStore } from '../../src/store.ts';
@@ -869,4 +869,46 @@ test('an idle thread hibernating in words is kept by a drain that was not asked 
   (h.runner as any).threads.get(t.id).rec.wakeWhen = { said: 'tomorrow', pending: true };
   await h.runner.beginDrain([], { onHandedOver: () => {}, backgroundMs: 30 * MIN });
   assert.deepEqual(h.runner.keeping(), [t.id]);
+});
+
+// 8 Nov: a thread finishing its turn on a draining runner couldn't
+// send_message the cloud runner's thread its brief named, as a draining
+// runner's tools left other runners' threads out.
+test('primaryRemote: a draining runner reaches other runners\' threads through the primary', async () => {
+  const calls: Array<[string, Record<string, unknown>]> = [];
+  const rows = { runners: [{ id: 'cloud', name: 'Hetzner Cloud', online: true, lastSeenAt: '' }], threads: [{ threadId: 'ba5bb5ec-1', runnerId: 'cloud', title: 'Rust port' }] };
+  const link = {
+    call: async <T,>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
+      calls.push([method, params]);
+      return (method === 'remoteThreads.list' ? rows : { queued: false }) as T;
+    },
+  };
+  const remote = primaryRemote(link);
+  const listed = await remote.list();
+  assert.equal(listed.threads[0].threadId, 'ba5bb5ec-1');
+  await remote.call('ba5bb5ec-1', 'threads.send', { text: 'hi' });
+  assert.deepEqual(calls.at(-1), ['threads.send', { threadId: 'ba5bb5ec-1', text: 'hi' }]);
+});
+
+test('primaryRemote: waits up to 3 s for the primary to hear from the backend, and not again for a minute after a wait runs out', async () => {
+  let answers = 0;
+  let heardAfter = Infinity;
+  const link = {
+    call: async <T,>(): Promise<T> => {
+      answers++;
+      return (answers > heardAfter ? { runners: [{ id: 'cloud', name: 'c', online: true, lastSeenAt: '' }], threads: [] } : {}) as T;
+    },
+  };
+  let t = 0;
+  let slept = 0;
+  const remote = primaryRemote(link, { sleep: async (ms) => { slept += ms; t += ms; }, now: () => t });
+  assert.equal((await remote.list()).runners.length, 0);
+  assert.equal(slept, 3000);
+  slept = 0;
+  await remote.list();
+  assert.equal(slept, 0, 'a wait that ran out is not repeated within the minute');
+  t += 61_000;
+  heardAfter = answers + 2;
+  assert.equal((await remote.list()).runners.length, 1);
+  assert.equal(slept, 400);
 });

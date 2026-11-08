@@ -10,7 +10,7 @@ import { startHousekeeping } from './housekeeping.ts';
 import { RELEASE, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
 import { PatchTrust } from './patch-trust.ts';
 import type { RunnerUpdates } from './runner.ts';
-import { Peers, PrimaryLink, ThreadRouter, drainChildrenName, peersElsewhere, phoneCommands, primaryElsewhere, projectRouter, removeDrainInfo, scheduleRouter, writeDrainInfo, type CrossRunnerHooks, type Elsewhere } from './handover.ts';
+import { Peers, PrimaryLink, ThreadRouter, drainChildrenName, peersElsewhere, phoneCommands, primaryElsewhere, primaryRemote, projectRouter, removeDrainInfo, scheduleRouter, writeDrainInfo, type CrossRunnerHooks, type Elsewhere } from './handover.ts';
 import { RunnerUpdater, releaseTreeAt } from './update.ts';
 import { RELEASE_NOTES_SYSTEM, SETTLE_MS, Upstream } from './upstream.ts';
 import { BringIn } from './bring-in.ts';
@@ -177,11 +177,13 @@ async function main(): Promise<void> {
   // Once a wait has run out (the backend not answering), the next minute's
   // calls use what's there rather than each waiting again.
   let remoteWaitSpentAt = 0;
+  let drainRemote: RemoteControl | undefined;
   const remoteControl = (): RemoteControl | undefined => {
+    // A draining runner has stopped its sync, so its kept turns reach
+    // other runners' threads through the primary instead (primaryRemote).
+    if (draining) return primaryLink ? (drainRemote ??= primaryRemote(primaryLink)) : undefined;
     const relay = relayRef;
-    // A draining runner has stopped its sync, so its list would go stale:
-    // its last turns see this runner's and the primary's threads only.
-    if (!relay || draining || !sync.relaySource()) return undefined;
+    if (!relay || !sync.relaySource()) return undefined;
     return {
       list: async () => {
         let r = sync.remoteThreads();

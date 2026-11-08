@@ -24,7 +24,8 @@ import { ErrorCode, RpcError } from './protocol.ts';
 import type { PermissionMode, ThreadSummary } from './protocol.ts';
 import type { Notification, Runner } from './runner.ts';
 import type { UsageReading } from './usage.ts';
-import type { AgentApprovalRequest, ProjectControl, ScheduleControl, ThreadControl } from './threadbear-mcp.ts';
+import type { AgentApprovalRequest, ProjectControl, RemoteControl, ScheduleControl, ThreadControl } from './threadbear-mcp.ts';
+import type { RemoteThreads } from './thread-index.ts';
 import type { ToolApprovalAnswer } from './adapters/types.ts';
 import type { Scheduler } from './schedules.ts';
 import type { CommandHost } from './sync.ts';
@@ -539,6 +540,38 @@ export function primaryElsewhere(link: PrimaryLink, runner: Pick<Runner, 'has'>)
     list: async (include) => (await link.call<{ threads: ThreadSummary[] }>('threads.list', { include })).threads,
     search: async (query, limit) => (await link.call<{ threads: ThreadSummary[] }>('threads.search', { query, limit })).threads,
     call: (method, params) => link.call(method, params),
+  };
+}
+
+// Other runners' threads for a draining runner's agent tools, through the
+// primary: a draining runner has stopped its own sync, but its kept turns
+// still have to reach them. On 8 Nov a thread started from the cloud runner
+// finished its turn on a draining M5 runner and couldn't send_message the
+// cloud thread its brief said to report to. The primary lists them as it
+// does for the Mac app (remoteThreads.list), and passes a call for one of
+// them on through its relay (rpc.ts, THREAD_METHODS). Until the primary has
+// heard from the backend the list has no runners; then this waits up to 3 s
+// for it, and once that wait has run out, the next minute's calls don't.
+export function primaryRemote(link: Pick<PrimaryLink, 'call'>, opts: { sleep?: (ms: number) => Promise<void>; now?: () => number } = {}): RemoteControl {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
+  let waitSpentAt = -Infinity;
+  const ask = async (): Promise<RemoteThreads> => {
+    const r = await link.call<RemoteThreads>('remoteThreads.list', {});
+    return { runners: r?.runners ?? [], threads: r?.threads ?? [], ...(r?.order ? { order: r.order } : {}) };
+  };
+  return {
+    list: async () => {
+      let r = await ask();
+      if (r.runners.length || now() - waitSpentAt < 60_000) return r;
+      for (let waited = 0; !r.runners.length && waited < 3000; waited += 200) {
+        await sleep(200);
+        r = await ask();
+      }
+      if (!r.runners.length) waitSpentAt = now();
+      return r;
+    },
+    call: (threadId, method, params) => link.call(method, { threadId, ...params }),
   };
 }
 

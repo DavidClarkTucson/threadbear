@@ -5772,9 +5772,12 @@ say it's on that runner rather than that it's missing. A
 runner that isn't watching the list (no app connected lately) starts the
 watch and waits up to 3 seconds for its answer, rows and all (a refusal or
 an error ends the wait); one that runs out isn't waited for again for a
-minute. With sync off, a runner key, the backend failing, or
-on a draining runner (its sync has stopped), they see this runner's threads
-only.
+minute. A draining runner has stopped its sync, so its kept turns ask the
+primary instead: `remoteThreads.list` over its link for the list, waiting
+the same way while the primary's answer has no `runners`, and the other
+calls passed on to the primary, whose relay takes them as it does the Mac
+app's. With sync off, a runner key or the backend failing, they see this
+runner's threads only.
 
 | Variable | Value |
 |---|---|
