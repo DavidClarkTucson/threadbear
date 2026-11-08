@@ -135,3 +135,27 @@ test('a page full of long rows and links has a bounded cost', () => {
   // Links that do find their step still do, on a fresh page.
   assert.equal(findStep('Run the tests', 9, [...rows]), 5);
 });
+
+test('a long link destination costs no more than a short one', () => {
+  // Codex, reviewing the fix: `[x][r]` hundreds of times with one reference
+  // `[r]: work:zzzz...` made every link decode and normalise 4,000 characters.
+  const long = 'z'.repeat(4000);
+  assert.deepEqual(readLink(`work:${long}`), { kind: 'plain' });
+  assert.deepEqual(readLink(`thread:${long}`), { kind: 'plain' });
+  const page = [
+    { seq: 1, role: 'user' as const, text: 'Go' },
+    { seq: 2, role: 'tool' as const, text: long },
+    { seq: 3, role: 'assistant' as const, text: '' },
+  ];
+  assert.equal(findStep(long, 3, page), undefined);
+  const href = `work:${long}`;
+  const ms = cpuMs(() => {
+    for (let i = 0; i < 80 * 660; i++) {
+      readLink(href);
+      findStep(long, 3, page);
+    }
+  });
+  assert.ok(ms < 100, `took ${ms.toFixed(0)} ms`);
+  // Ordinary ones still read.
+  assert.deepEqual(readLink(`work:${'a%20'.repeat(300)}`), { kind: 'step', quote: 'a '.repeat(300).trim() });
+});

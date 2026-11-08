@@ -4,7 +4,7 @@
 // script runs here with a fake xcodebuild that records what it was asked to do.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
@@ -42,21 +42,37 @@ test('refuses a folder, or one above it, that others can write', () => {
   const parent = join(fresh(), 'shared');
   mkdirSync(parent);
   chmodSync(parent, 0o777);
-  assert.throws(() => checkPrivateDir(parent), /written by other accounts/);
+  assert.throws(() => checkPrivateDir(parent), /lets other accounts in/);
   assert.throws(() => checkPrivateDir(join(parent, 'out')), /written by other accounts/);
-  // Sticky isn't enough unless root owns it (as /tmp): a sticky folder of ours can still be
-  // written by others, and the folder itself must never be.
+  // Sticky isn't enough unless root owns it (as /tmp).
   chmodSync(parent, 0o1777);
   assert.throws(() => checkPrivateDir(join(parent, 'out')), /written by other accounts/);
 });
 
-test('checks where a symlink leads, not just the link', () => {
+test('refuses a folder other accounts can look into', () => {
+  // Nothing in it would be checked again (derived data is too big to), so nobody else may reach it.
+  const dir = join(fresh(), 'dd');
+  mkdirSync(dir, { mode: 0o755 });
+  chmodSync(dir, 0o755);
+  assert.throws(() => checkPrivateDir(dir), /lets other accounts in/);
+});
+
+test('checks, and hands back, the real path a symlink leads to', () => {
   const root = fresh();
   const shared = join(root, 'shared');
   mkdirSync(shared);
   chmodSync(shared, 0o777);
   symlinkSync(shared, join(root, 'link'));
-  assert.throws(() => checkPrivateDir(join(root, 'link')), /written by other accounts/);
+  assert.throws(() => checkPrivateDir(join(root, 'link')), /lets other accounts in/);
+  // A link through a folder others can write to a private one: the script is handed the private
+  // folder's real path, so swapping the link afterwards changes nothing.
+  const good = join(root, 'good');
+  mkdirSync(good, { mode: 0o700 });
+  symlinkSync(good, join(shared, 'relay'));
+  symlinkSync(join(shared, 'relay'), join(root, 'out'));
+  assert.equal(checkPrivateDir(join(root, 'out')), realpathSync(good));
+  // And `..` the way the kernel follows it, not path.resolve: `out/..` is good's parent.
+  assert.equal(checkPrivateDir(join(root, 'out', 'sub', '..')), realpathSync(good));
 });
 
 test('refuses an archive with something in it that others could have written', () => {
@@ -67,6 +83,44 @@ test('refuses an archive with something in it that others could have written', (
   assert.throws(() => checkPrivateTree(archive, { uid: uid + 1 }), /another account/);
   chmodSync(join(archive, 'Info.plist'), 0o666);
   assert.throws(() => checkPrivateTree(archive), /written by other accounts/);
+});
+
+test('refuses an archive with a link out of it', () => {
+  const root = fresh();
+  const archive = join(root, 'Threadbear.xcarchive');
+  mkdirSync(join(archive, 'Products'), { recursive: true, mode: 0o700 });
+  mkdirSync(join(root, 'elsewhere'), { mode: 0o700 });
+  symlinkSync('../Products', join(archive, 'Products', 'inside'));
+  checkPrivateTree(archive);
+  symlinkSync(join(root, 'elsewhere'), join(archive, 'Products', 'Threadbear.app'));
+  assert.throws(() => checkPrivateTree(archive), /links outside/);
+});
+
+// ACLs are macOS's; mode bits don't show them.
+const acl = process.platform === 'darwin';
+const chmodAcl = (entry: string, file: string) => assert.equal(spawnSync('/bin/chmod', ['+a', entry, file]).status, 0);
+
+test('refuses a folder with an ACL letting anyone in', { skip: !acl && 'macOS ACLs' }, () => {
+  const dir = join(fresh(), 'out');
+  checkPrivateDir(dir);
+  chmodAcl('everyone allow list,search', dir);
+  assert.throws(() => checkPrivateDir(dir), /ACL/);
+});
+
+test('refuses a folder above with an ACL letting others write', { skip: !acl && 'macOS ACLs' }, () => {
+  const parent = join(fresh(), 'parent');
+  mkdirSync(parent, { mode: 0o700 });
+  chmodAcl('everyone allow add_subdirectory,delete_child', parent);
+  assert.throws(() => checkPrivateDir(join(parent, 'out')), /ACL/);
+});
+
+test('refuses an archive with a file an ACL lets others write', { skip: !acl && 'macOS ACLs' }, () => {
+  const archive = join(fresh(), 'Threadbear.xcarchive');
+  mkdirSync(join(archive, 'Products'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(archive, 'Products', 'Threadbear'), 'x', { mode: 0o600 });
+  checkPrivateTree(archive);
+  chmodAcl('everyone allow write', join(archive, 'Products', 'Threadbear'));
+  assert.throws(() => checkPrivateTree(archive), /ACL/);
 });
 
 // The script itself: zsh, PlistBuddy and strings, so on a Mac only.
@@ -130,7 +184,7 @@ test('refuses to reuse from a folder others can write', { skip: !mac && 'needs m
   chmodSync(out, 0o777);
   const r = run({ OUT: out, BUILD_NUMBER: '7' }, s);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /written by other accounts/);
+  assert.match(r.stderr, /lets other accounts in/);
   assert.equal(r.calls, '');
 });
 
@@ -171,6 +225,7 @@ test('reuses its own finished archive when BUILD_NUMBER names it', { skip: !mac 
 test('the default folders are private ones under the home folder', { skip: !mac && 'needs macOS' }, () => {
   const s = setup();
   const r = run({ DD: '' }, s);
-  assert.match(r.calls, new RegExp(`-archivePath ${s.root}/Library/Caches/Threadbear/ios-builds/appstore/\\d{10}/Threadbear.xcarchive`));
-  assert.match(r.calls, new RegExp(`-derivedDataPath ${s.root}/Library/Caches/Threadbear/ios-builds/dd-appstore`));
+  const home = realpathSync(s.root);
+  assert.match(r.calls, new RegExp(`-archivePath ${home}/Library/Caches/Threadbear/ios-builds/appstore/\\d{10}/Threadbear.xcarchive`));
+  assert.match(r.calls, new RegExp(`-derivedDataPath ${home}/Library/Caches/Threadbear/ios-builds/dd-appstore`));
 });

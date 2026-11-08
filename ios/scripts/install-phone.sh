@@ -30,7 +30,7 @@ else
   echo "No API key at $ASC_KEY: signing with whatever Xcode has (sign in to Xcode if this fails)"
   extra+=(-allowProvisioningUpdates)
 fi
-node scripts/private-dir.mjs "$DD" || exit 1
+DD=$(node scripts/private-dir.mjs "$DD") || exit 1  # mode 700, nobody else can get in
 # The derived data is shared by every thread, and on
 # 5 Nov it was left with package checkouts and binary frameworks half gone
 # (convex-swift with no Package.swift, Sentry's xcframework with no

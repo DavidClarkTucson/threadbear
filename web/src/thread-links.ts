@@ -2,9 +2,10 @@
 // thread"), as the Mac's WorkLinks and the phone's ThreadLinks read them:
 // `work:<words>` quotes a step in the turn's working, `thread:<id>` is another
 // thread and `review:<id>` a design review, which only the Mac can open.
-// `button:<id>` is a reply button (docs/protocol.md, "Reply buttons").
+// `button:<id>` is a reply button (docs/protocol.md, "Reply buttons"). `plain`
+// is one of those too long to read, shown as its words.
 
-export type LinkTarget = { kind: 'step'; quote: string } | { kind: 'thread'; id: string } | { kind: 'review' } | { kind: 'button'; id: string };
+export type LinkTarget = { kind: 'step'; quote: string } | { kind: 'thread'; id: string } | { kind: 'review' } | { kind: 'button'; id: string } | { kind: 'plain' };
 type Row = { seq: number; role: 'user' | 'assistant' | 'tool'; text: string; summary?: boolean };
 
 // The markdown with work: and thread: destinations escaped, as agents write
@@ -54,9 +55,15 @@ function decoded(text: string): string {
 
 // What a link means, or undefined for anywhere else (a web page).
 export function readLink(href: string): LinkTarget | undefined {
-  const match = /^(work|thread|review|button):(.*)$/is.exec(href);
+  const match = /^(work|thread|review|button):/i.exec(href);
   if (!match) return undefined;
-  const words = decoded(match[2]!).trim();
+  const body = href.slice(match[0].length);
+  // Longer than any step's words or id an agent would write: shown as plain
+  // text without decoding it. Every link on the page is read here as it
+  // renders (twice), and one long reference definition used by hundreds of
+  // `[x][r]` links made that hundreds of long decodes.
+  if (body.length > MAX_LINK) return { kind: 'plain' };
+  const words = decoded(body).trim();
   switch (match[1]!.toLowerCase()) {
     case 'work':
       return words ? { kind: 'step', quote: words } : undefined;
@@ -81,6 +88,7 @@ export function readLink(href: string): LinkTarget | undefined {
 // remembered, and one page of rows gets SCAN_BUDGET characters of searching
 // in all; past that a link reads as plain text, as one that finds nothing does.
 export function findStep(quote: string, seq: number, rows: readonly Row[]): number | undefined {
+  if (quote.length > MAX_LINK) return undefined;
   const q = normal(quote);
   if (!q) return undefined;
   const page = pageFor(rows);
@@ -105,6 +113,10 @@ export function findStep(quote: string, seq: number, rows: readonly Row[]): numb
 }
 
 export const SCAN_BUDGET = 2_000_000;
+// The longest link destination (escaped, so three characters for some) read
+// as a step's words or an id. Keeps each link's own cost small, whatever the
+// page.
+export const MAX_LINK = 1_500;
 
 type Page = { index: Map<number, number>; found: Map<string, number | undefined>; left: number };
 const pages = new WeakMap<readonly Row[], Page>();

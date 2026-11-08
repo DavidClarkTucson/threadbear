@@ -14,7 +14,8 @@
 # (MARKETING_VERSION, 1.0.0) comes from the project. Everything lands in OUT (default
 # ~/Library/Caches/Threadbear/ios-builds/appstore/<build>).
 #
-# OUT and the derived data (DD) must be this account's alone (scripts/private-dir.mjs): they were
+# OUT and the derived data (DD) must be this account's alone, mode 700 with no ACL letting anyone
+# else in (scripts/private-dir.mjs; move an old one away and a fresh one is made): they were
 # fixed names under /tmp until 8 Nov, where another account on the Mac could make the folder
 # first and plant an archive this script would then sign and upload. An archive already in OUT is
 # only reused when BUILD_NUMBER names it, this script finished it (archived.txt beside it), and
@@ -38,14 +39,15 @@ BUILD=${BUILD_NUMBER:-$(date -u +%y%m%d%H%M)}
 BUILDS=$HOME/Library/Caches/Threadbear/ios-builds
 OUT=${OUT:-$BUILDS/appstore/$BUILD}
 DD=${DD:-$BUILDS/dd-appstore}
-ARCHIVE="$OUT/Threadbear.xcarchive"
 
 [[ -f "$ASC_KEY" ]] || { echo "No App Store Connect API key at $ASC_KEY" >&2; exit 1; }
 auth=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY"
   -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
-# Makes OUT and DD (mode 700) if they're missing, and stops if either, or a folder above, could
-# have been made or written by another account.
-node scripts/private-dir.mjs "$OUT" "$DD" || exit 1
+# Makes OUT and DD (mode 700) if they're missing, stops if another account could get into either
+# or change a folder above, and from here on uses the real paths that were checked.
+OUT=$(node scripts/private-dir.mjs "$OUT") || exit 1
+DD=$(node scripts/private-dir.mjs "$DD") || exit 1
+ARCHIVE="$OUT/Threadbear.xcarchive"
 
 # The export options: App Store Connect distribution, Xcode-managed (cloud) signing.
 export_options() {
@@ -71,7 +73,7 @@ if [[ -n "${BUILD_NUMBER:-}" && -e "$ARCHIVE" ]]; then
   # that, not a rebuild, but only if this script finished it and it's still ours alone.
   [[ -f "$OUT/archived.txt" && -f "$ARCHIVE/Info.plist" ]] \
     || { echo "$ARCHIVE wasn't finished by this script; move it away to archive build $BUILD again." >&2; exit 1; }
-  node scripts/private-dir.mjs --tree "$ARCHIVE" || exit 1
+  node scripts/private-dir.mjs --tree "$ARCHIVE" > /dev/null || exit 1
   echo "Using the archive already at $ARCHIVE ($(cat "$OUT/archived.txt"); HEAD is $(git rev-parse --short HEAD 2>/dev/null || echo unknown))"
 else
   rm -rf "$ARCHIVE" "$OUT/archived.txt"

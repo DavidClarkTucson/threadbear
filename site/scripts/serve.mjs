@@ -3,9 +3,10 @@
 // anything that isn't a file gets 404.html with a 404, only GET and HEAD are allowed, and every
 // response gets the same headers as prod (headers.mjs). `npm run serve` (HOST and PORT change
 // where). Copied from Quick Ask's.
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, realpathSync, statSync } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
+import { pipeline } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { headersFor } from "../headers.mjs";
 
@@ -32,8 +33,12 @@ export function byteRange(header, size) {
   return [start, Math.min(end, size - 1)];
 }
 
-export function createSiteServer(dist = fileURLToPath(new URL("../dist/", import.meta.url))) {
-  const isFile = (file) => file.startsWith(dist) && existsSync(file) && statSync(file).isFile();
+export function createSiteServer(folder = fileURLToPath(new URL("../dist/", import.meta.url))) {
+  // Ending in a slash, so `../dist-other/x` can't pass for being inside it.
+  const dist = resolve(folder) + sep;
+  // Inside dist once symlinks are followed too. (Worked out per request: dist may not be built yet.)
+  const isFile = (file) => file.startsWith(dist) && existsSync(file) && statSync(file).isFile()
+    && realpathSync(file).startsWith(realpathSync(dist) + sep);
 
   function send(req, res, status, file, pathname) {
     const type = types[extname(file)] ?? "application/octet-stream";
@@ -49,8 +54,9 @@ export function createSiteServer(dist = fileURLToPath(new URL("../dist/", import
     if (range) head["Content-Range"] = `bytes ${start}-${end}/${size}`;
     res.writeHead(range ? 206 : status, head);
     if (req.method === "HEAD" || size === 0) return res.end();
-    // A read that fails partway (the file rebuilt under it) ends this response, not the server.
-    createReadStream(file, { start, end }).on("error", () => res.destroy()).pipe(res);
+    // A read that fails partway (the file rebuilt under it) ends this response, not the server,
+    // and a client that goes away closes the file rather than leaving it open and paused.
+    pipeline(createReadStream(file, { start, end }), res, () => {});
   }
 
   function handle(req, res) {

@@ -2,7 +2,7 @@
 // never the server (Daybreak, 8 Nov: `Range: bytes=1-0` crashed it), and only this Mac can reach it.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -19,9 +19,10 @@ mkdirSync(join(dist, 'docs'));
 const server = createSiteServer(dist);
 let port = 0;
 before(() => new Promise<void>((done) => server.listen(0, '127.0.0.1', () => ((port = server.address().port), done()))));
+const cleanup = [dist];
 after(() => {
   server.close();
-  rmSync(dist, { recursive: true, force: true });
+  for (const d of cleanup) rmSync(d, { recursive: true, force: true });
 });
 
 function get(path: string, headers: Record<string, string> = {}, method = 'GET') {
@@ -102,7 +103,10 @@ test('npm run serve only listens on this Mac', async (t) => {
   delete env.HOST;
   const serve = spawn(process.execPath, [script], { env, stdio: 'pipe' });
   t.after(() => serve.kill());
-  await new Promise<void>((done) => serve.stdout.once('data', () => done()));
+  await new Promise<void>((done, fail) => {
+    serve.stdout.once('data', () => done());
+    serve.once('exit', (code) => fail(new Error(`serve.mjs exited with ${code}`)));
+  });
   const reach = (host: string) =>
     new Promise<boolean>((done) => {
       const req = request({ host, port: free, path: '/', timeout: 500 }, (res) => (res.resume(), done(true)));
@@ -112,4 +116,65 @@ test('npm run serve only listens on this Mac', async (t) => {
     });
   assert.equal(await reach('127.0.0.1'), true);
   for (const address of others) assert.equal(await reach(address), false, address);
+});
+
+test('a symlink out of dist is not served', async () => {
+  const outside = mkdtempSync(join(tmpdir(), 'tb-site-outside-'));
+  cleanup.push(outside);
+  writeFileSync(join(outside, 'secret.txt'), 'secret');
+  symlinkSync(join(outside, 'secret.txt'), join(dist, 'leak.txt'));
+  const r = await get('/leak.txt');
+  assert.equal(r.status, 404);
+  assert.notEqual(r.body, 'secret');
+});
+
+test('a dist given without its slash still keeps to itself', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'tb-site-pair-'));
+  cleanup.push(parent);
+  mkdirSync(join(parent, 'dist'));
+  mkdirSync(join(parent, 'dist-secret'));
+  writeFileSync(join(parent, 'dist', '404.html'), 'missing');
+  writeFileSync(join(parent, 'dist-secret', 'file.txt'), 'secret');
+  const other = createSiteServer(join(parent, 'dist'));
+  await new Promise<void>((done) => other.listen(0, '127.0.0.1', () => done()));
+  try {
+    // `%2f` survives the URL parser and decodes to `/` after it, so this is ../dist-secret/file.txt.
+    const r = await new Promise<{ status: number; body: string }>((done, fail) => {
+      const req = request({ host: '127.0.0.1', port: other.address().port, path: '/..%2fdist-secret%2ffile.txt' }, (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => done({ status: res.statusCode!, body }));
+      });
+      req.on('error', fail);
+      req.end();
+    });
+    assert.equal(r.status, 404);
+    assert.notEqual(r.body, 'secret');
+  } finally {
+    other.close();
+  }
+});
+
+// Open files, where the system lists them for this process.
+const fds = () => readdirSync('/dev/fd').length;
+
+test('a client that goes away mid-file closes the file', async () => {
+  writeFileSync(join(dist, 'big.mp4'), Buffer.alloc(16 * 1024 * 1024));
+  const abandon = () =>
+    new Promise<void>((done) => {
+      const req = request({ host: '127.0.0.1', port, path: '/big.mp4' }, (res) => {
+        res.once('data', () => {
+          req.destroy();
+          done();
+        });
+      });
+      req.end();
+    });
+  await abandon();
+  await new Promise((r) => setTimeout(r, 200));
+  const before = fds();
+  for (let i = 0; i < 20; i++) await abandon();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(fds() - before < 5, `${fds() - before} files left open after 20 abandoned downloads`);
+  assert.equal((await get('/', { Range: 'bytes=0-0' })).body, '0');
 });
