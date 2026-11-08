@@ -266,3 +266,14 @@ test('the default folders are private ones under the home folder', { skip: !mac 
   assert.match(r.calls, new RegExp(`-archivePath ${home}/Library/Caches/Threadbear/ios-builds/appstore/\\d{10}/Threadbear.xcarchive`));
   assert.match(r.calls, new RegExp(`-derivedDataPath ${home}/Library/Caches/Threadbear/ios-builds/dd-appstore`));
 });
+
+test('a link put where the folder is about to be made is not taken for a new folder', () => {
+  // Codex, third look: the folder was "new" if it wasn't there a moment before, so a link
+  // dropped in at the right moment to an old private folder of ours got the marker.
+  const root = fresh();
+  const legacy = join(root, 'legacy-dd');
+  mkdirSync(legacy, { mode: 0o700 });
+  symlinkSync(legacy, join(root, 'dd'));
+  assert.throws(() => checkPrivateDir(join(root, 'dd')), /wasn't made by these scripts/);
+  assert.equal(existsSync(join(legacy, '.made-private')), false);
+});

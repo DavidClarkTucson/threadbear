@@ -60,6 +60,9 @@ function decoded(text: string): string {
 // links, so each destination is read once and remembered, and one too long
 // for any step's words or id is shown as plain text without decoding it.
 export function readLink(href: string): LinkTarget | undefined {
+  // Only what's worth keeping: a web address or an over-long one is quick to
+  // tell apart again, and this way the memory held stays within 10,000 short ones.
+  if (href.length > MAX_LINK + 10 || !/^(work|thread|review|button):/i.test(href)) return read(href);
   const known = links.get(href);
   if (known !== undefined) return known ?? undefined;
   const target = read(href);

@@ -16,8 +16,8 @@
 // symlinks and `..` resolved by the kernel, and the script then uses that path, so no link on
 // the way can be swapped later. Exits 1 with the reason when one doesn't pass.
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WRITABLE_BY_OTHERS = 0o022;
@@ -92,15 +92,29 @@ function checkFolder(p, uid, last) {
 // was put in it before (derived data that had been in /tmp, a link out to a shared cache).
 export const MARKER = '.made-private';
 export function checkPrivateDir(dir, { uid = process.getuid(), make = true } = {}) {
-  const existed = existsSync(dir);
-  // Made before it's checked, as wherever it lands is refused below unless it's private.
-  if (make) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  let made = false;
+  const name = basename(dir);
+  if (make && name !== '.' && name !== '..') {
+    // The folders above are made first, wherever they land, and refused below unless safe.
+    mkdirSync(dirname(dir), { recursive: true, mode: 0o700 });
+    // Then the folder itself, by one mkdir under the real path of what's above it, which says
+    // whether this made it: it fails if anything is there already, a link to somewhere included.
+    // (Asking first whether it exists can't: something can appear between the asking and here.)
+    const parent = realpathSync.native(dirname(dir));
+    chain(parent).forEach((p) => checkFolder(p, uid, false));
+    try {
+      mkdirSync(join(parent, name), { mode: 0o700 });
+      made = true;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+  }
   // The kernel's answer (realpath(3)), not path.resolve's: `/tmp/..` is /private to the kernel.
   const real = realpathSync.native(dir);
   const parts = chain(real);
   parts.forEach((p, i) => checkFolder(p, uid, i === parts.length - 1));
   const marker = join(real, MARKER);
-  if (!existed && make) {
+  if (made) {
     writeFileSync(marker, '', { flag: 'wx', mode: 0o600 });
   } else {
     const st = lstatSync(marker, { throwIfNoEntry: false });
