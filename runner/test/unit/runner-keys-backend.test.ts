@@ -12,6 +12,7 @@ const BRUCE = 'cb921b2447ea';
 
 const { sha256 } = load('lib') as { sha256: (s: string) => Promise<string> };
 const sync = load('sync');
+const relay = load('relay');
 const phone = load('phone');
 
 async function setup() {
@@ -705,6 +706,23 @@ test("a waiting question keeps exactly what its answer is matched on; one too bi
     if (t.pendingApproval.kind === 'question') for (const qq of t.pendingApproval.questions) assert.ok(qq.question.startsWith('0 ') || qq.question.startsWith('1 ') || qq.question.startsWith('2 ') || qq.question.startsWith('3 '));
     else assert.match(t.pendingApproval.title, /Answer it on the Mac/);
   }
+});
+
+test("an open card's answer notes reach another runner's relay, and go before the card when the row is too big", async () => {
+  // A Mac reading Bruce's thread through the relay draws its card from this
+  // row: without the notes it fell back to plain buttons (Mike, 8 Nov, on a
+  // Hetzner thread).
+  const s = await setup();
+  const asks = [{ action: 'Same thread or new?', options: ['Same thread', 'New thread'], optionNotes: ['One thread that moves.', 'The old one is archived.'], suggested: 0 }];
+  await s.bruce.upsert(thread('N1', BRUCE, { needs: 'you', asks, asksSeq: 50 }));
+  const read = (await call(s.ctx, relay.remoteThread, { key: OWNER, threadId: 'N1' })) as { asks: unknown };
+  assert.deepEqual(read.asks, asks);
+  // Notes too long for the row's cap: they go, the card stays and still works as buttons.
+  const long = [{ action: 'Ship it?', options: ['Yes', 'No'], optionNotes: ['y'.repeat(5_000), 'n'.repeat(5_000)] }];
+  await s.bruce.upsert(thread('N2', BRUCE, { needs: 'you', asks: long, asksSeq: 7 }));
+  const t = s.rows('threads').find((r) => r.threadId === 'N2')!;
+  assert.ok(bytes(t) <= 8_192, String(bytes(t)));
+  assert.deepEqual(t.asks, [{ action: 'Ship it?', options: ['Yes', 'No'] }]);
 });
 
 test('pruneOld finds old finished commands by when they finished, not when they were made', async () => {
