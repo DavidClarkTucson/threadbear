@@ -34,8 +34,12 @@ export function escapeDestinations(markdown: string): string {
 function escapeLine(line: string): string {
   const spans = [...line.matchAll(/`+[^`]*`+/g)].map((m) => [m.index, m.index + m[0].length] as const);
   // One level of brackets inside, for `work:npm test (unit)`.
+  // Both come in order, so one pass over the spans does for every link
+  // (a `some` per link was links times spans on a long line).
+  let next = 0;
   return line.replace(/\]\((work|thread):((?:[^()]|\([^()]*\))*)\)/g, (whole, scheme: string, body: string, at: number) => {
-    if (spans.some(([from, to]) => at < to && from < at + whole.length)) return whole;
+    while (next < spans.length && spans[next]![1] <= at) next++;
+    if (next < spans.length && spans[next]![0] < at + whole.length) return whole;
     return `](${scheme}:${encodeURIComponent(decoded(body))})`;
   });
 }

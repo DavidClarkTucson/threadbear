@@ -21,6 +21,10 @@ test('leaves everything else alone', () => {
     escapeDestinations('Write `[a](work:npm test)` like that, [b](work:npm test)'),
     'Write `[a](work:npm test)` like that, [b](work:npm%20test)',
   );
+  assert.equal(
+    escapeDestinations('`x` [a](work:a b) `[b](work:a b)` [c](work:a b) `y`'),
+    '`x` [a](work:a%20b) `[b](work:a b)` [c](work:a%20b) `y`',
+  );
   const fenced = '```\n[a](work:npm test)\n```\n[b](work:npm test)';
   assert.equal(escapeDestinations(fenced), '```\n[a](work:npm test)\n```\n[b](work:npm%20test)');
 });
