@@ -453,10 +453,22 @@ public final class FakeBackend: Backend, @unchecked Sendable {
         }
     }
 
+    public func olderMessages(_ threadId: String, beforeSeq: Int, limit: Int) async throws -> MessagePage {
+        // As over the network, for the long thread.
+        if threadId == "long" { try await Task.sleep(for: .milliseconds(700)) }
+        let before = lock.withLock { (messagesById[threadId] ?? []).filter { $0.seq < beforeSeq } }
+        let page = Array(before.suffix(limit))
+        let from = page.first?.seq ?? beforeSeq
+        let images = lock.withLock { (imagesById[threadId] ?? []).filter { $0.seq >= from && $0.seq < beforeSeq } }
+        return MessagePage(messages: page, hasMore: before.count > limit, images: images)
+    }
+
     public func messages(_ threadId: String, limit: Int) -> AsyncThrowingStream<MessagePage, Error> {
         let page = watch { [unowned self] in
             let all = lock.withLock { messagesById[threadId] ?? [] }
             let images = lock.withLock { imagesById[threadId] ?? [] }
+            // At most what the server sends (phone:messages' PAGE_MAX).
+            let limit = min(limit, MessageHistory.liveMax)
             return MessagePage(messages: Array(all.suffix(limit)), hasMore: all.count > limit, images: images)
         }
         guard threadId == "long" else { return page }
