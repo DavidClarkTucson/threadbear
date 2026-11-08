@@ -410,6 +410,10 @@ type Runtime = {
   taskEndedInTurn?: boolean;
   activeAt: number; // last turn start or end, for picking which CLI to release
   approvals: Map<string, PendingApproval>;
+  // Calls the card reviewer is deciding on (runner/card-review.ts), which
+  // have no card yet: Stop, the turn ending or Mike writing settles them as
+  // it would a card. `main`: the agent's own call, not a subagent's.
+  reviews?: Map<string, { main: boolean; cancel: (a: ToolApprovalAnswer) => void }>;
   idleTimer?: TimerHandle;
   releaseWhenIdle: boolean;
   inProgress: Map<string, InProgressItem>;
@@ -1460,6 +1464,11 @@ export class Runner {
         this.resolveApproval(st, approvalId, 'deny', WROTE_INSTEAD);
         settleDeclined(pending, 'deny', WROTE_INSTEAD);
       }
+    }
+    // The same for a call the card reviewer is still deciding on: he may be
+    // taking it back, and the reviewer read the thread before he wrote.
+    if (rt.reviews?.size && fromMike(text, opts)) {
+      for (const r of [...rt.reviews.values()]) if (r.main) r.cancel({ decision: 'deny', message: WROTE_INSTEAD });
     }
     // A slash command waits for the turn to end rather than going into it:
     // a CLI runs one only as a message of its own, and the runner's own

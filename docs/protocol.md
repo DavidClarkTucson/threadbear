@@ -2637,19 +2637,28 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
 - **Card reviewer** (experiment `cardReviewer`, off unless `runner.json`
   has `"experiments": { "cardReviewer": true }`;
   `runner/src/runner/card-review.ts`). In a thread whose `permissionMode`
-  is `auto`, a tool approval (`requestApproval`, except `ExitPlanMode`)
-  or a threadbear tool's own card (`requestAgentApproval`) first goes to a
+  is `auto`, a Claude tool approval (`requestApproval`, except
+  `ExitPlanMode`; a Codex one isn't reviewed, as its file change card names
+  the files but not the change)
+  or a threadbear tool's own card (`requestAgentApproval`, except
+  `create_thread`, `update_thread`, `schedule_message`, `update_schedule`
+  and `move_thread`, whose access lasts past the call) first goes to a
   small-jobs `generate` with `strong` (Opus, no tools), shown the card's
   title, its whole input, the thread's opening message and its latest one,
-  under a system prompt that treats all of that as data. Only an answer
+  under a system prompt that treats all of that as data, each piece between
+  `BEGIN <tag>` and `END <tag>` lines with a random tag per call. Only an answer
   whose JSON has `"verdict": "allow"` allows: the call goes ahead with a
   `system.note` "Allowed by the reviewer: <title>. <why>" and no
   `approval.requested` is ever sent. Anything else (`ask`, unreadable, the
   call failing, a private folder, input over 40,000 characters) puts the
   card up as before, after a `system.note` with the reviewer's reason when
-  it gave one. The thread stays `running` while the reviewer thinks; Stop
-  or the turn ending meanwhile answers the call `expired` and no card goes
-  up. Ask, Full access and plans are never reviewed.
+  it gave one. The answer must be that JSON object alone (a code fence at
+  most) with a non-empty `why`. The thread stays `running` while the
+  reviewer thinks, and the call sits in `rt.reviews`: Stop or the turn
+  ending answers it `expired` at once, and a message from Mike `deny`
+  (as for a card he wrote instead of answering), with no card. A thread
+  switched out of Auto meanwhile gets the card. Ask, Full access and plans
+  are never reviewed.
 - **Review by another lab** (experiment `labReview`, off unless
   `runner.json` has `"experiments": { "labReview": true }`;
   `runner/src/runner/lab-review.ts`). A turn that would count as finished

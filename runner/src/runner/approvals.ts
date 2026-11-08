@@ -14,7 +14,7 @@ import { matchAnswers } from '../runner.ts';
 import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN, type SecretFiles } from '../secrets.ts';
 import { START_CARD, type RequestAnswer } from '../cross-runner.ts';
 import { REMOTE_ALLOW_REFUSED, remoteCardShowsAll } from '../tools.ts';
-import { reviewCard, reviewsCards, type CardForReview } from './card-review.ts';
+import { reviewCard, reviewsCards, type CardForReview, type CardVerdict } from './card-review.ts';
 
 export type SecretRequest = { label: string; reason: string; placeholder?: string; timeoutMinutes?: number; toolUseId?: string; signal?: AbortSignal };
 export type SecretAnswer = ({ status: 'saved' } & SecretFiles) | { status: 'declined' | 'expired'; message?: string };
@@ -155,9 +155,11 @@ export const approvalsPart = {
   requestApproval(this: Runner, st: ThreadState, gen: number, req: ToolApprovalRequest): Promise<ToolApprovalAnswer> {
     if (!this.turnForRequest(st, gen, Boolean(req.toolUseId))) return Promise.resolve({ decision: 'expired', message: 'The thread is shutting down.' });
     // A plan is Mike's to approve, whatever the mode.
-    if (req.name !== 'ExitPlanMode' && reviewsCards(this, st)) {
+    // Codex's file change card names the files but not the change (that
+    // comes as edit.diff), so the reviewer couldn't see what it allows.
+    if (req.name !== 'ExitPlanMode' && st.rec.provider === 'claude' && reviewsCards(this, st)) {
       const title = approvalTitle(req.name, req.input, (q) => this.findThread(q)) ?? req.title;
-      return this.reviewThenCard(st, gen, { name: req.name, title, input: req.input }, req.signal, () => this.approvalCard(st, req));
+      return this.reviewThenCard(st, gen, { name: req.name, title, input: req.input }, req.signal, () => this.approvalCard(st, req), Boolean(req.toolUseId));
     }
     return this.approvalCard(st, req);
   },
@@ -165,15 +167,33 @@ export const approvalsPart = {
   // An Auto thread's card goes past the reviewer first (runner/card-review.ts):
   // allowed there, the call goes ahead with a note saying so; otherwise
   // `show` puts the card up for Mike, after a note with the reviewer's reason.
-  async reviewThenCard(this: Runner, st: ThreadState, gen: number, card: CardForReview, signal: AbortSignal | undefined, show: () => Promise<ToolApprovalAnswer>): Promise<ToolApprovalAnswer> {
-    const verdict = await reviewCard(this, st, card);
-    if (signal?.aborted) return { decision: 'expired', message: 'Cancelled.' };
-    if (st.rt.generation !== gen || st.rt.closing || st.rt.deleted || this.stopping) return { decision: 'expired', message: 'The thread is shutting down.' };
-    if (verdict.allow) {
-      this.emit(st, { type: 'system.note', text: `Allowed by the reviewer: ${card.title}. ${verdict.why}` }, st.rt.turn?.turnId);
+  async reviewThenCard(this: Runner, st: ThreadState, gen: number, card: CardForReview, signal: AbortSignal | undefined, show: () => Promise<ToolApprovalAnswer>, main = true): Promise<ToolApprovalAnswer> {
+    const { rt } = st;
+    // Settled at once by Stop, the turn ending or Mike writing (expireApprovals,
+    // send), as a card would be, without waiting for the model.
+    let cancel!: (a: ToolApprovalAnswer) => void;
+    const cancelled = new Promise<ToolApprovalAnswer>((r) => (cancel = r));
+    const id = crypto.randomUUID();
+    (rt.reviews ??= new Map()).set(id, { main, cancel });
+    const onAbort = () => cancel({ decision: 'expired', message: 'Cancelled.' });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    let verdict: CardVerdict;
+    try {
+      const r = await Promise.race([reviewCard(this, st, card).then((v) => ({ v })), cancelled.then((a) => ({ a }))]);
+      if ('a' in r) return r.a;
+      verdict = r.v;
+    } finally {
+      rt.reviews?.delete(id);
+      signal?.removeEventListener('abort', onAbort);
+    }
+    if (rt.generation !== gen || rt.closing || rt.deleted || this.stopping) return { decision: 'expired', message: 'The thread is shutting down.' };
+    // Still on Auto: switched to Ask or Plan meanwhile, it's Mike's card.
+    if (verdict.allow && reviewsCards(this, st)) {
+      this.emit(st, { type: 'system.note', text: `Allowed by the reviewer: ${card.title}. ${verdict.why}` }, rt.turn?.turnId);
       return { decision: 'allow' };
     }
-    if (verdict.why) this.emit(st, { type: 'system.note', text: `The reviewer left this one for you: ${verdict.why}` }, st.rt.turn?.turnId);
+    if (!verdict.allow && verdict.why) this.emit(st, { type: 'system.note', text: `The reviewer left this one for you: ${verdict.why}` }, rt.turn?.turnId);
     return show();
   },
 
@@ -355,6 +375,10 @@ export const approvalsPart = {
     for (const [id, pending] of [...st.rt.approvals]) {
       if (opts.mainOnly && !pending.main) continue;
       this.expireApproval(st, id, message, opts.stopped);
+    }
+    for (const r of [...(st.rt.reviews?.values() ?? [])]) {
+      if (opts.mainOnly && !r.main) continue;
+      r.cancel({ decision: 'expired', message, ...(opts.stopped ? { stopped: true } : {}) });
     }
   },
 
