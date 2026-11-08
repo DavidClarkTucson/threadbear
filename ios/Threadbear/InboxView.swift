@@ -26,6 +26,8 @@ struct InboxView: View {
     @Environment(QuickAskModel.self) private var quick
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var path: [String] = []
+    /// What Back has popped, for a swipe left on a thread (PageSwipe.swift).
+    @State private var forward = ForwardStack()
     @State private var composing = false
     @State private var composeText = ""
     @State private var hibernateTarget: PhoneThread?
@@ -244,6 +246,15 @@ struct InboxView: View {
                 model.searchText = nil
             }
             .onChange(of: path.isEmpty, initial: true) { _, empty in model.threadOpen = !empty }
+            .onChange(of: path) { old, new in
+                forward.pathChanged(from: old, to: new)
+                // `-ThreadbearForward <threadId>`: that thread forward from the
+                // first one opened, for screenshots of the swipe card.
+                let args = ProcessInfo.processInfo.arguments
+                if old.isEmpty, forward.next == nil, let i = args.firstIndex(of: "-ThreadbearForward"), i + 1 < args.count {
+                    forward = ForwardStack(ids: [args[i + 1]])
+                }
+            }
             .onChange(of: model.openThreadId, initial: true) { _, id in
                 guard let id else { return }
                 path = [id]
@@ -251,6 +262,7 @@ struct InboxView: View {
             }
         }
         .environment(\.pushThread) { path.append($0) }
+        .environment(\.pageForward, forward.next.map { id in PageForward(threadId: id) { path.append(id) } })
     }
 
     /// Pull to refresh: the bear blinks with a light tap as the list's held open,

@@ -461,6 +461,11 @@ final class AppModel {
         InboxSections.build(list.filter { !archiving.contains($0.threadId) && !tucks.hidden.contains($0.threadId) }, now: now, wakes: wakes)
     }
 
+    /// A thread this phone has a row for (inbox, hibernating, archived).
+    func knownThread(_ id: String) -> PhoneThread? {
+        inbox.first { $0.threadId == id } ?? hibernating.first { $0.threadId == id } ?? den.first { $0.threadId == id }
+    }
+
     /// A pasted thread id as the `[title](thread:<id>)` link it goes in as,
     /// for a thread this phone has a row for (inbox, hibernating, archived),
     /// or nil to paste the words. Same as the Mac's composer.

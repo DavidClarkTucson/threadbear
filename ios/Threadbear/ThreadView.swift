@@ -213,6 +213,8 @@ struct ThreadView: View {
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
+            // Swipe left for Forward (and right for Back before iOS 26).
+            .pageSwipes()
             .environment(\.threadPictures, pictures)
             .environment(\.picturesWaitUntilSeen, true)
             .environment(\.threadLink) { url, seq in follow(url, from: seq, in: items) }
