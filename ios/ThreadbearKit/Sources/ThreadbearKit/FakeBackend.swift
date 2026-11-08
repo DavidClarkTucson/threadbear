@@ -37,7 +37,7 @@ public final class FakeBackend: Backend, @unchecked Sendable {
     /// for the new thread sheet's runner picker. Left out of the usual samples.
     /// `queued`: with the runner offline, a3 already has two messages
     /// waiting for it, for the screenshots.
-    public init(now: Date = .now, turnDelay: Duration = .seconds(2), runnerOnline: Bool = true, listDelay: Duration = .zero, pictures: Bool = false, long: Bool = false, secret: Bool = false, diagrams: Bool = false, runners: Bool = false, queued: Bool = false) {
+    public init(now: Date = .now, turnDelay: Duration = .seconds(2), runnerOnline: Bool = true, listDelay: Duration = .zero, pictures: Bool = false, long: Bool = false, secret: Bool = false, diagrams: Bool = false, runners: Bool = false, queued: Bool = false, many: Bool = false) {
         let sample = Self.sample(now: now)
         threadsById = Dictionary(uniqueKeysWithValues: sample.threads.map { ($0.threadId, $0) })
         messagesById = sample.messages
@@ -58,6 +58,9 @@ public final class FakeBackend: Backend, @unchecked Sendable {
             let thread = Self.diagramThread(now: now)
             threadsById[thread.thread.threadId] = thread.thread
             messagesById[thread.thread.threadId] = thread.messages
+        }
+        if many {
+            for thread in Self.manyThreads(now: now) { threadsById[thread.threadId] = thread }
         }
         if secret {
             let thread = Self.secretThread(now: now)
@@ -81,6 +84,44 @@ public final class FakeBackend: Backend, @unchecked Sendable {
             ]
             for send in waitingByThread["a3"]! { commands[send.commandId] = CommandStatus(state: .pending) }
         }
+    }
+
+    // MARK: A long inbox
+
+    /// `-ThreadbearManyThreads`: a couple more starred, a screenful or two of
+    /// inbox and a few more running, for scrolling a long inbox and seeing its
+    /// headings stick at the top. Left out of the usual samples.
+    static func manyThreads(now: Date) -> [PhoneThread] {
+        let site = [ProjectRef(id: "p_site", title: "Website")]
+        let garden = [ProjectRef(id: "p_garden", title: "Garden planner")]
+        let titles = ["Fix the flaky login test", "Bigger tap targets on the map", "Why is the build slow?",
+                      "Move the images to a CDN", "Dark mode for the charts", "Write up the release notes",
+                      "Rate limit the signup form", "Sort the plants by season", "Clean up the old migrations",
+                      "Typo on the pricing page", "Cache the weather lookups", "Add a sitemap",
+                      "Try the new font", "Export the garden as a PDF", "Look into the memory spike",
+                      "Shorter onboarding", "Retry failed uploads", "Check the broken links",
+                      "Make the footer less shouty", "Speed up the search index", "Tidy the colour tokens",
+                      "Watering reminders", "Fix the date on old posts", "Keyboard shortcuts for the editor"]
+        var threads: [PhoneThread] = []
+        for (i, title) in titles.enumerated() {
+            threads.append(PhoneThread(threadId: "m\(i)", title: title, cwd: i % 2 == 0 ? "~/code/website" : "~/code/garden-planner",
+                                       unread: i % 5 == 0, preview: "Done.", lastActivityAt: now.addingTimeInterval(-Double(30 + i * 47) * 60),
+                                       projects: i % 3 == 0 ? nil : (i % 2 == 0 ? site : garden)))
+        }
+        for (i, (title, working)) in [("Upgrade the test runner", "Running the tests"), ("Resize the hero images", "Editing images.ts"),
+                                       ("Find the slow query", "Reading the logs"), ("Split up the settings page", "Editing Settings.tsx"),
+                                       ("Add plant photos", "Downloading samples"),
+                                       ("Bump the dependencies", "Running npm install"), ("Fix the RSS feed", "Editing feed.ts"),
+                                       ("Profile the startup time", "Running the profiler"), ("Translate the help pages", "Editing help.md")].enumerated() {
+            threads.append(PhoneThread(threadId: "mr\(i)", title: title, cwd: "~/code/website", status: .running, preview: "On it.",
+                                       lastActivityAt: now.addingTimeInterval(-Double(2 + i * 3) * 60), projects: site, working: working))
+        }
+        for (i, title) in ["Ideas for the spring update", "Keep an eye on the error rate"].enumerated() {
+            threads.append(PhoneThread(threadId: "ms\(i)", title: title, cwd: "~/code/garden-planner", preview: "Noted.",
+                                       lastActivityAt: now.addingTimeInterval(-Double(90 + i * 60) * 60),
+                                       starredAt: now.addingTimeInterval(-Double(i + 1) * 86_400), projects: garden))
+        }
+        return threads
     }
 
     // MARK: A thread asking for a secret
