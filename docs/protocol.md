@@ -4664,7 +4664,7 @@ default).
   which `relay:queueCommand` keeps only on an archive, and that runner
   records the archive as an agent's. From an older backend it's dropped and
   the archive reads as Mike's, as before.
-- `threads.send` (text and `answers`; pictures are `-32000`;
+- `threads.send` (text, `answers` and pictures, below;
   the answer has `queued: true` when that runner hasn't taken it in the 20
   seconds),
   `threads.interrupt`, `approvals.respond`, `secrets.answer` (sealed to the
@@ -4709,8 +4709,8 @@ default).
 - **New threads there.** (A request from a runner key, "Asking another
   runner", files Plan first as `ask`: its row has no room for the flag.)
   `threads.create` with `runnerId` is a `create`
-  command (text, `cwd`, `accountId`, `model`, `effort`, `permissionMode`;
-  pictures are `-32000`). Every mode goes, as a missing one is full access
+  command (text, `cwd`, `accountId`, `model`, `effort`, `permissionMode`
+  and pictures, below; with pictures the text can be empty). Every mode goes, as a missing one is full access
   there: Plan first as `permissionMode: "ask", plan: true`, which a runner or
   backend from before Plan first reads as Ask. A mode one of them doesn't
   know is refused, here, in the backend and by that runner, never dropped
@@ -4719,6 +4719,38 @@ default).
   sidebar list has it. `remoteThreads.logins { runnerId }` gives that runner's
   logins for the pickers, from the backend's `accounts` rows (no pools;
   `defaults.cwd` is the folder of its newest thread).
+- **Pictures** (backend API 63, 8 Nov 2026). A `threads.send` or
+  `threads.create` for another runner can carry `images`, as for this one:
+  the `ImageRef`s `media.import` made, in this runner's `inbox/`. A picture
+  anywhere else is `-32602` (a client can't have any other file here sent to
+  Convex by naming it), and so are more than 6 or one that isn't an image.
+  This runner uploads each to `/relay/upload` with a one-use ticket from
+  `relay:pictureUploadUrl` (at most 10 MB; the backend records it in
+  `relayUploads`) and queues the command with `images: [storageId, ...]` in
+  order; `relay:queueCommand` takes only those uploads, and only ones nothing
+  else names (a picture row, another command's), and stores
+  `images: [{ storageId, url }]`, the shape a phone's photos have, with
+  `commandFiles` rows. So the other runner fetches them as it does the
+  phone's (Sync, the `send` and `create` commands), even one from before
+  this, and `sync:finishCommand` deletes them once it's done, whether it went
+  or failed. If the command couldn't be queued, this runner calls
+  `relay:discardPictures` with the ids, which deletes only those uploads that
+  nothing names; whatever's left (a lost reply, a runner that quit between
+  the two) goes after a day with its `relayUploads` row (`sync:pruneFiles`).
+  That runner marks a send taken before it fetches the pictures, so a send
+  with pictures waits past taken for done and fails if the fetch does. It
+  answers within 100 seconds of being asked, as the app gives up on a send
+  at 120 and then puts the draft back while it may still go: no upload
+  starts after the first minute and they must all be up by 75 seconds, or
+  nothing is queued (the error says so), every wait after that ends by 100
+  seconds, and taken and still not done then counts as sent. A new thread
+  with pictures waits for done in the same 100 seconds. So a fetch there
+  that fails after 100 seconds (six pictures each taking over 7 seconds to
+  download) still looks sent here. A backend before 61 would drop them and send the words
+  alone, so this runner says the backend needs updating instead (it updates
+  with the runner), and an offline runner is said before anything uploads.
+  The direct link sends no pictures yet: the app says to turn it off to send
+  them through Convex.
 - **Answers from another runner.** `files.list` with `runnerId` and `path`
   is a `call` command, `{ method: "files.list", params: { path } }`, which
   that runner answers in the command's `result` (at most 500 entries; JSON
@@ -5557,6 +5589,8 @@ anyone's); "any runner" is any good key. Anything not sorted is owner only.
 | `remoteThread` | owner only | another runner's thread row, its open approval and card |
 | `queueCommand` | owner only | work for another runner: a thread's command goes to the runner the backend says has it |
 | `commandState` | owner only | |
+| `pictureUploadUrl` | owner only | a one-use `/relay/upload` URL for a picture going to another runner's thread, recorded in `relayUploads` |
+| `discardPictures` | owner only | deletes pictures uploaded through `pictureUploadUrl` for a command that wasn't queued, only ones nothing names |
 | `remoteAccounts` | owner only | another runner's logins |
 | `remoteBody` | owner only | one tool's output on another runner's thread (full sync) |
 | `fileRequest` | its own | a request for a thread on another runner, from one of its own threads (Asking another runner); never changed after; at most 5 waiting (one over two hours old doesn't count) and 50 kept, oldest going first, for a week at most |

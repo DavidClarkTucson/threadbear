@@ -1868,6 +1868,30 @@ test('commands: a photo from the phone reaches the transcript and the inbox copy
   await sync.stop();
 });
 
+// The main Mac sends pictures to this runner's threads the phone's way
+// (backend API 63, relay.ts withPictures): fetched the same, but Mike's
+// message from a Mac, not marked as the phone's.
+test('commands: pictures sent from the main Mac reach the transcript as his own message', async () => {
+  const { h, sync, push, calls } = setupFull();
+  sync.start();
+  await sync.flushNow();
+  const t = h.runner.create({ text: 'hello', cwd: h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  const s = session(h, t.id);
+  s.init();
+  s.result('completed');
+  await tick();
+  push([{ commandId: 'm1', kind: 'send', threadId: t.id, args: { text: 'like this [Picture 1]', images: [{ storageId: 's1', url: 'https://x/photo' }], from: 'mac' }, createdAt: 1 }]);
+  await tick(10);
+  const finished = calls.filter((c) => c.fn === 'sync:finishCommand').map((c) => c.args);
+  assert.equal(finished[0]!.ok, true, String(finished[0]!.note));
+  const ev = h.events(t.id).findLast((e: { type: string }) => e.type === 'user.message') as { text: string; images: { path: string }[]; origin?: string };
+  assert.equal(ev.origin, undefined);
+  assert.equal(ev.text, 'like this [Picture 1]');
+  assert.equal(ev.images.length, 1);
+  assert.ok(fs.existsSync(ev.images[0]!.path));
+  await sync.stop();
+});
+
 test('commands: something that is not an image fails the command, and nothing is sent', async () => {
   const { h, sync, push, calls, applied } = setupFull();
   sync.start();

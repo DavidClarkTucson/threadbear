@@ -330,12 +330,11 @@ struct ComposerView: View {
         return true
     }
 
-    /// Whether pictures can go in this box, saying why not when they can't:
-    /// a picture this Mac's runner keeps would be a path another runner
-    /// hasn't got.
+    /// Whether pictures can go in this box, saying why not when they can't
+    /// (only over the direct link to another runner: `picturesRefusal`).
     private func picturesAllowed() -> Bool {
-        if let name = thread.flatMap(app.runnerName(of:)) ?? (thread == nil ? app.newThreadRunner?.name : nil) {
-            app.errorMessage = "Pictures can't go to \(name) from this Mac yet."
+        if let why = app.picturesRefusal(for: thread) {
+            app.errorMessage = why
             return false
         }
         return true

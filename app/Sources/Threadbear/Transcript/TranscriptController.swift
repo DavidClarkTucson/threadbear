@@ -983,10 +983,8 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
 
     func askPicturesAllowed(_ card: AsksCard) -> Bool {
         guard let session, let app = session.app, let thread = app.threads[session.threadId], thread.asksSeq == card.seq else { return false }
-        // A picture this Mac's runner keeps would be a path another
-        // runner hasn't got (as in the composer).
-        if let name = app.runnerName(of: thread) {
-            app.errorMessage = "Pictures can't go to \(name) from this Mac yet."
+        if let why = app.picturesRefusal(for: thread) {
+            app.errorMessage = why
             return false
         }
         return true

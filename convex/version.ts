@@ -282,4 +282,11 @@
 //    threads.commands list), and phone:command returns that list as
 //    `result`. An older runner fails it as unknown, and the phone shows no
 //    palette; an older phone never asks.
-export const API_VERSION = 62;
+// 63: relay:queueCommand takes `images` (storage ids the main Mac's runner
+//    uploaded through relay:pictureUploadUrl and /relay/upload, recorded in
+//    relayUploads) on a send or a create, and gives the command a URL for
+//    each, as a phone's photos have; relay:discardPictures deletes ones that
+//    weren't queued, and sync:pruneFiles any left after a day. A runner
+//    sends pictures to another runner only from 63: an older backend would
+//    drop them and send the words alone.
+export const API_VERSION = 63;

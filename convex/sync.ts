@@ -156,7 +156,7 @@ export async function endCommandFiles(ctx: MutationCtx, commandId: Id<'commands'
   for (const f of await ctx.db.query('commandFiles').withIndex('by_commandId', (q) => q.eq('commandId', commandId)).take(MAX_COMMAND_FILES)) await ctx.db.delete(f._id);
 }
 
-async function uploadedBy(ctx: QueryCtx | MutationCtx, storageId: Id<'_storage'>): Promise<string | undefined> {
+export async function uploadedBy(ctx: QueryCtx | MutationCtx, storageId: Id<'_storage'>): Promise<string | undefined> {
   return (await ctx.db.query('storageOwners').withIndex('by_storageId', (q) => q.eq('storageId', storageId)).first())?.runnerId;
 }
 
@@ -2826,6 +2826,15 @@ export const pruneFiles = internalMutation({
     // The phone's: a photo picked and never sent, or a ticket never used. One
     // still in a waiting command stays (deleteIfUnused) until that's over.
     for await (const u of ctx.db.query('phoneUploads').withIndex('by_issued', (q) => q.lt('issuedAt', cutoff))) {
+      if (full()) break;
+      charge(u, u.storageId ? 1 : 0);
+      await ctx.db.delete(u._id);
+      if (u.storageId) await deleteIfUnused(ctx, u.storageId);
+    }
+    // The main Mac's pictures for another runner (relay.ts): one that never
+    // went out, or a ticket never used. One in a waiting command stays
+    // (deleteIfUnused) until that's over.
+    for await (const u of ctx.db.query('relayUploads').withIndex('by_issued', (q) => q.lt('issuedAt', cutoff))) {
       if (full()) break;
       charge(u, u.storageId ? 1 : 0);
       await ctx.db.delete(u._id);

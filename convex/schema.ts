@@ -355,6 +355,22 @@ export default defineSchema({
     .index('by_storageId', ['storageId'])
     .index('by_issued', ['issuedAt']),
 
+  // Pictures the main Mac's runner uploads for a message to another runner's
+  // thread (relay:pictureUploadUrl, convex/http.ts /relay/upload, API 63): the
+  // one-use ticket, and once used the file it stored. A command names only
+  // these (relay.ts commandPictures), relay:discardPictures deletes only
+  // these, and the rows go after a day with any file nothing names any more
+  // (sync:pruneFiles), so an upload that never went out doesn't stay.
+  relayUploads: defineTable({
+    ticketHash: v.string(),
+    issuedAt: v.number(),
+    usedAt: v.optional(v.number()),
+    storageId: v.optional(v.id('_storage')),
+  })
+    .index('by_hash', ['ticketHash'])
+    .index('by_storageId', ['storageId'])
+    .index('by_issued', ['issuedAt']),
+
   // The stored files a command names (its args.images), so whether a file is
   // still on its way to a runner is one index read (sync.ts storageInUse)
   // rather than a look through every waiting command. Written with the

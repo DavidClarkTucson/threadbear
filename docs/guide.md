@@ -755,7 +755,9 @@ threads made on another Mac show in your sidebar too, with that Mac's
 icon in the row. Open one and this Mac reads it from your Convex backend
 and sends what you do there (messages, approvals, Stop, archive) for that
 Mac to pick up, the way your phone does, so there's no network link between
-the two Macs to set up. You see its messages and a line for each tool it
+the two Macs to set up. Pictures you paste into a message, or into a new
+thread there, go with it (up to 6, 10 MB each), held in Convex only until
+that Mac has fetched them. You see its messages and a line for each tool it
 used; the tool output, diffs and pictures stay on that Mac for now, and a
 tool row says so. Editing a message, its highlights and patches, and
 changing its login or model are done on that Mac. Agents see them the
@@ -797,7 +799,8 @@ Start it sends the request back for the agent to ask again with one that
 is. The new thread is told which thread asked, and can
 message it back. Agents on this Mac start threads on the other Macs
 without asking.
-With the direct link on, its pictures and files come from that Mac as you open them. To start a
+With the direct link on, its pictures and files come from that Mac as you open them, but
+pictures can't go to it from here yet: turn the direct link off to send them. To start a
 thread on another Mac, pick it with the machine chip on the composer: the
 folder, account and model are then that Mac's. New threads start on the
 starred one: change it under Default in that chip's menu, or in

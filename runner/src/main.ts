@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { readShareImage } from './share-images.ts';
 import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION } from './config.ts';
 import { startHousekeeping } from './housekeeping.ts';
 import { RELEASE, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
@@ -625,6 +626,8 @@ async function main(): Promise<void> {
   const relay = (relayRef = new Relay({
     source: () => sync.relaySource(),
     remote: () => sync.remoteNow(),
+    // Pictures for another runner's thread: only what media.import put in the inbox.
+    readPicture: (file) => readShareImage(file, paths.inbox(cfg.home)),
     subscribed: (threadId) => rpcServer?.isSubscribed(threadId) ?? false,
     publish: (n) => rpcServer?.notifyClients(n),
     clock: realClock,
