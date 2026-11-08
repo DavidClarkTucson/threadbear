@@ -68,6 +68,7 @@ const PERSISTED: Record<string, (e: Obj) => string | null> = {
     (e.itemId === undefined || isStr(e.itemId)) &&
     isStr(e.name) &&
     isStr(e.title) &&
+    (e.reason === undefined || isStr(e.reason)) &&
     e.input &&
     Array.isArray(e.options) &&
     e.options.every((o: string) => ['allow', 'allowAlways', 'deny'].includes(o))

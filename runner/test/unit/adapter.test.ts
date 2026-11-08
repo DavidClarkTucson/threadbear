@@ -651,3 +651,20 @@ test('two cards listing the same call: each answer holds for the call as its own
   await b;
   state.close!();
 });
+
+// David, 8 Nov 2026: an Auto thread's deploy waited on a card that never said
+// why the safety check had handed it to him. The CLI's reason goes on the card.
+test("a card says why it's asking, but not that the mode asks", async () => {
+  const { state, approvals } = start();
+  const opts = (id: string, extra: Record<string, unknown>) => ({ signal: new AbortController().signal, toolUseID: id, agentID: 'a', ...extra });
+  await state.options.canUseTool('Bash', { command: './deploy.sh' }, opts('t1', { decisionReason: 'Deploys to a remote production host.', decisionReasonType: 'classifier' }));
+  assert.equal(approvals.at(-1)!.reason, "Auto mode's safety check couldn't clear this: Deploys to a remote production host.");
+  await state.options.canUseTool('Bash', { command: 'ls' }, opts('t2', { decisionReason: "The folder's permission rules aren't trusted for this thread.", decisionReasonType: 'hook' }));
+  assert.equal(approvals.at(-1)!.reason, "The folder's permission rules aren't trusted for this thread.");
+  // Every card in Ask before edits would say this.
+  await state.options.canUseTool('Bash', { command: 'ls' }, opts('t3', { decisionReason: 'Current permission mode requires approval', decisionReasonType: 'mode' }));
+  assert.equal(approvals.at(-1)!.reason, undefined);
+  await state.options.canUseTool('Bash', { command: 'ls' }, opts('t4', { decisionReason: '  ' }));
+  assert.equal(approvals.at(-1)!.reason, undefined);
+  state.close!();
+});

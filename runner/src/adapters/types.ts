@@ -184,6 +184,8 @@ export type ToolApprovalRequest = {
   // The agent's other calls waiting behind this one (docs/protocol.md,
   // "Queued calls"); more can join while it waits (an approvalQueue output).
   queued?: QueuedCall[];
+  // Why the CLI is asking, in a sentence for the card (askReason in the Claude adapter).
+  reason?: string;
 };
 
 // mode: the permission mode to switch to as the call goes ahead (approving
