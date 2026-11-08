@@ -252,8 +252,8 @@ test('cardReviewer: Mike\'s latest message is shown as his, and a runner message
   h.runner.send(id, 'Carry on where you left off.', [], { origin: 'runner' });
   await edit(s);
   const p = h.asked[0].prompt;
-  assert.match(p, /Mike's latest message to it:\nBEGIN \w+\nDo not change settings/);
-  assert.match(p, /not from Mike \(from runner\):\nBEGIN \w+\nCarry on/);
+  assert.match(p, /The user's latest message to it:\nBEGIN \w+\nDo not change settings/);
+  assert.match(p, /not from the user \(from runner\):\nBEGIN \w+\nCarry on/);
 });
 
 test('cardReviewer: a brief too long to show whole goes to Mike', async () => {
