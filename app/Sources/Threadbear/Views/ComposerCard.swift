@@ -38,8 +38,12 @@ struct ComposerCard: NSViewRepresentable {
     }
 }
 
-final class ComposerCardHost: NSView {
+final class ComposerCardHost: NSView, TranscriptThreadHost {
     private let cell = TextRowCell()
+    /// The thread this card's controller shows, for a reply button pressed
+    /// in one of its asks (TranscriptTextView.transcriptThreadId). A card
+    /// whose controller has no thread presses nothing.
+    var hostedThreadId: String? { controller?.session?.threadId }
     /// A card taller than `maxHeight` scrolls inside the box: three asks
     /// with their buttons pushed the agent's reply off the top.
     private let scroll = NSScrollView()

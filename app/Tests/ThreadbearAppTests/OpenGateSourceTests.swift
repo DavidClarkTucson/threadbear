@@ -55,6 +55,20 @@ final class OpenGateSourceTests: XCTestCase {
         XCTAssertEqual(missing, [], "set .environment(\\.openURL, OpenGate.urlAction) on the Text")
     }
 
+    /// ThreadbearCore can't reach OpenGate, so Markdown parsed there (the
+    /// slash palette's descriptions, Daybreak 8 Nov) is shown without its
+    /// links: whatever window it lands in, nothing in it opens.
+    func testMarkdownParsedInCoreHasItsLinksTakenOff() throws {
+        let root = repo.appendingPathComponent("app/Sources/ThreadbearCore")
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)!
+        var missing: [String] = []
+        for case let file as URL in files where file.pathExtension == "swift" {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            if source.contains("AttributedString(markdown"), !source.contains(".withoutLinks") { missing.append(file.lastPathComponent) }
+        }
+        XCTAssertEqual(missing, [], "return the parsed text's .withoutLinks")
+    }
+
     func testThePhoneOpensThroughLinkGateOnly() throws {
         XCTAssertEqual(try matches(#"UIApplication\.shared\.open\s*\(|\.systemAction\b|openURL\s*\("#, in: "ios", except: ["LinkGate.swift"]), [],
                        "open links with LinkGate (decide, or openOwn for the app's own)")

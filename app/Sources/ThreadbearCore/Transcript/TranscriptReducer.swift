@@ -834,7 +834,8 @@ public struct TranscriptModel: Sendable {
         case .approvalQueued(let queue):
             let id = "ap:\(queue.approvalId)"
             update(id) { content in
-                guard case .approval(var item) = content, item.resolution == nil else { return }
+                // Never on another runner's start request (ApprovalItem.queued).
+                guard case .approval(var item) = content, item.resolution == nil, !item.isStartRequest else { return }
                 item.queued = queue.calls
                 content = .approval(item)
             }

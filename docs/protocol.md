@@ -1970,6 +1970,13 @@ second after Allow, which looked like the same card coming back (Mike,
 - **Other clients.** The phone and another Mac's view of the runner
   don't get the list: they answer the card's own call, and the rest ask
   one by one.
+- **Never on a start request.** Another runner's request for a thread
+  (`threadbear.start_thread`, "Asking another runner") always shows as
+  this Mac's runner read it, and is answered with `requests.answer`
+  alone. The app ignores an `approval.queued` for that card, and leaves
+  any such call out of another card's list (it asks with its own card),
+  as both come from the runner that owns the thread, which may be one
+  the app doesn't trust with this Mac.
 
 ## Plan first
 

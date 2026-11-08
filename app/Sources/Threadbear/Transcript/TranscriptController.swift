@@ -7,8 +7,9 @@ import ThreadbearCore
 
 /// The transcript table. Owns Quick Look control for image clicks and the
 /// row context menu.
-final class TranscriptTableView: NSTableView {
+final class TranscriptTableView: NSTableView, TranscriptThreadHost {
     weak var controller: TranscriptController?
+    var hostedThreadId: String? { controller?.session?.threadId }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
