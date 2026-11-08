@@ -158,6 +158,40 @@ pub fn folder_name(path: &str) -> String {
     trimmed.rsplit(['/', '\\']).next().filter(|s| !s.is_empty()).unwrap_or(path).to_string()
 }
 
+/// "claude-opus-5-5" → "Claude Opus 5.5", "opus" → "Claude Opus",
+/// "gpt-6-astra" → "GPT-6 Astra", and with no model the CLI's name: a port
+/// of web/src/format.ts's `modelLabel`.
+pub fn model_label(provider: &str, model: Option<&str>) -> String {
+    let cli = if provider == "codex" { "Codex" } else { "Claude" };
+    let Some(model) = model.filter(|m| !m.is_empty()) else { return cli.into() };
+    let id = match model.find('[') {
+        Some(at) if model.ends_with(']') => &model[..at],
+        _ => model,
+    };
+    let cap = |w: &str| w.chars().next().map(|c| c.to_uppercase().collect::<String>() + &w[c.len_utf8()..]).unwrap_or_default();
+    let lower = id.to_lowercase();
+    let rest = lower.strip_prefix("claude-").unwrap_or(&lower);
+    for family in ["opus", "sonnet", "haiku", "fable"] {
+        if let Some(after) = rest.strip_prefix(family) {
+            let nums: Vec<&str> = after.split('-').skip(1).take(2).take_while(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())).collect();
+            if !after.is_empty() && !after.starts_with('-') {
+                break;
+            }
+            let version = if nums.is_empty() { String::new() } else { format!(" {}", nums.join(".")) };
+            return format!("Claude {}{version}", cap(family));
+        }
+    }
+    if let Some(after) = lower.strip_prefix("gpt-") {
+        let mut parts = after.splitn(2, '-');
+        let version = parts.next().unwrap_or("");
+        if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.') {
+            let name = parts.next().map(|n| format!(" {}", n.split('-').map(cap).collect::<Vec<_>>().join(" "))).unwrap_or_default();
+            return format!("GPT-{version}{name}");
+        }
+    }
+    id.to_string()
+}
+
 /// "now", "5m", "3h", "2d", then the date, as web/src/format.ts's `ago`.
 pub fn ago(ms: i64, now_ms: i64) -> String {
     let s = ((now_ms - ms) / 1000).max(0);
@@ -258,5 +292,16 @@ mod tests {
         assert_eq!(folder_name("/home/mike/dev/x/"), "x");
         assert_eq!(folder_name(r"C:\Users\mike\dev\y"), "y");
         assert_eq!(ago(now() - 5 * 60_000, now()), "5m");
+    }
+
+    #[test]
+    fn model_names() {
+        assert_eq!(model_label("claude", Some("claude-opus-5-5")), "Claude Opus 5.5");
+        assert_eq!(model_label("claude", Some("claude-fable-5-1[1m]")), "Claude Fable 5.1");
+        assert_eq!(model_label("claude", Some("opus")), "Claude Opus");
+        assert_eq!(model_label("codex", Some("gpt-6-astra")), "GPT-6 Astra");
+        assert_eq!(model_label("codex", Some("gpt-6.1-sol")), "GPT-6.1 Sol");
+        assert_eq!(model_label("claude", None), "Claude");
+        assert_eq!(model_label("codex", Some("something-else")), "something-else");
     }
 }

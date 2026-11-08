@@ -330,7 +330,7 @@ impl Render for ThreadPane {
         let theme = cx.theme();
         let (border, muted, danger, bg) = (theme.border, theme.muted_foreground, theme.danger, theme.background);
         let busy = self.summary.busy();
-        let model = self.summary.model_in_use.clone().or(self.summary.model.clone()).unwrap_or_else(|| self.summary.provider.clone());
+        let model = crate::inbox::model_label(&self.summary.provider, self.summary.model_in_use.as_deref().or(self.summary.model.as_deref()));
         let meta = format!("{} · {} · {}", crate::inbox::folder_name(&self.summary.cwd), model, self.summary.status);
         let thread = self.summary.id.clone();
         v_flex()
