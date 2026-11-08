@@ -979,3 +979,55 @@ test("sync:sharedThreads lists a runner's link-shared rows only, and a runner ke
   assert.deepEqual(await call(s.ctx, sync.sharedThreads, { key: BRUCE_KEY, runnerId: BRUCE }), ['BRUCE-ON']);
   assert.equal(await outcome(call(s.ctx, sync.sharedThreads, { key: BRUCE_KEY, runnerId: M5 })), 'forbidden');
 });
+
+// ------------------------------------------------------------ Daybreak, 8 Nov
+
+// "Reply-button updates bypass scoped-runner storage quotas": a row sent again
+// with bigger buttons grew the stored message without counting the bytes, so
+// a runner key could put small rows in and then fill them past its budget.
+const bigButtons = (n = 20) => Array.from({ length: n }, (_, i) => ({ id: `b${i}`.padEnd(16, 'x'), title: 'T'.repeat(200), kind: 'send', target: 'G'.repeat(200) }));
+const storedOf = (row: Record<string, unknown>) => {
+  const { _id, _creationTime, ...rest } = row;
+  return Buffer.byteLength(JSON.stringify(rest), 'utf8');
+};
+
+test("a runner key's row sent again with bigger buttons is counted against its budget, and shrinking gives it back", async () => {
+  const s = await setup();
+  await s.bruce.upsert(thread('B', BRUCE));
+  const send = (seq: number, buttons?: unknown[]) => call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: [{ threadId: 'B', seq, role: 'assistant', text: `m${seq}`, at: 'a', ...(buttons ? { buttons } : {}) }] });
+  for (const seq of [1, 2, 3]) await send(seq);
+  for (const seq of [1, 2, 3]) await send(seq, bigButtons());
+  const counted = () => s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.messageBytes;
+  const stored = () => s.rows('messages').filter((m) => m.runnerId === BRUCE).reduce((n, m) => n + storedOf(m), 0);
+  assert.ok(s.rows('messages').every((m) => m.buttons?.length === 20), 'the buttons went on');
+  assert.ok(stored() > 20_000);
+  assert.equal(counted(), stored(), 'every byte stored is counted');
+  await send(2, bigButtons(1));
+  assert.equal(counted(), stored(), 'and a smaller row gives them back');
+});
+
+test("a runner key at its budget can't grow a row with buttons: it waits, and the bytes stored stay within the budget", async () => {
+  const s = await setup();
+  const { RUNNER_KEY_CAPS: CAP } = sync as { RUNNER_KEY_CAPS: { messageBytes: number } };
+  await s.bruce.upsert(thread('B', BRUCE));
+  const msgs = (buttons?: unknown[]) => [1, 2, 3].map((seq) => ({ threadId: 'B', seq, role: 'assistant', text: `m${seq}`, at: 'a', ...(buttons ? { buttons } : {}) }));
+  await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: msgs() });
+  const usage = s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!;
+  // Full, as if by its other rows.
+  await s.ctx.db.patch(usage._id, { messageBytes: CAP.messageBytes - 100 });
+  const r = await call(s.ctx, sync.appendMessages, { key: BRUCE_KEY, messages: msgs(bigButtons()) });
+  const left = s.rows('messages').filter((m) => m.threadId === 'B');
+  // The row being grown is never the one evicted to make room for itself; the
+  // others may go, and whatever's still there has no room for the buttons.
+  assert.ok(left.every((m) => !m.buttons?.length), JSON.stringify(left.map((m) => m.buttons?.length)));
+  assert.ok(r.skipped.length >= 1, 'said, to be sent again');
+  assert.ok(s.rows('runnerStorage').find((x) => x.runnerId === BRUCE)!.messageBytes <= CAP.messageBytes);
+});
+
+test("the owner's rows sent again with buttons still just take them", async () => {
+  const s = await setup();
+  await s.owner.upsert(thread('O', M5));
+  await call(s.ctx, sync.appendMessages, { key: OWNER, messages: [{ threadId: 'O', seq: 1, role: 'assistant', text: 'hi', at: 'a' }] });
+  await call(s.ctx, sync.appendMessages, { key: OWNER, messages: [{ threadId: 'O', seq: 1, role: 'assistant', text: 'hi', at: 'a', buttons: bigButtons(3) }] });
+  assert.equal(s.rows('messages')[0]!.buttons.length, 3);
+});

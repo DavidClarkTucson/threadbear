@@ -5431,7 +5431,9 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
   - Messages: 12 KB a row and 48 MB a runner key in all. Past that its
     oldest anywhere go first, before a new one goes in, a few hundred a
     write; one there's still no room for waits (`skipped`) and is sent
-    again, so a new thread's are never the ones lost.
+    again, so a new thread's are never the ones lost. A row sent again
+    that grows (its buttons) is counted the same way, and gives the bytes
+    back when it shrinks.
   - A waiting question keeps exactly what its answer is matched on (its
     text, header and option labels); only option descriptions are cut, and
     if it still doesn't fit the card says to answer it on the Mac.
