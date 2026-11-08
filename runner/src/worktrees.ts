@@ -491,7 +491,11 @@ function runCheck(command: string, cwd: string, shell = ['/bin/sh', '-c']): Prom
 
 // For `tb land` outside a thread (or in a thread without one of its own):
 // the folder's checkout, if it's on a thread/ branch, and where main is.
-export async function landTargetFromGit(cwd: string): Promise<{ target?: Omit<LandTarget, 'check'>; reason?: string }> {
+// `threadId`, when tb runs in a thread: a branch made for another thread
+// (thread/<its id8>) is refused, as that's another thread's work. On 8 Nov
+// a borrowed worktree turned out to be shared with a thread brought back,
+// and the borrower committed on that thread's branch without noticing.
+export async function landTargetFromGit(cwd: string, threadId?: string): Promise<{ target?: Omit<LandTarget, 'check'>; reason?: string }> {
   const top = await gitOut(cwd, ['rev-parse', '--show-toplevel']);
   if (!top) return { reason: `${cwd} isn't in a git checkout. Run tb land in a thread's worktree.` };
   const branch = await gitOut(top, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -502,6 +506,15 @@ export async function landTargetFromGit(cwd: string): Promise<{ target?: Omit<La
   }
   if (!branch?.startsWith('thread/')) {
     return { reason: `${top} is on ${branch ?? 'no branch'}, not a thread/ branch. tb land runs in a thread's own worktree.` };
+  }
+  const owner = /^thread\/([0-9a-f]{8})$/.exec(branch)?.[1];
+  if (threadId && owner && owner !== threadId.slice(0, 8)) {
+    return {
+      reason:
+        `${top} is on ${branch}, thread ${owner}'s branch, not this thread's. Another thread is working in this folder, so don't commit or land here: ` +
+        `move your own commits to a branch of your own (git branch <name> <commit>), put this one back as it was, and borrow a worktree of your own. ` +
+        `To land ${branch} anyway, run THREADBEAR_THREAD_ID= tb land.`,
+    };
   }
   const mainCheckout = await mainCheckoutOf(top);
   if (!mainCheckout) return { reason: `No checkout of this repo has ${MAIN} checked out, so there's nowhere to land.` };

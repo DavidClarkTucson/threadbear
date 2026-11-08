@@ -162,13 +162,18 @@ With `keep`:
   and `git checkout -b thread/<id8> main`. Setup runs as for a new one.
 - The record keeps `keep`, and `spare: true` once it's set aside. A
   spare's thread, unarchived, moves to the main checkout even though the
-  folder is still there: it's another thread's now.
+  folder is still there: it's another thread's now. So does any thread
+  whose worktree was removed, whatever is at that path now: on 8 Nov a
+  removed slot-10 was made again by `borrow-worktree.sh`, and the thread
+  brought back carried on in it beside the borrower's work.
 
 A thread started outside the repo borrows one by hand with
 `./borrow-worktree.sh` and gives it back with `--give-back <dir>`. The
 borrowed one is on a branch of its own, `thread/borrow-<slot>-<time>`,
 so `tb land` in it lands it like any thread's (it only lands a `thread/`
-branch); giving it back deletes that branch.
+branch); giving it back deletes that branch. Run in a thread, `tb land`
+refuses another thread's `thread/<id8>` branch: someone else is working
+in that folder (`THREADBEAR_THREAD_ID= tb land` lands it anyway).
 
 A hand-merge, landing without `tb land`, holds the same landing lock.
 From the worktree, on a Mac:

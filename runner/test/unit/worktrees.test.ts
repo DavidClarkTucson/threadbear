@@ -689,9 +689,7 @@ test('tb land outside a thread goes by git: the thread/ branch, main\'s checkout
 
 test('borrow-worktree.sh hands out a thread/ branch tb land takes, and --give-back deletes it and makes a spare', async () => {
   const { main } = makeRepo(PATCH(`{ check: "true" }`));
-  fs.copyFileSync(path.join(import.meta.dirname, '..', '..', '..', 'borrow-worktree.sh'), path.join(main, 'borrow-worktree.sh'));
-  write(main, { 'worktree-setup.sh': '#!/bin/sh\n' });
-  sh(main, 'chmod +x borrow-worktree.sh worktree-setup.sh && git add -A && git commit -qm scripts');
+  addBorrowScript(main);
   const wt = sh(main, './borrow-worktree.sh 2>/dev/null');
   assert.equal(wt, path.join(path.dirname(main), 'proj-threads', 'slot-1'));
   const branch = sh(wt, 'git rev-parse --abbrev-ref HEAD');
@@ -715,6 +713,73 @@ test('borrow-worktree.sh hands out a thread/ branch tb land takes, and --give-ba
   // A worktree detached by hand is refused with what to do.
   sh(wt, 'git checkout -q --detach');
   assert.match((await landTargetFromGit(wt)).reason ?? '', /is detached.*git checkout -b thread\/<name>/);
+});
+
+// A copy of the repo's borrow-worktree.sh in `main`, with a setup that does nothing.
+function addBorrowScript(main: string): void {
+  fs.copyFileSync(path.join(import.meta.dirname, '..', '..', '..', 'borrow-worktree.sh'), path.join(main, 'borrow-worktree.sh'));
+  write(main, { 'worktree-setup.sh': '#!/bin/sh\n' });
+  sh(main, 'chmod +x borrow-worktree.sh worktree-setup.sh && git add -A && git commit -qm scripts');
+}
+
+test('a borrowed spare is never given to a new thread until it is given back', async () => {
+  const { root, main } = makeRepo(PATCH(`{ setup: "touch .setup-ran", keep: ["app/.build"] }`));
+  addBorrowScript(main);
+  const patch = (await findWorktreePatch(main, root))!;
+  const slot1 = path.join(root, 'proj-threads', 'slot-1');
+  const first = await makeWorktree({ cwd: main, threadId: 'aaaaaaaa-1', patch });
+  assert.ok(first.ok && first.worktree.path === slot1);
+  assert.deepEqual(await cleanUpWorktree(first.worktree), { removed: true, spare: true });
+
+  assert.equal(sh(main, './borrow-worktree.sh 2>/dev/null'), slot1, 'the borrow takes the spare');
+  commit(slot1, { 'runner/borrowed.ts': '1\n' }, 'Borrowed work');
+  const next = await makeWorktree({ cwd: main, threadId: 'bbbbbbbb-1', patch });
+  assert.ok(next.ok);
+  assert.notEqual(next.worktree.path, slot1, 'a new thread gets a slot of its own');
+  assert.match(sh(slot1, 'git rev-parse --abbrev-ref HEAD'), /^thread\/borrow-slot-1-/);
+  assert.equal(sh(slot1, 'git log -1 --format=%s'), 'Borrowed work', 'the borrower\'s work is untouched');
+
+  sh(main, 'git merge -q --ff-only $(git -C ' + slot1 + ' rev-parse HEAD)');
+  assert.match(sh(main, `./borrow-worktree.sh --give-back ${slot1}`), /is a spare again/);
+  const after = await makeWorktree({ cwd: main, threadId: 'cccccccc-1', patch });
+  assert.ok(after.ok);
+  assert.equal(after.worktree.path, slot1, 'given back, it is a spare again');
+});
+
+test('a thread brought back never carries on in a borrowed worktree made where its own was', async () => {
+  const { main } = makeRepo();
+  addBorrowScript(main);
+  const h = harness();
+  const { id, w } = await threadWithWorktree(h, main);
+  commit(w.path, { 'runner/b.ts': '2\n' }, 'Landed work');
+  assert.equal(await land({ path: w.path, branch: w.branch, mainCheckout: main }, capture().opts), 0);
+  h.runner.update({ threadId: id, archived: true });
+  await until(() => notes(h, id).some((n) => n.startsWith('Removed')), 'the cleanup');
+  // As on 8 Nov: the folder was made again at the same path, here by hand
+  // as borrow-worktree.sh makes a new slot (git worktree add, detached).
+  sh(main, `git worktree add -q --detach ${w.path} main`);
+  write(w.path, { 'runner/borrower.ts': 'not yet committed\n' });
+
+  h.runner.send(id, 'More please');
+  await until(() => h.adapter.sessions.length === 2, 'a new CLI');
+  assert.equal(h.adapter.last.opts.cwd, path.join(main, 'runner'), 'in the main checkout, not the borrowed folder');
+  assert.equal(h.runner.get(id).cwd, path.join(main, 'runner'));
+  assert.equal(sh(w.path, 'git rev-parse --abbrev-ref HEAD'), 'HEAD', 'the borrowed worktree is as it was');
+  assert.ok(fs.existsSync(path.join(w.path, 'runner/borrower.ts')));
+});
+
+test("tb land in a thread refuses another thread's thread/<id8> branch, but takes its own and borrowed ones", async () => {
+  const { main } = makeRepo(PATCH(`{ check: "true" }`));
+  const other = makeBranch(main, 'abcd1234');
+  const refused = await landTargetFromGit(other.path, 'eeeeeeee-1111');
+  assert.equal(refused.target, undefined);
+  assert.match(refused.reason ?? '', /thread abcd1234's branch, not this thread's\. Another thread is working in this folder/);
+  assert.match(refused.reason ?? '', /THREADBEAR_THREAD_ID= tb land/);
+  assert.deepEqual((await landTargetFromGit(other.path, 'abcd1234-5678')).target, other, 'its own');
+  assert.deepEqual((await landTargetFromGit(other.path)).target, other, 'outside a thread');
+  const borrowed = path.join(path.dirname(main), 'proj-threads', 'slot-1');
+  sh(main, `git worktree add -q -b thread/borrow-slot-1-20261108-102000 ${borrowed} main`);
+  assert.ok((await landTargetFromGit(borrowed, 'eeeeeeee-1111')).target, 'a borrowed branch');
 });
 
 test('tb land inside a thread asks the runner where its worktree is, wherever it runs', async () => {
