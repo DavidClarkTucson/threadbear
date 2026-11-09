@@ -236,6 +236,7 @@ final class TerminalPanelModel {
 
     private func draw(_ screen: (replay: Data, after: [Data])) {
         guard let view else { pendingScreen = screen; return }
+        AppLog.write("terminal", "drawing \(screen.replay.count) bytes of replay and \(screen.after.count) more into a frame of \(Int(view.frame.width))x\(Int(view.frame.height))")
         view.resetToInitialState()
         if !screen.replay.isEmpty { view.feed(byteArray: ArraySlice([UInt8](screen.replay))) }
         for data in screen.after { view.feed(byteArray: ArraySlice([UInt8](data))) }
@@ -368,6 +369,30 @@ final class ThreadTerminalView: TerminalView {
         super.mouseDown(with: event)
     }
 
+    /// SwiftTerm turns its colours into fixed ones when they're set, so
+    /// they're set again under the view's own appearance: when it joins the
+    /// window (before that it would get light mode's) and when Mike switches
+    /// between light and dark.
+    func applyColours() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            nativeForegroundColor = .textColor
+            nativeBackgroundColor = .textBackgroundColor
+            selectedTextBackgroundColor = .selectedTextBackgroundColor
+            caretColor = .controlAccentColor
+        }
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { applyColours() }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColours()
+    }
+
     /// After a shell starts, if nothing else in the window has the keyboard
     /// that matters (the composer keeps it when Mike is typing there).
     func focusIfInFront() {
@@ -384,12 +409,8 @@ private struct TerminalScreen: NSViewRepresentable {
     func makeNSView(context: Context) -> ThreadTerminalView {
         let view = ThreadTerminalView(frame: .zero, font: Theme.codeFont)
         view.terminalDelegate = context.coordinator
-        // Follow light and dark: dynamic colours, which SwiftTerm resolves
-        // again when the appearance changes.
-        view.nativeForegroundColor = .textColor
-        view.nativeBackgroundColor = .textBackgroundColor
-        view.selectedTextBackgroundColor = .selectedTextBackgroundColor
-        view.caretColor = .controlAccentColor
+        // Light and dark (applyColours, again once it's in the window).
+        view.applyColours()
         // Option types the Mac's characters (# on a UK keyboard, accents).
         view.optionAsMetaKey = false
         model.view = view
