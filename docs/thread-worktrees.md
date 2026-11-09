@@ -113,6 +113,25 @@ After landing, the branch stays and the thread can carry on: the next
 `tb land` lands only what's new. `tb land --dry-run` does steps 1 to 3 and
 says what would land.
 
+### Where a landing's time goes
+
+A passing check prints nothing of its own, so each one leaves a line in
+`threadbear-land-times.log`, beside the lock in the repo's common git
+directory (`.git/` in the main checkout), passes and failures alike:
+
+```json
+{"at":"2026-11-09T08:30:52.000Z","branch":"thread/abcd1234","commit":"9763e488...","ok":true,
+ "seconds":188,"waitedSeconds":310,"host":"tinker-desk","copySeconds":2,
+ "steps":[{"name":"runner unit tests","status":"ok","seconds":180}]}
+```
+
+`seconds` is the check, `waitedSeconds` the wait for the landing lock, and
+`steps` whatever check.sh printed; another repo's check just has none. A
+failed one has `exit`, a dry run `dryRun: true`, and a step that only passed
+when check.sh ran its failing files again has `secondRun`, naming the tests.
+Past 1 MiB it's cut back to the newest 1000 lines. It stays on this Mac,
+and a log that can't be written never stops a landing.
+
 ## Cleaning up
 
 elie-h's fork, approved 9 Nov 2026: a repo whose setup makes something

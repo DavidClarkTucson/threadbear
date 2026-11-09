@@ -110,6 +110,8 @@ File references are where to look.
   macOS's `lockf` (Linux's `flock`) with a small Node child to hold an OS
   lock from before rebasing until the check and fast-forward finish.
   Another landing waits; exiting, including a crash, releases the lock.
+  Beside it, `threadbear-land-times.log` records how long each landing's
+  check took (branch, commit, step times, no output), cut back at 1 MiB.
 - **The runner** listens on `127.0.0.1:8797` only, and needs a token
   (`runner/src/config.ts`). It starts the official `claude` and `codex`
   CLIs for your threads. Each thread's CLI gets a key of its own in its
