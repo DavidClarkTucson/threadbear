@@ -19,6 +19,7 @@ pub mod size {
     pub const SMALL: f32 = 11.;
     pub const SIDEBAR_TITLE: f32 = 14.;
     pub const SIDEBAR_PREVIEW: f32 = 13.;
+    pub const SIDEBAR_BUTTON: f32 = 14.;
     pub const SIDEBAR_META: f32 = 11.;
     pub const SIDEBAR_HEADING: f32 = 13.;
     pub const HEADER: f32 = 15.;
@@ -233,4 +234,31 @@ pub fn needs_you_text(cx: &App) -> Hsla {
 /// `Theme.errorBackground`: behind a failed turn's message.
 pub fn error_background(cx: &App) -> Hsla {
     pick(cx, srgb(0.7, 0.2, 0.2, 0.18), srgb(1., 0.94, 0.94, 1.))
+}
+
+// The sidebar's colours (SidebarMetrics, ThreadRowView, ProjectTiles).
+
+/// `Color.primary` at an opacity: white in dark mode, black in light.
+pub fn primary_opacity(cx: &App, alpha: f32) -> Hsla {
+    pick(cx, white(alpha), black(alpha))
+}
+
+/// A row under the pointer (SidebarMetrics.hover).
+pub fn sidebar_hover(cx: &App) -> Hsla {
+    primary_opacity(cx, 0.03)
+}
+
+/// The open thread's row, brighter than a hover so the two read apart.
+pub fn sidebar_selected(cx: &App) -> Hsla {
+    primary_opacity(cx, 0.08)
+}
+
+/// Theme.failed.
+pub fn failed(cx: &App) -> Hsla {
+    pick(cx, rgb(0xff453a).into(), hsla(0.0, 0.71, 0.46, 1.0))
+}
+
+/// `.secondary` text (secondaryLabelColor).
+pub fn secondary_text(cx: &App) -> Hsla {
+    pick(cx, white(0.55), black(0.5))
 }

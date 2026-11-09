@@ -5,5 +5,7 @@
 pub mod composer;
 pub mod inbox;
 pub mod logins;
+pub mod sidebar;
 pub mod transcript;
+pub use chrono;
 pub mod reducer;

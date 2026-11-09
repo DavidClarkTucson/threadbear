@@ -184,6 +184,33 @@ built parsers and gates with no launch of the app, which is the trap.)
   loaded and folded in 123 ms, a scrolling frame 0.55 ms median, 1.2 ms worst
   (0.62 and 2.5 ms for fast scrolling). Side-by-side screenshots of every card
   and row kind from both apps.
+### 2026-11-09 The sidebar: rows, headings, actions, Hibernate
+
+- Rules ported to `desktop/core/src/sidebar.rs` and `inbox.rs`: `ThreadSections`
+  (the Inbox order, and the Mac's Inbox/Running split where the first port had
+  followed the website; `InboxUrgency` now checked against its shared cases),
+  `ThreadRowLook`, `RowMode`, `ThreadByline`, `ProjectMark`, `RelativeTime` and
+  the trailing words, `Snooze`, `WakeWords`, `BackgroundWork`,
+  `BusyThreadAction`, `SubagentRows`, `ArchiveRows`.
+- `desktop/gpui/src/sidebar.rs` draws them: tile (letter, symbol or picture),
+  bold title, place line with the origin mark, blue dot or tick, status and
+  time with the ticking timer, headings with counts and folds, the Inbox sort,
+  hover buttons that change the row at once, the right-click menu, Hibernate
+  presets, Pick a time, Wake when, Rename and Delete, search, New thread, the
+  sub-agent tree, archived paging, the loading rows. `icons.rs` maps SF Symbols
+  to Lucide.
+- `sidebar.archived.foot` dropped: the Swift app undid it on 9 Nov (cfbf3cb3).
+- Specs: four new files, 32 scenarios (`sidebar-rows`, `-sections`, `-actions`,
+  `-loading`); the Swift `dump` says what a row draws; `desktop/scripts/spec.sh`
+  builds and runs them through `remote.sh` with a private copy of the binary.
+- Remaining: other runners' rows and Move to, swipe and drag, row motion; Open
+  in New Panel is greyed until BearDock; a sub-agent's click opens its thread
+  (no sub-agent transcript yet); the open row doesn't hold its place when read;
+  folds and sort aren't kept across launches; Pick a time has no script path on
+  either app (`@manual`).
+- Verification: `TB_APP=swift cucumber-js` on Tinker Desk, 56 of 56 scenarios;
+  `TB_APP=gpui cucumber-js` on Tinker Desk 56 of 56 and on `cloud` 56 of 56;
+  `cargo test -p threadbear-core`; side-by-side pictures from Tinker Desk.
 
 ### 2026-11-09 Risk checks: Chromium in a slot, accessibility, Windows
 

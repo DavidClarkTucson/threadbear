@@ -8,6 +8,7 @@ mod automation;
 mod composer;
 mod composer_card;
 mod composer_chips;
+mod icons;
 mod rows;
 mod sidebar;
 mod style;
@@ -52,6 +53,8 @@ pub fn now_ms() -> i64 {
 }
 
 fn main() {
+    // All of Lucide (about 1 MB), so `icons.rs` can name any icon; the default
+    // `Assets` has only gpui-kit's own hundred.
     gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(|cx| {
         gpui_kit::init(cx);
         // ⌘ on the Mac, Control elsewhere. KeyBinding::new doesn't take GPUI's

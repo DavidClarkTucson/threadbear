@@ -66,6 +66,11 @@ mock runner. Run Rust builds and suites elsewhere (`scripts/remote.sh`):
 scripts/remote.sh cloud -- bash -c 'cd desktop && cargo test -p threadbear-core'
 ```
 
+`scripts/spec.sh` is the one-command version for use through `remote.sh`: it
+builds the app (Swift or GPUI), keeps its own copy of the GPUI binary so another
+checkout's build can't swap it mid-run (the cargo target folder is shared), and
+runs specs by tag or takes a picture (`--shot "<thread title>" out.png`).
+
 `desktop/test/auth-vector-*.txt` are fixed sign-in proofs. The Rust tests
 check them, and so does `runner/test/unit/desktop-auth-vector.test.ts` with
 the runner's own code, so if the runner's auth changes both sides fail until
@@ -87,5 +92,3 @@ each.
 - On Windows, path handling (`folderName` splits on `/`) and the runner's
   data dir are still Mac-shaped. The runner itself doesn't run on Windows
   yet.
-- Opening a thread marks it read, and the sidebar then re-sorts with the open
-  thread moving. The Mac app keeps it in place.

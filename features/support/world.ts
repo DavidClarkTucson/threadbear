@@ -15,6 +15,10 @@ setDefaultTimeout(90_000);
 
 export class ThreadbearWorld extends World {
   app: Driver;
+  /** What the last right-click on a sidebar row offered. */
+  menuTitles?: string[];
+  /** A row's position a scenario wants to compare with later. */
+  notedIndex?: number;
 
   constructor(options: IWorldOptions) {
     super(options);
@@ -59,6 +63,17 @@ export function describe(d: Dump): string {
 }
 
 setWorldConstructor(ThreadbearWorld);
+
+// The loading rows only show while the list is on its way, so that scenario's
+// mock answers late. Before the app starts, hence above the Before below.
+Before({ tags: '@sidebar.skeleton' }, () => {
+  process.env.THREADBEAR_MOCK_LIST_DELAY_MS = '9000';
+  process.env.TB_DEV_APP_NO_READY = '1';
+});
+After({ tags: '@sidebar.skeleton' }, () => {
+  delete process.env.THREADBEAR_MOCK_LIST_DELAY_MS;
+  delete process.env.TB_DEV_APP_NO_READY;
+});
 
 Before(async function (this: ThreadbearWorld, { pickle }) {
   // A scenario about paging needs a thread longer than one page of events.
