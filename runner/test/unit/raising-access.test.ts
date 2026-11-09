@@ -275,6 +275,27 @@ test('ask: a project\'s brief reaching a thread with more access asks (join_proj
   s.sched.stop();
 });
 
+// David, 9 Nov 2026: keeping a project current from Auto shouldn't stop for
+// a card each time. Auto's own safety check still sees the call; Ask before
+// edits, Plan first and a sandboxed thread still get the card.
+test('auto: update_project needs no card, even with a Full thread in the project', async () => {
+  const s = setup('auto');
+  const made = await withCard(s, null, 'create_project', { title: 'Mine', goals: 'Tidy things' });
+  assert.equal(made.error, false, made.text);
+  const p = s.projects.list()[0];
+  await s.projects.changeMembership(s.other.id, { add: [p.id], by: 'mike' });
+  const r = await withCard(s, null, 'update_project', { project: p.id, state: 'Halfway', goals: 'Tidy more', appendNote: 'A note', addLinks: [{ title: 'Site', url: 'https://example.com' }] });
+  assert.equal(r.error, false, r.text);
+  assert.equal(s.projects.list()[0].state, 'Halfway');
+  assert.equal(s.projects.list()[0].goals, 'Tidy more');
+  // Putting a Full thread into it still asks: that's join_project, not this.
+  const q = (await withCard(s, null, 'create_project', { title: 'Other' }));
+  assert.equal(q.error, false, q.text);
+  const p2 = s.projects.list().find((x) => x.title === 'Other')!;
+  assert.equal((await withCard(s, 'deny', 'join_project', { project: p2.id, threadId: s.other.id })).error, true);
+  s.sched.stop();
+});
+
 test('full: mode changes, new threads, messages and schedules go through as before, with no card', async () => {
   const s = setup('full');
   assert.equal((await withCard(s, null, 'update_thread', { threadId: s.askOther.id, permissionMode: 'full' })).error, false);

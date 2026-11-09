@@ -1111,7 +1111,13 @@ export function buildThreadbearTools(
         // in it, so a thread still on a draining runner counts too.
         // The Notion board too: its cards are listed to those threads, and
         // the brief tells them to keep it moving.
-        const caller = await restricted();
+        // Except from Auto outside a sandbox (David, 9 Nov 2026): keeping a
+        // project current shouldn't stop for a card each time, and Auto's
+        // safety check still sees the call. Ask, Plan first and a sandboxed
+        // thread still ask. Putting a thread into a project (join_project)
+        // still asks from Auto too.
+        const restrictedCaller = await restricted();
+        const caller = restrictedCaller?.mode === 'auto' && !restrictedCaller.confined ? undefined : restrictedCaller;
         const added = addFolders?.length ? await Promise.all(addFolders.map(folder)) : undefined;
         if (caller && ([title, goals, state, notes, appendNote, notion, links].some((x) => x !== undefined) || addFolders?.length || addLinks?.length)) {
           const listed = (await pc.get(p.id)).threadIds;
