@@ -18,6 +18,7 @@ import { ConvexSync } from '../../src/sync.ts';
 import { Relay } from '../../src/relay.ts';
 import { nullLogger } from '../../src/log.ts';
 import type { ImageRef } from '../../src/protocol.ts';
+import type { Post } from '../../src/sync.ts';
 
 const OWNER = 'owner-key';
 const TOKEN = 'phone-token';
@@ -61,28 +62,8 @@ export async function threeWays(play: (p: Play) => void | Promise<void>) {
       throw e;
     }
   };
-  const h = makeHarness();
-  const sync = new ConvexSync({ config: { enabled: true, url: 'https://x.convex.cloud', name: 'bruce', runnerId: RUNNER }, key: OWNER, home: h.cfg.home, runner: h.runner, version: '0.1.0+test', release: 'rel1', startedAt: '2026-10-27T00:00:00.000Z', clock: h.clock, log: nullLogger, post, upload: async () => 'st' } as never);
-  const { thread } = h.runner.create({ text: 'Start', accountId: 'claude-3' });
-  const s = h.adapter.last;
-  s.init();
-  let n = 0;
-  await play({
-    say: (text) => s.text(`m${++n}`, text),
-    endTurn: (input) => {
-      const id = `e${++n}`;
-      s.out({ kind: 'event', event: { type: 'tool.call', itemId: id, name: END_TURN, kind: 'mcp', title: 'end_turn', input } });
-      s.out({ kind: 'event', event: { type: 'tool.result', itemId: id, ok: true, text: 'ok', truncated: false, images: [] } });
-      s.result('completed');
-    },
-    send: (text, images = []) => {
-      h.runner.send(thread.id, text, images, {});
-      h.adapter.last.init();
-    },
-  });
-  sync.start();
-  await sync.flushNow();
-  await sync.flushNow();
+  const { h, sync, ids } = await playInto(post as never, { key: OWNER, runnerId: RUNNER, name: 'bruce' }, [play]);
+  const thread = { id: ids[0]! };
 
   const id = thread.id;
   const at = new Date(h.clock.now()).toISOString();
@@ -117,6 +98,49 @@ export async function threeWays(play: (p: Play) => void | Promise<void>) {
   const views = { here: here(), relay: await viaRelay(), phone: await viaPhone() };
   await sync.stop();
   return { views, refused, backend: b, threadId: id };
+}
+
+/**
+ * Plays each of `plays` as a thread on one Runner with a fake CLI, and
+ * writes them all through `post` with that runner's real ConvexSync: the
+ * in-memory backend here, or a real one (scripts/parity-seed.ts). Returns
+ * the threads' ids in order; the caller stops `sync`.
+ */
+export async function playInto(post: Post, runner: { key: string; runnerId: string; name: string }, plays: ((p: Play) => void | Promise<void>)[]) {
+  const h = makeHarness();
+  const sync = new ConvexSync({ config: { enabled: true, url: 'https://x.convex.cloud', name: runner.name, runnerId: runner.runnerId }, key: runner.key, home: h.cfg.home, runner: h.runner, version: '0.1.0+test', release: 'rel1', startedAt: '2026-10-27T00:00:00.000Z', clock: h.clock, log: nullLogger, post, upload: async () => 'st' } as never);
+  const ids: string[] = [];
+  for (const play of plays) {
+    const { thread } = h.runner.create({ text: 'Start', accountId: 'claude-3' });
+    ids.push(thread.id);
+    const s = h.adapter.last;
+    s.init();
+    let n = 0;
+    await play({
+      say: (text) => s.text(`m${++n}`, text),
+      endTurn: (input) => {
+        const id = `e${++n}`;
+        s.out({ kind: 'event', event: { type: 'tool.call', itemId: id, name: END_TURN, kind: 'mcp', title: 'end_turn', input } });
+        s.out({ kind: 'event', event: { type: 'tool.result', itemId: id, ok: true, text: 'ok', truncated: false, images: [] } });
+        s.result('completed');
+      },
+      send: (text, images = []) => {
+        h.runner.send(thread.id, text, images, {});
+        h.adapter.last.init();
+      },
+    });
+  }
+  sync.start();
+  await sync.flushNow();
+  await sync.flushNow();
+  // The sidebar's index (thread-index.ts), which another runner lists the
+  // threads from, writes on a timer of its own; the fake clock only moves
+  // when told.
+  for (let i = 0; i < 5; i++) {
+    h.clock.advance(1500);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return { h, sync, ids };
 }
 
 // The done card's follow-ups: the last turn's end.

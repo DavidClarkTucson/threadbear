@@ -10,11 +10,8 @@
 // agent building it writes it; it runs in the quick check in a second or two.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { threeWays, type Play, type View } from '../helpers/routes.ts';
-import { makePng } from '../helpers/png.ts';
-import { tmpDir } from '../helpers/fakes.ts';
+import { threeWays, type View } from '../helpers/routes.ts';
+import { SCENARIOS } from '../helpers/scenario-list.ts';
 
 type Route = 'relay' | 'phone';
 type Field = 'needs' | 'asks' | 'next' | 'messages' | 'pictures';
@@ -26,55 +23,6 @@ const KNOWN: { route: Route; field: Field; why: string }[] = [
   { route: 'phone', field: 'pictures', why: "phone:thread carries words only; the phone gets a message's pictures from phone:images." },
 ];
 
-const SCENARIOS: { name: string; play: (p: Play) => void }[] = [
-  {
-    name: 'a decision card, with what each answer does and a pick',
-    play: (p) => {
-      p.say('Two ways to go.');
-      p.endTurn({ needs: 'you', asks: [{ question: 'Same thread or new?', options: [{ label: 'Same', does: 'One thread that moves' }, { label: 'New', does: 'The old one is archived' }], suggested: 1 }] });
-    },
-  },
-  {
-    name: 'two asks, one with a link to look at',
-    play: (p) => {
-      p.say('Two things.');
-      p.endTurn({ needs: 'you', asks: [
-        { question: 'Deploy the fix?', options: [{ label: 'Deploy' }, { label: 'Wait' }], links: [{ title: 'See the diff', url: 'https://github.com/mikecann/threadbear/pull/1' }] },
-        { question: 'Plug in the phone and say when.' },
-      ] });
-    },
-  },
-  {
-    name: 'a done card with follow-ups',
-    play: (p) => {
-      p.say('Landed it.');
-      p.endTurn({ needs: 'nothing', next: ['Make the phone show Stop on a running thread', 'Check the website draws the new card'] });
-    },
-  },
-  {
-    name: 'a reply with no card',
-    play: (p) => {
-      p.say('Just an answer.');
-      p.endTurn({ needs: 'nothing' });
-    },
-  },
-  {
-    name: 'Mike sends two pictures placed in his words',
-    play: (p) => {
-      p.say('Ready.');
-      p.endTurn({ needs: 'nothing' });
-      const dir = tmpDir('tb-scenario-');
-      const pics = [1, 2].map((i) => {
-        const file = path.join(dir, `p${i}.png`);
-        fs.writeFileSync(file, makePng(4, 4));
-        return { path: file, mediaType: 'image/png' };
-      });
-      p.send('this [Picture 1] should look like [Picture 2]', pics);
-      p.say('They differ in colour.');
-      p.endTurn({ needs: 'nothing' });
-    },
-  },
-];
 
 function pick(v: View, field: Field): unknown {
   switch (field) {
