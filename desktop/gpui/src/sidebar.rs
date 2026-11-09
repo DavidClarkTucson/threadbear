@@ -17,6 +17,8 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, StyledExt as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// The zoom-aware px (style.rs), in place of GPUI's.
+use crate::style::px;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -77,17 +79,17 @@ pub(crate) struct MenuRow {
 }
 
 impl MenuRow {
-    fn item(title: impl Into<String>, symbol: &'static str, action: MenuAction) -> Self {
+    pub(crate) fn item(title: impl Into<String>, symbol: &'static str, action: MenuAction) -> Self {
         Self { title: title.into(), symbol: Some(symbol), action: Some(action), checked: false, enabled: true, children: vec![], separator: false }
     }
-    fn separator() -> Self {
+    pub(crate) fn separator() -> Self {
         Self { title: String::new(), symbol: None, action: None, checked: false, enabled: false, children: vec![], separator: true }
     }
-    fn disabled(mut self) -> Self {
+    pub(crate) fn disabled(mut self) -> Self {
         self.enabled = false;
         self
     }
-    fn submenu(title: impl Into<String>, symbol: &'static str, children: Vec<MenuRow>) -> Self {
+    pub(crate) fn submenu(title: impl Into<String>, symbol: &'static str, children: Vec<MenuRow>) -> Self {
         Self { title: title.into(), symbol: Some(symbol), action: None, checked: false, enabled: true, children, separator: false }
     }
 }
@@ -108,6 +110,11 @@ pub(crate) enum MenuAction {
     CopyId,
     Sort(InboxOrder),
     OpenInPanel,
+    /// The header's ... menu (header.rs).
+    CopyTranscript,
+    OpenOnWeb,
+    OpenProject,
+    ThreadProject { thread: String, add: Option<String>, remove: Option<String> },
 }
 
 /// The sidebar's own state; the app holds one of these (`Threadbear::sidebar`).
@@ -332,6 +339,11 @@ impl Threadbear {
     pub(crate) fn archive_row(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let next = self.neighbour_of(&id, cx, now_ms());
         let at = iso_time(now_ms());
+        // "Archived" and Undo, at the top of the panel (`ArchivedToast`).
+        if let Some(title) = self.threads.get(&id).map(|t| t.title.clone()) {
+            let was_open = self.selected.as_deref() == Some(id.as_str());
+            self.show_archived_note(id.clone(), title, was_open, cx);
+        }
         self.update_thread(&id, move |t| t.archived_at = Some(at), json!({ "archived": true, "archivedBy": "mike" }), cx);
         self.leave_selection(&id, next, window, cx);
     }
@@ -377,7 +389,9 @@ impl Threadbear {
         cx.spawn(async move |this, cx| {
             let res = call(client, "runner.status", json!({})).await;
             this.update(cx, |this, cx| {
-                this.sidebar.restart_pending = res.is_ok_and(|v| v.get("pendingRestart").is_some_and(|p| !p.is_null()));
+                let status = res.ok();
+                this.sidebar.restart_pending = status.as_ref().is_some_and(|v| v.get("pendingRestart").is_some_and(|p| !p.is_null()));
+                this.website_url = status.as_ref().and_then(crate::header::website_url);
                 cx.notify();
             })
             .ok();
@@ -511,6 +525,7 @@ impl Threadbear {
         let confirm_busy = self.sidebar.menu.take().is_some_and(|m| m.confirm_busy);
         if let MenuAction::Sort(order) = action {
             self.sidebar.order = order;
+            self.sidebar_settings_changed(cx);
             cx.notify();
             return;
         }
@@ -542,12 +557,26 @@ impl Threadbear {
             // BearDock isn't in this app yet, so a thread opens in the main pane.
             MenuAction::OpenInPanel => self.open(id, window, cx),
             MenuAction::Sort(_) => {}
+            MenuAction::CopyTranscript => {
+                if let Some(pane) = &self.pane {
+                    pane.update(cx, |p, cx| p.copy_transcript(cx));
+                }
+            }
+            MenuAction::OpenOnWeb => {
+                if let Some(link) = self.thread_web_link(&id) {
+                    cx.open_url(&link);
+                }
+            }
+            // A project's page isn't in this app yet: the Projects view is
+            // where it will open.
+            MenuAction::OpenProject => self.set_mode(crate::shell::SidebarMode::Projects, cx),
+            MenuAction::ThreadProject { thread, add, remove } => self.set_thread_projects(thread, add, remove, cx),
         }
         cx.notify();
     }
 
     /// `ThreadMenu`: the row's right-click menu.
-    fn thread_menu_rows(&self, t: &ThreadSummary) -> Vec<MenuRow> {
+    pub(crate) fn thread_menu_rows(&self, t: &ThreadSummary) -> Vec<MenuRow> {
         let mut rows = vec![
             // Greyed out until the window has panels (BearDock).
             MenuRow::item("Open in New Panel", "rectangle.split.2x1", MenuAction::OpenInPanel).disabled(),
@@ -714,6 +743,8 @@ impl Threadbear {
             if let Ok(v) = call(client, "projects.list", json!({ "archived": true })).await {
                 this.update(cx, |this, cx| {
                     this.sidebar.project_icons = project_icons(&v["projects"]);
+                    this.projects_supported = true;
+                    this.all_projects = crate::app::project_list(&v["projects"]);
                     cx.notify();
                 })
                 .ok();
@@ -779,12 +810,8 @@ impl Threadbear {
         let red = p.failed;
         v_flex()
             .relative()
-            .w(px(316.))
-            .h_full()
-            .flex_none()
+            .size_full()
             .bg(p.side)
-            .border_r_1()
-            .border_color(p.separator)
             // One line: search and New thread (Mike asked 30 Oct).
             .child(h_flex().gap(px(6.)).px(px(OUTER_INSET)).pt(px(4.)).items_stretch().child(self.render_search(&p, cx)).child(self.render_new_thread(new_thread_active, &p, cx)))
             .when_some(conn_note, |s, note| s.child(div().mx(px(OUTER_INSET)).mt_2().p_2().rounded(px(CORNER)).bg(p.field_fill).text_sm().text_color(p.secondary).child(note)))
@@ -799,7 +826,12 @@ impl Threadbear {
                     .child(div().id("sidebar-list").size_full().overflow_y_scroll().track_scroll(&self.sidebar.scroll).child(list))
                     .child(div().absolute().left_0().right_0().bottom_0().h(px(34.)).bg(linear_gradient(180., linear_color_stop(p.side.opacity(0.), 0.), linear_color_stop(p.side, 0.88)))),
             )
-            .when_some(self.sidebar.menu.as_ref().map(|m| (m.position, m.view.clone())), |s, (position, view)| s.child(deferred(anchored().position(position).snap_to_window_with_margin(px(8.)).child(div().occlude().child(view))).with_priority(1)))
+    }
+
+    /// The open row or heading menu, drawn over the whole window rather than
+    /// inside the sidebar panel (the dock clips what a panel draws).
+    pub(crate) fn render_open_menu(&self) -> Option<AnyElement> {
+        self.sidebar.menu.as_ref().map(|m| deferred(anchored().position(m.position).snap_to_window_with_margin(px(8.)).child(div().occlude().child(m.view.clone()))).with_priority(1).into_any_element())
     }
 
     fn render_search(&mut self, p: &Palette, _cx: &mut Context<Self>) -> impl IntoElement {
@@ -840,6 +872,7 @@ impl Threadbear {
             old.read(cx).unsubscribe();
         }
         self.selected = None;
+        self.note_navigation();
         cx.notify();
     }
 
@@ -887,6 +920,7 @@ impl Threadbear {
                         if !this.folded.remove(key) {
                             this.folded.insert(key);
                         }
+                        this.sidebar_settings_changed(cx);
                         cx.notify();
                     }))
                     .child(label)
@@ -1428,6 +1462,7 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
             let Some(order) = cmd["order"].as_str().and_then(InboxOrder::from_name) else { return Err(format!("order must be one of {:?}", InboxOrder::ALL.map(InboxOrder::name))) };
             app.update(cx, |t, cx| {
                 t.sidebar.order = order;
+                t.sidebar_settings_changed(cx);
                 cx.notify();
             });
             Ok(json!("ok"))
@@ -1443,6 +1478,7 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
                 } else {
                     t.folded.insert(key);
                 }
+                t.sidebar_settings_changed(cx);
                 cx.notify();
             });
             Ok(json!("ok"))

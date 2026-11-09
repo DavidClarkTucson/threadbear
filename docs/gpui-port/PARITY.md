@@ -104,6 +104,70 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 The window shell: BearDock, rails, the thread's bar, banners, notes, menus and keys
+
+- The app's window is BearDock now: `desktop/gpui/src/shell.rs` hosts the dock
+  (threads, thread, Highlights as panels, default layout and View > Reset, the
+  layout saved and restored), with no title bar and the traffic lights in the
+  top-left panel's bar, the bars moving the window. `rails.rs` is the activity
+  bar and the right rail (`ActivityBar`, `PanelRail`, with the Inbox count, lit
+  buttons and the Highlights dot). `header.rs` is the thread's title line in the
+  panel's bar (inline rename, project and schedule chips), back and forward with
+  tips that name where they go, share with its popover, the ... menu, the banners
+  (connection, error with Investigate, limit, sign-in, the refusal offer) and the
+  floating notes (Archived with Undo, end of inbox). `settings.rs` is one JSON file
+  in the runner's data folder (`desktop-settings.json`, keyed by the Swift
+  UserDefaults names): window frame, zoom, folds, the Inbox's sort, the panel
+  layout. Zoom scales everything: every `px` in the window goes through
+  `style::px` (the Swift `zoomed`), which each drawing file gets with one
+  `use crate::style::px;` that shadows GPUI's, and gpui-kit's own sizes follow
+  through the theme's rem size. Shortcuts are `threadbear-core`'s `shortcuts`
+  (the Swift tests ported), bound from shortcuts.json with a poll that picks up
+  edits. Menus are the same model for the Mac's menu bar and the `menus` command.
+- Files: `desktop/gpui/src/{shell,rails,header,settings}.rs` (new), `app.rs`
+  (state and the render), `main.rs` (window options, frame memory), `style.rs`
+  (zoom), small additive edits to `sidebar.rs`, `thread.rs`, `composer_card.rs`,
+  `rows/*`, `automation.rs` (the Swift names: `dock-move`, `panel`, `float`,
+  `mode`, `zoom`, `rename`, `undo-archive`, `open-archived`, `error`,
+  `mouse-button`, `copy-thread-id`, `menus`, `menu-item`, `app-menu`, `data-dir`,
+  `share`, `signin`, `refusal`, `appearance`, `resize`), `desktop/core`
+  (`navigation`, `shortcuts`, `zoom`), `desktop/client` (`retry_now`),
+  `desktop/dock/src/view.rs` (`set_options`, so the bars follow the zoom). Specs:
+  `features/{window,rails,header,navigation}.feature`. Swift: `AppDump` has
+  `rails`, `header`, `zoom`, `inboxEndNote`; new debug commands `menus`,
+  `menu-item`, `data-dir`; `dev-app.sh rebuild --no-build`.
+- Remaining: the Scheduled, Projects and Librarian views and Usage/Settings pages
+  are placeholders (later stages). Highlights' content comes from
+  `desktop/gpui/src/highlights.rs` (other branch): `render_highlights_panel` in
+  `shell.rs` is the one place to call it. Files is a placeholder panel. The
+  Browser rail button, panel origin badges and a thread's own patch panels'
+  content aren't there yet. Menus aren't drawn on Windows and Linux yet
+  (`AppMenuBar`, `gpui-kit`'s `title-bar` for the window buttons there).
+  Sign in… says the CLI command rather than opening Terminal. The refusal offer
+  sits with the banners, not above the composer. Hold-⌘ hints, swipes and the
+  honey pot are other rows. A scripted Swift app's menu items keep their greyed
+  state from the last time the menu was opened, so three key-press scenarios are
+  `@swift-pending` (`⌘[`, `⌘0`, `shortcuts.json` pressing the new key); the same
+  state shows they pass through the menu on GPUI. The picture's traffic lights
+  aren't in the GPUI shot (it draws in-process); their position was set from the
+  Swift shot and not checked against a real window capture.
+- Written but with no runtime check yet: window frame memory (scripted runs never
+  save a frame, so only `zoom::on_screen` and the settings file have tests); the
+  limit, sign-in and refusal banners and the project and schedule chips (no spec
+  or fixture reaches them); a real mouse's side buttons (`mouse-button` calls the
+  same handler, not a real event). On GPUI the `@menu.*` scenarios read the menu
+  model, not the system menu bar. Simplified from Swift: the limit banner offers
+  the first login not at its limit rather than the one with most room, and a
+  waiting restart's banner has one fixed sentence.
+- Verification: `TB_APP=swift` on Tinker Desk: 37 scenarios (37 passed); `TB_APP=gpui`
+  on `cloud` (Xvfb): 40 scenarios (40 passed); `TB_APP=gpui` on Tinker Desk: 40
+  scenarios (40 passed), the `@dock.layout or @dock.reset or @foundation.zoom or
+  @rail.* or @header.* or @banner.* or @toast.* or @nav.* or @menu.* or
+  @sidebar.sections or @sidebar.sort` set. `cargo test -p threadbear-core` (the new
+  `navigation`, `shortcuts` and `zoom` modules) and `settings` tests. Side-by-side
+  picture of the window on Tinker Desk: the Swift app and the GPUI app with the
+  same thread open, 1180 by 800, dark.
+
 ### 2026-11-09 BearDock for GPUI
 
 - New crates: `desktop/dock/layout` (the tree, line for line from Swift, no GPUI)

@@ -35,11 +35,27 @@ export class GpuiDriver implements Driver {
   private display?: string;
 
   private child(cmd: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // dbus-run-session goes in a process group of its own: killing just it
+    // leaves its dbus-daemon running forever, and a day of scenarios left
+    // 1,200 of those on `cloud` (9 Nov) until nothing could start.
+    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: cmd === 'dbus-run-session' });
     c.stdout?.on('data', (d) => (this.log += d));
     c.stderr?.on('data', (d) => (this.log += d));
     this.children.push(c);
     return c;
+  }
+
+  /** Stops a child, with the whole process group for a dbus-run-session. */
+  private killChild(c: ChildProcess): void {
+    if (c.spawnargs[0] === 'dbus-run-session' && c.pid) {
+      try {
+        process.kill(-c.pid, 'SIGTERM');
+        return;
+      } catch {
+        // Already gone.
+      }
+    }
+    c.kill();
   }
 
   /** Starts the app itself and connects to its automation socket. */
@@ -94,7 +110,7 @@ export class GpuiDriver implements Driver {
     const old = this.appProcess;
     if (old) {
       const gone = new Promise<void>((done) => old.once('exit', () => done()));
-      old.kill();
+      this.killChild(old);
       await Promise.race([gone, sleep(4000)]);
       this.children = this.children.filter((c) => c !== old);
     }
@@ -141,7 +157,7 @@ export class GpuiDriver implements Driver {
 
   async stop(): Promise<void> {
     this.socket?.destroy();
-    for (const c of this.children.reverse()) c.kill();
+    for (const c of this.children.reverse()) this.killChild(c);
     await sleep(100);
     if (this.home) fs.rmSync(this.home, { recursive: true, force: true });
   }

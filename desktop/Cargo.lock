@@ -7041,6 +7041,7 @@ dependencies = [
  "taffy",
  "threadbear-client",
  "threadbear-core",
+ "threadbear-dock",
  "tokio",
  "unicode-properties",
 ]

@@ -53,15 +53,20 @@ Then('the zoom is {int} percent', async function (this: ThreadbearWorld, percent
   await this.until(`the zoom at ${percent}%`, (d) => d.zoom === percent);
 });
 
-Given("I note how tall the transcript's first row is", async function (this: ThreadbearWorld) {
-  this.notedHeight = await this.until('a drawn first row', (d) => d.transcript.rows[0]?.height);
+// The reply: its text wraps to the window, so it grows with the zoom and
+// stays in view (GPUI's list follows its tail, and zooming can push rows above
+// off it). Noted by id, so a changed row list still compares the same one.
+Given("I note how tall a row on screen is", async function (this: ThreadbearWorld) {
+  const row = await this.until('a drawn reply on screen', (d) => d.transcript.rows.find((r) => r.kind === 'assistant' && r.onScreen && r.height));
+  this.notedRow = { id: row.id, height: row.height ?? 0 };
 });
 
-Then("the transcript's first row is taller than it was", async function (this: ThreadbearWorld) {
-  const before = this.notedHeight ?? 0;
-  const after = await this.until('the first row to have grown', (d) => {
-    const h = d.transcript.rows[0]?.height;
-    return h && h > before ? h : undefined;
+Then('that row is taller than it was', async function (this: ThreadbearWorld) {
+  const noted = this.notedRow;
+  assert.ok(noted, 'no row noted');
+  const after = await this.until('the row to have grown', (d) => {
+    const h = d.transcript.rows.find((r) => r.id === noted.id)?.height;
+    return h && h > noted.height ? h : undefined;
   });
-  assert.ok(after > before, `${after} is not taller than ${before}`);
+  assert.ok(after > noted.height, `${after} is not taller than ${noted.height}`);
 });

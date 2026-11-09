@@ -4,9 +4,11 @@
 use crate::composer::Composer;
 use crate::rows::list::{transcript_list, TranscriptList};
 use crate::{call, RT};
-use gpui_kit::component::{v_flex, ActiveTheme as _, StyledExt as _};
+use gpui_kit::component::{v_flex, ActiveTheme as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// The zoom-aware px (style.rs), in place of GPUI's.
+use crate::style::px;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -90,6 +92,23 @@ impl ThreadPane {
         if self.summary.busy() {
             self.request("threads.interrupt", json!({ "threadId": self.summary.id }), cx);
         }
+    }
+
+    /// Every row measured again, for a new zoom (their heights are in points).
+    pub(crate) fn remeasure_rows(&mut self, cx: &mut Context<Self>) {
+        let count = self.feed.model().rows().len();
+        self.scroller.update(cx, |s, cx| {
+            s.remeasure_items(0..count, cx);
+        });
+        cx.notify();
+    }
+
+    /// The thread's last message of his, for Send again (`sendAgain`).
+    pub(crate) fn last_user_text(&self) -> Option<String> {
+        self.feed.model().rows().iter().rev().take(80).find_map(|row| match &row.content {
+            RowContent::User(message) if !message.is_from_runner() => Some(message.text.clone()),
+            _ => None,
+        })
     }
 
     fn background_tasks(&self) -> Vec<BackgroundTask> {
@@ -768,11 +787,10 @@ impl ThreadPane {
 impl Render for ThreadPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let (border, muted, danger, bg) = (theme.border, theme.muted_foreground, theme.danger, theme.background);
+        let (muted, danger, bg) = (theme.muted_foreground, theme.danger, theme.background);
         self.rows.list_width = f32::from(self.scroller.read(cx).viewport().size.width);
-        let model = threadbear_core::inbox::model_label(&self.summary.provider, self.summary.model_in_use.as_deref().or(self.summary.model.as_deref()));
-        let meta = format!("{} · {} · {}", threadbear_core::inbox::folder_name(&self.summary.cwd), model, self.summary.status);
         let composer = self.composer.clone();
+        // The thread's title and project line are in the panel's bar (header.rs).
         v_flex()
             .size_full()
             // The whole thread is drop space for the box (ComposerDropView),
@@ -782,16 +800,6 @@ impl Render for ThreadPane {
                 composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
             })
             .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
-            .child(
-                v_flex()
-                    .px_7()
-                    .pt_3p5()
-                    .pb_2p5()
-                    .border_b_1()
-                    .border_color(border)
-                    .child(div().font_semibold().truncate().child(self.summary.title.clone()))
-                    .child(div().text_xs().text_color(muted).child(meta)),
-            )
             .when_some(self.error.clone(), |s, e| s.child(div().px_7().py_1().text_sm().text_color(danger).child(e)))
             .when(!self.loaded && self.error.is_none(), |s| s.child(div().p_4().text_sm().text_center().text_color(muted).child("Loading…")))
             .child(div().flex_1().min_h_0().child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx)))

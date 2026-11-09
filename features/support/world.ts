@@ -19,8 +19,8 @@ export class ThreadbearWorld extends World {
   menuTitles?: string[];
   /** A row's position a scenario wants to compare with later. */
   notedIndex?: number;
-  /** A row's height a scenario wants to compare with later. */
-  notedHeight?: number;
+  /** A row and its height, a scenario wants to compare with later. */
+  notedRow?: { id: string; height: number };
   /** What the last `share` command said. */
   shareResult?: string;
 

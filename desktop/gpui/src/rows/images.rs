@@ -7,6 +7,8 @@ use crate::style::{MAX_CONTENT_WIDTH, SIDE_INSET};
 use crate::thread::ThreadPane;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// The zoom-aware px (style.rs), in place of GPUI's.
+use crate::style::px;
 use std::path::PathBuf;
 use threadbear_core::reducer::{ImageRef, Row};
 

@@ -24,7 +24,8 @@ Feature: The window and its panels
     Then the panels aren't laid out as "row[threads (no title) 29% | thread 47% | highlights 24%]"
 
   # Scripted runs place the window for their own ends and never save it, in
-  # both apps (MainWindowFrame.scripted), so this one is checked by hand.
+  # both apps (MainWindowFrame.scripted), so this one needs checking by hand.
+  # Nobody has yet on the GPUI app: only the on-screen rule and the file have tests.
   @dock.frame @manual
   Scenario: The window reopens where it was left
     When I move the window and quit the app
@@ -34,10 +35,10 @@ Feature: The window and its panels
   @foundation.zoom
   Scenario: Zooming makes everything bigger, and Actual Size puts it back
     Given I open the thread "Morning brief"
-    And I note how tall the transcript's first row is
+    And I note how tall a row on screen is
     When I press "=" with "cmd"
     Then the zoom is 110 percent
-    And the transcript's first row is taller than it was
+    And that row is taller than it was
     When I choose Actual Size
     Then the zoom is 100 percent
 

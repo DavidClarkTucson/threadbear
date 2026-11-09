@@ -1,22 +1,28 @@
-// The app's state: the connection, the thread list, what's open. The sidebar
+// The app's state: the connection, the thread list, what's open, and the
+// window's shell around it (shell.rs, rails.rs, header.rs). The sidebar
 // (sidebar.rs) and the thread pane (thread.rs) draw from it.
 use crate::composer::Composer;
+use crate::settings::Settings;
+use crate::shell::{self, ArchivedNote, InboxEndNote, NavPlace, SidebarMode};
 use crate::thread::ThreadPane;
 use crate::{call, now_ms, ChannelSink, Seen, RT};
 use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::component::{h_flex, ActiveTheme as _, Theme};
+use gpui_kit::component::Theme;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use threadbear_client::config::RunnerConfig;
 use threadbear_client::runner::{Client, Status};
 use threadbear_core::inbox::{self, iso_time, ThreadSummary};
 use threadbear_core::logins::RunnerLogins;
+use threadbear_core::navigation::NavigationHistory;
+use threadbear_core::shortcuts::ShortcutBindings;
+use threadbear_dock::{DockLayout, DockModel, DockView};
 use tokio::sync::mpsc;
-
-actions!(threadbear, [StopTurn, ArchiveThread]);
 
 pub struct Threadbear {
     pub(crate) client: Arc<Client>,
@@ -37,16 +43,68 @@ pub struct Threadbear {
     /// pictures) stays with the thread while others are open.
     pub(crate) composers: HashMap<String, Entity<Composer>>,
     pub(crate) sidebar: crate::sidebar::SidebarState,
+
+    // The window shell (shell.rs, rails.rs, header.rs).
+    /// Holds the keyboard when nothing in the window has it (no thread open,
+    /// say), so the app's keys and menus still reach the shell's actions.
+    pub(crate) root_focus: FocusHandle,
+    pub(crate) settings: Settings,
+    pub(crate) settings_dirty: bool,
+    pub(crate) settings_last_save_ms: i64,
+    pub(crate) settings_save_task: Option<Task<()>>,
+    pub(crate) dock: Entity<DockModel>,
+    pub(crate) dock_view: Entity<DockView>,
+    /// The pane sections Hide Panels closed, for Show Panels (`hiddenPanes`).
+    pub(crate) hidden_panes: Vec<String>,
+    pub(crate) mode: SidebarMode,
+    pub(crate) history: NavigationHistory<NavPlace>,
+    /// shortcuts.json's keys, and the chords bound to them so far.
+    pub(crate) shortcuts: ShortcutBindings,
+    pub(crate) bound_keys: HashMap<String, shell::Command>,
+    pub(crate) shortcuts_watch: Option<Task<()>>,
+    pub(crate) shortcuts_path: Option<PathBuf>,
+    /// What the menu bar says, so it's rebuilt only when that changes.
+    pub(crate) menu_signature: String,
+    pub(crate) last_window_title: String,
+    pub(crate) archived_note: Option<ArchivedNote>,
+    pub(crate) inbox_end_note: Option<InboxEndNote>,
+    pub(crate) note_counter: u64,
+    pub(crate) note_task: Option<Task<()>>,
+    pub(crate) archived_task: Option<Task<()>>,
+    /// The pointer's on a note, which keeps it up.
+    pub(crate) toast_hovered: bool,
+    /// The error bar's text (`errorMessage`).
+    pub(crate) error_message: Option<String>,
+    pub(crate) creating_investigation: bool,
+    /// The title being renamed in the header, and its field.
+    pub(crate) renaming: Option<String>,
+    pub(crate) rename_field: Option<(Entity<InputState>, Subscription)>,
+    pub(crate) share_popover: Option<String>,
+    pub(crate) share_busy: bool,
+    pub(crate) continuing_refusal: Option<String>,
+    /// The runner's website, from `runner.status` (`websiteURL`).
+    pub(crate) website_url: Option<String>,
+    /// When the runner last said it was restarting.
+    pub(crate) restart_notice_ms: Option<i64>,
+    pub(crate) schedules_supported: bool,
+    pub(crate) active_schedule_count: usize,
+    pub(crate) projects_supported: bool,
+    /// Every project's id, title and whether it's archived, for the
+    /// header's chips (`projects.list`).
+    pub(crate) all_projects: Vec<(String, String, bool)>,
+
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
 
 impl Threadbear {
-    pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // gpui-kit starts in its light theme whatever the system says; follow
         // the system's light or dark, and keep following it when it changes.
         Theme::sync_system_appearance(Some(window), cx);
         let appearance = window.observe_window_appearance(|window, cx| Theme::sync_system_appearance(Some(window), cx));
+        crate::style::set_zoom_percent(settings.zoom_percent());
+        shell::apply_zoom_to_theme(settings.zoom_percent(), cx);
         let (tx, mut rx) = mpsc::unbounded_channel();
         let client = Client::new(RunnerConfig::from_env(), ChannelSink(tx));
         RT.spawn(client.clone().run());
@@ -67,7 +125,41 @@ impl Threadbear {
         });
         #[cfg(feature = "automation")]
         crate::automation::serve(cx.entity().downgrade(), window.window_handle(), cx);
-        Threadbear {
+
+        // The dock: the saved layout or the default, and a save whenever it
+        // changes (a moment after the last change, as a divider drag is many).
+        let layout = shell::make_layout(settings.saved.dock_layout.as_ref());
+        let app = cx.entity().downgrade();
+        let dock = cx.new(|_| {
+            let mut model = DockModel::new(layout);
+            let app = app.clone();
+            model.on_change(move |layout: &DockLayout, cx: &mut App| {
+                let layout = layout.clone();
+                let app = app.clone();
+                // Deferred: this runs inside whatever changed the layout,
+                // which is often the app itself (a rail button, Reset).
+                cx.defer(move |cx| {
+                    let _ = app.update(cx, |this, cx| this.dock_layout_changed(layout, cx));
+                });
+            });
+            model
+        });
+        let content = Rc::new(shell::Panels { app: app.clone() });
+        let options = shell::dock_options(cx);
+        let dock_view = {
+            let model = dock.clone();
+            cx.new(|cx| DockView::new(model, content, options, cx))
+        };
+        let frame = cx.observe_window_bounds(window, |this, window, cx| this.window_frame_changed(window, cx));
+
+        let mut sidebar = crate::sidebar::SidebarState::new(cx);
+        sidebar.order = settings.inbox_order();
+        let folded: HashSet<&'static str> = match &settings.saved.collapsed_sections {
+            // The section keys are the Swift enum's raw values.
+            Some(saved) => ["starred", "inbox", "running", "hibernating", "archived"].into_iter().filter(|k| saved.iter().any(|s| s == k)).collect(),
+            None => HashSet::from(["hibernating", "archived"]),
+        };
+        let mut this = Threadbear {
             client,
             status,
             threads: HashMap::new(),
@@ -76,13 +168,53 @@ impl Threadbear {
             pane: None,
             pane_events: None,
             search,
-            folded: HashSet::from(["hibernating", "archived"]),
+            folded,
             composers: HashMap::new(),
             logins: RunnerLogins::default(),
-            sidebar: crate::sidebar::SidebarState::new(cx),
+            sidebar,
+            root_focus: cx.focus_handle(),
+            settings,
+            settings_dirty: false,
+            settings_last_save_ms: 0,
+            settings_save_task: None,
+            dock,
+            dock_view,
+            hidden_panes: Vec::new(),
+            mode: SidebarMode::Inbox,
+            history: NavigationHistory::default(),
+            shortcuts: ShortcutBindings::default(),
+            bound_keys: HashMap::new(),
+            shortcuts_watch: None,
+            shortcuts_path: None,
+            menu_signature: String::new(),
+            last_window_title: String::new(),
+            archived_note: None,
+            inbox_end_note: None,
+            note_counter: 0,
+            note_task: None,
+            archived_task: None,
+            toast_hovered: false,
+            error_message: None,
+            creating_investigation: false,
+            renaming: None,
+            rename_field: None,
+            share_popover: None,
+            share_busy: false,
+            continuing_refusal: None,
+            website_url: None,
+            restart_notice_ms: None,
+            schedules_supported: false,
+            active_schedule_count: 0,
+            projects_supported: false,
+            all_projects: Vec::new(),
             _events: events,
-            _subs: vec![appearance, searching],
-        }
+            _subs: vec![appearance, searching, frame],
+        };
+        // The window starts on the Inbox with nothing open (`noteNavigation`
+        // on launch), so Back from the first thread comes back here.
+        this.note_navigation();
+        this.watch_shortcuts(cx);
+        this
     }
 
     fn on_seen(&mut self, seen: Seen, cx: &mut Context<Self>) {
@@ -96,9 +228,11 @@ impl Threadbear {
                 // Each time it's connected, the whole list again, and the
                 // open thread read again: thread.updated only says what changed.
                 if connected {
+                    self.restart_notice_ms = None;
                     self.load_list(cx);
                     self.refresh_restart(cx);
                     self.load_projects(cx);
+                    self.load_schedules(cx);
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.load(cx));
                     }
@@ -116,8 +250,19 @@ impl Threadbear {
                 "thread.deleted" => {
                     self.threads.remove(params["threadId"].as_str().unwrap_or(""));
                 }
-                "runner.notice" => self.refresh_restart(cx),
-                "projects.updated" => self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]),
+                "runner.notice" => {
+                    // The runner said it's restarting: the connection going
+                    // away is expected for a while (`RunnerRestart.notice`).
+                    if params["message"].as_str().is_some_and(|m| m.contains("restart")) {
+                        self.restart_notice_ms = Some(now_ms());
+                    }
+                    self.refresh_restart(cx);
+                }
+                "projects.updated" => {
+                    self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]);
+                    self.all_projects = project_list(&params["projects"]);
+                }
+                "schedules.updated" => self.load_schedules(cx),
                 "thread.event" => {
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.event(&params, cx));
@@ -144,6 +289,24 @@ impl Threadbear {
                     Err(e) => this.list_error = Some(e.message),
                 }
                 cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Whether the runner has schedules at all, and how many are active
+    /// (`schedulesSupported`, `activeScheduleCount`), for the activity bar.
+    fn load_schedules(&mut self, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "schedules.list", json!({})).await;
+            this.update(cx, |this, cx| {
+                if let Ok(v) = res {
+                    this.schedules_supported = true;
+                    this.active_schedule_count = v["schedules"].as_array().map_or(0, |list| list.iter().filter(|s| schedule_is_active(s)).count());
+                    cx.notify();
+                }
             })
             .ok();
         })
@@ -180,12 +343,25 @@ impl Threadbear {
             }
         }));
         self.pane = Some(pane);
+        self.note_navigation();
+        cx.notify();
+    }
+
+    /// Nothing open: the new-thread screen's place in the history. For going
+    /// Back to it (`show(place)` with no thread).
+    pub(crate) fn select_none(&mut self, cx: &mut Context<Self>) {
+        if let Some(old) = self.pane.take() {
+            old.read(cx).unsubscribe();
+        }
+        self.selected = None;
+        self.note_navigation();
         cx.notify();
     }
 
     /// `threads.update` for the open thread, with the summary changed here
     /// first: anything clicked shows at once, and the runner's answer (or its
     /// thread.updated) puts it right.
+    #[cfg(feature = "automation")]
     pub(crate) fn update_open(&mut self, change: impl FnOnce(&mut ThreadSummary), params: Value, cx: &mut Context<Self>) -> Result<(), String> {
         let Some(id) = self.selected.clone() else { return Err("no thread open".into()) };
         let before = self.threads.get(&id).cloned();
@@ -213,11 +389,6 @@ impl Threadbear {
         Ok(())
     }
 
-    pub(crate) fn archive_open(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
-        let now = iso_time(now_ms());
-        self.update_open(move |t| t.archived_at = Some(now), json!({ "archived": true, "archivedBy": "mike" }), cx)
-    }
-
     #[cfg(feature = "automation")]
     pub(crate) fn snooze_open(&mut self, seconds: i64, cx: &mut Context<Self>) -> Result<(), String> {
         let until = iso_time(now_ms() + seconds * 1000);
@@ -225,7 +396,7 @@ impl Threadbear {
         self.update_open(move |t| t.snoozed_until = Some(local), json!({ "snoozedUntil": until }), cx)
     }
 
-    fn stop_open(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn stop_open(&mut self, cx: &mut Context<Self>) {
         if let Some(pane) = &self.pane {
             pane.update(cx, |p, cx| p.stop(cx));
         }
@@ -276,14 +447,24 @@ impl Threadbear {
             Status::Disconnected { .. } => "lost",
         };
         let pane = self.pane.as_ref().map(|p| p.read(cx));
+        let dock = self.dock.read(cx).layout().summary().replace("threadbear.", "");
+        let mut sidebar = self.sidebar_dump(cx);
+        sidebar["mode"] = json!(self.mode.name());
         json!({
             "connection": connection,
             "selection": self.selection_dump(),
-            "sidebar": self.sidebar_dump(cx),
+            "sidebar": sidebar,
             "composer": self.dump_composer(cx),
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
-            "banner": Value::Null,
+            "banner": self.banner_dump(),
+            "error": self.error_message.clone(),
+            "dock": dock,
+            "zoom": crate::style::zoom_percent(),
+            "archivedNote": self.archived_note.as_ref().map(|n| n.thread.clone()),
+            "inboxEndNote": self.inbox_end_note.as_ref().map(|n| if n.empty { "empty" } else { "end" }),
+            "rails": self.rails_dump(cx),
+            "header": self.header_dump(),
         })
     }
 
@@ -325,29 +506,21 @@ impl Threadbear {
             Status::Disconnected { reason, retry_in_ms, .. } => Some(format!("Can't reach the runner: {reason}. Trying again in {}s.", retry_in_ms.div_ceil(1000))),
         }
     }
+}
 
+pub(crate) fn project_list(projects: &Value) -> Vec<(String, String, bool)> {
+    projects.as_array().map_or_else(Vec::new, |list| list.iter().filter_map(|p| Some((p["id"].as_str()?.to_string(), p["title"].as_str()?.to_string(), p["archived"].as_bool().unwrap_or(false)))).collect())
+}
+
+/// `Schedule.isActive`: not paused and not finished.
+fn schedule_is_active(schedule: &Value) -> bool {
+    !schedule["paused"].as_bool().unwrap_or(false) && schedule["finishedAt"].is_null() && !schedule["finished"].as_bool().unwrap_or(false)
 }
 
 impl Render for Threadbear {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        let main = match &self.pane {
-            Some(pane) => div().size_full().child(pane.clone()),
-            None => div().size_full().flex().items_center().justify_center().text_color(muted).child(if matches!(self.status, Status::Connected { .. }) {
-                "No thread open".to_string()
-            } else {
-                self.connection_note().unwrap_or_default()
-            }),
-        };
-        h_flex()
-            .key_context("Threadbear")
-            .on_action(cx.listener(|this, _: &StopTurn, _, cx| this.stop_open(cx)))
-            .on_action(cx.listener(|this, _: &ArchiveThread, _, cx| {
-                let _ = this.archive_open(cx);
-            }))
-            .size_full()
-            .items_start()
-            .child(self.render_sidebar(cx))
-            .child(div().flex_1().min_w_0().h_full().child(main))
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_menus(cx);
+        let open_menu = self.render_open_menu();
+        self.render_shell(window, cx).children(open_menu)
     }
 }

@@ -12,6 +12,8 @@ use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// The zoom-aware px (style.rs), in place of GPUI's.
+use crate::style::px;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use threadbear_core::reducer::{
