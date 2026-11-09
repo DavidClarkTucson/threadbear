@@ -120,7 +120,7 @@ export async function playInto(post: Post, runner: { key: string; runnerId: stri
       say: (text) => s.text(`m${++n}`, text),
       endTurn: (input) => {
         const id = `e${++n}`;
-        s.out({ kind: 'event', event: { type: 'tool.call', itemId: id, name: END_TURN, kind: 'mcp', title: 'end_turn', input } });
+        s.out({ kind: 'event', event: { type: 'tool.call', itemId: id, name: END_TURN, kind: 'mcp', title: 'threadbear: end_turn', input } });
         s.out({ kind: 'event', event: { type: 'tool.result', itemId: id, ok: true, text: 'ok', truncated: false, images: [] } });
         s.result('completed');
       },
