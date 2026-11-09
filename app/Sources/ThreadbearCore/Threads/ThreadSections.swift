@@ -169,7 +169,7 @@ public struct ThreadSections: Sendable, Equatable {
     }
 
     private static func wantsYou(_ thread: ThreadSummary) -> Bool {
-        thread.reviewWaiting || thread.status == .waiting || thread.needsYou
+        InboxUrgency.counts(urgency(thread))
     }
 
     /// For each thread a schedule will message by itself, the one due
@@ -185,15 +185,11 @@ public struct ThreadSections: Sendable, Equatable {
         return soonest
     }
 
-    /// How much an inbox thread wants Mike, lowest first. 0: stuck on his
-    /// answer to a question or approval. 1: finished unread with a failure
-    /// or cut-off turn. 2: finished unread. 3: read, but its last turn
-    /// failed or was stopped, so it's still not done. 4: read and done.
+    /// How much an inbox thread wants Mike, lowest first (InboxUrgency,
+    /// the rule the phone reads too).
     public static func urgency(_ thread: ThreadSummary) -> Int {
-        let broken = thread.status == .error || thread.status == .stopped
-        if thread.reviewWaiting || thread.status == .waiting { return 0 }
-        if thread.needsYou { return broken ? 1 : 2 }
-        return broken ? 3 : 4
+        InboxUrgency.of(answerWaiting: thread.reviewWaiting || thread.status == .waiting, needsYou: thread.needsYou,
+                        broken: thread.status == .error || thread.status == .stopped)
     }
 
     /// The threads waiting on Mike or not read yet (the Dock badge): a star

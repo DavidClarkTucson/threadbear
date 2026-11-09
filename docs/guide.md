@@ -1146,7 +1146,9 @@ The Threadbear iPhone app is for when you're away from the Mac: ask a
 thread a question, steer it, answer the ones that need you, start new
 ones, and see how they're all getting on. Its inbox sorts threads the
 way the Mac's does, into Starred, Inbox, Running, Hibernating and
-Archived. To star a thread, swipe its row to the right, or use the menu when
+Archived. A thread that finished saying it needs nothing from you is done
+there too: it doesn't rise to the top or count towards what needs you,
+though it shows as unread until you open it. To star a thread, swipe its row to the right, or use the menu when
 you press and hold it or the ... menu inside it. All but Starred and Inbox start folded, showing how many they hold; tap a
 heading to open or fold it, and the phone remembers. Each heading stays at the top while you scroll through its threads, and a thread that changes heading travels there, so one finishing rises from Running into the Inbox. A folded Archived isn't
 loaded at all, nor the hibernated threads in a folded Hibernating, so the
