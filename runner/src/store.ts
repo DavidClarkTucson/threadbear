@@ -108,6 +108,7 @@ export type ThreadRecord = {
   nativeSessionId?: string;
   contextTokens?: number;
   contextWindow?: number; // the model's window, when the CLI reports it
+  continuedIn?: { threadId: string; title: string }; // Continue in a new thread (runner/long-threads.ts)
   costUsd?: number;
   reviews?: DesignReview[];
   reviewDeliveries?: string[]; // review IDs whose reply reached session.send
