@@ -24,11 +24,18 @@ pub mod size {
     pub const HEADER: f32 = 15.;
     pub const COMPOSER: f32 = 15.;
     pub const CHIP: f32 = 13.;
+    /// The send button, and the height of the controls row it sits in.
+    pub const SEND_BUTTON: f32 = 28.;
 }
 
 /// Widest the reading column gets; wider windows centre it.
 pub const MAX_CONTENT_WIDTH: f32 = 780.;
 pub const SIDE_INSET: f32 = 28.;
+
+/// The composer's card (ComposerView).
+pub const COMPOSER_RADIUS: f32 = 20.;
+pub const COMPOSER_PADDING: f32 = 14.;
+pub const COMPOSER_GAP: f32 = 10.;
 
 fn pick(cx: &App, dark: Hsla, light: Hsla) -> Hsla {
     if cx.theme().is_dark() {
@@ -84,4 +91,14 @@ pub fn button_fill(cx: &App) -> Hsla {
 
 pub fn button_edge(cx: &App) -> Hsla {
     pick(cx, white(0.08), black(0.18))
+}
+
+/// The composer's card: a lighter fill on dark, white on light (ComposerView.card).
+pub fn composer_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.085), white(1.))
+}
+
+/// The empty look of the send button (CircleButtonStyle, not filled).
+pub fn send_faint_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.1), black(0.1))
 }

@@ -31,6 +31,15 @@ Then('the composer says {string}', async function (this: ThreadbearWorld, text: 
   await this.until(`the composer saying "${text}"`, (d) => d.composer.text === text);
 });
 
+When('I paste {string} into the composer', async function (this: ThreadbearWorld, words: string) {
+  await this.app.do({ cmd: 'paste', text: words.replace(/\\n/g, '\n') });
+});
+
+Then('the composer says the lines {string}', async function (this: ThreadbearWorld, lines: string) {
+  const wanted = lines.replace(/\\n/g, '\n');
+  await this.until(`the composer saying ${JSON.stringify(wanted)}`, (d) => d.composer.text === wanted);
+});
+
 Then('the composer holds a new line after {string}', async function (this: ThreadbearWorld, text: string) {
   await this.until(`"${text}" and a new line`, (d) => d.composer.text === `${text}\n`);
 });

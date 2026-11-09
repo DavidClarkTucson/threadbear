@@ -1,5 +1,6 @@
 // The app's state: the connection, the thread list, what's open. The sidebar
 // (sidebar.rs) and the thread pane (thread.rs) draw from it.
+use crate::composer::Composer;
 use crate::thread::ThreadPane;
 use crate::{call, now_ms, ChannelSink, Seen, RT};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -26,8 +27,9 @@ pub struct Threadbear {
     pub(crate) search: Entity<InputState>,
     /// The sections folded away under their headings, by key.
     pub(crate) folded: HashSet<&'static str>,
-    /// What's typed for each thread that isn't open.
-    drafts: HashMap<String, String>,
+    /// Each thread's message box, kept so what's typed (with its undo and
+    /// pictures) stays with the thread while others are open.
+    pub(crate) composers: HashMap<String, Entity<Composer>>,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -67,7 +69,7 @@ impl Threadbear {
             pane: None,
             search,
             folded: HashSet::from(["hibernating", "archived"]),
-            drafts: HashMap::new(),
+            composers: HashMap::new(),
             _events: events,
             _subs: vec![appearance, searching],
         }
@@ -137,17 +139,22 @@ impl Threadbear {
         let Some(summary) = self.threads.get(&id).cloned() else { return };
         if let Some(old) = &self.pane {
             old.read(cx).unsubscribe();
-            let (thread, text) = (old.read(cx).thread_id().to_string(), old.read(cx).draft(cx));
-            if text.is_empty() {
-                self.drafts.remove(&thread);
-            } else {
-                self.drafts.insert(thread, text);
-            }
         }
         let client = self.client.clone();
-        let draft = self.drafts.get(&id).cloned().unwrap_or_default();
+        let app = cx.entity().downgrade();
+        let composer = self
+            .composers
+            .entry(id.clone())
+            .or_insert_with(|| cx.new(|cx| Composer::new(Some(id.clone()), client.clone(), app, window, cx)))
+            .clone();
         self.selected = Some(id);
-        self.pane = Some(cx.new(|cx| ThreadPane::new(client, summary, draft, window, cx)));
+        let pane = cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx));
+        composer.update(cx, |c, cx| {
+            c.attach(pane.downgrade());
+            c.focus(window, cx);
+            cx.notify();
+        });
+        self.pane = Some(pane);
         cx.notify();
     }
 
@@ -200,8 +207,8 @@ impl Threadbear {
     }
 
     #[cfg(feature = "automation")]
-    pub(crate) fn composer(&self, cx: &App) -> Option<Entity<gpui_kit::component::input::TextareaState>> {
-        self.pane.as_ref().map(|p| p.read(cx).composer())
+    pub(crate) fn composer(&self, cx: &App) -> Option<Entity<Composer>> {
+        self.pane.as_ref().map(|p| p.read(cx).composer.clone())
     }
 
     #[cfg(feature = "automation")]

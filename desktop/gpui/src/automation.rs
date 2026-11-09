@@ -126,6 +126,22 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             window.press(if cmd["shift"].as_bool().unwrap_or(false) { "shift-enter" } else { "enter" }, cx);
             Ok(json!("ok"))
         }
+        // `text` pasted as ⌘V would (the Swift app's `paste`): through the
+        // clipboard, put back afterwards so a test machine's isn't left changed.
+        "paste" => {
+            let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
+            let input = composer.read(cx).input.clone();
+            let handle = input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+            window.render_frame(cx);
+            let saved = cx.read_from_clipboard();
+            cx.write_to_clipboard(ClipboardItem::new_string(text(cmd, "text").to_string()));
+            window.press("secondary-v", cx);
+            if let Some(saved) = saved {
+                cx.write_to_clipboard(saved);
+            }
+            Ok(json!("ok"))
+        }
         "menu-key" => {
             let mut key = String::new();
             for m in cmd["modifiers"].as_array().into_iter().flatten().filter_map(Value::as_str) {
@@ -205,7 +221,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
 }
 
 fn type_in_composer(app: &Entity<Threadbear>, words: &str, replace: bool, window: &mut Window, cx: &mut App) -> Result<(), String> {
-    let Some(input) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
+    let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
+    let input = composer.read(cx).input.clone();
     if replace {
         input.update(cx, |s, cx| s.set_value("", window, cx));
     }

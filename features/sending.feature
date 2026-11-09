@@ -22,6 +22,25 @@ Feature: Sending a message
     Then the composer holds a new line after "first line"
     And the transcript doesn't show my message "first line"
 
+  @composer.listcontinue
+  Scenario: Shift-Return carries a numbered list on
+    When I type "1. first" in the composer
+    And I press Shift-Return
+    Then the composer says the lines "1. first\n2. "
+
+  @composer.listcontinue
+  Scenario: Shift-Return on an empty list item ends the list
+    When I type "1. first" in the composer
+    And I press Shift-Return
+    And I press Shift-Return
+    Then the composer says the lines "1. first\n"
+
+  @composer.textbox
+  Scenario: Pasting puts the words where the cursor is
+    When I type "Hello " in the composer
+    And I paste "there\nworld" into the composer
+    Then the composer says the lines "Hello there\nworld"
+
   @composer.textbox
   Scenario: What I've typed stays with its thread
     When I type "half a thought" in the composer

@@ -71,6 +71,22 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 Composer: its own file, the rounded box, list continuation, paste
+
+- The composer is out of `thread.rs` into `desktop/gpui/src/composer.rs`, one
+  `Composer` entity per thread on the app (`Threadbear.composers`) so what's typed
+  and its undo stay with the thread. Rounded card, 15/23 text, two to ten lines,
+  Return sends, Shift-Return makes a new line and carries markdown lists on
+  through one edit (`ListContinuation` is in `desktop/core/src/composer.rs` with
+  its tests), the send circle and Stop. `paste` joins the automation commands.
+- Files: `desktop/gpui/src/composer.rs`, `desktop/core/src/composer.rs`,
+  `features/sending.feature`.
+- Remaining: pictures, the chips under the box, the cards, the new-thread page.
+- Verification: `TB_APP=gpui` on Linux (`cloud`) and a real Mac (Tinker Desk) 7 of
+  7 for `@composer.textbox @composer.return @composer.send @composer.listcontinue`;
+  `TB_APP=swift` on Tinker Desk 4 of 4 for the new ones; side-by-side screenshot of
+  the box against the Swift one.
+
 ### 2026-11-09 Risk checks: Chromium in a slot, accessibility, Windows
 
 - Spike (`gpui-web-spike` branch): CEF 156 in a GPUI layout slot on macOS, with a
