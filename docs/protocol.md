@@ -4961,10 +4961,13 @@ again and carries on from the state.
   swapped. The login is Mike's pick, else T's login with the same email,
   else T's default. `leftBehind` is what T already knows won't come. T
   answers `moveFailed` when there's no folder or login for it.
-- **Freezing.** From `moveFrozen` until the move ends S starts no turn on
-  the thread: messages (the app's, the phone's, agents', schedules') go in
-  its queue, which moves with it. The CLI is released, so background shells
-  stop. `ThreadSummary.moving` says so (below).
+- **Freezing.** From S's first step (`asking`) until the move ends S starts
+  no new turn on the thread: messages (the app's, the phone's, agents',
+  schedules') go in its queue, which moves with it. A running turn goes on;
+  holding the queue is what lets it end, so `ready` can freeze. `ready`
+  waits for that with no timeout (a long turn can take hours); Mike can
+  Cancel. At `moveFrozen` the CLI is released, so background shells stop.
+  `ThreadSummary.moving` says so (below).
 - **The bundle.** A tar, gzipped, of: `thread.json`, `events.ndjson`,
   `blobs/` and `media/` from the thread's folder; the Claude session's
   transcript and its `<sessionId>/` folder; the thread's schedules (from
