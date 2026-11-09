@@ -170,13 +170,15 @@ impl Threadbear {
         if let Some(composer) = self.new_thread.composer.clone() {
             composer.update(cx, |c, cx| c.clear_sent_draft(&stored, window, cx));
         }
-        let logins = self.draft_logins();
         // In a pool the runner picked the login; that's the one that counts
-        // as used.
-        let used = if used_pool { thread.account_id.clone() } else { account };
-        let provider = logins.account(&used).map_or("claude", |a| a.provider_id()).to_owned();
-        self.new_thread.prefs.remembered.used_account(&used, &provider);
-        self.new_thread.save();
+        // as used. A thread started on another runner doesn't move this
+        // Mac's last login (`sendNewThread` doesn't remember one).
+        if runner.is_none() {
+            let used = if used_pool { thread.account_id.clone() } else { account };
+            let provider = self.logins.account(&used).map_or("claude", |a| a.provider_id()).to_owned();
+            self.new_thread.prefs.remembered.used_account(&used, &provider);
+            self.new_thread.save();
+        }
         // The folder, a picked mode and a picked login or pool were for this
         // thread; the next one starts from the defaults again. The model and
         // effort stick (Remembered).

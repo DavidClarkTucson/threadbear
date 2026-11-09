@@ -162,7 +162,7 @@ built parsers and gates with no launch of the app, which is the trap.)
   rather than inline markdown.
 - Verification: `@composer.slash` and `@composer.slash.keys`, 9 of 9 on both apps
   on Tinker Desk, and in the whole-suite runs under the new-thread page's entry
-  below; `cargo test -p threadbear-core` (the palette's own rules, 20 tests); a
+  below; `cargo test -p threadbear-core` (the palette's own rules, 18 tests); a
   picture of `/co` on Tinker Desk read against SlashPaletteView.
 
 ### 2026-11-09 The new-thread page (`thread.newpage`, `composer.starting`)
