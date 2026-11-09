@@ -21,7 +21,8 @@ export type Pane = {
 type WithPane = Dump & { panels?: { preview?: string | null; highlights?: string | null; pane?: Pane | null; items?: { id: string; title: string; kind: string; active: boolean }[] } | null };
 
 export const pane = (d: Dump): Pane | undefined => (d as WithPane).panels?.pane ?? undefined;
-export const previewLine = (d: Dump): string | undefined => (d as WithPane).panels?.preview ?? undefined;
+// With / between its parts whatever the system: on Windows a path has backslashes.
+export const previewLine = (d: Dump): string | undefined => (d as WithPane).panels?.preview?.replaceAll('\\', '/') ?? undefined;
 export const paneItems = (d: Dump) => (d as WithPane).panels?.items ?? [];
 export const sections = (d: Dump): PaneSection[] => pane(d)?.sections ?? [];
 export const section = (d: Dump, title: string) => sections(d).find((s) => s.title === title);
