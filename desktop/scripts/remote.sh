@@ -49,7 +49,10 @@ cd "\$HOME/$src"
 touch .
 # So trim-remote-cache.sh can tell this target's in use for the whole run. Its
 # output goes nowhere, or ssh would wait for it after the command ends.
-( while kill -0 \$\$ 2>/dev/null; do touch "\$HOME/$target/.in-use"; sleep 60; done ) >/dev/null 2>&1 </dev/null &
+# The mkdir is for a host so full the one above failed, until the trim made room.
+# || true because this inherits set -e, and a touch on a full disk mustn't end it.
+mkdir -p "\$HOME/$target"
+( while kill -0 \$\$ 2>/dev/null; do touch "\$HOME/$target/.in-use" || true; sleep 60; done ) >/dev/null 2>&1 </dev/null &
 . runner/scripts/find-node.sh
 NODE="\$(threadbear_find_node)"
 export PATH="\${NODE%/*}:\$PATH"

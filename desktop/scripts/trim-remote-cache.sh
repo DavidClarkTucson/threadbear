@@ -44,7 +44,11 @@ evict() {
   [ -d "$1" ] || return 0
   [ -z "$(find "$1" -mmin -"$BUSY_MINUTES" 2>/dev/null | head -1)" ] || return 0
   echo "Short of disk on this host, so removing $1, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
-  rm -rf "$1"
+  # Moved aside first, as the deleting takes a while and a run that starts in
+  # that time should find no folder rather than half of one. It's still called
+  # target-*, so one left by a crash here goes the next time room is short.
+  local gone="target-gone-$$-${1#target-}"
+  mv "$1" "$gone" && rm -rf "$gone"
 }
 
 # The one folder every checkout shared before they each got their own.
@@ -56,8 +60,10 @@ for t in $(ls -dtr target-* 2>/dev/null); do
 done
 
 need="$REFUSE_GIB"
-# ls without -A, so the .in-use a run that failed early left doesn't count.
-[ -n "$(ls "target-$own" 2>/dev/null)" ] || need="$REFUSE_COLD_GIB"
+# By size, not whether it's empty: a first build that died early leaves a
+# folder with next to nothing to build on.
+kb="$(du -sk "target-$own" 2>/dev/null | awk '{print $1}')"
+[ "${kb:-0}" -ge 1048576 ] || need="$REFUSE_COLD_GIB"
 free="$(free_gib)"
 if [ "$free" -lt "$need" ]; then
   echo "This host has only $free GiB free and this run wants $need, with every other build folder in use, so it won't start. Free some space there and run it again." >&2

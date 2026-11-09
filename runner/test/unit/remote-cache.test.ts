@@ -44,6 +44,9 @@ f=$(( (${freeGib} + (${targets} - n) * 6) * 1048576 ))
 [ "$f" -ge 0 ] || f=0
 echo "fake 0 0 $f 0% /"
 `, { mode: 0o755 });
+  // A built target is many GiB and these are tiny, so du goes by whether one
+  // has a build in it.
+  fs.writeFileSync(path.join(bin, 'du'), '#!/bin/bash\nif [ -f "$2/debug/out" ]; then echo "6000000 $2"; else echo "100 $2"; fi\n', { mode: 0o755 });
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HOME: path.join(root, 'home') };
   const left = () => fs.readdirSync(base).filter((n) => /^target(-|$)/.test(n)).sort();
   const trim = (own = 'aaa') => spawnSync('/bin/bash', [TRIM, own], { cwd: base, env, encoding: 'utf8', timeout: 20_000 });
@@ -107,6 +110,17 @@ test('a first build wants more room than one with a target to build on', (t) => 
   const r = cold.trim();
   assert.equal(r.status, 3);
   assert.match(r.stderr, /wants 8/);
+  // A first build that died early left a folder, and still nothing to build on.
+  const died = host(t, 5, { 'target-aaa': -1, 'target-ddd': 0.1 });
+  fs.mkdirSync(path.join(died.base, 'target-aaa', 'debug'));
+  fs.writeFileSync(path.join(died.base, 'target-aaa', 'CACHEDIR.TAG'), '');
+  assert.equal(died.trim().status, 3);
+});
+
+test('nothing is left behind by a folder given back', (t) => {
+  const h = host(t, 8, WORK);
+  assert.equal(h.trim().status, 0);
+  assert.deepEqual(fs.readdirSync(h.base).filter((n) => n.includes('gone')), []);
 });
 
 test('a df reporting less than nothing counts as full, and one it can not read blocks nothing', (t) => {
@@ -143,6 +157,8 @@ dest="$HOME/\${!##*:}"
 mkdir -p "$dest/runner/scripts"
 cp ${JSON.stringify(findNode)} "$dest/runner/scripts/"
 touch -t 202601010000 "$dest"
+# The host was too full for the first mkdir, and the trim then made room.
+rm -rf "$HOME"/.cache/threadbear-check/gpui/target-*
 `, { mode: 0o755 });
   const r = spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), 'somehost', '--', 'true'], { env: h.env, encoding: 'utf8', timeout: 30_000 });
   assert.equal(r.error, undefined, 'it returned rather than waiting for the marker loop');
