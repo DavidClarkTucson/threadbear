@@ -16,6 +16,18 @@ pub fn can_move_windows_by_hand() -> bool {
     cfg!(target_os = "macos")
 }
 
+static SCRIPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// For the demo's scripted events: pointer positions come from the script's
+/// events, not the real mouse (which is somewhere else entirely).
+pub fn set_scripted_pointer(on: bool) {
+    SCRIPTED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn pointer_is_scripted() -> bool {
+    SCRIPTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(target_os = "macos")]
 mod mac {
     use gpui_kit::{Pixels, Window};
@@ -32,6 +44,28 @@ mod mac {
 
     unsafe impl objc2::Encode for NSPoint {
         const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSSize {
+        width: f64,
+        height: f64,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSRect {
+        origin: NSPoint,
+        size: NSSize,
+    }
+
+    unsafe impl objc2::Encode for NSSize {
+        const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    unsafe impl objc2::Encode for NSRect {
+        const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
     }
 
     fn ns_window(window: &Window) -> Option<*mut AnyObject> {
@@ -53,24 +87,6 @@ mod mac {
             }
             // GPUI's bounds() flips about this window's screen; do the same
             // so a frame read from it comes back to the same place.
-            #[repr(C)]
-            #[derive(Clone, Copy)]
-            struct NSRect {
-                origin: NSPoint,
-                size: NSSize,
-            }
-            #[repr(C)]
-            #[derive(Clone, Copy)]
-            struct NSSize {
-                width: f64,
-                height: f64,
-            }
-            unsafe impl objc2::Encode for NSSize {
-                const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
-            }
-            unsafe impl objc2::Encode for NSRect {
-                const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
-            }
             let screen_frame: NSRect = msg_send![screen, frame];
             let frame: NSRect = msg_send![ns, frame];
             // GPUI: x is relative to the screen's origin; y from its top.
@@ -87,6 +103,24 @@ mod mac {
         }
     }
 
+    /// Where the pointer is relative to the window's corner, in the window's
+    /// points, read fresh from AppKit. Events carry the same thing, but one
+    /// already in the queue was computed against where the window was before
+    /// we moved it, which shakes a window that's following the pointer; the
+    /// Swift dock reads NSEvent.mouseLocation for the same reason.
+    pub fn pointer_in_window(window: &Window) -> Option<gpui_kit::Point<Pixels>> {
+        use gpui_kit::{point, px};
+        if super::pointer_is_scripted() {
+            return None;
+        }
+        let ns = ns_window(window)?;
+        unsafe {
+            let location: NSPoint = msg_send![objc2::class!(NSEvent), mouseLocation];
+            let frame: NSRect = msg_send![ns, frame];
+            Some(point(px((location.x - frame.origin.x) as f32), px((frame.origin.y + frame.size.height - location.y) as f32)))
+        }
+    }
+
     /// Clicks go through the window to whatever is under it: the outline of a
     /// window about to open, which mustn't catch the pointer it follows.
     pub fn set_ignores_mouse_events(window: &Window, ignores: bool) {
@@ -98,7 +132,14 @@ mod mac {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{set_ignores_mouse_events, set_window_alpha, set_window_origin};
+pub use mac::{pointer_in_window, set_ignores_mouse_events, set_window_alpha, set_window_origin};
+
+/// Everywhere else, the event's own position is the best there is.
+#[cfg(not(target_os = "macos"))]
+pub fn pointer_in_window(_window: &Window) -> Option<Point<Pixels>> {
+    let _ = pointer_is_scripted();
+    None
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn set_window_origin(_window: &Window, _origin: Point<Pixels>) {}

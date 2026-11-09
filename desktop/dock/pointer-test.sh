@@ -7,9 +7,12 @@
 #
 #   desktop/scripts/remote.sh tinker-desk --desk -- bash desktop/dock/pointer-test.sh
 #
-# Saves stills in $TMPDIR/dock-pointer. Build first:
+# With `window` as the first argument it's a torn-out window instead: open one
+# from the menu, drag its bar back over the dock with the real pointer, drop it
+# in. Saves stills in $TMPDIR/dock-pointer. Build first:
 # `cargo build -p threadbear-dock --features automation --bin dock-demo`.
 set -euo pipefail
+scenario="${1:-tabs}"
 out="${TMPDIR:-/tmp}/dock-pointer"
 rm -rf "$out"
 mkdir -p "$out"
@@ -20,8 +23,9 @@ cat > "$out/pointer.swift" <<'SWIFT'
 import CoreGraphics
 import Foundation
 
-// args: originX originY
+// args: originX originY scenario
 let ox = Double(CommandLine.arguments[1])!, oy = Double(CommandLine.arguments[2])!
+let scenario = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "tabs"
 let source = CGEventSource(stateID: .hidSystemState)
 func at(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: ox + x, y: oy + y) }
 func mouse(_ type: CGEventType, _ p: CGPoint) {
@@ -42,6 +46,24 @@ func drag(from a: CGPoint, to b: CGPoint, seconds: Double) {
     }
 }
 
+if scenario == "window" {
+    // A right-click on the Highlights tab, "Open in New Window" in its
+    // menu, then its window's title dragged over Transcript and dropped.
+    let tab = at(1037, 15), item = at(1134, 60)
+    mouse(.mouseMoved, tab); pause(0.3)
+    mouse(.rightMouseDown, tab); pause(0.08); mouse(.rightMouseUp, tab); pause(0.7)
+    mouse(.mouseMoved, item); pause(0.25)
+    mouse(.leftMouseDown, item); pause(0.1); mouse(.leftMouseUp, item); pause(1.2)
+    // The new window opens at the group's corner plus (30, 30); its title
+    // text is inside the 78-point lights inset.
+    let title = at(1010 + 120, 30 + 16), over = at(640, 390)
+    mouse(.mouseMoved, title); pause(0.3)
+    mouse(.leftMouseDown, title); pause(0.15)
+    drag(from: title, to: over, seconds: 0.7)
+    pause(1.3)              // still: the window over the compass, see-through
+    mouse(.leftMouseUp, over); pause(1.2)
+    exit(0)
+}
 // The Highlights tab, top right, to the middle of Transcript: the compass.
 let tab = at(1037, 15), middle = at(640, 390), left = at(320, 560)
 mouse(.mouseMoved, tab); pause(0.3)
@@ -79,7 +101,7 @@ echo "window at $ox,$oy"
 # Keep the demo in front of whatever else is on this desktop.
 osascript -e 'tell application "System Events" to set frontmost of first process whose unix id is '"$demo_pid"' to true' >/dev/null 2>&1 || true
 sleep 0.3
-"$out/pointer" "$ox" "$oy"
+"$out/pointer" "$ox" "$oy" "$scenario"
 wait "$demo_pid" || true
 echo "stills in $out"
 ls "$out"

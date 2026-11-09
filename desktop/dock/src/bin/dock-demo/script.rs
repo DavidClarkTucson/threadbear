@@ -15,6 +15,10 @@ use std::time::Duration;
 
 pub fn run(main: AnyWindowHandle, cx: &mut App) {
     let Ok(script) = std::env::var("BEARDOCK_EVENTS") else { return };
+    // Only when the script moves the pointer itself; `pointer-test.sh` drives
+    // the real pointer and only asks for screenshots.
+    let moves = ["down", "drag", "dragby", "move", "right", "middle"];
+    threadbear_dock::platform::set_scripted_pointer(script.split(';').any(|s| s.split_whitespace().next().is_some_and(|c| moves.contains(&c))));
     let quit = std::env::var_os("BEARDOCK_QUIT").is_some();
     cx.spawn(async move |cx: &mut AsyncApp| {
         cx.background_executor().timer(Duration::from_millis(700)).await;

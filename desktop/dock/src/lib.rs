@@ -15,6 +15,17 @@ pub mod theme;
 pub mod view;
 pub mod windows;
 
+use gpui_kit::{InteractiveElement, MouseButton};
+
+/// Keeps a region of a panel from picking the panel up when dragged, for
+/// content with no drag of its own (a canvas, a read-only list) where moving
+/// the panel would surprise; the header still moves it. Any mouse-down that
+/// stops propagation does the same, and is how a panel's own drags win over the
+/// dock's. Swift's `.dockDragDisabled()`.
+pub fn dock_drag_disabled<E: InteractiveElement + Sized>(element: E) -> E {
+    element.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
 pub use content::{DockContent, DockOptions, SharedContent};
 pub use model::DockModel;
 pub use threadbear_dock_layout as layout;

@@ -146,10 +146,6 @@ impl DockView {
         if self.press.is_some() {
             return;
         }
-        if event.click_count == 2 && self.drags_window(kind, &panel, cx) {
-            // A double-click that didn't move zooms the window, as a title
-            // bar's does (Swift looks for this on the release).
-        }
         let start = self.dock_point(event.position);
         self.suppress_click = false;
         // On a bar the hold is timed from the press and lifts while you
@@ -246,8 +242,16 @@ impl DockView {
         };
     }
 
-    fn pointer_moved(&mut self, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        let location = self.dock_point(position);
+    fn pointer_moved(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // The button came up without us seeing it (released between two
+        // frames, or on something that took the mouse-up): the press is over.
+        if event.pressed_button != Some(MouseButton::Left) {
+            if self.press.is_some() || self.divider.is_some() {
+                self.press_ended_without_release(window, cx);
+            }
+            return;
+        }
+        let location = self.dock_point(event.position);
         if self.divider.is_some() {
             self.divider_moved(location, cx);
             return;
@@ -304,6 +308,17 @@ impl DockView {
                 window.zoom_window();
             }
             _ => {}
+        }
+        cx.notify();
+    }
+
+    /// No release was seen but the button is up: nothing lifted stays lifted.
+    fn press_ended_without_release(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.divider = None;
+        if let Some(p) = self.press.take() {
+            if p.mode == PressMode::Panel {
+                self.drag_ended(window, cx);
+            }
         }
         cx.notify();
     }
@@ -464,6 +479,7 @@ impl DockView {
                     .when(dragging_this, |d| d.bg(accent.opacity(0.85)))
                     .group_hover(group, move |s| s.bg(accent.opacity(0.85))),
             )
+            .tooltip(|window, cx| Tooltip::new("Drag to resize").build(window, cx))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, e: &MouseDownEvent, _, cx| {
@@ -894,7 +910,6 @@ impl Render for DockView {
         });
 
         let tree = self.node(&layout.root, &layout, &theme, &available, window, cx);
-        let drag_active = self.model.read(cx).controller.drag.is_some() || self.press.is_some() || self.divider.is_some();
         let divider_axis = self.divider.as_ref().map(|d| d.axis);
         let dragging_panel = self.model.read(cx).controller.drag.is_some();
         if !dragging_panel && self.escape_watch.is_some() {
@@ -919,21 +934,20 @@ impl Render for DockView {
             .child(div().absolute().top_0().left_0().size_full().bg(theme.hairline))
             .child(tree)
             .child(overlay)
-            // Last, so the drag's cursor wins over what's under the pointer,
-            // and the listeners exist only while something's in progress.
-            .child(listeners(entity, drag_active, dragging_panel, divider_axis))
+            // Last, so the drag's cursor wins over what's under the pointer.
+            // Always there, not just while something's in progress: a press
+            // and its release can land between two frames, and a press that
+            // misses its release would pick the panel up on the next move.
+            .child(listeners(entity, dragging_panel, divider_axis))
     }
 }
 
 /// While a press, drag or divider is live: window-level mouse listeners, so
 /// moves and the release are seen wherever they happen, and the drag's cursor.
-fn listeners(view: WeakEntity<DockView>, active: bool, dragging: bool, divider_axis: Option<SplitAxis>) -> impl IntoElement {
+fn listeners(view: WeakEntity<DockView>, dragging: bool, divider_axis: Option<SplitAxis>) -> impl IntoElement {
     canvas(
         |_, _, _| {},
-        move |_, _, window, cx| {
-            if !active {
-                return;
-            }
+        move |_, _, window, _| {
             if let Some(axis) = divider_axis {
                 window.set_window_cursor_style(if axis == SplitAxis::Horizontal { CursorStyle::ResizeLeftRight } else { CursorStyle::ResizeUpDown });
             } else if dragging {
@@ -942,7 +956,7 @@ fn listeners(view: WeakEntity<DockView>, active: bool, dragging: bool, divider_a
             let moved = view.clone();
             window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
                 if phase == DispatchPhase::Capture {
-                    let _ = moved.update(cx, |v, cx| v.pointer_moved(e.position, window, cx));
+                    let _ = moved.update(cx, |v, cx| v.pointer_moved(e, window, cx));
                 }
             });
             let released = view.clone();
@@ -951,7 +965,6 @@ fn listeners(view: WeakEntity<DockView>, active: bool, dragging: bool, divider_a
                     let _ = released.update(cx, |v, cx| v.pointer_up(e, window, cx));
                 }
             });
-            let _ = cx;
         },
     )
     .absolute()

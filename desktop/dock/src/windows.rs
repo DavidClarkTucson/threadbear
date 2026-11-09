@@ -49,7 +49,11 @@ impl FloatingWindows {
         }
         let focus = model.read(cx).controller.focus_next.clone();
         for float in &floating {
-            if self.windows.contains_key(&float.panel) {
+            if let Some(handle) = self.windows.get(&float.panel).copied() {
+                // Already open (show or a rail button): just bring it forward.
+                if focus.as_deref() == Some(float.panel.as_str()) {
+                    let _ = handle.update(cx, |_, window, _| window.activate_window());
+                }
                 continue;
             }
             let handle = open_floating_window(float, focus.as_deref() == Some(float.panel.as_str()), model.clone(), content.clone(), options.clone(), cx);
@@ -324,6 +328,13 @@ impl FloatingPanelView {
     }
 
     fn pointer_moved(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // The button came up without a release (between two frames): over.
+        if event.pressed_button != Some(MouseButton::Left) {
+            if self.press.is_some() {
+                self.pointer_up(window, cx);
+            }
+            return;
+        }
         let Some(p) = &mut self.press else { return };
         let dx = (event.position.x - p.start.x).as_f32() as f64;
         let dy = (event.position.y - p.start.y).as_f32() as f64;
@@ -343,7 +354,10 @@ impl FloatingPanelView {
         }
         let Some(p) = &self.press else { return };
         if p.mode == FloatMode::Panel {
-            let mouse = Self::mouse_on_screen(event.position, window);
+            // Fresh from the OS rather than the event's own position, which
+            // was worked out before we last moved the window (see platform.rs).
+            let local = platform::pointer_in_window(window).unwrap_or(event.position);
+            let mouse = Self::mouse_on_screen(local, window);
             let frame = p.frame_at_start;
             let panel = self.panel.clone();
             let update = self.model.update(cx, |m, cx| m.update_controller(cx, |c| c.window_drag_changed(&panel, frame, mouse)));
@@ -405,7 +419,6 @@ impl Render for FloatingPanelView {
         let body = content.view(&panel, false, window, cx);
         let body_menu = self.menu();
         let bar_menu = self.menu();
-        let tracking = self.press.is_some();
         let dragging = self.press.as_ref().is_some_and(|p| p.mode == FloatMode::Panel);
         let this = cx.entity().downgrade();
 
@@ -464,7 +477,8 @@ impl Render for FloatingPanelView {
                     .child(body)
                     .context_menu(body_menu),
             )
-            .when(tracking, |d| d.child(float_listeners(this, dragging)))
+            // Always there: a press and its release can land between frames.
+            .child(float_listeners(this, dragging))
     }
 }
 

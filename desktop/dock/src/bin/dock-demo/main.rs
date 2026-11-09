@@ -233,7 +233,14 @@ fn main() {
                 });
                 // The Mac's system blue, so the demo's targets look like Swift's.
                 let accent = rgb(0x0a84ff).into();
-                let options = DockOptions { traffic_lights: 78., corner_moves_window: true, accent: Some(accent), ..DockOptions::default() };
+                let options = DockOptions {
+                    traffic_lights: 78.,
+                    corner_moves_window: true,
+                    accent: Some(accent),
+                    // The app's bars move its window; this tries them the same way.
+                    bars_move_window: std::env::var_os("BEARDOCK_BARS_MOVE_WINDOW").is_some(),
+                    ..DockOptions::default()
+                };
                 cx.new(|cx| DemoRoot { dock: cx.new(|cx| DockView::new(model.clone(), Rc::new(Demo), options, cx)), model })
             },
         )

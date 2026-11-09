@@ -32,3 +32,10 @@ automation = ["gpui-kit/test-support"]
 [[bin]]
 name = "dock-demo"
 path = "src/bin/dock-demo/main.rs"
+
+# Headless runs of the real views and hit testing (gpui_kit::test). Run with
+# `cargo test -p threadbear-dock --features automation --test press`.
+[[test]]
+name = "press"
+path = "tests/press.rs"
+required-features = ["automation"]
