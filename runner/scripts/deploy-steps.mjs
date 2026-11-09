@@ -95,6 +95,29 @@ export function step(name, cmd, args, opts, io = {}) {
   throw new StepFailed(`${name} failed (${why}); the whole output is in ${logFile}`, logFile);
 }
 
+// The check hosts in a runner.json, as check.sh reads them: "checkHosts" (a
+// list) over "checkHost", each a plain ssh host name. Empty when there's none.
+export function checkHostsFrom(json) {
+  const h = Array.isArray(json?.checkHosts) ? json.checkHosts : json?.checkHost;
+  return (Array.isArray(h) ? h : [h]).filter((x) => typeof x === 'string' && /^[A-Za-z0-9][A-Za-z0-9._@-]*$/.test(x));
+}
+
+// The self-update's typecheck and unit tests, on a check host when the
+// runner has one. Mike asked on 9 Nov, with his M5 at a load of 50: every
+// runner update (six that morning) ran the whole unit suite on it for 10
+// minutes, the one suite that never went to Tinker Desk with the others on
+// 6 Nov. check.sh --quick sends them there (scripts/check-remote.sh), and
+// runs them here at low priority only when no host can be reached, as it
+// does for a thread's checks. With no check host (a fork, a sandbox), the
+// steps run here as before. Returns whether it ran them.
+export function remoteChecks(hosts, root, opts, io = {}) {
+  const checkSh = path.join(root, 'check.sh');
+  if (!hosts.length || !fs.existsSync(checkSh)) return false;
+  const env = { ...opts.env, THREADBEAR_CHECK_HOST: hosts.join(',') };
+  step(`Typecheck and unit tests (on ${hosts.join(' or ')})`, checkSh, ['--quick'], { ...opts, cwd: root, env }, io);
+  return true;
+}
+
 // The full suite runs files in parallel on a Mac that's usually busy with
 // threads, so a test with a timing assumption can fail for no real reason
 // and hold the runner back from main. Files that failed get one more go, one

@@ -161,3 +161,44 @@ test("a step that failed with no sleep, or where the sleep count can't be read, 
   let n = 0;
   steps.step('Typecheck', c.npm, [], {}, { ...io, slept: () => n++ });
 });
+
+test('checkHostsFrom reads runner.json the way check.sh does', () => {
+  assert.deepEqual(steps.checkHostsFrom({ checkHost: 'tinker-desk' }), ['tinker-desk']);
+  assert.deepEqual(steps.checkHostsFrom({ checkHost: 'tinker-desk', checkHosts: ['tinker-desk', 'cloud'] }), ['tinker-desk', 'cloud']);
+  // Not a plain host name (an option, a shell word): dropped, as check.sh does.
+  assert.deepEqual(steps.checkHostsFrom({ checkHosts: ['-oProxyCommand=x', 'a b', 'cloud', 7] }), ['cloud']);
+  assert.deepEqual(steps.checkHostsFrom({}), []);
+  assert.deepEqual(steps.checkHostsFrom(undefined), []);
+});
+
+// 9 Nov: every self-update ran the whole unit suite on Mike's M5.
+test('remoteChecks hands the checks to check.sh --quick with the hosts named', () => {
+  const root = tmpDir();
+  fs.writeFileSync(path.join(root, 'check.sh'), '#!/bin/bash\n');
+  const { io, calls } = fakeIo([{ status: 0 }]);
+  let env: Record<string, string> | undefined;
+  const spawn = io.spawn;
+  io.spawn = (cmd: string, args: string[], opts: any) => {
+    env = opts.env;
+    assert.equal(opts.cwd, root);
+    return spawn(cmd, args, opts);
+  };
+  assert.equal(steps.remoteChecks(['tinker-desk', 'cloud'], root, { cwd: '/elsewhere', env: { PATH: '/bin' } }, io), true);
+  assert.deepEqual(calls, [{ cmd: path.join(root, 'check.sh'), args: ['--quick'] }]);
+  assert.equal(env?.THREADBEAR_CHECK_HOST, 'tinker-desk,cloud');
+  assert.equal(env?.PATH, '/bin');
+});
+
+test('remoteChecks fails the update when the checks there fail', () => {
+  const root = tmpDir();
+  fs.writeFileSync(path.join(root, 'check.sh'), '#!/bin/bash\n');
+  const { io } = fakeIo([{ status: 1, output: 'FAIL runner unit tests' }]);
+  assert.throws(() => steps.remoteChecks(['tinker-desk'], root, { env: {} }, io), steps.StepFailed);
+});
+
+test('remoteChecks leaves the checks here with no host, or no check.sh', () => {
+  const { io, calls } = fakeIo([]);
+  assert.equal(steps.remoteChecks([], tmpDir(), { env: {} }, io), false);
+  assert.equal(steps.remoteChecks(['tinker-desk'], tmpDir(), { env: {} }, io), false);
+  assert.deepEqual(calls, []);
+});

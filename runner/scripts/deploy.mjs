@@ -10,7 +10,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { pointCurrent, readCurrentLink, readState, releaseExists, writeState } from '../launch.mjs';
 import { connectRpc } from './rpc-client.mjs';
-import { Fail, SLEPT_EXIT, SleptThrough, checkSlept, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
+import { Fail, SLEPT_EXIT, SleptThrough, checkHostsFrom, checkSlept, remoteChecks, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
 // THREADBARE_* was the old name for these variables (config.ts, adoptOldNames).
 for (const [k, v] of Object.entries(process.env)) {
   const name = k.startsWith('THREADBARE_') ? 'THREADBEAR_' + k.slice(11) : undefined;
@@ -668,8 +668,9 @@ function deployBackend(c, g, v) {
   if (r.status !== 0) throw new Fail('The backend deploy failed, so the runner stays on its current release. Fix it and deploy again, or pass --skip-backend.');
 }
 
-function checks(c) {
+function checks(c, g) {
   const opts = { cwd: c.runnerDir, env: cleanEnv() };
+  if (remoteChecks(checkHostsFrom(readJson(path.join(c.home, 'runner.json'))), g.root, opts)) return;
   if (!fs.existsSync(path.join(c.runnerDir, 'node_modules'))) step('Installing the checkout\'s packages', c.npm, ['ci', '--no-audit', '--no-fund'], opts);
   step('Typecheck', c.npm, ['run', 'typecheck'], opts);
   unitTests(c, opts);
@@ -1358,7 +1359,7 @@ async function deploy(c, v, waitMs) {
   warnStaleLaunch(c);
   if (off) say(`Note: ${off}`);
   if (v['skip-checks']) say('Skipping the checks.');
-  else checks(c);
+  else checks(c, g);
   const id = newReleaseId(c, g.short, dirty);
   build(c, id, g, dirty);
   try {

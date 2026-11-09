@@ -349,6 +349,12 @@ thread is busy (background work holds it 30 minutes at most; under
 reason "Updating to main at <short>: <subject>". `launch.mjs`'s crash
 rollback covers a release that doesn't come up.
 
+- With a check host in `runner.json` (`checkHost`/`checkHosts`), the
+  typecheck and unit tests go there through `check.sh --quick`, the same
+  way a thread's checks do, and run on this Mac at low priority only when
+  no host answers. Mike, 9 Nov: six updates that morning each ran the
+  whole unit suite on his M5 for ten minutes. With no check host they run
+  in the clone as before.
 - A build that fails starts a thread in the background to fix it
   (`runner/src/fix-update.ts`; Mike, 6 Nov: the old banner came up often,
   mostly for tests that flaked on a busy Mac, and told him nothing he could
