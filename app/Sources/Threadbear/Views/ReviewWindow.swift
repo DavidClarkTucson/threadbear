@@ -1114,8 +1114,18 @@ final class ReviewImageScroll: NSScrollView {
         // A hair under, as rounding the other way would bring up scrollers
         // on an image with nothing to scroll.
         fitScale = min(bounds.width / document.width, bounds.height / document.height) * 0.9999
-        minMagnification = fitScale
-        maxMagnification = max(fitScale * 2, Self.furthest)
+        // AppKit throws if the minimum ever passes the maximum, even for a
+        // moment, and it starts at 4×: a small image on a big stage needs
+        // more than that to fit, and took the whole app down (9 Nov). So
+        // whichever bound is making room goes first.
+        let furthest = max(fitScale * 2, Self.furthest)
+        if fitScale > maxMagnification {
+            maxMagnification = furthest
+            minMagnification = fitScale
+        } else {
+            minMagnification = fitScale
+            maxMagnification = furthest
+        }
         // Fitted stays fitted through a window resize; zoomed keeps its scale.
         let target = fitted ? fitScale : min(maxMagnification, max(minMagnification, magnification))
         if magnification != target { magnification = target }

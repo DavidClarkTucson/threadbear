@@ -376,6 +376,22 @@ final class ReviewWindowTests: XCTestCase {
         XCTAssertTrue(image.isFittedForTests)
     }
 
+    func testASmallImageFitsAnyStageWithoutAppKitThrowing() {
+        let tiny = DesignReview(id: "review", title: "Page", options: [
+            ReviewOption(id: "A", title: "Option A", image: ImageRef(path: Self.images + "A.png", mediaType: "image/png", width: 40, height: 40)),
+        ])
+        let (session, host, window) = make(tiny)
+        defer { window.close() }
+        session.enlarge(0)
+        pump()
+        let image = stage(in: host)
+        XCTAssertGreaterThan(image.minMagnification, 4, "past AppKit's starting maximum")
+        // And back down: the minimum has to give way before the maximum does.
+        window.setContentSize(NSSize(width: 800, height: 660))
+        pump()
+        XCTAssertLessThanOrEqual(image.minMagnification, image.maxMagnification)
+    }
+
     func testAClipHasItsSoundOnOnTheStageAndIsMutedAmongTheOthers() {
         let (stage, stageWindow, _) = video(controls: true)
         defer { stageWindow.close() }
