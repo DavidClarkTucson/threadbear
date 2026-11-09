@@ -69,11 +69,27 @@ jobs:
         # installs, so a stranger may well be on it.
         node: ['24', current]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - name: Pick the Node
+        id: node
+        # setup-node's own "current" took v27.0.0-alpha on 9 Nov, as Node's
+        # alphas are first in its release list now. This is the newest
+        # release that isn't a pre-release (no "-" in its version).
+        run: |
+          if [ "${{ matrix.node }}" = current ]; then
+            v=$(curl -fsSL https://nodejs.org/dist/index.json | jq -r '[.[] | select(.version | test("-") | not)][0].version')
+            [ -n "$v" ] && [ "$v" != null ] || { echo "Couldn't read Node's newest release"; exit 1; }
+            v="${v#v}"
+          else
+            v="${{ matrix.node }}"
+          fi
+          echo "Node $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v5
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ steps.node.outputs.version }}
           cache: npm
           cache-dependency-path: |
             package-lock.json
