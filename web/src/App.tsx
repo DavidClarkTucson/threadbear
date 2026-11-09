@@ -325,7 +325,22 @@ function MoreMenu({ items }: { items: ({ label: string; icon: ReactNode; run: ()
 // done card's follow-ups, then the composer under it.
 function Dock({ token, thread: t, lastSeq, onSent, onArchive }: { token: string; thread: Row; lastSeq?: number; onSent: (id: Id<'commands'>) => void; onArchive: () => void }) {
   const send = useMutation(api.phone.send);
+  const interrupt = useMutation(api.phone.interrupt);
   const [text, setText] = useState('');
+  // Stop pressed: a spinner in its place until the turn has stopped (or the
+  // press failed), so it can't be pressed twice meanwhile.
+  const [stopping, setStopping] = useState(false);
+  useEffect(() => {
+    if (!busy(t)) setStopping(false);
+  }, [t.status]);
+  const stop = async () => {
+    setStopping(true);
+    try {
+      await interrupt({ token, threadId: t.threadId });
+    } catch {
+      setStopping(false);
+    }
+  };
   // Picks on the card of asks: ask index to choice index, for one card.
   const [picks, setPicks] = useState<{ card?: number; by: Record<number, number> }>({ by: {} });
   const [ticked, setTicked] = useState<{ seq?: number; set: Set<number> }>({ set: new Set() });
@@ -446,9 +461,23 @@ function Dock({ token, thread: t, lastSeq, onSent, onArchive }: { token: string;
         />
         <div className="tools-row">
           <span className="grow" />
-          <button className="send" disabled={!ready} aria-label="Send" title="Send">
-            <Icon.Up />
-          </button>
+          {busy(t) && !ready ? (
+            // Stop only while nothing's typed, as on the Mac: a message
+            // typed during a turn goes into it.
+            stopping ? (
+              <button type="button" className="send" disabled aria-label="Stopping" title="Stopping">
+                <span className="spinner" />
+              </button>
+            ) : (
+              <button type="button" className="send" onClick={() => void stop()} aria-label="Stop" title="Stop">
+                <Icon.Stop />
+              </button>
+            )
+          ) : (
+            <button className="send" disabled={!ready} aria-label="Send" title="Send">
+              <Icon.Up />
+            </button>
+          )}
         </div>
       </form>
     </div>

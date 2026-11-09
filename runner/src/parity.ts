@@ -25,7 +25,7 @@ export const THREAD_REQUESTS: Record<string, Row> = {
   'threads.subscribe': { what: 'Following it live', relay: 'yes', phone: { via: 'messages' } },
   'threads.heldBody': { what: "Opening a tool's output", relay: 'yes', phone: { via: 'eventBody' } },
   'threads.send': { what: 'Sending a message, pictures too', relay: 'yes', phone: { via: 'send' } },
-  'threads.interrupt': { what: 'Stop', relay: 'yes', phone: { no: "The phone has no Stop yet." } },
+  'threads.interrupt': { what: 'Stop', relay: 'yes', phone: { via: 'interrupt' } },
   'threads.update': { what: 'Rename, archive, star, hibernate', relay: 'yes', phone: { via: 'update' } },
   'threads.markSeen': { what: 'Marking it read', relay: 'yes', phone: { via: 'update' } },
   'threads.hibernateWhen': { what: 'Hibernate until something happens', relay: 'yes', phone: { no: 'The phone hibernates until a time only.' } },

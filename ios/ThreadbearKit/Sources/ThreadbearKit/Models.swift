@@ -932,6 +932,9 @@ public enum BackendCompatibility {
     /// commands, for the palette over the reply box. Older backends get no
     /// palette; what's typed still runs as a command.
     public static let slashCommandsAPIVersion = 62
+    /// From 69 phone:interrupt stops a thread's running turn, so Send turns
+    /// into Stop while one runs with nothing typed. Older backends have no Stop.
+    public static let stopAPIVersion = 69
     /// From 37 phone:images watches a thread's pictures from a seq on, so a
     /// picture that finishes uploading after its row has left the live page
     /// still turns up.

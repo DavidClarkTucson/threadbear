@@ -314,4 +314,7 @@
 //    relay:remoteTail and remoteMessages rows carry their `buttons`, so the
 //    main Mac presses reply buttons and lists slash commands on another
 //    runner's thread (docs/parity.md). A runner asks only from 68.
-export const API_VERSION = 68;
+// 69: phone:interrupt, Stop on the phone and the website: queues an
+//    `interrupt` command for the thread's runner, which runners have applied
+//    since 44. An older phone has no Stop.
+export const API_VERSION = 69;
