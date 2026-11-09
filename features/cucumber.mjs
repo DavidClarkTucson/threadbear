@@ -14,4 +14,7 @@ export default {
   tags: `not @manual${pending}${process.env.TB_TAGS ? ` and (${process.env.TB_TAGS})` : ''}`,
   format: ['progress', `json:./reports/${app}-${os}.json`],
   retry: Number(process.env.TB_RETRY ?? 0),
+  // Each scenario's app and mock are stopped, but a run once sat for half an
+  // hour after its last scenario with nothing left to do (9 Nov).
+  forceExit: true,
 };

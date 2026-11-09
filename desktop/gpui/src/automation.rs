@@ -9,7 +9,8 @@
 // thread between frames. Clicks and keys are real GPUI events going through
 // real hit testing (gpui-kit's test helpers work on a live window too), so a
 // spec presses what a person would press.
-use crate::{call, Threadbear, RT};
+use crate::app::Threadbear;
+use crate::{call, RT};
 use gpui_kit::test::{TestEventExt as _, TestQueryExt as _, TestWindowExt as _};
 use gpui_kit::*;
 use serde_json::{json, Value};
