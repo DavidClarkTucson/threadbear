@@ -3756,7 +3756,10 @@ patch trust's store and rules.
   comments, flow mappings or quoted keys), other frontmatter that can't be
   read key by key, more than 300 files, or more than 20,000 folders to
   look through for agents, skills and commands (nested skills, outside
-  git, or through a link to a folder). Nor can an allow rule (or `allowed-tools`) that covers
+  git, or through a link to a folder; a repo of its own met on such a
+  walk, as in a workspace folder of checkouts, is listed by its git
+  rather than walked, so what it ignores doesn't count, up to 500 of
+  them). Nor can an allow rule (or `allowed-tools`) that covers
   Threadbear's own tools (`mcp__threadbear...`, `mcp__*`, `*`, or
   bypassing permissions: `defaultMode` or an agent's `permissionMode`), in
   a thread that asks first. JavaScript a hook reaches that runs commands

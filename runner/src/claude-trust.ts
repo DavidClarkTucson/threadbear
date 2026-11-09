@@ -119,6 +119,8 @@ const MAX_NAMED = 300;
 // At most this many folders are looked through for nested skills outside
 // git; more can't be checked.
 let MAX_WALK = 20_000;
+// Repos of their own met on a walk, each listed by git rather than walked.
+const MAX_REPOS = 500;
 
 // For tests, which can't make 20,000 folders quickly on a busy Mac.
 export function setMaxWalkForTests(n: number): void {
@@ -403,7 +405,10 @@ function nestedSkills(dir: string, depth = 0): { files: string[]; problem?: stri
     for (const d of inner) {
       if (!isDir(d)) continue;
       if (depth >= 4 || inner.size > 200) return { files, problem: 'the folder has more nested repositories than Threadbear looks through for skills Claude would load.' };
-      const sub = nestedSkills(d, depth + 1);
+      // A submodule that was never checked out has no .git of its own, so
+      // git there answers for this repo and lists the folder as itself:
+      // look through it as a plain folder instead (it's usually empty).
+      const sub = fs.existsSync(path.join(d, '.git')) ? nestedSkills(d, depth + 1) : walkForSkills(d, false);
       files.push(...sub.files);
       if (sub.problem) return { files, problem: sub.problem };
       // A sub-repo's own top-level skills too, which the call above leaves to its caller.
@@ -427,6 +432,7 @@ function walkForSkills(root: string, self: boolean): { files: string[]; problem?
   const queue = [root];
   const seenDirs = new Set<string>();
   let seen = 0;
+  let repos = 0;
   while (queue.length) {
     if (++seen > MAX_WALK) return { files, problem: `the folder has more than ${MAX_WALK} folders, too many to look through for skills Claude would load.` };
     const d = queue.shift()!;
@@ -444,6 +450,14 @@ function walkForSkills(root: string, self: boolean): { files: string[]; problem?
       if (!(e.isDirectory() || (e.isSymbolicLink() && isDir(p))) || e.name === '.git' || e.name === 'node_modules') continue;
       if (e.name.toLowerCase() === '.claude') {
         if (d !== root || self) files.push(...skillFiles(path.join(p, 'skills')));
+      } else if (fs.existsSync(path.join(p, '.git'))) {
+        // A repo of its own (a workspace folder of checkouts that isn't one
+        // itself): what its git lists, as Claude skips what it ignores,
+        // rather than every build and package folder in it.
+        if (++repos > MAX_REPOS) return { files, problem: 'the folder has more nested repositories than Threadbear looks through for skills Claude would load.' };
+        const sub = nestedSkills(p, 1);
+        files.push(...sub.files, ...skillFiles(path.join(p, '.claude', 'skills')));
+        if (sub.problem) return { files, problem: sub.problem };
       } else queue.push(p);
     }
   }

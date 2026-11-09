@@ -1105,3 +1105,62 @@ test('review 9: sandbox switched off, a bare BASH_ENV in an MCP env, a call befo
     assert.equal((trust.checkClaude(dir) as { reason?: string }).reason, 'unchecked', command);
   }
 });
+
+test("a workspace folder of repos that isn't one itself is looked through repo by repo, skipping what each repo's git ignores", () => {
+  const home = tmpDir();
+  const ws = path.join(home, 'workspace');
+  const skill = '---\nname: x\nhooks:\n  Stop:\n    - hooks:\n        - type: command\n          command: say hi\n---\n';
+  const put = (rel: string, text = '') => {
+    const p = path.join(ws, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, text);
+    return p;
+  };
+  for (const r of ['api', 'web']) {
+    fs.mkdirSync(path.join(ws, r), { recursive: true });
+    git(path.join(ws, r), 'init', '-q', '-b', 'main');
+  }
+  // Two repos side by side, each with an ignored build folder far past the bound.
+  for (const r of ['api', 'web']) {
+    put(`${r}/.gitignore`, '.venv/\n');
+    for (let i = 0; i < 40; i++) fs.mkdirSync(path.join(ws, r, '.venv', `d${i}`), { recursive: true });
+  }
+  const tracked = put('api/pkg/.claude/skills/x/SKILL.md', skill);
+  put('web/.venv/lib/.claude/skills/y/SKILL.md', skill);
+  // A plain folder beside them, which is still walked.
+  const loose = put('notes/.claude/skills/z/SKILL.md', skill);
+  setMaxWalkForTests(30);
+  try {
+    const r = claudeCommands(ws, home);
+    assert.equal(r?.incomplete, undefined);
+    assert.deepEqual(r?.files, [tracked, loose].sort());
+    // A repo's top-level skills, which its own walk leaves to its caller.
+    const top = put('web/.claude/skills/t/SKILL.md', skill);
+    assert.deepEqual(claudeCommands(ws, home)?.files, [tracked, loose, top].sort());
+    // Too many folders outside any repo still can't be vouched for.
+    for (let i = 0; i < 40; i++) fs.mkdirSync(path.join(ws, 'notes', `d${i}`));
+    assert.match(claudeCommands(ws, home)?.incomplete ?? '', /too many/);
+  } finally {
+    setMaxWalkForTests(20_000);
+  }
+});
+
+test("a submodule that was never checked out (an empty folder, no .git) doesn't stop the look through", () => {
+  const home = tmpDir();
+  const sub = path.join(home, 'lib');
+  fs.mkdirSync(sub);
+  git(sub, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(sub, 'a'), 'a');
+  git(sub, 'add', 'a');
+  git(sub, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'a');
+  const repo = path.join(home, 'app');
+  fs.mkdirSync(repo);
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', sub, 'vendor/lib');
+  git(repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'sub');
+  // As a fresh clone without --recursive leaves it.
+  git(repo, 'submodule', 'deinit', '-q', '-f', 'vendor/lib');
+  assert.equal(fs.readdirSync(path.join(repo, 'vendor', 'lib')).length, 0);
+  // Nothing to trust, so nothing to report.
+  assert.equal(claudeCommands(repo, home), undefined);
+});
