@@ -44,8 +44,12 @@ export function sleepCount() {
   return m ? Number(m[1]) : undefined;
 }
 
-// What a failure across a sleep throws instead. update.ts's TRANSIENT knows
-// this wording and tries the same commit again later, so keep the two alike.
+// What a failure across a sleep throws instead. deploy.mjs exits with
+// SLEPT_EXIT for it, and update.ts (SLEPT_EXIT there too) tries the same
+// commit again later. An exit code rather than words in the log, as the log
+// has the tests' output too, and a failing test that printed the same words
+// would have made a broken main look like a sleep (Codex, 9 Nov).
+export const SLEPT_EXIT = 75; // EX_TEMPFAIL
 export class SleptThrough extends Fail {}
 export function checkSlept(before, after, what) {
   if (before !== undefined && after !== undefined && after > before)

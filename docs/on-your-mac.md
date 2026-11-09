@@ -124,8 +124,8 @@ File references are where to look.
   off for both with `followMain: false` in `runner.json` (ask any thread
   to; it left Settings on 2 Nov). Around each step of the runner's build
   it reads macOS's sleep count (`pmset -g stats`, which changes nothing),
-  so a step that failed while the Mac slept is tried again later rather
-  than taken as a broken main.
+  so a step that failed while the Mac slept is tried again later (up to
+  three times for the same commit) rather than taken as a broken main.
 - **Schedule checks** (`runner/src/schedule-check.ts`, experiment
   `scheduleChecks`, off by default): a schedule's check command runs in
   `/bin/sh` before each run, as you, for at most a minute (or up to five,

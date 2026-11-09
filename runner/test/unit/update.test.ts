@@ -7,7 +7,7 @@ import { tmpDir } from '../helpers/fakes.ts';
 import { FakeClock } from '../../src/clock.ts';
 import type { UpdateFailure } from '../../src/fix-update.ts';
 import { nullLogger } from '../../src/log.ts';
-import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, type UpdateDeps } from '../../src/update.ts';
+import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, MAX_SLEPT_TRIES, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, type UpdateDeps } from '../../src/update.ts';
 import type { ReleaseJson } from '../../src/release.ts';
 import { patiently } from '../helpers/patience.ts';
 
@@ -120,7 +120,7 @@ type Harness = {
   deploys: number;
   follows: string[];
   main: { commit: string; short: string; subject: string; tree: string; buildTree?: string };
-  deployResult: { ok: true; id: string } | { ok: false; error: string; transient?: boolean };
+  deployResult: { ok: true; id: string } | { ok: false; error: string; transient?: boolean; slept?: boolean };
   backendDeploys: string[];
   backendResult: { ok: boolean; error?: string };
   pending: boolean;
@@ -504,18 +504,34 @@ test('a failed backend deploy holds the runner back until main changes', async (
   assert.equal(h.deploys, 1);
 });
 
-// deploy-steps.mjs's own wording for a step the Mac slept through, so the two
-// can't drift apart: the build is tried again later, not marked failed.
-test('a build that failed while the Mac slept is tried again later', async () => {
+// deploy.mjs's exit for a step the Mac slept through (SleptThrough), so the
+// build is tried again later, not marked failed. By exit code, not by words in
+// the log, as a failing test can print anything (Codex, 9 Nov).
+test('a build that failed while the Mac slept is tried again later, and words in the log are not enough', async () => {
   const root = tmpDir();
   fs.mkdirSync(path.join(root, 'scripts'));
   const stepsUrl = new URL('../../scripts/deploy-steps.mjs', import.meta.url).href;
-  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import { checkSlept } from ${JSON.stringify(stepsUrl)};\ntry { checkSlept(1, 2, 'Unit tests (npm exited with 1; the output is in /tmp/x.log)'); } catch (e) { console.error(e.message); process.exit(1); }\n`);
+  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import { SLEPT_EXIT, SleptThrough, checkSlept } from ${JSON.stringify(stepsUrl)};\ntry { checkSlept(1, 2, 'Unit tests'); } catch (e) { console.error(e.message); process.exit(e instanceof SleptThrough ? SLEPT_EXIT : 1); }\n`);
   const result = await runDeploy(root, root, path.join(root, 'build.log'), root);
-  assert.equal(result.ok, false);
-  assert.equal(!result.ok && result.transient, true);
-  // Any other failure still isn't.
-  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), "console.error('Unit tests failed (npm exited with 1)'); process.exit(1);\n");
+  assert.equal(!result.ok && result.transient && result.slept, true);
+  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), "console.log(\"The Mac slept during Unit tests, so it's tried again later\"); console.error(\"The Mac slept during Unit tests, so it's tried again later\"); process.exit(1);\n");
   const broken = await runDeploy(root, root, path.join(root, 'build.log'), root);
   assert.equal(!broken.ok && broken.transient, false);
+});
+
+test('a commit the Mac slept through every build of is marked failed after a few tries', async () => {
+  const failures: UpdateFailure[] = [];
+  const h = harness({}, { onFailed: (f) => (failures.push(f), true) });
+  h.deployResult = { ok: false, error: "The Mac slept during Unit tests, so it's tried again later", transient: true, slept: true };
+  h.u.start();
+  for (let i = 1; i < MAX_SLEPT_TRIES; i++) {
+    await h.u.check();
+    assert.equal(h.u.status().state, 'idle', `try ${i}`);
+  }
+  assert.equal(failures.length, 0);
+  await h.u.check();
+  assert.equal(h.deploys, MAX_SLEPT_TRIES);
+  assert.equal(h.u.status().state, 'failed');
+  assert.equal(failures.length, 1);
+  assert.match(failures[0]!.error, /slept through all 3 tries at this commit/);
 });

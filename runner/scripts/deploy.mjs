@@ -10,7 +10,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { pointCurrent, readCurrentLink, readState, releaseExists, writeState } from '../launch.mjs';
 import { connectRpc } from './rpc-client.mjs';
-import { Fail, checkSlept, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
+import { Fail, SLEPT_EXIT, SleptThrough, checkSlept, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
 // THREADBARE_* was the old name for these variables (config.ts, adoptOldNames).
 for (const [k, v] of Object.entries(process.env)) {
   const name = k.startsWith('THREADBARE_') ? 'THREADBEAR_' + k.slice(11) : undefined;
@@ -1462,6 +1462,6 @@ main(process.argv.slice(2)).then(
   (code) => process.exit(code),
   (e) => {
     console.error(e instanceof Fail ? e.message : (e?.stack ?? String(e)));
-    process.exit(1);
+    process.exit(e instanceof SleptThrough ? SLEPT_EXIT : 1);
   },
 );
