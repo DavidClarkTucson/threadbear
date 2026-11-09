@@ -418,6 +418,9 @@ final class AppModel {
     /// Empty from a runner before step 6, or before it answers: then
     /// there's no choice to offer and every schedule is this runner's.
     var runners: [RunnerInfo] = []
+    /// Asking for `runners` again after a failure (`retryRunners`).
+    @ObservationIgnored var runnersRetry: Task<Void, Never>?
+    @ObservationIgnored var runnersRetryDelay: Duration = .seconds(30)
     /// The experiments on for this Mac's runner, from its hello.
     var experiments: Set<String> = []
     /// The Move sheet, while it's open.
