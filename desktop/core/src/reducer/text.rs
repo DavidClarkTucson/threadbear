@@ -120,7 +120,14 @@ pub fn expanding_tilde(path: &str) -> String {
 
 /// `NSHomeDirectory()`.
 pub fn home_directory() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    // With / between its parts, so it matches a path that's been through
+    // `forward_slashes` on Windows.
+    forward_slashes(&home_directory_as_reported())
+}
+
+fn home_directory_as_reported() -> String {
+    // Windows sets USERPROFILE; HOME only exists there under Git Bash.
+    std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()
 }
 
 /// A Windows path (`C:\\x\\y`, `\\\\server\\share`) with `/` between its
