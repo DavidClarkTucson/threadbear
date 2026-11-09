@@ -111,7 +111,7 @@ enum WindowDock {
         // A file or page open over the section: its name, with Back to the
         // section in the bar.
         if let thread = app.paneThread, let preview = app.panePreview[thread.id], preview.from.id == panel {
-            return preview.title
+            return preview.barTitle
         }
         switch panel {
         case PaneSection.highlightsId: return "Highlights"
@@ -320,6 +320,11 @@ struct RootView: View {
     private var content: DockContent {
         DockContent(
             title: { WindowDock.title(of: $0, app: app) },
+            titleTip: { panel in
+                // A file or folder open in the pane: its full path.
+                guard let thread = app.paneThread, let preview = app.panePreview[thread.id], preview.from.id == panel else { return nil }
+                return preview.barTip
+            },
             symbol: { WindowDock.symbol(of: $0, app: app) },
             image: { WindowDock.image(of: $0, app: app) },
             badge: { WindowDock.badge(of: $0, app: app) },

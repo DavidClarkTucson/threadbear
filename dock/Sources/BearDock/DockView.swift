@@ -4,6 +4,8 @@ import SwiftUI
 /// What the app gives the dock for each panel.
 public struct DockContent {
     public var title: (PanelID) -> String
+    /// Shown on hovering the title (a file's full path, say). Nil: none.
+    public var titleTip: (PanelID) -> String?
     public var symbol: (PanelID) -> String?
     /// A picture drawn in colour in place of the symbol (a tool's own icon).
     public var image: (PanelID) -> NSImage?
@@ -26,6 +28,7 @@ public struct DockContent {
 
     public init(
         title: @escaping (PanelID) -> String,
+        titleTip: @escaping (PanelID) -> String? = { _ in nil },
         symbol: @escaping (PanelID) -> String? = { _ in nil },
         image: @escaping (PanelID) -> NSImage? = { _ in nil },
         badge: @escaping (PanelID) -> AnyView? = { _ in nil },
@@ -37,6 +40,7 @@ public struct DockContent {
     ) {
         self.available = available
         self.title = title
+        self.titleTip = titleTip
         self.symbol = symbol
         self.image = image
         self.badge = badge
@@ -161,6 +165,16 @@ extension EnvironmentValues {
     /// of it here instead, or the ghost takes the view and the panel is
     /// left blank once the ghost goes.
     @Entry public var isDockGhost = false
+}
+
+/// A tab title's hover tip, when its panel has one.
+private struct TitleTip: ViewModifier {
+    let text: String?
+    let options: DockOptions
+
+    func body(content: Content) -> some View {
+        if let text { content.dockTip(text, options) } else { content }
+    }
 }
 
 extension View {
@@ -709,6 +723,7 @@ private struct TabItem: View {
                 .lineLimit(1)
                 // A file's name keeps its extension when it has to shorten.
                 .truncationMode(.middle)
+                .modifier(TitleTip(text: content.titleTip(panel), options: options))
             if content.closable(panel) {
                 Button {
                     controller.close(panel)
