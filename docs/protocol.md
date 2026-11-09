@@ -1256,7 +1256,21 @@ that verifies, and at most 20 not read before per check, so a flood of
 tags upstream costs a check almost nothing. Each tag object's answer is
 remembered while the runner runs; a read or an ssh-keygen that fails to
 run fails the check instead, and is tried again next time. A name in `refs/threadbear/upstream/*` keeps the tag it verified
-with: a different tag served later under that name is left out and logged. `release.commit` is the commit
+with: a different tag served later under that name is left out and logged. A
+verified tag counts only if its commit is on upstream's `main`, fetched
+with the tags into the same folder (`refs/incoming-main/main` there): a
+release whose commit isn't (a side branch, or a main moved away from it)
+is never kept, and one kept before is passed over. The release keys
+change only through the newest release that counts
+(`runner/src/release-keys.ts`): a key in its commit's
+`scripts/release-signers` that isn't pinned waits a week from when this
+runner first saw it (in `<home>/upstream-keys.json`), and is dropped if
+the key that announced it is revoked first; then it's added to
+`<home>/upstream-signers`. A key in `scripts/release-keys-revoked` is
+taken out at once and kept in `<home>/upstream-revoked`, which
+`ssh-keygen -Y verify` is given with `-r` on every check and which setup
+honours too, but only if that release was signed with the key itself or
+with one pinned after it. `release.commit` is the commit
 the verified tag names, and that is what a bring-in merges. It never
 changes main: bringing a release in is a thread (docs/bringing-in-updates.md).
 

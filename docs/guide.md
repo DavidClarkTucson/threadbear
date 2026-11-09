@@ -1463,21 +1463,25 @@ you. Right-click it for a quick Restart to Update.
 
 Your copy is a fork of Mike's, and it doesn't change unless you say so.
 About once a day Mike publishes a release. Your runner checks for new ones
-every few hours, and only trusts releases signed with the key setup saved.
-When there's one your copy doesn't have, the Updates icon gets a coloured
-dot, and its From Mike section lists what's new in plain words, grouped by
-release. Older releases without notes show their commit subjects instead.
-Bring Them In starts a
-thread that merges Mike's changes with your own, sorts out any clashes,
-runs the checks and asks you before it lands. Let's Discuss starts one that
+every few hours, and only trusts a release signed with the key setup saved
+and already on Mike's main (not one signed on a side branch). Mike can
+replace that key through a signed release: a new key counts a week after a
+release signed with the old one names it, and a key he revokes stops
+counting at once. When there's one your copy doesn't have, the Updates icon
+gets a coloured dot, and its From Mike section lists what's new in plain
+words, grouped by release. Older releases without notes show their commit
+subjects instead. Bring Them In starts a thread that works out how Mike's
+changes merge with your own, without checking anything out, tells you what
+they bring and how it would settle any clashes, and asks. Nothing from the
+release runs until you say go: then it merges, runs the checks and lands. Let's Discuss starts one that
 talks the release through first, what's in it and what it means for your
 own changes, and changes nothing until you say. From a thread, `tb updates`
 says the same, and `tb updates check` looks again now.
 
 You don't have to remember to look. Every 5 days, if Mike has a release
-your copy doesn't have, Threadbear starts that thread for you: it does the
-merge and runs the checks first, so it reaches your inbox with one
-question, whether to land it. There's only ever one; if you leave it open,
+your copy doesn't have, Threadbear starts that thread for you: it reaches
+your inbox with what's new and one question, whether to go ahead, and runs
+nothing from the release before you answer. There's only ever one; if you leave it open,
 a newer release goes into the same thread. A release Mike marks important
 (a security or data fix) starts one straight away. Change how often, or
 turn it off, in Settings (⌘,) > General > Updates from Mike.

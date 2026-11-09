@@ -46,7 +46,16 @@ test('waits out the timer from the first look, then starts one thread', () => {
   assert.match(started[0].text, /docs\/bringing-in-updates\.md/);
   assert.match(started[0].text, /every 5 days/);
   // The verified commit, not a ref name a later fetch could move (F31).
-  assert.match(started[0].text, /merge its commit c /);
+  assert.match(started[0].text, /merge of its commit c /);
+  // Security review finding 3 (a), 9 Nov 2026: nothing from the release
+  // runs before the owner says go. It's worked out in git's objects, not
+  // checked out, and its checks and installs wait.
+  assert.match(started[0].text, /git merge-tree/);
+  assert.match(started[0].text, /without checking anything out/);
+  assert.match(started[0].text, /Run nothing from it until I say go/);
+  assert.match(started[0].text, /no \.\/check\.sh, no npm ci/);
+  assert.doesNotMatch(started[0].text, /run the checks, then tell me/);
+  assert.match(started[0].text, /Once I say go, merge it in this thread's worktree, run the checks/);
 });
 
 test('nothing waiting starts nothing, however long it has been', () => {
@@ -70,7 +79,8 @@ test('never a second thread while the first is open: a newer release goes to it,
   assert.equal(started.length, 1);
   assert.deepEqual(sent.map((x) => x.threadId), ['t1']);
   assert.match(sent[0].text, /release\/2026-11-11/);
-  assert.match(sent[0].text, /merge its commit c,/);
+  assert.match(sent[0].text, /merge of its commit c without checking anything out/);
+  assert.match(sent[0].text, /run nothing from it until I say go/);
   // Already told it about this one: nothing more, however long.
   clock.advance(10 * DAY);
   assert.equal(b.consider(release('release/2026-11-11')), 'waiting');

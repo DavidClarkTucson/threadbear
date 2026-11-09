@@ -177,11 +177,19 @@ File references are where to look.
   `upstream`'s `release/*` tags, fetches the newest few into a folder of
   their own (`<home>/runner/upstream-fetch`, deleted after each check),
   checks each with `ssh-keygen -Y verify` against the pinned key (the
-  signature goes in a temp file under `$TMPDIR` for a moment), and copies
-  the newest that passes into your checkout, as `refs/threadbear/upstream/`. It never changes your code by
+  signature goes in a temp file under `$TMPDIR` for a moment), fetches
+  upstream's `main` with them to check the tag's commit is on it, and
+  copies the newest that passes into your checkout, as
+  `refs/threadbear/upstream/`. A release's `scripts/release-signers` and
+  `scripts/release-keys-revoked` can change the pinned keys
+  (`<home>/upstream-signers`, `<home>/upstream-revoked`, and what's waiting
+  in `<home>/upstream-keys.json`): a new key after a week, a revoked one at
+  once (`runner/src/release-keys.ts`). It never changes your code by
   itself. Every 5 days, when there's one your copy doesn't have, it starts
   one thread (on your own Claude or Codex login, on your default mode) that
-  merges it in a worktree, runs the checks and asks you before it lands
+  works out the merge without checking it out, tells you what it brings and
+  asks; it runs nothing from the release (no checks, installs or builds)
+  until you say go, then merges, checks and lands
   (`runner/src/bring-in.ts`). A release Mike marks important starts one
   straight away. Settings › General › Updates from Mike, or
   `"releases": { "bringIn": 14 }` (or `"important"`, or `"off"`) in

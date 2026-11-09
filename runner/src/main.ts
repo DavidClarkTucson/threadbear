@@ -641,6 +641,8 @@ async function main(): Promise<void> {
       if (readState(cfg.home)?.lastGood !== thisRelease.id) return false;
       return releaseTreeAt(thisRelease.checkout, thisRelease.prefix ?? 'runner/', 'refs/heads/main') === thisRelease.tree;
     },
+    // A release signed with a Touch ID key waits for Mike at the Mac.
+    atMac: async () => isAtMac(true, await hidIdleMs()),
     onChange: () => publishUpdates(),
     onChecked: (status) => void bringIn.consider(status),
     // Only asked on Mike's runner, once a day as it tags a release.
