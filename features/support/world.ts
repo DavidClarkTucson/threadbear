@@ -80,6 +80,10 @@ Before(async function (this: ThreadbearWorld, { pickle }) {
   const long = pickle.tags.some((t) => t.name === '@long-thread');
   if (long) process.env.TB_MOCK_FIXTURES = longThreadFolder();
   else if (startingFixtures === undefined) delete process.env.TB_MOCK_FIXTURES;
+  // A scenario about other machines needs the mock's bruce threads, which
+  // both drivers leave out otherwise (TB_MOCK_NO_REMOTE in gpui.ts, swift.ts).
+  if (pickle.tags.some((t) => t.name === '@remote-threads')) process.env.TB_MOCK_REMOTE = '1';
+  else delete process.env.TB_MOCK_REMOTE;
   await this.app.start();
 });
 

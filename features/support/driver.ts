@@ -35,6 +35,8 @@ export type Thread = {
   background?: string | null;
   waiting?: string | null;
   subagents?: { id: string; depth: number; status: string; title: string; detail: string; selected: boolean }[];
+  /** "On bruce" for another runner's thread ("On bruce, offline"). */
+  runner?: string | null;
 };
 
 export type Dump = {
@@ -50,7 +52,19 @@ export type Dump = {
     /** Before the runner's first list: the grey loading rows are showing. */
     loading?: boolean;
   };
-  composer: { draft: string; text: string; images?: number; chip?: string; mode?: string; card?: string[] | null };
+  composer: { draft: string; text: string; images?: number; chip?: string; mode?: string; card?: string[] | null; cwd?: string; runner?: string | null; creating?: boolean };
+  /** The new-thread page while it's showing. */
+  newThread?: { heading: string; note: string; project?: string | null; rooms: { label: string; line: string; selected: boolean; note?: string | null }[] } | null;
+  /** The slash palette over the composer while it's open. */
+  palette?: {
+    query: string;
+    category: string;
+    categories: { title: string; count: number }[];
+    commands: string[];
+    picked?: string | null;
+    detail?: { title: string; usage: string; description?: string | null; now?: string | null; also?: string | null; origin: string; path?: string | null; buttons: string[] } | null;
+    note?: string | null;
+  } | null;
   decisions?: string[] | null;
   transcript: {
     threadId?: string;

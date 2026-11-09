@@ -51,6 +51,11 @@ pub struct ThreadSummary {
     pub preview: String,
     pub last_seq: u64,
     pub last_seen_seq: u64,
+    /// Which other runner it lives on; none for this Mac's own threads.
+    /// Never on the wire: a runner's summaries are all its own (Swift
+    /// `ThreadSummary.runnerId`), and `remote::summary` sets it.
+    #[serde(skip)]
+    pub runner_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
