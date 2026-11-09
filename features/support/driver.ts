@@ -10,6 +10,9 @@ export type Row = {
   seq?: number;
   turn?: string;
   inGroup?: boolean;
+  /** Its height once it's been drawn (GPUI only measures rows it has laid out). */
+  height?: number;
+  onScreen?: boolean;
   /** What the row's buttons say, on the apps that report them. */
   buttons?: string[];
 };

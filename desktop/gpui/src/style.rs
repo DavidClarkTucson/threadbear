@@ -117,11 +117,6 @@ pub fn chip_hover_fill(cx: &App) -> Hsla {
     pick(cx, white(0.07), black(0.05))
 }
 
-/// Faint icons on the chips (Theme.faintIcon).
-pub fn faint_icon(cx: &App) -> Hsla {
-    pick(cx, white(0.45), black(0.45))
-}
-
 /// The hairline between chips (ChipDivider).
 pub fn chip_divider(cx: &App) -> Hsla {
     pick(cx, white(0.12), black(0.12))
@@ -137,11 +132,6 @@ pub fn answer_box_fill(cx: &App) -> Hsla {
     pick(cx, white(0.05), black(0.03))
 }
 
-/// The box behind an ask's answer rows (Theme.answerRowsFill).
-pub fn answer_rows_fill(cx: &App) -> Hsla {
-    pick(cx, white(0.04), black(0.03))
-}
-
 /// The system's accent (NSColor.controlAccentColor): the outline of a box
 /// that needs Mike, ticks and the agent's own pick.
 pub fn accent(cx: &App) -> Hsla {
@@ -150,4 +140,97 @@ pub fn accent(cx: &App) -> Hsla {
 
 fn rgb_hsla(hex: u32) -> Hsla {
     rgb(hex).into()
+}
+
+// The transcript's colours beyond the cards' (Theme.swift).
+
+/// `color` drawn over the window's background, for text runs: GPUI blends a
+/// highlight's colour into the run's default colour, so a translucent one
+/// (every transcript colour here) would come out as the default colour.
+pub fn over_background(color: Hsla, cx: &App) -> Hsla {
+    let (bg, c) = (Rgba::from(cx.theme().background), Rgba::from(color));
+    Hsla::from(Rgba { r: bg.r * (1. - c.a) + c.r * c.a, g: bg.g * (1. - c.a) + c.g * c.a, b: bg.b * (1. - c.a) + c.b * c.a, a: 1. })
+}
+
+/// NSColor.labelColor: body text.
+pub fn label_text(cx: &App) -> Hsla {
+    pick(cx, white(0.85), black(0.85))
+}
+
+/// NSColor.secondaryLabelColor: a table's headers, quoted text.
+pub fn secondary_label(cx: &App) -> Hsla {
+    pick(cx, white(0.55), black(0.5))
+}
+
+/// NSColor.tertiaryLabelColor, and `Theme.faintIcon`'s dark value: work line
+/// icons and chevrons, the "⏎" on the Allow button.
+pub fn tertiary_label(cx: &App) -> Hsla {
+    pick(cx, white(0.25), black(0.25))
+}
+
+/// `Theme.faintIcon`: work line icons and chevrons.
+pub fn faint_icon(cx: &App) -> Hsla {
+    pick(cx, white(0.25), black(0.36))
+}
+
+/// `Theme.answerRowsFill`.
+pub fn answer_rows_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.02), black(0.015))
+}
+
+fn srgb(r: f32, g: f32, b: f32, a: f32) -> Hsla {
+    Hsla::from(Rgba { r, g, b, a })
+}
+
+/// macOS's default blue, as NSColor.controlAccentColor is for most people. The
+/// app doesn't follow the system's accent yet (foundation.theme).
+pub fn control_accent(cx: &App) -> Hsla {
+    pick(cx, srgb(0.04, 0.52, 1.0, 1.0), srgb(0.0, 0.48, 1.0, 1.0))
+}
+
+/// NSColor.linkColor.
+pub fn link_text(cx: &App) -> Hsla {
+    pick(cx, srgb(0.04, 0.52, 1.0, 1.0), srgb(0.0, 0.40, 0.8, 1.0))
+}
+
+/// A little of the accent over the faint fill behind Mike's own messages.
+pub fn bubble_background(cx: &App) -> Hsla {
+    let dark = cx.theme().is_dark();
+    let accent = Rgba::from(control_accent(cx));
+    let (base, base_alpha, accent_alpha): (f32, f32, f32) = if dark { (1., 0.06, 0.09) } else { (0., 0.035, 0.09) };
+    let alpha = accent_alpha + base_alpha * (1. - accent_alpha);
+    let mix = |c: f32| (c * accent_alpha + base * base_alpha * (1. - accent_alpha)) / alpha;
+    srgb(mix(accent.r), mix(accent.g), mix(accent.b), alpha)
+}
+
+/// A faint line's tint in a diff: green for added lines, red for removed.
+pub fn added_line_bg(cx: &App) -> Hsla {
+    pick(cx, srgb(0.25, 0.78, 0.4, 0.12), srgb(0.1, 0.62, 0.25, 0.1))
+}
+
+pub fn removed_line_bg(cx: &App) -> Hsla {
+    pick(cx, srgb(0.95, 0.3, 0.3, 0.12), srgb(0.85, 0.2, 0.2, 0.09))
+}
+
+pub fn added_text(cx: &App) -> Hsla {
+    pick(cx, srgb(0.42, 0.84, 0.5, 1.), srgb(0.1, 0.55, 0.22, 1.))
+}
+
+pub fn removed_text(cx: &App) -> Hsla {
+    pick(cx, srgb(1., 0.45, 0.45, 1.), srgb(0.8, 0.15, 0.15, 1.))
+}
+
+/// `Theme.failed`: "Failed" and a failed tool's icon.
+pub fn failed_text(cx: &App) -> Hsla {
+    pick(cx, srgb(1., 0.27, 0.23, 1.), srgb(0.78, 0.13, 0.13, 1.))
+}
+
+/// `Theme.needsYou` and NSColor.systemOrange.
+pub fn needs_you_text(cx: &App) -> Hsla {
+    pick(cx, srgb(1., 0.62, 0.04, 1.), srgb(0.7, 0.33, 0., 1.))
+}
+
+/// `Theme.errorBackground`: behind a failed turn's message.
+pub fn error_background(cx: &App) -> Hsla {
+    pick(cx, srgb(0.7, 0.2, 0.2, 0.18), srgb(1., 0.94, 0.94, 1.))
 }

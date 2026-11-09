@@ -1,14 +1,15 @@
 // A picture of one thread in whichever app TB_APP says, for comparing them.
 //
-//   TB_APP=gpui node features/tools/shot.ts <thread title> <out.png> ['<json command>' ...]
+//   TB_APP=gpui node features/tools/shot.ts <thread title> <out.png> ['<json command or list>' ...]
 //
-// Any commands after the output file run in order before the picture is taken,
-// as for a composer with something in it: '{"cmd":"type","text":"hello"}'.
+// Commands after the output file run in order before the picture is taken, each
+// as the app's `do` takes it (`{"cmd":"expand","row":"g:"}`), or `{"sleep":500}`.
 import { GpuiDriver } from '../support/gpui.ts';
 import { SwiftDriver } from '../support/swift.ts';
 import { sleep, type Driver } from '../support/driver.ts';
 
-const [title, out, ...commands] = process.argv.slice(2);
+const [title, out, ...rest] = process.argv.slice(2);
+const steps = rest.flatMap((s) => JSON.parse(s) as Record<string, unknown> | Record<string, unknown>[]);
 const app: Driver = (process.env.TB_APP ?? 'gpui') === 'swift' ? new SwiftDriver() : new GpuiDriver();
 await app.start();
 try {
@@ -25,8 +26,9 @@ try {
     await sleep(50);
   }
   await sleep(1200);
-  for (const command of commands) {
-    await app.do(JSON.parse(command) as Record<string, unknown>);
+  for (const step of steps) {
+    if (typeof step.sleep === 'number') await sleep(step.sleep);
+    else console.log(await app.do(step));
     await sleep(200);
   }
   await sleep(800);
