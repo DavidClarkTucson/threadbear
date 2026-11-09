@@ -916,7 +916,7 @@ export class Upstream {
     // Important commits lead the message, so the release says so wherever
     // it's read (forks find them from the commits' trailers themselves).
     const important = parseImportant(await this.git(checkout, ['log', '--no-merges', '--format=%H%x1f%(trailers:key=Important,valueonly,separator=%x20)', last ? `${last}..${tip}` : tip, '--max-count=200']));
-    const lead = important.length ? important.map((i) => `Important: ${i.why}`).join('\n') + '\n\n' : '';
+    const lead = important.length ? [...new Set(important.map((i) => i.why))].map((w) => `Important: ${w}`).join('\n') + '\n\n' : '';
     const notes = await this.notesFor(checkout, range);
     const whatsNew = notes.length ? `${NOTES_HEADING}\n${notes.map((n) => `- ${n}`).join('\n')}\n\n` : '';
     const message = `Threadbear ${tag.slice(TAG_PREFIX.length)}\n\n${lead}${whatsNew}${CHANGES_HEADING}\n${subjects}\n`;

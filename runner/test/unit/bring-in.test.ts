@@ -137,3 +137,10 @@ test('parseBringIn and releaseDay', () => {
   for (const bad of [0, -1, 1.5, 400, 'weekly', null, undefined]) assert.equal(parseBringIn(bad), undefined, String(bad));
   assert.equal(releaseDay('release/2026-11-06'), '6 Nov');
 });
+
+test("the same important words on several commits are said once", () => {
+  const { b, started } = rig(5);
+  const r = release('release/2026-11-06');
+  b.consider({ ...r, release: { ...r.release!, important: [{ commit: 'a', why: 'security fixes' }, { commit: 'b', why: 'security fixes' }] } } as never);
+  assert.equal(started[0]!.text.split('- security fixes').length - 1, 1);
+});

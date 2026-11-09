@@ -141,7 +141,8 @@ function title(r: UpstreamRelease, fresh: { why: string }[]): string {
 }
 
 function importantLines(fresh: { why: string }[]): string {
-  return fresh.map((i) => `- ${i.why}`).join('\n');
+  // The same words on several commits (a fix and its follow-ups) once.
+  return [...new Set(fresh.map((i) => i.why))].map((w) => `- ${w}`).join('\n');
 }
 
 function changes(r: UpstreamRelease): string {
