@@ -28,18 +28,15 @@ struct ThreadView: View {
     /// arrive (the oldest seq changes) or the runner says it couldn't.
     /// (A backend before API 2.)
     @State private var loadingBefore: Int?
-    /// From API 2: the newest `limit` messages and tool lines live from
-    /// Convex, and older chunks once you've scrolled back past those.
+    /// From API 2: the newest `firstPage` messages and tool lines live from
+    /// Convex, and older chunks read once as you scroll back (MessageHistory).
     @State private var history = MessageHistory()
-    @State private var limit = ThreadView.firstPage
     /// A chunk of older rows has been asked for and hasn't come yet.
     @State private var loadingChunk = false
     /// A finger's on the list, or it's still gliding from a flick.
     @State private var scrolling = false
-    /// Older rows that came while `scrolling`, put in once it stops: a bigger
-    /// live page (with the limit it was asked for), or a chunk (with the seq
-    /// it comes before).
-    @State private var heldPage: (page: MessagePage, limit: Int)?
+    /// A chunk of older rows that came while `scrolling` (with the seq it
+    /// comes before), put in once it stops.
     @State private var heldChunk: (page: MessagePage, before: Int)?
     /// Older rows have just gone in above: until then, the list's next growth
     /// is theirs, and the view moves down by it to stay on the same rows.
@@ -114,7 +111,7 @@ struct ThreadView: View {
                 model.draftText = nil
             }
         }
-        .task(id: "\(threadId):\(limit):\(model.hasMessagePages):\(model.connection)") { await followMessages() }
+        .task(id: "\(threadId):\(model.hasMessagePages):\(model.connection)") { await followMessages() }
         .task(id: "\(sent?.id ?? ""):\(model.connection)") { await followCommand() }
         .task(id: answeredCommand) {
             guard let id = answeredCommand, let status = await model.commandOutcome(id), status.state == .failed,
@@ -136,9 +133,9 @@ struct ThreadView: View {
         let pins = pictures.pinned(in: items)
         let paged = model.hasMessagePages && history.live != nil
         let canLoadMore = paged ? history.hasMore : thread.hasEarlier(than: detail.messages.first?.seq)
-        // Paged: a bigger page or a chunk has been asked for, or is waiting
-        // for the list to stop, and isn't shown yet.
-        let loadingMore = paged ? (history.liveLimit != limit || loadingChunk || heldPage != nil || heldChunk != nil) : loadingBefore == detail.messages.first?.seq
+        // Paged: a chunk has been asked for, or is waiting for the list to
+        // stop, and isn't shown yet.
+        let loadingMore = paged ? (loadingChunk || heldChunk != nil) : loadingBefore == detail.messages.first?.seq
         return ScrollViewReader { proxy in
             ScrollView {
                 // Not a LazyVStack. Opening a long thread left the screen blank
@@ -235,7 +232,6 @@ struct ThreadView: View {
             .onScrollPhaseChange { _, phase in
                 scrolling = phase.isScrolling
                 guard !scrolling else { return }
-                if let held = heldPage { putIn(held.page, limit: held.limit) }
                 if let held = heldChunk { putIn(chunk: held.page, before: held.before) }
             }
             // Older rows have gone in above: down by their height, so the rows
@@ -484,53 +480,28 @@ struct ThreadView: View {
         }
     }
 
-    /// API 2: the thread's newest `limit` messages, live from Convex.
+    /// API 2: the thread's newest `firstPage` messages, live from Convex.
+    /// Only those: a live query reads its whole page again for each new
+    /// message, so older rows come once each in chunks (loadChunk).
     private func followMessages() async {
         guard model.hasMessagePages, let backend = model.backend else { return }
         do {
-            let asked = limit
-            for try await value in backend.messages(threadId, limit: asked) { receive(value, limit: asked) }
+            for try await value in backend.messages(threadId, limit: ThreadView.firstPage) { receive(value) }
         } catch {
             model.report(error)
         }
     }
 
-    /// Older rows wait while the list is moving. Scrolling up to the top
-    /// loads them, so they often land mid-flick or while the list is still
-    /// bouncing off the top, and a scroll made then was ignored: you were
-    /// left at the very top of the new rows with Load earlier showing, so
-    /// the next pull loaded another page, and so on (8 Nov, seen on a real
-    /// 7,500-message thread with real flicks on Tinker Desk). Meanwhile the
-    /// rows already on screen keep up, so a new message isn't held back.
-    private func receive(_ value: MessagePage, limit asked: Int) {
-        guard let shown = history.live?.messages.first?.seq, let first = value.messages.first?.seq, first < shown else {
-            heldPage = nil
-            history.takeLive(value, limit: asked)
-            return
-        }
-        if scrolling {
-            heldPage = (value, asked)
-            // And only their pictures: one pinned above them would find no
-            // reply of its own and land under the first one shown. Still the
-            // old limit, so it shows as loading.
-            history.takeLive(MessagePage(messages: value.messages.filter { $0.seq >= shown }, hasMore: true, images: value.images.filter { $0.seq >= shown }), limit: history.liveLimit)
-        } else {
-            putIn(value, limit: asked)
-        }
+    private func receive(_ value: MessagePage) {
+        // The page reaching further back than the rows shown (big rows above
+        // its byte cap that got smaller) puts rows in above: keep the place.
+        if let shown = history.firstSeq, let first = value.messages.first?.seq, first < shown { prependedUntil = .now + 5 }
+        history.takeLive(value)
     }
 
-    /// A live page with older rows above the ones shown, in place.
-    private func putIn(_ value: MessagePage, limit asked: Int) {
-        heldPage = nil
-        prependedUntil = .now + 5
-        history.takeLive(value, limit: asked)
-    }
-
-    /// Older rows than the live page holds, once the server won't make it
-    /// any bigger (MessageHistory).
+    /// Older rows than the live page holds, read once (MessageHistory).
     private func loadChunk(before seq: Int) {
         guard let backend = model.backend else { return }
-        history.startChunks()
         loadingChunk = true
         Task {
             defer { loadingChunk = false }
@@ -548,17 +519,12 @@ struct ThreadView: View {
         if history.takeOlder(chunk, before: seq) { prependedUntil = .now + 5 }
     }
 
-    /// Older messages: from API 2 a bigger page from Convex (works with the
-    /// Mac asleep), then chunks past what one page may hold; before that,
-    /// the runner pages them in.
+    /// Older messages: from API 2 a chunk from Convex (works with the Mac
+    /// asleep); before that, the runner pages them in.
     private func loadMore(_ thread: PhoneThread, detail: ThreadDetail, paged: Bool) {
         if paged {
-            guard heldPage == nil, heldChunk == nil, !loadingChunk else { return }
-            switch history.next(limit: limit, step: ThreadView.morePerPage) {
-            case let .grow(next): limit = next
-            case let .older(before): loadChunk(before: before)
-            case .none: break
-            }
+            guard heldChunk == nil, !loadingChunk, let before = history.nextBefore else { return }
+            loadChunk(before: before)
         } else {
             loadEarlier(thread, before: detail.messages.first?.seq)
         }
