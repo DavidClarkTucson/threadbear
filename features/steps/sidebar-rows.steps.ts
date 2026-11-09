@@ -50,6 +50,18 @@ Then('the row {string} shows when it was last active', async function (this: Thr
   await this.until(`"${title}" with a time`, (d) => pattern.test(this.thread(d, title)?.trailing ?? ''));
 });
 
+Then('the row {string} lists the sub-agent {string}', async function (this: ThreadbearWorld, title: string, sub: string) {
+  await this.until(`"${title}" listing the sub-agent ${sub}`, (d) => this.thread(d, title)?.subagents?.some((s) => s.title === sub));
+});
+
+Then('the row {string} lists the sub-agent {string} indented by {int}', async function (this: ThreadbearWorld, title: string, sub: string, depth: number) {
+  await this.until(`${sub} at depth ${depth}`, (d) => this.thread(d, title)?.subagents?.some((s) => s.title === sub && s.depth === depth));
+});
+
+Then('the sub-agent {string} of {string} says {string}', async function (this: ThreadbearWorld, sub: string, title: string, detail: string) {
+  await this.until(`${sub} saying ${detail}`, (d) => this.thread(d, title)?.subagents?.some((s) => s.title === sub && s.detail === detail));
+});
+
 When('I star the thread {string}', async function (this: ThreadbearWorld, title: string) {
   const t = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
   await this.app.do({ cmd: 'star', id: t.id });

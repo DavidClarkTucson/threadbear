@@ -23,6 +23,14 @@ Feature: Section headings in the sidebar
     When I click the "Inbox" heading
     Then the "Inbox" section isn't folded
 
+  @sidebar.archived.paging
+  Scenario: The Archived section draws the most recent few, and more on asking
+    Given there are 30 more archived threads
+    And the "archived" section is unfolded
+    Then the Archived section draws 20 of its 33 threads
+    When I ask for more of the Archived section
+    Then the Archived section draws 33 of its 33 threads
+
   @sidebar.sort
   Scenario: The Inbox can be sorted oldest first
     Given the Inbox is sorted by what needs me first

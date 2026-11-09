@@ -34,6 +34,12 @@ Feature: Acting on a thread from its sidebar row
     When I press the row button "Unarchive"
     Then the "Archived" section doesn't list "Write the Quick Ask README"
 
+  @sidebar.newthread
+  Scenario: The compose button leaves the open thread for a new one
+    Given I open the thread "Morning brief"
+    When I press the row button "Start a new thread"
+    Then no thread is open
+
   @sidebar.row.menu
   Scenario: Right-clicking a row offers what can be done to it
     When I right-click the row "Morning brief"
@@ -56,6 +62,15 @@ Feature: Acting on a thread from its sidebar row
     And I choose "1 hour" in the menu
     Then the "Inbox" section doesn't list "Morning brief"
     And the "Hibernating" section lists "Morning brief"
+
+  # The calendar and the alert around it have no way in from a script on
+  # either app; the GPUI one is checked by a picture for now.
+  @manual @sidebar.hibernate.pick
+  Scenario: Pick a time hibernates the thread until a date and time
+    When I open the Hibernate menu for "Morning brief"
+    And I choose "Pick a time…" in the menu
+    And I pick tomorrow at 9:00
+    Then the "Hibernating" section lists "Morning brief"
 
   @sidebar.hibernate.wake
   Scenario: Wake when puts it away in my own words

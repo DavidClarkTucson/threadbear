@@ -42,6 +42,10 @@ When('I press the row button {string}', async function (this: ThreadbearWorld, t
   await this.app.do({ cmd: 'click', tipPrefix: tip });
 });
 
+Then('no thread is open', async function (this: ThreadbearWorld) {
+  await this.until('no selection', (d) => !d.selection);
+});
+
 When('I right-click the row {string}', async function (this: ThreadbearWorld, title: string) {
   await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
   this.menuTitles = listIn(await this.app.do({ cmd: 'realMenu', tipPrefix: `${title}\n`, right: true }, 20));

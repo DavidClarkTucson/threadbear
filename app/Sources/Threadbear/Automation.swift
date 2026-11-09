@@ -1028,6 +1028,11 @@ enum Automation {
         case "close-schedule":
             app.scheduleEditor = nil
             return "ok"
+        case "archive-more":
+            // The Archived section's Show more row, which is often off the
+            // bottom of the list (a lazy stack doesn't draw it till then).
+            app.archiveLimit += ArchiveRows.step
+            return "ok"
         case "sort":
             // The Inbox heading's sort menu.
             guard let order = (c["order"] as? String).flatMap(InboxOrder.init(rawValue:)) else {

@@ -22,6 +22,19 @@ When('I click the {string} heading', async function (this: ThreadbearWorld, name
   await this.app.do({ cmd: 'click', tip: `${section(d, name)?.collapsed ? 'Show' : 'Hide'} ${name}` });
 });
 
+Given('there are {int} more archived threads', async function (this: ThreadbearWorld, count: number) {
+  await this.app.do({ cmd: 'mock', method: 'fillArchived', params: { count } });
+  await this.until(`${count} more archived threads`, (d) => (section(d, 'Archived')?.threads.length ?? 0) >= count);
+});
+
+Then('the Archived section draws {int} of its {int} threads', async function (this: ThreadbearWorld, shown: number, total: number) {
+  await this.until(`${shown} of ${total} archived rows`, (d) => section(d, 'Archived')?.shown === shown && section(d, 'Archived')?.threads.length === total);
+});
+
+When('I ask for more of the Archived section', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'archive-more' });
+});
+
 Given('the Inbox is sorted by what needs me first', async function (this: ThreadbearWorld) {
   await this.until('the default sort', (d) => d.sidebar.sort === 'needsYou');
 });

@@ -103,7 +103,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `sidebar.row.menu` | Row context menu | Star, Hibernate, Archive, Move to, Projects, Rename, Open in New Panel, Copy thread id, Ask the librarian to look, Delete… | gpui-kit menu with submenus, in-window. | kit | M | `SidebarView` |
 | `sidebar.subagents` | Sub-agent tree | Indented sub-agents with a drawn trunk, click to read | Custom rows with a drawn trunk. | build | M | `SubagentViews`, `SubagentRows` |
 | `sidebar.archived.paging` | Archived paging | Recent few, then Show more; the open thread is always included | Port the rule and draw a Show more row. | build | S | `SidebarView` (`ArchiveRows`) |
-| `sidebar.archived.foot` | Archived pinned to foot | Folded heading always in sight, scrolls in when opened | Layout outside the scrolling list while folded. | build | S | `SidebarView` |
+| `sidebar.archived.foot` | Archived pinned to foot | Not present: tried 8 Nov, undone 9 Nov (cfbf3cb3); Archived sits directly under the other sections | Not ported: the Swift app no longer has it. | drop | none | none |
 | `sidebar.skeleton` | Loading skeleton | Pulsing grey rows until the first list lands | Drawn rows with `Animation`. | build | S | `SidebarView` (`LoadingRows`) |
 | `sidebar.hibernate.presets` | Hibernate presets | Hour, evening, tomorrow, Monday, until restart | gpui-kit menu, from the snooze logic. | kit | S | `SidebarView`, `Snooze` |
 | `sidebar.hibernate.pick` | Pick a time | Calendar and time sheet | gpui-kit sheet with a calendar and time field drawn by us (unverified that a date picker exists). | build | M | `SidebarView` (`SnoozePicker`) |

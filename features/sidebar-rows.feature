@@ -13,6 +13,12 @@ Feature: What a thread's row says in the sidebar
     And the row "Morning brief" has the tile "folder"
     And the row "Morning brief" is in "misc"
 
+  @sidebar.subagents
+  Scenario: A running thread lists its sub-agents under it, nested ones indented
+    Then the row "Why is the build slow on CI?" lists the sub-agent "Find the commit that slowed the build"
+    And the row "Why is the build slow on CI?" lists the sub-agent "Time the test step on each commit" indented by 1
+    And the sub-agent "Check the Docker layer cache" of "Why is the build slow on CI?" says "Failed: Couldn't reach the registry."
+
   @sidebar.row.marks
   Scenario: A thread that needs me has a blue dot and a bold title
     Then the row "Make uploads resume after a crash" has a blue dot

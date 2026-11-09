@@ -38,11 +38,13 @@ export type Dump = {
   selection?: Thread | null;
   sidebar: {
     mode: string;
-    sections: { name: string; collapsed?: boolean; count?: number | null; threads: Thread[] }[];
+    sections: { name: string; collapsed?: boolean; count?: number | null; shown?: number | null; threads: Thread[] }[];
     snoozed: number;
     archived: number;
     /** The Inbox's sort: "needsYou", "newest" or "oldest". */
     sort?: string;
+    /** Before the runner's first list: the grey loading rows are showing. */
+    loading?: boolean;
   };
   composer: { draft: string; text: string };
   transcript: {

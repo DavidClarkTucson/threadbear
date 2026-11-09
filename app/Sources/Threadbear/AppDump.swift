@@ -64,6 +64,8 @@ struct AppDump: Encodable {
         var collapsed: Bool? = nil
         /// The number drawn on the heading while it's folded.
         var count: Int? = nil
+        /// How many rows it draws, for the Archived section (`ArchiveRows`).
+        var shown: Int? = nil
     }
 
     struct Sidebar: Encodable {
@@ -73,6 +75,8 @@ struct AppDump: Encodable {
         var archived: Int
         /// How the Inbox is sorted ("needsYou", "newest", "oldest").
         var sort: String = ""
+        /// Before the runner's first list: the grey loading rows are showing.
+        var loading: Bool = false
     }
 
     struct Composer: Encodable {
@@ -290,8 +294,10 @@ struct AppDump: Encodable {
             let built = app.sections.matching(app.searchQuery)
             sections = InboxSection.allCases.map { section in
                 let collapsed = app.collapsedSections.contains(section)
+                let searching = !app.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let shown = section == .archived ? ArchiveRows.shown(built[section], limit: app.archiveLimit, searching: searching, selection: app.selection).rows.count : nil
                 return Section(name: section.title, threads: built[section].map { thread($0, section: section) }, collapsed: collapsed,
-                               count: collapsed && !built[section].isEmpty ? built[section].count : nil)
+                               count: collapsed && !built[section].isEmpty ? built[section].count : nil, shown: shown)
             }
         case .projects:
             // A section per project, then the threads in none.
@@ -354,7 +360,7 @@ struct AppDump: Encodable {
             window: window.map { Window(width: Int(contentSize($0).width), height: Int(contentSize($0).height), appearance: appearance) },
             sidebar: Sidebar(mode: String(describing: app.sidebarMode), sections: sections,
                              snoozed: ThreadSections.snoozed(app.threads.values, now: now).count, archived: app.archivedCount,
-                             sort: app.inboxOrder.rawValue),
+                             sort: app.inboxOrder.rawValue, loading: !app.threadsLoaded),
             selection: app.selectedThread.map { thread($0) },
             subagent: app.subagentSelection?.subagentId,
             panels: app.selectedThread.flatMap { panels($0, app: app) },
