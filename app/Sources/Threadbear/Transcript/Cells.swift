@@ -283,6 +283,10 @@ final class TextRowCell: RowCellView {
     /// Left of a message still on its way to the runner: a spinner while
     /// it's sent, a clock once it's queued behind the running turn.
     let pendingMark = PendingMark()
+    /// Under a message held for a restarting runner: it goes on its own
+    /// once the runner's back. Made the first time one's shown.
+    private var waitingNote: NSTextField?
+    static let waitingNoteText = "Runner restarting. Sends when it's back."
     /// Left of a message Mike sent from the iPhone app: a small phone, its
     /// tip saying so on hover or click, in place of a line of text.
     let phoneMark = NSButton()
@@ -473,7 +477,23 @@ final class TextRowCell: RowCellView {
                 markEdge = phoneMark.frame.minX
             }
             pending = message.pending
-            if let state = message.pending {
+            if message.pending == .waitingForRunner {
+                // The note says it all, so no mark beside it too.
+                let note = waitingNote ?? {
+                    let label = makeLabel()
+                    label.font = Theme.smallFont
+                    // As the transcript's other small notes ("Scheduled").
+                    label.textColor = Theme.faintText
+                    label.alignment = .right
+                    label.stringValue = Self.waitingNoteText
+                    addSubview(label)
+                    waitingNote = label
+                    return label
+                }()
+                note.isHidden = false
+                let bottom = render.text != nil ? box.frame.maxY : images.frame.maxY
+                note.frame = NSRect(x: x, y: bottom + RowMetrics.waitingNoteGap, width: width - zoomed(4), height: RowMetrics.waitingNoteHeight)
+            } else if let state = message.pending {
                 // Where the pencil goes on a message that's landed.
                 let side = zoomed(22)
                 let left = markEdge
@@ -541,7 +561,8 @@ final class TextRowCell: RowCellView {
         // A message the runner hasn't shown yet is drawn faded.
         let alpha: CGFloat = pending == nil ? 1 : 0.5
         for view in [box, textView, images] as [NSView] where view.alphaValue != alpha { view.alphaValue = alpha }
-        if pending == nil, !pendingMark.isHidden { pendingMark.hide() }
+        if pending == nil || pending == .waitingForRunner, !pendingMark.isHidden { pendingMark.hide() }
+        if pending != .waitingForRunner, waitingNote?.isHidden == false { waitingNote?.isHidden = true }
 
         // Messages get the selection bar (Explain, Quote, Copy).
         switch row.content {

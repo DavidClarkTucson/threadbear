@@ -16,6 +16,10 @@ enum RowMetrics {
     /// right on top of the reply, closer than the gaps inside a turn; T3
     /// and Codex leave a clear pause there.
     static var userBottom: CGFloat { zoomed(22) }
+    /// The line under a message held for a restarting runner ("Sends when
+    /// the runner's back"), and the gap above it.
+    static var waitingNoteGap: CGFloat { zoomed(4) }
+    static var waitingNoteHeight: CGFloat { zoomed(16) }
     /// One line of work: a group summary, a tool call, a thinking block.
     static var workHeight: CGFloat { zoomed(32) }
     static var workingHeight: CGFloat { zoomed(34) }
@@ -362,7 +366,8 @@ enum RowRenderer {
             let showText = !message.text.isEmpty || message.images.isEmpty
             let imageBlock = message.images.isEmpty ? 0 : area + (showText ? RowMetrics.imageGap : 0)
             let bubble = showText ? size.height + RowMetrics.bubblePadV * 2 : 0
-            return RowRender(height: RowMetrics.userTop + imageBlock + bubble + RowMetrics.userBottom,
+            let note = message.pending == .waitingForRunner ? RowMetrics.waitingNoteGap + RowMetrics.waitingNoteHeight : 0
+            return RowRender(height: RowMetrics.userTop + imageBlock + bubble + note + RowMetrics.userBottom,
                              text: showText ? text : nil, textSize: size, imageFrames: frames, imageAreaHeight: area)
 
         case .assistant(let item):

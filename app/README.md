@@ -183,7 +183,12 @@ and the perf run stay away from the real one. Install the runner itself with
   answer 2." Then "The
   runner is restarting. Reconnecting…" with a spinner while it's down. The
   app retries every half second then, and the line goes once it's back. A
-  runner that isn't back within 90 seconds gets the usual banner. The
+  runner that isn't back within 90 seconds gets the usual banner. A message
+  you send to one of this Mac's threads meanwhile doesn't bounce back
+  into the box: it shows dimmed at the end of the thread with "Runner
+  restarting. Sends when it's back." under it, and goes once the new
+  runner connects (several go in the order you sent them). If the runner
+  isn't back 90 seconds after you sent it, it goes back in the box. The
   message the runner sends to carry a thread on (`origin: "runner"`) is a
   small centred note under the "Runner restarted" one, "Sent by the runner
   after it restarted" over its text, not a bubble of yours.
