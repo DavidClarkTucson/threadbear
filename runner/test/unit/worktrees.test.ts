@@ -1266,6 +1266,13 @@ test("a worktree folder swapped for a link while the cleanup reads its status ne
 // A git ahead of the real one on PATH whose `case` arm for `match` (a word
 // in its arguments) runs `body` (with $REAL the real git), and git's time
 // limit set to `limitMs`, until the function it returns is called.
+// A limit for the tests whose wrapped git hangs (sleep 30): it applies to
+// every git call the code makes, not only the hung one, so it has to leave
+// room for the ordinary ones through the wrapper. At 300 ms, `tb land`'s
+// first rev-parse timed out on a loaded check host and at background
+// priority, and read as "isn't a git checkout" (9 Nov).
+const HUNG_GIT_LIMIT_MS = 3000;
+
 function wrapGit(match: string, body: string, limitMs = gitLimits.timeoutMs): () => void {
   const realGit = sh('/', 'command -v git');
   const bin = tmpDir('tb-wrap-git-');
@@ -1303,7 +1310,7 @@ test("a git that times out checking the branch is there stops the cleanup, rathe
   const { main } = makeRepo(PATCH(`{ keep: ["app/.build"] }`));
   const t = makeBranch(main);
   commit(t.path, { 'runner/b.ts': '2\n' }, 'Not landed');
-  const restore = wrapGit('--verify', 'exec sleep 30', 300);
+  const restore = wrapGit('--verify', 'exec sleep 30', HUNG_GIT_LIMIT_MS);
   let result;
   try {
     const rec = { repo: 'proj', mainCheckout: main, path: t.path, branch: t.branch, base: sh(main, 'git rev-parse main'), keep: ['app/.build'] };
@@ -1323,7 +1330,7 @@ test("tb land counts a git that times out reading what's to land as a failure, n
     commit(t.path, { 'runner/b.ts': '2\n' }, 'Work');
     const before = sh(main, 'git rev-parse main');
     const c = capture();
-    const restore = wrapGit(match, 'exec sleep 30', 300);
+    const restore = wrapGit(match, 'exec sleep 30', HUNG_GIT_LIMIT_MS);
     let code;
     try {
       code = await land(t, c.opts);
