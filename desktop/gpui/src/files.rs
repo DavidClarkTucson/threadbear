@@ -114,7 +114,8 @@ pub(crate) fn percent_decode(path: &str) -> String {
 }
 
 pub(crate) fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    // Windows sets USERPROFILE; HOME only exists there under Git Bash.
+    std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()
 }
 
 /// A web page in the browser (the panel page is later work).

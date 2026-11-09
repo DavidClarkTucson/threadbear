@@ -136,13 +136,17 @@ fn home_directory_as_reported() -> String {
 /// separator to look for. Anything else is left exactly as it came: a
 /// backslash in a Mac or Linux path is just a character.
 pub fn forward_slashes(path: &str) -> String {
-    let bytes = path.as_bytes();
-    let drive = bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/');
-    if drive || path.starts_with("\\\\") {
+    if is_windows_path(path) {
         path.replace('\\', "/")
     } else {
         path.to_owned()
     }
+}
+
+/// Whether a path is a Windows one: it starts with a drive or a server share.
+pub fn is_windows_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/')) || path.starts_with("\\\\")
 }
 
 #[cfg(test)]

@@ -357,7 +357,8 @@ fn extension(path: &str) -> String {
 /// The name at the end of a path, ignoring a trailing slash (`lastPathComponent`).
 pub fn last_component(path: &str) -> &str {
     let path = path.trim_end_matches('/');
-    match path.rsplit_once('/') {
+    let split = if crate::reducer::text::is_windows_path(path) { path.rsplit_once(['/', '\\']) } else { path.rsplit_once('/') };
+    match split {
         Some((_, name)) => name,
         None => path,
     }
@@ -516,6 +517,10 @@ pub mod text {
     /// folder relative to it ("docs/mockups"), the folder's own name for a
     /// file at its top; elsewhere the full path with `~`.
     pub fn folder(path: &str, cwd: Option<&str>, home: &str) -> String {
+        // One separator to look for, whichever system the runner's on.
+        use crate::reducer::text::forward_slashes;
+        let (path, cwd, home) = (forward_slashes(path), cwd.map(forward_slashes), forward_slashes(home));
+        let (path, cwd, home) = (path.as_str(), cwd.as_deref(), home.as_str());
         let parent = parent_path(path);
         if let Some(cwd) = cwd.filter(|c| !c.is_empty()) {
             let root = cwd.strip_suffix('/').unwrap_or(cwd);
@@ -1203,6 +1208,12 @@ mod tests {
         assert_eq!(highlight_symbol(&pr), "arrow.triangle.pull");
         let link = Highlight { id: "link:1".into(), kind: HighlightKind::Link, title: "x".into(), ..Default::default() };
         assert_eq!(highlight_symbol(&link), "link");
+    }
+
+    #[test]
+    fn a_windows_path_sits_in_its_folder_the_same_way() {
+        assert_eq!(text::folder(r"C:\work\site\mockups\home.html", Some(r"C:\work\site"), r"C:\Users\mike"), "mockups");
+        assert_eq!(last_component(r"C:\work\site\mockups\home.html"), "home.html");
     }
 
     #[test]
