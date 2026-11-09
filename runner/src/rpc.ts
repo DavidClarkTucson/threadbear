@@ -65,7 +65,7 @@ const CLOSE_GRACE_MS = 1000;
 // Requests about one thread. During a handover (docs/protocol.md) the
 // primary passes these to the draining runner that has the thread, and a
 // draining runner answers -32030 for one it has let go.
-const THREAD_METHODS = new Set([
+export const THREAD_METHODS = new Set([
   'reviews.list',
   'reviews.create',
   'reviews.get',

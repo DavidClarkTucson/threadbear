@@ -49,6 +49,16 @@ and ask the user what they use instead, rather than trying to reach them.
   shorter or go behind something agents look up.
 - The protocol is the contract. Change `docs/protocol.md` first, then both
   sides, and keep both sides tolerant of unknown fields and event types.
+- A thread is reached four ways: this runner's own threads, another
+  runner's through Convex (`runner/src/relay.ts`), and the iPhone and the
+  website through Convex (`convex/phone.ts`). Pictures, a card's notes and
+  send_message each worked on the first and went missing on the others
+  (8 Nov). A new thread request needs a row in `runner/src/parity.ts`
+  saying where it works (`parity.test.ts` fails without one, and checks
+  each yes against the code; `npm run parity-docs` remakes
+  `docs/parity.md`). A new field on a card, message or thread row has to
+  get through Convex too: the backend tests' fake Convex checks the real
+  schema and validators, so test it there.
 - Only ever spawn the official `claude` (and later `codex`) binaries under
   Mike's own logins. Never read or copy OAuth tokens or Keychain credentials.
 - Tests that hit a real model use the cheapest model, tiny prompts, a temp
