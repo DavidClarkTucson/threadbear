@@ -38,7 +38,9 @@ File references are where to look.
 - **Apps:** `~/Applications/Threadbear.app` and
   `~/Applications/Threadbear Runner.app`, both built and signed on your Mac.
   If you turn on the `gpuiApp` experiment and run
-  `desktop/scripts/install-app.sh`, also `~/Applications/Threadbear GPUI.app`.
+  `desktop/scripts/install-app.sh`, also `~/Applications/Threadbear GPUI.app`,
+  which keeps its window and panel layout in `desktop-settings.json` and
+  `gpui-prefs.json` in the data folder.
 - **A LaunchAgent:** `~/Library/LaunchAgents/com.mikerosoft.threadbear.runner.plist`,
   which keeps the runner going while you're logged in. A runner on a Linux
   server (INSTALL.md, section 6) has a systemd user service in its place,

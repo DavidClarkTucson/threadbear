@@ -64,6 +64,19 @@ To run it against the mock runner instead of your real one, start
 `node ../app/Tools/mock-runner/server.mjs --data-dir /tmp/tb-mock` and run
 the app with `THREADBEAR_HOME=/tmp/tb-mock`.
 
+## Installing it on a Mac
+
+It's an experiment (`runner/src/experiments/gpuiApp.md`): turn it on in
+`runner.json`, then:
+
+```bash
+scripts/install-app.sh                      # builds here, about 10 minutes
+scripts/install-app.sh --build-on <host>    # builds on another Mac and copies it
+```
+
+That puts `Threadbear GPUI.app` in `~/Applications`, beside the Swift app, using
+the same runner.
+
 ## Tests
 
 ```bash
