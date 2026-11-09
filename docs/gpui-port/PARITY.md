@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-21 of 325 features have a spec so far, across 24 scenarios.
+54 of 325 features have a spec so far, across 94 scenarios.
 
-Scenarios passing: Swift: 24 of 24, Mac: 24 of 24, Windows: 24 of 24, Linux: 24 of 24.
+Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 of 94.
 
 
 ### 0. Foundations everything else needs
@@ -26,41 +26,74 @@ Scenarios passing: Swift: 24 of 24, Mac: 24 of 24, Windows: 24 of 24, Linux: 24 
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `sidebar.sections` Sections | pass | pass | pass | pass |
+| `sidebar.sections` Sections | pass | pass | partly | pass |
+| `sidebar.sort` Inbox sort | pass | pass | pending | pass |
 | `sidebar.search` Thread search | pass | pass | pass | pass |
-| `sidebar.row.marks` Row left marks | pass | pass | pass | pass |
-| `sidebar.row.hoverbuttons` Hover buttons | pass | pass | pass | pass |
-| `sidebar.hibernate.presets` Hibernate presets | pass | pass | pass | pass |
+| `sidebar.newthread` New thread button | pass | pass | pending | pass |
+| `sidebar.row` Thread row | pass | pass | pending | pass |
+| `sidebar.row.marks` Row left marks | pass | pass | partly | pass |
+| `sidebar.row.origin` Origin mark | pass | pass | pending | pass |
+| `sidebar.row.status` Row right status | pass | pass | pending | pass |
+| `sidebar.row.hoverbuttons` Hover buttons | pass | pass | partly | pass |
+| `sidebar.row.menu` Row context menu | pass | pass | pending | pass |
+| `sidebar.subagents` Sub-agent tree | pass | pass | pending | pass |
+| `sidebar.archived.paging` Archived paging | pass | pass | pending | pass |
+| `sidebar.skeleton` Loading skeleton | pass | pass | pending | pass |
+| `sidebar.hibernate.presets` Hibernate presets | pass | pass | partly | pass |
+| `sidebar.hibernate.pick` Pick a time | pending | pending | pending | pending |
+| `sidebar.hibernate.wake` Wake when… | pass | pass | pending | pass |
 
 ### 5. Transcript row kinds
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
+| `transcript.list` The transcript list | pass | pass | pending | pass |
 | `transcript.user` Your bubble | pass | pass | pass | pass |
-| `transcript.reply` Assistant reply | pass | pass | pass | pass |
-| `transcript.tool` Tool line | pass | pass | pass | pass |
+| `transcript.reply` Assistant reply | pass | pass | partly | pass |
+| `transcript.thinking` Thinking line | pass | pass | pending | pass |
+| `transcript.tool` Tool line | pass | pass | partly | pass |
+| `transcript.tooloutput` Tool output styling | pass | pass | pending | pass |
+| `transcript.diff` Diff row | pass | pass | pending | pass |
+| `transcript.images` Images row | pass | pass | pending | pass |
 | `transcript.approval` Approval card | pass | pass | pass | pass |
+| `transcript.approval.stacked` Stacked approval | pass | pass | pending | pass |
 | `transcript.approval.settled` Settled approval | pass | pass | pass | pass |
 | `transcript.question` Question card | pass | pass | pass | pass |
+| `transcript.secret` Secret card | pass | pass | pending | pass |
+| `transcript.review` Review card | pass | pass | pending | pass |
 | `transcript.turnfooter` Turn footer | pass | pass | pass | pass |
 | `transcript.error` Error row | pass | pass | pass | pass |
 | `transcript.workedfor` Worked-for group | pass | pass | pass | pass |
-| `transcript.changes` Changes card | pass | pass | pass | pass |
+| `transcript.working` Working line | pass | pass | pending | pass |
+| `transcript.changes` Changes card | pass | pass | partly | pass |
+| `transcript.rowmenu` Row context menu | pass | pass | pending | pass |
 
 ### 7. Composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `composer.textbox` Text box | pass | pass | pass | pass |
+| `composer.textbox` Text box | pass | pass | partly | pass |
 | `composer.return` Return, Shift-Return | pass | pass | pass | pass |
+| `composer.listcontinue` List continuation | pass | pass | pending | pass |
+| `composer.picturechips` Picture chips | pass | pass | pending | pass |
+| `composer.chiphover` Chip hover and × | pass | pass | pending | pass |
+| `composer.filedrop` File path drop | pass | pass | pending | pass |
+| `composer.dropanywhere` Drop anywhere on thread | pass | pass | pending | pass |
+| `composer.modelpicker` Model picker | pass | pass | pending | pass |
+| `composer.permission` Permission chip | pass | pass | pending | pass |
+| `composer.contextring` Context ring | pass | pass | pending | pass |
 | `composer.send` Send and Stop | pass | pass | pass | pass |
 
 ### 8. Cards in the composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `card.needsyou` Needs you card | pass | pass | pass | pass |
-| `card.answers` Answer and follow-up state | pass | pass | pass | pass |
+| `card.done` Done card | pass | pass | pending | pass |
+| `card.needsyou` Needs you card | pass | pass | partly | pass |
+| `card.collapse` Collapse | pass | pass | pending | pass |
+| `card.somethingelse` Something else box | pass | pass | pending | pass |
+| `card.returnflow` Return flow | pass | pass | pending | pass |
+| `card.answers` Answer and follow-up state | pass | pass | partly | pass |
 
 <!-- parity:end -->
 
