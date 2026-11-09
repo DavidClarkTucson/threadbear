@@ -12,6 +12,7 @@ import path from 'node:path';
 import type { WorktreePatch } from './patches.ts';
 import { inBackground } from './background.ts';
 import { mainCheckoutOf as linkedMainCheckout } from './patch-trust.ts';
+import { untrustedGitArgs } from './safe-git.ts';
 
 // What a thread's record keeps about its worktree.
 export type WorktreeRecord = {
@@ -58,13 +59,14 @@ type GitResult = { ok: boolean; code: number; stdout: string; stderr: string };
 export const gitLimits = { timeoutMs: 5 * 60_000 };
 
 // git in `cwd`. Variables that point git at some other repo (set when this
-// runs from inside a git hook) are dropped, so -C always wins. Killed past
-// gitLimits, which makes it a failure (`ok: false`).
+// runs from inside a git hook) are dropped, so -C always wins, and the
+// repo's own config can't start an fsmonitor program (safe-git.ts). Killed
+// past gitLimits, which makes it a failure (`ok: false`).
 export function git(cwd: string, args: string[]): Promise<GitResult> {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX']) delete env[k];
   return new Promise((resolve) => {
-    execFile('git', ['-C', cwd, ...args], { env, maxBuffer: 16 * 1024 * 1024, timeout: gitLimits.timeoutMs, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+    execFile('git', untrustedGitArgs(cwd, args), { env, maxBuffer: 16 * 1024 * 1024, timeout: gitLimits.timeoutMs, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
       // Killed (past the limit) is -1, never 1: callers read git's own 1 as
       // an answer ("no such ref", "not an ancestor").
       const e = err as { code?: unknown; signal?: unknown } | null;

@@ -3358,7 +3358,9 @@ could be from npm or from the zip), a link the repo commits under
 `node_modules`, a committed native addon (`.node`), or more than 100
 committed files under `node_modules`, the patch isn't loaded at all
 (`error`). git runs with `core.fsmonitor` off, so a folder's own
-`.git/config` can't make that run anything. A cached hash holds only while every file it was
+`.git/config` can't make that run anything; so does every other git the
+runner runs in a thread's folder (the Claude settings check's listing of
+skills, worktrees, moves), all through `runner/src/safe-git.ts`. A cached hash holds only while every file it was
 made from has the same inode, size, mode, mtime and ctime (a write
 can't put ctime back), every path to one still leads to the same real
 file, and nothing that was missing has turned up. A hook or `setup`
