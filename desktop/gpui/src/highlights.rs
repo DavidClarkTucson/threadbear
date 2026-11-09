@@ -1098,7 +1098,7 @@ impl SidePane {
             list = list.child(self.heading(Heading { key: fold::SCHEDULED.to_owned(), title: "Scheduled".into(), icon: Some(icon("clock", 11., p.secondary).into_any_element()), count: Some(scheduled.len()), folded, foldable: true, accessory: None }, p, cx));
             if !folded {
                 for row in scheduled {
-                    let pr = PaneRow::new(SharedString::from(format!("hl-sched-{}", row.id)), row.title).icon(if row.paused { "pause.circle" } else { "clock" }).trailing(row.when).detail(Some(row.detail)).tip("Edit the schedule");
+                    let pr = PaneRow::new(SharedString::from(format!("hl-sched-{}", row.id)), row.title).icon(if row.paused { "pause.circle" } else { "clock" }).trailing(row.when).detail(Some(row.detail));
                     list = list.child(pr.render(p, cx));
                 }
             }
