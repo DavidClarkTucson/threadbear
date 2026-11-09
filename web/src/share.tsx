@@ -6,12 +6,13 @@
 // this browser is signed in as Mike the page also has ShareControl, so he
 // can stop sharing it or share it again.
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useConvex, useMutation, useQuery } from 'convex/react';
 import { useLiveQuery } from './live';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { MessageText, Pictures, picturesByRow, ToolRun, Worked, type PageMessage, type Picture } from './messages';
 import { CommandState } from './command-state';
+import { empty, hasMore, next, pictures, rows, startChunks, takeLive, takeOlder, type History } from './share-history';
 import { fold, splitTurns, duration, roughly, type Item, type Turn } from './turns';
 import { day, modelLabel, plain, sender, sentences } from './format';
 import * as Icon from './icons';
@@ -23,13 +24,56 @@ const MORE = 200;
 const SITE = 'https://threadbear.mikecann.app';
 
 export function SharePage({ slug, token }: { slug: string; token: string | null }) {
+  const convex = useConvex();
   const [limit, setLimit] = useState(FIRST_PAGE);
   const data = useLiveQuery(api.share.view, { slug, limit, ...(token ? { token } : {}) });
   // Keeps the last page on screen while a bigger one loads.
   const [shown, setShown] = useState<typeof data>(undefined);
+  // The rows as far back as the reader has gone: the live answer, then older
+  // chunks once it can't grow (share-history.ts).
+  const [history, setHistory] = useState<History<Row, Pic>>(empty);
+  const historyRef = useRef(history);
+  const [loadingChunk, setLoadingChunk] = useState(false);
   useEffect(() => {
-    if (data) setShown(data);
+    if (!data) return;
+    setShown(data);
+    if (data.state !== 'ok') return;
+    // useLiveQuery answers nothing until the new limit's answer comes, so this one is the limit's.
+    historyRef.current = takeLive(historyRef.current, data, limit);
+    setHistory(historyRef.current);
   }, [data]);
+
+  const more = () => {
+    const step = next(historyRef.current, limit, MORE);
+    if (!step) return;
+    if ('grow' in step) {
+      setLimit(step.grow);
+      return;
+    }
+    const before = step.older;
+    historyRef.current = startChunks(historyRef.current);
+    setLoadingChunk(true);
+    convex
+      .query(api.share.view, { slug, limit: MORE, beforeSeq: before, ...(token ? { token } : {}) })
+      .then((chunk) => {
+        if (chunk.state !== 'ok') return;
+        const took = takeOlder(historyRef.current, chunk, before);
+        if (!took) return;
+        historyRef.current = took;
+        setHistory(took);
+      })
+      // What's shown stays; the button can try again.
+      .catch((e) => console.warn('could not load earlier messages', e))
+      .finally(() => setLoadingChunk(false));
+  };
+
+  // The same rows until the history changes: the write-up keeps its place
+  // after loading earlier ones when they change, and a new array each render
+  // (a click re-renders at once) would spend that before they came.
+  const all = useMemo(() => {
+    if (shown?.state !== 'ok' || !history.live) return shown;
+    return { ...shown, messages: rows(history), images: pictures(history), hasMore: hasMore(history) };
+  }, [shown, history]);
 
   const title = shown?.state === 'ok' ? shown.title || 'Untitled' : undefined;
   useEffect(() => {
@@ -46,8 +90,11 @@ export function SharePage({ slug, token }: { slug: string; token: string | null 
       </main>
     );
   }
-  return <WriteUp slug={slug} token={token} data={shown} loading={data !== shown} onMore={() => setLimit((n) => n + MORE)} />;
+  return <WriteUp slug={slug} token={token} data={all as Shared} loading={data !== shown || history.liveLimit !== limit || loadingChunk} onMore={more} />;
 }
+
+type Row = Shared['messages'][number];
+type Pic = Shared['images'][number];
 
 type Shared = Extract<NonNullable<ReturnType<typeof useQuery<typeof api.share.view>>>, { state: 'ok' }>;
 
@@ -61,12 +108,16 @@ function WriteUp({ slug, token, data, loading, onMore }: { slug: string; token: 
   const active = useActiveTurn(turns.length);
 
   // After loading earlier messages, stay where you were rather than jumping.
-  const keepFromBottom = useRef<number | null>(null);
+  // Only once rows older than the first one shown have come: a live update
+  // (a new message, the status) can change the rows while they load, and
+  // mustn't spend the place kept for them.
+  const keep = useRef<{ fromBottom: number; first: number } | null>(null);
   useEffect(() => {
-    if (keepFromBottom.current === null) return;
-    window.scrollTo(0, document.documentElement.scrollHeight - keepFromBottom.current);
-    keepFromBottom.current = null;
-  }, [data]);
+    const k = keep.current;
+    if (!k || (messages[0]?.seq ?? Infinity) >= k.first) return;
+    window.scrollTo(0, document.documentElement.scrollHeight - k.fromBottom);
+    keep.current = null;
+  }, [messages]);
 
   const started = data.createdAt ?? messages[0]?.at;
   const byline = [started ? day(started) : null, asked.length ? `${asked.length} ${asked.length === 1 ? 'turn' : 'turns'}` : null, worked >= 60_000 ? `worked ${roughly(worked)}` : null].filter(Boolean);
@@ -121,7 +172,7 @@ function WriteUp({ slug, token, data, loading, onMore }: { slug: string; token: 
               className="btn earlier"
               disabled={loading}
               onClick={() => {
-                keepFromBottom.current = document.documentElement.scrollHeight - window.scrollY;
+                keep.current = { fromBottom: document.documentElement.scrollHeight - window.scrollY, first: messages[0]?.seq ?? Infinity };
                 onMore();
               }}
             >
