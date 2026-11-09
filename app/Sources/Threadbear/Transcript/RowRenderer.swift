@@ -1831,8 +1831,9 @@ enum RowRenderer {
         }
     }
 
-    /// "12s · $0.04" for Claude, "12s" for Codex, which reports no cost
-    /// (its tokens are in "Copy debug info" instead).
+    /// "12s · 1.7k out · 381k in" (`TurnTokens`), the same for Claude and
+    /// Codex. A turn with no token counts (from an older runner) shows its
+    /// cost instead, as it used to.
     static func footerText(_ completion: TurnCompletion) -> NSAttributedString {
         // "Done" is the done card's now, under this line.
         var parts: [String] = []
@@ -1841,7 +1842,11 @@ enum RowRenderer {
         case .interrupted: parts.append("Stopped after \(RelativeTime.duration(milliseconds: completion.durationMs))")
         case .failed: parts.append("Failed after \(RelativeTime.duration(milliseconds: completion.durationMs))")
         }
-        if let cost = CostText.format(completion.costUsd) { parts.append(cost) }
+        if let tokens = TurnTokens(usage: completion.usage) {
+            parts.append(tokens.footer)
+        } else if let cost = CostText.format(completion.costUsd) {
+            parts.append(cost)
+        }
         var text = parts.joined(separator: " · ")
         // A failure the runner knows the cause of has its error row just
         // above, with the same words and what to do; saying them a third

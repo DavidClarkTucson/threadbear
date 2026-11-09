@@ -313,6 +313,9 @@ final class TextRowCell: RowCellView {
     /// open card at the top of the composer (ComposerCard), whose box
     /// is the composer's.
     var bare = false
+    /// Over a turn footer's words: its tokens broken down, and what they'd
+    /// cost at API prices, which the footer itself no longer shows.
+    private let footerTip = TipAnchorView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -339,6 +342,8 @@ final class TextRowCell: RowCellView {
         phoneMark.setTip("Sent from the iPhone app")
         phoneMark.setAccessibilityLabel("Sent from the iPhone app")
         addSubview(phoneMark)
+        footerTip.isHidden = true
+        addSubview(footerTip)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -421,6 +426,7 @@ final class TextRowCell: RowCellView {
         phoneMark.isHidden = true
         textView.isHidden = render.text == nil
         editable = false
+        footerTip.isHidden = true
         var pending: UserMessage.Pending?
 
         switch row.content {
@@ -517,8 +523,14 @@ final class TextRowCell: RowCellView {
             box.frame = NSRect(x: x, y: top, width: width, height: render.textSize.height + RowMetrics.boxPad * 2)
             textView.place(box.frame.insetBy(dx: RowMetrics.boxPad, dy: RowMetrics.boxPad))
 
-        case .footer:
+        case .footer(let completion):
             textView.place(NSRect(x: x, y: zoomed(5), width: width, height: RowMetrics.footerHeight - zoomed(10)))
+            // Only over the words, not the empty width of the row.
+            if let tokens = TurnTokens(usage: completion.usage), let text = render.text {
+                footerTip.isHidden = false
+                footerTip.text = tokens.tip(costUsd: completion.costUsd)
+                footerTip.frame = NSRect(x: x, y: zoomed(5), width: min(width, ceil(text.size().width) + zoomed(4)), height: RowMetrics.footerHeight - zoomed(10))
+            }
 
         default:
             textView.place(NSRect(x: x, y: top, width: width, height: render.textSize.height))
