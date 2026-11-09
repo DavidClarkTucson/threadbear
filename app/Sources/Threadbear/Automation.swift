@@ -591,7 +591,8 @@ enum Automation {
             // as a real click would go, without moving the pointer.
             if let tip = c["tip"] as? String {
                 // {"settings": true}: in the Settings window (open it with `settings`).
-                guard let window = c["settings"] as? Bool == true ? SettingsWindow.current : mainWindow, let content = window.contentView,
+                // A sheet over the window (the Move sheet) takes the click first.
+                guard let window = c["settings"] as? Bool == true ? SettingsWindow.current : (mainWindow?.attachedSheet ?? mainWindow), let content = window.contentView,
                       let anchor = all(TipAnchorView.self, in: content).last(where: { $0.text == tip && !$0.isHiddenOrHasHiddenAncestor })
                 else { return "error no control with the tip \(tip)" }
                 let center = anchor.convert(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: nil)
