@@ -104,6 +104,13 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 Against a real runner
+
+- `features/tools/real-runner.ts`: the GPUI app on a dev runner, not the mock,
+  sending a message on claude-haiku-5-5 and getting the reply back.
+- Verification: on `cloud`, "reply after 4480 ms" with rows `user group assistant
+  footer`, the same row kinds as the Swift app.
+
 ### 2026-11-09 BearDock for GPUI
 
 - New crates: `desktop/dock/layout` (the tree, line for line from Swift, no GPUI)
