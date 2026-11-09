@@ -857,7 +857,7 @@ struct ThreadRowView: View {
                 .font(.system(size: TypeScale.sidebarMeta, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: zoomed(140), alignment: .trailing)
-                .tip(moving.line + ". Messages sent meanwhile go with it.")
+                .tip(moving.line)
             }
         } else if mode != .hibernating, let waiting = thread.waitingForRoom, !thread.isArchived {
             Text(Pools.waitingLine(waiting, now: app.now))
