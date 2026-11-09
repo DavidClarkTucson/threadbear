@@ -113,14 +113,23 @@ File references are where to look.
 - **The runner** listens on `127.0.0.1:8797` only, and needs a token
   (`runner/src/config.ts`). It starts the official `claude` and `codex`
   CLIs for your threads.
-- **Agents get full access by default.** Claude runs with
-  `bypassPermissions` and Codex with `danger-full-access`. "Ask before
-  edits" is a choice for each thread.
+- **New installs start threads on Auto.** On Auto, Claude runs with its
+  safety check approving or blocking each action, and Codex asks before
+  edits. An install set up before 9 Nov 2026 keeps starting threads on
+  full access (Claude with `bypassPermissions`, Codex with
+  `danger-full-access`). `"defaults": { "permissionMode": ... }` in
+  `runner.json` (`"full"`, `"auto"` or `"ask"`) sets it, and each thread
+  can pick its own. Three kinds of thread the runner starts by itself
+  always run on full access, whatever the default: bringing in Mike's
+  releases and fixing a failed update to main (both below), and a note
+  about this Mac (`runner/src/runner.ts`, `noticeOnMac`).
 - **Your phone and browser can drive the Mac.** A paired iPhone or a
   signed-in browser can start threads in any folder, send messages and
   answer approvals, through your Convex deployment (`runner/src/sync.ts`).
-  Those threads start on full access like any other, so treat a pairing like
-  a login to the Mac, and so is admin access to your Convex deployment.
+  Those threads start on your default mode like any other (full access on
+  an older install), and can be switched to full access from there, so
+  treat a pairing like a login to the Mac, and so is admin access to your
+  Convex deployment.
   Pairings last 90 days unless set otherwise, at most 365
   (`convex/tokens.ts`); Revoke in Settings › Phone & browser ends one.
 - **Following your main** (`runner/src/update.ts`, `app/Sources/Threadbear/AppUpdate.swift`):
@@ -133,6 +142,13 @@ File references are where to look.
   it reads macOS's sleep count (`pmset -g stats`, which changes nothing),
   so a step that failed while the Mac slept is tried again later (up to
   three times for the same commit) rather than taken as a broken main.
+  When the runner can't build your main or deploy your backend, it starts
+  a thread by itself, on full access with your own Claude or Codex login,
+  in the release's checkout (`runner/src/fix-update.ts`). That agent reads
+  the output, fixes the cause, lands the fix on your `main`, watches the
+  next build and archives itself once it goes through, so you only hear
+  about it when it needs you. A later failure goes to the same thread.
+  `followMain: false` turns this off with the rest.
 - **Schedule checks** (`runner/src/schedule-check.ts`, experiment
   `scheduleChecks`, off by default): a schedule's check command runs in
   `/bin/sh` before each run, as you, for at most a minute (or up to five,
@@ -154,7 +170,7 @@ File references are where to look.
   signature goes in a temp file under `$TMPDIR` for a moment), and copies
   the newest that passes into your checkout, as `refs/threadbear/upstream/`. It never changes your code by
   itself. Every 5 days, when there's one your copy doesn't have, it starts
-  one thread (on your own Claude or Codex login, like any thread) that
+  one thread (on your own Claude or Codex login, on full access) that
   merges it in a worktree, runs the checks and asks you before it lands
   (`runner/src/bring-in.ts`). A release Mike marks important starts one
   straight away. Settings › General › Updates from Mike, or
