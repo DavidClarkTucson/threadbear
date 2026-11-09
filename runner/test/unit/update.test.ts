@@ -7,7 +7,7 @@ import { tmpDir } from '../helpers/fakes.ts';
 import { FakeClock } from '../../src/clock.ts';
 import type { UpdateFailure } from '../../src/fix-update.ts';
 import { nullLogger } from '../../src/log.ts';
-import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, MAX_SLEPT_TRIES, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, type UpdateDeps } from '../../src/update.ts';
+import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, MAX_SLEPT_TRIES, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, buildTreeAt, type UpdateDeps } from '../../src/update.ts';
 import type { ReleaseJson } from '../../src/release.ts';
 import { patiently } from '../helpers/patience.ts';
 
@@ -562,4 +562,34 @@ test('a commit the Mac slept through every build of is marked failed after a few
   assert.equal(h.u.status().state, 'failed');
   assert.equal(failures.length, 1);
   assert.match(failures[0]!.error, /slept through all 3 tries at this commit/);
+});
+
+// A failure is keyed by runner/ and, in a repo that has them, check.sh and
+// scripts/, as the self-update's checks run through those (Codex, 9 Nov).
+test('buildTreeAt changes with check.sh or scripts/, not with other files', async () => {
+  const dir = tmpDir();
+  const g = (...a: string[]) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
+  g('init', '-q');
+  g('config', 'user.email', 't@t'); g('config', 'user.name', 't');
+  fs.mkdirSync(path.join(dir, 'runner', 'src'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'scripts'));
+  fs.writeFileSync(path.join(dir, 'runner', 'src', 'a.ts'), '1');
+  fs.writeFileSync(path.join(dir, 'check.sh'), '1');
+  fs.writeFileSync(path.join(dir, 'scripts', 'check-remote.sh'), '1');
+  fs.writeFileSync(path.join(dir, 'README.md'), '1');
+  const commit = () => (g('add', '-A'), g('commit', '-qm', 'x'));
+  commit();
+  const first = await buildTreeAt(dir, 'runner/');
+  fs.writeFileSync(path.join(dir, 'README.md'), '2');
+  commit();
+  assert.equal(await buildTreeAt(dir, 'runner/'), first);
+  fs.writeFileSync(path.join(dir, 'check.sh'), '2');
+  commit();
+  const second = await buildTreeAt(dir, 'runner/');
+  assert.notEqual(second, first);
+  fs.writeFileSync(path.join(dir, 'scripts', 'check-remote.sh'), '2');
+  commit();
+  assert.notEqual(await buildTreeAt(dir, 'runner/'), second);
+  // A runner that is the repo itself (no prefix): just its tree.
+  assert.equal(await buildTreeAt(dir, ''), g('rev-parse', 'HEAD:').stdout.trim());
 });

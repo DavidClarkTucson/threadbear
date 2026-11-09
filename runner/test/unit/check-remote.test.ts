@@ -549,9 +549,14 @@ test('with THREADBEAR_CHECK_BUSY_EXIT, no room exits with it, and a run over tim
   const r = low.run('h1', 3600, '', { RSYNC_FAILS_ON: 'h1', THREADBEAR_CHECK_BUSY_EXIT: '69' });
   assert.equal(r.status, 69, r.stdout + r.stderr);
   assert.match(r.stderr, /No check host has room for this check/);
-  const s = setup({ h1: { state: 'free' } });
-  const hung = s.run('h1', 3600, 'sleep 30', { THREADBEAR_CHECK_PING_SECS: '1', THREADBEAR_CHECK_MAX_SECS: '3', THREADBEAR_CHECK_BUSY_EXIT: '69' });
+  const limits = { THREADBEAR_CHECK_PING_SECS: '1', THREADBEAR_CHECK_MAX_SECS: '3', THREADBEAR_CHECK_BUSY_EXIT: '69' };
+  // Started: --on-host has moved its copy out of runs/ (the fake ssh doesn't
+  // run --on-host, so the peek does the move's part), then a step hangs.
+  const hung = setup({ h1: { state: 'free' } }).run('h1', 3600, 'rm -rf "$PWD"; sleep 30', limits);
   assert.equal(hung.status, 1, hung.stdout + hung.stderr);
+  // Still waiting for the host's lock: its copy is where it was sent.
+  const queued = setup({ h1: { state: 'free' } }).run('h1', 3600, 'sleep 30', limits);
+  assert.equal(queued.status, 69, queued.stdout + queued.stderr);
 });
 
 test('a copy that fails on a host short of room still goes on to one with room', () => {

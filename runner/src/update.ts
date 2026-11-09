@@ -281,13 +281,31 @@ export async function syncClone(checkout: string, prefix: string, dir: string): 
   }
   const tree = await releaseTreeAtAsync(dir, prefix, 'HEAD');
   if (!tree) throw new Error(`main in ${checkout} has no ${prefix}src to build`);
-  const buildTree = await gitAsync(dir, ['rev-parse', `HEAD:${prefix.replace(/\/$/, '')}`]);
+  const buildTree = await buildTreeAt(dir, prefix);
   const [commit, short, subject] = await Promise.all([
     gitAsync(dir, ['rev-parse', 'HEAD']),
     gitAsync(dir, ['rev-parse', '--short', 'HEAD']),
     gitAsync(dir, ['log', '-1', '--format=%s']),
   ]);
   return { commit, short, subject, tree, buildTree };
+}
+
+// What a failed build is keyed by: the whole of runner/, plus check.sh and
+// scripts/ when the runner sits in a repo that has them, as deploy.mjs's
+// checks run through those on a check host (deploy-steps.mjs, remoteChecks),
+// so a commit that only fixes one of them is built again (Codex, 9 Nov).
+export async function buildTreeAt(dir: string, prefix: string): Promise<string> {
+  const runner = await gitAsync(dir, ['rev-parse', `HEAD:${prefix.replace(/\/$/, '')}`]);
+  if (!prefix) return runner;
+  const extra: string[] = [];
+  for (const p of ['check.sh', 'scripts']) {
+    try {
+      extra.push(await gitAsync(dir, ['rev-parse', `HEAD:${p}`]));
+    } catch {
+      // not in this repo
+    }
+  }
+  return [runner, ...extra].join(' ');
 }
 
 // deploy.mjs from the clone, stopping after it has pointed current at the

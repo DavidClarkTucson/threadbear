@@ -630,7 +630,15 @@ while :; do
   local_logs="$(mktemp -d "${TMPDIR:-/tmp}/threadbear-check-remote.XXXXXX")"
   watched "$HOST" "${SSH[@]}" "$HOST" "$remote_cmd" 2>&1 | rewrite_logs "$remote_base/tmp-$id/threadbear-check." "$local_logs"
   code=${PIPESTATUS[0]}
-  [ "$code" != 125 ] || { rmdir "$local_logs" 2>/dev/null; over_time; }
+  if [ "$code" = 125 ]; then
+    rmdir "$local_logs" 2>/dev/null
+    # Still waiting for the host's lock, the check never started: its copy is
+    # still under runs/, which --on-host moves out once it has the lock. A
+    # host that doesn't answer is taken as still waiting too; a run that did
+    # start (a hung step) is the check's own failure (Codex, 9 Nov).
+    if ! timed 15 "${SSH[@]}" "$HOST" "test ! -d '$remote_run'" >/dev/null 2>&1; then over_time busy; fi
+    over_time
+  fi
   # 255 is ssh's own: the connection went before the check ended. Like a host
   # that stops answering, it's the next host's (or, with none, this Mac's): a
   # run that can't finish anywhere would hold the landing for nothing.
