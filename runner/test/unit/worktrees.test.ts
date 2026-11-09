@@ -1263,6 +1263,81 @@ test("a worktree folder swapped for a link while the cleanup reads its status ne
 
 // A .git swapped for a fifo (or any git that hangs) used to hold the cleanup,
 // and everything waiting on it, for ever.
+// A git ahead of the real one on PATH whose `case` arm for `match` (a word
+// in its arguments) runs `body` (with $REAL the real git), and git's time
+// limit set to `limitMs`, until the function it returns is called.
+function wrapGit(match: string, body: string, limitMs = gitLimits.timeoutMs): () => void {
+  const realGit = sh('/', 'command -v git');
+  const bin = tmpDir('tb-wrap-git-');
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nREAL='${realGit}'\ncase " $* " in *" ${match} "*) ${body} ;; esac\nexec "$REAL" "$@"\n`, { mode: 0o755 });
+  const before = process.env.PATH;
+  const limit = gitLimits.timeoutMs;
+  process.env.PATH = `${bin}${path.delimiter}${before}`;
+  gitLimits.timeoutMs = limitMs;
+  return () => {
+    process.env.PATH = before;
+    gitLimits.timeoutMs = limit;
+  };
+}
+
+// Codex's third look, 9 Nov: the removal accepted the folder on any branch,
+// so a switch while status ran had --force take edits made on the new one.
+test('a worktree switched to another branch while the cleanup reads its status is left alone, edits and all', async () => {
+  const { main } = makeRepo();
+  const t = makeBranch(main);
+  write(t.path, { 'scratch.txt': 'untracked, so it would be --force\n' });
+  const restore = wrapGit('status', `out=$("$REAL" "$@"); code=$?; "$REAL" -C '${t.path}' checkout -q -b other; echo edit > '${t.path}/after.txt'; printf '%s\\n' "$out"; exit $code`);
+  let result;
+  try {
+    const rec = { repo: 'proj', mainCheckout: main, path: t.path, branch: t.branch, base: sh(main, 'git rev-parse main') };
+    result = await cleanUpWorktree(rec);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(result, { removed: false, reason: `its folder ${t.path} changed while it was being cleaned up, so it was left alone` });
+  assert.equal(fs.readFileSync(path.join(t.path, 'after.txt'), 'utf8'), 'edit\n');
+  assert.equal(sh(t.path, 'git rev-parse --abbrev-ref HEAD'), 'other');
+});
+
+test("a git that times out checking the branch is there stops the cleanup, rather than reading as no branch", async () => {
+  const { main } = makeRepo(PATCH(`{ keep: ["app/.build"] }`));
+  const t = makeBranch(main);
+  commit(t.path, { 'runner/b.ts': '2\n' }, 'Not landed');
+  const restore = wrapGit('--verify', 'exec sleep 30', 300);
+  let result;
+  try {
+    const rec = { repo: 'proj', mainCheckout: main, path: t.path, branch: t.branch, base: sh(main, 'git rev-parse main'), keep: ['app/.build'] };
+    result = await cleanUpWorktree(rec);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(result, { removed: false, reason: `git couldn't tell whether ${t.branch} is still there` });
+  assert.equal(sh(t.path, 'git rev-parse --abbrev-ref HEAD'), t.branch, 'not detached or pooled');
+  assert.ok(!sh(main, 'git worktree list --porcelain').includes('locked'));
+});
+
+test("tb land counts a git that times out reading what's to land as a failure, not as nothing to land", async () => {
+  for (const [match, said] of [['log', /^Couldn't read what thread\/abcd1234 has to land/], ['rev-list', /^Couldn't read thread\/abcd1234's history/]] as const) {
+    const { main } = makeRepo();
+    const t = makeBranch(main);
+    commit(t.path, { 'runner/b.ts': '2\n' }, 'Work');
+    const before = sh(main, 'git rev-parse main');
+    const c = capture();
+    const restore = wrapGit(match, 'exec sleep 30', 300);
+    let code;
+    try {
+      code = await land(t, c.opts);
+    } finally {
+      restore();
+    }
+    assert.equal(code, 1, match);
+    assert.ok(!c.out.some((l) => l.startsWith('Nothing to land')), match);
+    assert.ok(c.err.some((l) => said.test(l)), `${match}: ${c.err.join('\n')}`);
+    assert.equal(sh(main, 'git rev-parse main'), before, `${match}: main didn't move`);
+    assert.equal(sh(t.path, 'git rev-list --count main..HEAD'), '1', `${match}: the branch is as it was`);
+  }
+});
+
 test('git gives up after its time limit, and that counts as a failure', async () => {
   const { main } = makeRepo();
   const t = makeBranch(main);

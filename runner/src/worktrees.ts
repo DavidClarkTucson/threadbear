@@ -65,7 +65,10 @@ export function git(cwd: string, args: string[]): Promise<GitResult> {
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX']) delete env[k];
   return new Promise((resolve) => {
     execFile('git', ['-C', cwd, ...args], { env, maxBuffer: 16 * 1024 * 1024, timeout: gitLimits.timeoutMs, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0;
+      // Killed (past the limit) is -1, never 1: callers read git's own 1 as
+      // an answer ("no such ref", "not an ancestor").
+      const e = err as { code?: unknown; signal?: unknown } | null;
+      const code = !e ? 0 : typeof e.code === 'number' ? e.code : e.signal ? -1 : 1;
       resolve({ ok: !err, code, stdout: String(stdout), stderr: String(stderr) });
     });
   });
@@ -390,7 +393,11 @@ async function landLocked(t: LandTarget, opts: LandOptions): Promise<number> {
   // is never rebased, as that flattens the merge and rewrites his commits,
   // and then the copy never looks up to date with his release again. It
   // merges main in instead, when main has moved.
-  const hasMerge = Boolean(await gitOut(t.path, ['rev-list', '--merges', `${MAIN}..${t.branch}`]));
+  // Unreadable (git timed out) is a failure, never "no merges": that would
+  // rebase a merge flat (Codex's third look, 9 Nov).
+  const merges = await gitOut(t.path, ['rev-list', '--merges', `${MAIN}..${t.branch}`]);
+  if (merges === undefined) return fail(`Couldn't read ${t.branch}'s history in ${t.path}, so nothing landed. Run tb land again.`);
+  const hasMerge = Boolean(merges);
   const behind = !(await git(t.path, ['merge-base', '--is-ancestor', MAIN, t.branch])).ok;
   if (hasMerge && behind) {
     const merged = await git(t.path, ['merge', '--no-edit', MAIN]);
@@ -422,7 +429,9 @@ async function landLocked(t: LandTarget, opts: LandOptions): Promise<number> {
     }
   }
 
-  const commits = (await gitOut(t.path, ['log', '--oneline', '--first-parent', `${MAIN}..${t.branch}`])) ?? '';
+  // Unreadable is a failure, not "nothing to land".
+  const commits = await gitOut(t.path, ['log', '--oneline', '--first-parent', `${MAIN}..${t.branch}`]);
+  if (commits === undefined) return fail(`Couldn't read what ${t.branch} has to land in ${t.path}, so nothing landed. Run tb land again.`);
   if (!commits) {
     out(`Nothing to land: ${t.branch} has no commits that aren't on ${MAIN}.`);
     return 0;
@@ -619,21 +628,22 @@ export function readPlainFile(file: string, max = 1024 * 1024): string | undefin
 }
 
 // The worktree's folder, as a real path, if right now it's the worktree git
-// made there (isWorktreeItself) and, with `onBranch`, has the thread's branch
-// checked out, read from its own HEAD. Synchronous, so it can be the last
+// made there (isWorktreeItself) and its own HEAD is `head`: the thread's
+// branch, or the commit a cleanup detached it at. Never any HEAD at all: a
+// switch to another branch while the cleanup's status ran, then removing it
+// with --force, took edits made on that branch (Codex's third look, 9 Nov). Synchronous, so it can be the last
 // thing before running something there or changing it, with nothing awaited
 // between: checked before an await, a swap for a link to the main checkout
 // while git answered passed, and the teardown ran in main (Codex's second
 // look, 9 Nov). Run there by the path this returns.
-export function worktreeFolderNow(w: WorktreeRecord, onBranch = true): string | undefined {
+export function worktreeFolderNow(w: WorktreeRecord, head = `ref: refs/heads/${w.branch}`): string | undefined {
   if (!isWorktreeItself(w)) return undefined;
   const real = realpath(w.path);
-  if (!onBranch) return real;
   const dotGit = readPlainFile(path.join(real, '.git'), 8192);
   const named = dotGit?.split('\n').find((l) => l.startsWith('gitdir:'))?.slice('gitdir:'.length).trim();
   if (!named) return undefined;
-  const head = readPlainFile(path.join(path.resolve(real, named), 'HEAD'), 8192);
-  return head?.trim() === `ref: refs/heads/${w.branch}` ? real : undefined;
+  const now = readPlainFile(path.join(path.resolve(real, named), 'HEAD'), 8192);
+  return now?.trim() === head ? real : undefined;
 }
 
 // Whether the worktree's folder is still a checkout of its own branch, so
@@ -656,7 +666,12 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
   // waiting for a slow git after a while, and from then the folder may be
   // the new runner's to use, so nothing more is changed here.
   const LET_GO: Cleanup = { removed: false, reason: 'the thread was handed to another runner' };
-  let branchThere = (await git(w.mainCheckout, ['rev-parse', '--verify', '--quiet', `refs/heads/${w.branch}`])).ok;
+  // git's own 1 is "no such ref"; anything else (it timed out, no repo
+  // there) says nothing, and reading it as gone would remove or pool a
+  // checkout whose branch has work on it (Codex's third look, 9 Nov).
+  const ref = await git(w.mainCheckout, ['rev-parse', '--verify', '--quiet', `refs/heads/${w.branch}`]);
+  if (!ref.ok && ref.code !== 1) return { removed: false, reason: `git couldn't tell whether ${w.branch} is still there` };
+  let branchThere = ref.ok;
   if (branchThere) {
     const merged = await git(w.mainCheckout, ['merge-base', '--is-ancestor', w.branch, MAIN]);
     if (!merged.ok) return { removed: false, reason: `${w.branch} has commits that aren't on ${MAIN}` };
@@ -689,7 +704,8 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
     // main checkout while an earlier git ran would otherwise have main's
     // status read as this one's and main's checkout detached.
     const CHANGED: Cleanup = { removed: false, reason: `its folder ${w.path} changed while it was being cleaned up, so it was left alone` };
-    let here = worktreeFolderNow(w);
+    let head = `ref: refs/heads/${w.branch}`;
+    let here = worktreeFolderNow(w, head);
     if (!here) return CHANGED;
     const status = await gitOut(here, ['status', '--porcelain', '--untracked-files=all']);
     if (status === undefined) return { removed: false, reason: `git couldn't read ${w.path}` };
@@ -701,7 +717,11 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
       if (!stillOurs()) return LET_GO;
       here = worktreeFolderNow(w);
       if (!here) return CHANGED;
+      const tip = await gitOut(here, ['rev-parse', 'HEAD']);
+      if (!tip) return { removed: false, reason: `git couldn't read ${w.path}` };
       if ((await git(here, ['checkout', '-q', '--detach'])).ok) {
+        // From here it's on that commit, detached, not on the branch.
+        head = tip;
         if (!stillOurs()) return LET_GO;
         if (branchThere && (await git(w.mainCheckout, ['branch', '-D', w.branch])).ok) branchThere = false;
         if (!stillOurs()) return LET_GO;
@@ -711,8 +731,9 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
     }
     const args = ['worktree', 'remove', ...(lines.length ? ['--force'] : []), w.path];
     if (!stillOurs()) return LET_GO;
-    // Detached by now, perhaps (a spare that couldn't be locked).
-    if (!worktreeFolderNow(w, false)) return CHANGED;
+    // On its branch still, or detached just above (a spare that couldn't be
+    // locked), and nothing else.
+    if (!worktreeFolderNow(w, head)) return CHANGED;
     const rm = await git(w.mainCheckout, args);
     if (!rm.ok) return { removed: false, reason: `git worktree remove failed: ${firstLine(rm.stderr)}` };
   } else {

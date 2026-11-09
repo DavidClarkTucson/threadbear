@@ -162,8 +162,11 @@ else (git's own list follows one, so a link to the main checkout passed
 for the worktree, Codex's review, 9 Nov), and its own `.git` names the
 repo's record of it, which names it back, checked again just before
 each git that reads or changes the folder and just before the teardown
-starts, which then runs by the path checked. Every git the cleanup runs
-is killed after five minutes and counts as failed. Slot folders are reused, and a record can miss hearing its worktree
+starts, which then runs by the path checked, on the thread's branch (or,
+for the removal, the commit the cleanup itself detached it at), never
+another. Every git the cleanup runs is killed after five minutes and counts
+as failed, which stops the cleanup rather than reading as an answer (a
+branch that isn't there, say); `tb land` stops the same way. Slot folders are reused, and a record can miss hearing its worktree
 went (THREADBEAR-16, 6 Nov: a handover saved it while the cleanup ran; a
 handover now keeps that thread until the cleanup is done, for up to ten
 minutes, while the rest move across). A folder that's
