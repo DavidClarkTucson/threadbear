@@ -652,6 +652,17 @@ enum Automation {
             guard let id = target.id else { return target.error }
             app.archive(id)
             return "ok \(id)"
+        case "move":
+            // Opens the Move sheet for a thread and a runner (by name), as
+            // Move to ▸ that runner in its menu does.
+            let target = target(c, app)
+            guard let id = target.id else { return target.error }
+            let want = (c["runner"] as? String ?? "").lowercased()
+            guard let thread = app.threads[id], let runner = app.moveTargets(for: thread).first(where: { $0.name.lowercased() == want || $0.id == want }) else {
+                return "error no runner \(want) to move it to"
+            }
+            app.openMove(id, to: runner)
+            return "ok \(id)"
         case "star", "unstar":
             let target = target(c, app)
             guard let id = target.id else { return target.error }
