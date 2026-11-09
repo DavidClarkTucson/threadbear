@@ -951,6 +951,7 @@ export const ErrorCode = {
   convexSignedOut: -32040, // the runner's Convex CLI isn't signed in ("The Convex panel")
   convexNoAccess: -32041, // its Convex login can't reach the deployment
   backgroundRunning: -32050, // threads.edit without stopBackground while background work runs
+  notAllowed: -32060, // the calling thread doesn't have the access for this (A thread's own key)
   other: -32000,
 } as const;
 

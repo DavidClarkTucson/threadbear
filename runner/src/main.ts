@@ -5,6 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { readShareImage } from './share-images.ts';
+import { CallerGate } from './rpc-gate.ts';
+import { threadOfPort } from './peer.ts';
+import { threadKey as makeThreadKey } from './rpc-auth.ts';
 import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError } from './config.ts';
 import { startHousekeeping } from './housekeeping.ts';
 import { RELEASE, markConfigStop, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
@@ -283,6 +286,7 @@ async function main(): Promise<void> {
   let atMac: boolean | undefined;
   const instructions = new InstructionsStore({ home: cfg.home, token, publish: (n) => runner.publish(n) });
   runner = new Runner({
+    threadKey: (id) => makeThreadKey(token, id),
     standingInstructions: () => instructions.given(),
     projects,
     atMac: () => atMac,
@@ -913,6 +917,8 @@ async function main(): Promise<void> {
     methods,
     remote: peers,
     relay,
+    gate: new CallerGate({ runner, remote: peers, schedules: scheduler }),
+    callerOfPort: (port) => threadOfPort(port, { registry, known: (id) => runner.has(id) || peers.owns(id), log }),
     updates: () => (draining ? undefined : runnerUpdates()),
     appHello: (build) => appRestarts.appHello(build),
     helloNotices: () => {

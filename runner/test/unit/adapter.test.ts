@@ -123,8 +123,13 @@ test("a folder's own settings load normally; with untrusted Claude settings, onl
 test("F2/F8: a session started in Full with a folder's untrusted permission rules can make every tool ask once the thread leaves Full", async () => {
   const plain = start();
   assert.equal(plain.state.options.hooks.PreToolUse.length, 1, "only the edit check's hook, and no round trip per tool, where none is needed");
-  assert.doesNotMatch('Read', new RegExp(`^(${plain.state.options.hooks.PreToolUse[0].matcher})$`), 'not for tools that never queue');
+  // Reads are only hooked below Full, to keep them from the runner's secrets.
+  const matchesRead = (s: typeof plain) => new RegExp(`^(${s.state.options.hooks.PreToolUse[0].matcher})$`).test('Read');
+  assert.equal(matchesRead(plain), true, 'below Full: Read is checked for the secrets folder');
   plain.state.close!();
+  const full = start([], { permissionMode: 'full' });
+  assert.equal(matchesRead(full), false, 'on Full, no round trip per Read');
+  full.state.close!();
   const held = start([], { permissionMode: 'full', heldGrants: true });
   assert.ok(held.state.options.hooks.PreToolUse[0].matcher, 'the edit check stays');
   const pre = held.state.options.hooks.PreToolUse[1].hooks[0];

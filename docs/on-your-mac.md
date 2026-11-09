@@ -112,7 +112,11 @@ File references are where to look.
   Another landing waits; exiting, including a crash, releases the lock.
 - **The runner** listens on `127.0.0.1:8797` only, and needs a token
   (`runner/src/config.ts`). It starts the official `claude` and `codex`
-  CLIs for your threads.
+  CLIs for your threads. Each thread's CLI gets a key of its own in its
+  environment (`THREADBEAR_THREAD_KEY`), never the token. When something
+  connects, the runner runs `lsof` and `ps` on that one connection to see
+  which process it is and whether it's under a thread's CLI
+  (`runner/src/peer.ts`, docs/protocol.md "Who's really calling").
 - **With the `acpAgents` experiment on** (off by default) it also starts the
   `opencode acp` and Cursor's `agent acp` CLIs for threads on them, and each
   live thread on one has a listener on `127.0.0.1` on a port the system picks,

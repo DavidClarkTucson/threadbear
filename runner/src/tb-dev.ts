@@ -6,7 +6,8 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaultHome, readToken, runnerUrl, type Config } from './config.ts';
+import { defaultHome, runnerUrl, type Config } from './config.ts';
+import { newTbClient } from './tb-connect.ts';
 import { RunnerClient, RpcClientError } from './client.ts';
 import { ErrorCode, type Account, type ImageRef, type PersistedEvent, type RunnerDefaults, type ThreadSummary } from './protocol.ts';
 import { providerName } from './providers.ts';
@@ -863,7 +864,7 @@ async function runnerLogFile(cfg: Config): Promise<string | undefined> {
   let client: RunnerClient | undefined;
   let timer: NodeJS.Timeout | undefined;
   try {
-    client = new RunnerClient(url, readToken(cfg.home));
+    client = newTbClient(cfg, url);
     const c = client;
     const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('timeout')), 1500)));
     const s = await Promise.race([c.opened.then(() => c.call<RunnerStatus>('runner.status')), timeout]);

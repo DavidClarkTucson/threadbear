@@ -503,6 +503,9 @@ export const SAVE_RETRY_MS = 5000;
 export type RunnerDeps = {
   // The release it runs, when not this code's own (tests).
   release?: string;
+  // A thread's RPC credential, for its CLI's environment (rpc-auth.ts).
+  // Without it (tests), a thread's tb reads the token as before.
+  threadKey?: (threadId: string) => string;
   config: Config;
   store: ThreadStore;
   adapters: Record<string, AgentAdapter>;
@@ -711,7 +714,9 @@ export class Runner {
   appRestartAsked?: (threadId: string) => void;
   atMac?: () => boolean | undefined;
 
+  private threadKey?: (threadId: string) => string;
   constructor(deps: RunnerDeps) {
+    this.threadKey = deps.threadKey;
     if ('release' in deps) this.release = deps.release;
     this.cfg = deps.config;
     this.store = deps.store;
@@ -1854,7 +1859,9 @@ export class Runner {
         blobsDir: this.store.blobsDir(rec.id),
         tmpDir: path.join(paths.run(this.cfg.home), 'tmp'),
         allowRules: rec.allowRules ?? [],
-        env: threadEnv(rec.id, this.cfg.home),
+        // A sandboxed thread gets no key: nothing in the sandbox should
+        // reach the runner's RPC at all.
+        env: threadEnv(rec.id, this.cfg.home, undefined, rec.confined ? undefined : this.threadKey?.(rec.id)),
         ...this.briefFor(rec, resume),
         ...(rt.claudeSkipped ? { untrustedProjectSettings: claudeSettingsWithoutCommands(rec.cwd) } : {}),
         // Read at each call, from the thread's folder then.

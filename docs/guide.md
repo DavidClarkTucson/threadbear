@@ -346,7 +346,7 @@ failed update, start on it too, so on Ask before edits (or Auto on Codex,
 which asks before edits) they wait for you to allow what they need. Deleting
 a thread is one thing an agent always has to ask about, whatever the mode.
 
-An agent in Ask before edits or Auto can't give itself more room. Switching
+An agent in Ask before edits or Auto can't give itself more room, with its tools or with `tb`: `tb` in a thread signs in with that thread's own key and gets what the thread can do, and anything more is refused with a pointer to the tool that can ask you on a card. Switching
 any thread or schedule to more access, starting a thread with more access
 than its own (the threads it starts get its mode), messaging or moving a
 thread that has more, changing the brief of a project such a thread is in,

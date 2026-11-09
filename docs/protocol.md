@@ -72,6 +72,47 @@ draining runner closes its server before its drain file goes, so its port
 can be someone else's while its pid lives on. Anything else counts as the
 draining runner gone.
 
+**A thread's own key.** A thread's CLI gets `THREADBEAR_THREAD_KEY` in its
+environment, never the runner's token: HMAC-SHA256, keyed with the token's
+UTF-8 bytes, of `"threadbear-thread-key-v1\n" + threadId`, lowercase hex. `tb`
+in a thread answers the challenge with the key in place of the token, and adds
+`"threadId"` to `auth.prove`'s params. The runner works the key out from the
+id, so it keeps nothing per thread and a key only ever names its own thread.
+`tb` falls back to the token only when it's pointed at another runner's data
+dir (a dev runner) or when it has no key. A sandboxed thread gets no key. A
+thread that started before this (an older runner's CLI still finishing a turn)
+has none either, and its older `tb` carries on as before until its next start.
+
+The connection then belongs to that thread: every request is checked against
+what the thread can do at that moment (`runner/src/rpc-gate.ts`), by the same
+rules as its threadbear tools ("Raising access"). A thread on Full access
+outside a sandbox isn't limited. Any other gets the reads, and the writes that
+don't reach past it: a thread or schedule at most as high as its own
+(`permissionMode` is filled in with the caller's when left out), a message to
+a thread no higher, lowering a mode, renaming, snoozing or archiving another
+thread, moving a thread no higher (`unconfine` is forced false). Anything else
+is refused with `-32060`, whose message says which tool to use instead. Unknown
+methods are refused too. In particular it can't answer a card
+(`approvals.respond`, `plans.approve`, `secrets.answer`), press a button, run
+an action, trust a patch, set instructions, delete a thread, restart the runner
+or change settings; these all need the Mac app or a thread with Full access.
+`auth.whoami` (any authenticated client) says who the runner took the caller
+for: `{}` for its owner, or `{"threadId", "mode", "limited"}`.
+
+**Who's really calling.** A key can be got round by wiping it from the
+environment and reading the token file, so the runner doesn't only go by what's
+presented. After auth it finds the process at the other end of the connection
+(`lsof` on the client's port) and walks up its parents; if one is a thread's
+CLI, the connection is that thread, whatever it authenticated with. So the token
+in a thread's shell, or a key lifted from another thread's environment with
+`ps eww`, is worth no more than the thread's own mode. A client that isn't under
+a CLI (the app, a terminal, a patch's action, the runner's own jobs) is what it
+says it is. If the lookup fails (no `lsof`), the runner goes by the credential.
+A process that deliberately detaches from its thread's tree and reads the token
+can still pass as the owner, which is why outside Full access Claude's file and
+shell tools are denied the runner's `secrets` folder as well; that deny is
+defence in depth (`SECURITY.md` says what's out of scope).
+
 **Limits before auth.** Until a connection has authenticated, a frame is at
 most 64 KiB (more closes it with 1009), there are 3 seconds to finish, and
 anything but `auth.prove` or `auth` (a binary frame, bad JSON, a wrong
@@ -1052,7 +1093,7 @@ the summary and then the reply.
 | `usage.stats` | `{ days?: number }` | `UsageStats` (see Usage history): each login's tokens by the hour and its limit readings over time, for the Usage panel's charts. `days` is 1 to 14 (default 8). A runner older than this answers `-32601` |
 
 Errors use JSON-RPC error objects: `-32602` bad params, `-32004` thread not
-found, `-32005` schedule not found, `-32006` sub-agent not found, `-32007` project not found, `-32010` account not found, `-32020` busy (e.g. two sends racing), `-32030` a draining runner no longer holds that thread (Handovers), `-32050` background work would be stopped (`threads.edit`),
+found, `-32005` schedule not found, `-32006` sub-agent not found, `-32007` project not found, `-32010` account not found, `-32020` busy (e.g. two sends racing), `-32030` a draining runner no longer holds that thread (Handovers), `-32050` background work would be stopped (`threads.edit`), `-32060` the calling thread doesn't have the access for this (A thread's own key),
 `-32601` a method this runner doesn't have (`clis.*` on a runner older than
 them), `-32000` anything else with a readable `message`.
 
