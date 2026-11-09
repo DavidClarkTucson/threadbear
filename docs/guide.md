@@ -633,11 +633,21 @@ finds it as you left it. A thread on another Mac or the cloud gets a shell
 on this Mac in your home folder, with a line saying so, and so do an
 archived thread (its worktree may be another thread's by now) and the
 new-thread page. If the shell exits, New Shell starts another. A shell
-only starts when you ask for one, with ⌘J or a click on the empty panel,
-so looking through threads with it open starts nothing. A thread's shell
+only starts when you ask for one, with ⌘J, a click on the empty panel or
+a command's play icon (below), so looking through threads with it open starts nothing. A thread's shell
 stops when the thread is archived or deleted, and they all stop when you
 quit Threadbear. The Terminal is a panel like the others: drag it
 beside the thread, into a tab, or out into a window of its own.
+
+A shell command an agent gives you (a ```` ```bash ````, `sh`, `zsh` or
+`shell` block) has a play icon and a copy icon at its top right. Play
+opens the Terminal with the command typed at the prompt and the keyboard
+there, and you press Return, so you see it before it runs. If something is
+already running in that shell, nothing gets typed into it: the command
+goes on the clipboard and a bubble says so. Play isn't there on a thread
+on another Mac or the cloud, or an archived one, as this Mac's shell
+wouldn't be in the right place; Copy still is. It's on the Mac app only.
+A block with control or invisible characters in it has no play icon.
 
 ## Highlights
 <!-- slug: highlights -->

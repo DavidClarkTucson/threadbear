@@ -15,8 +15,8 @@ import ThreadbearCore
 /// line saying so, as its folder isn't here. With no thread open it's a
 /// shell in your home folder too.
 ///
-/// A shell only starts when you ask for one: ⌘J, or clicking the empty
-/// panel. Clicking through threads with the panel open, or launching with
+/// A shell only starts when you ask for one: ⌘J, clicking the empty
+/// panel, or a ```bash block's play icon. Clicking through threads with the panel open, or launching with
 /// it left open, starts nothing, as each login shell reads your whole
 /// profile. A thread's shell stops when the thread is archived or deleted
 /// (a dev server left running there would otherwise keep going in a
@@ -76,6 +76,41 @@ final class Terminals {
         for key in sessions.keys where key != "home" && !keep.contains(key) { stop(threadId: key) }
     }
 
+    enum PutOutcome { case typed, alreadyThere, busy }
+
+    /// Threads with a command on its way, so a second click while the shell
+    /// is still starting doesn't queue another.
+    @ObservationIgnored private var putting: Set<String> = []
+
+    /// Types `block` at the target's prompt, starting a shell if it needs
+    /// one, and gives it the keyboard. Never presses Return: the command
+    /// came out of a reply, so a person gets to read it first.
+    func put(_ block: ShellBlock, in target: TerminalTarget, done: @escaping @MainActor (PutOutcome) -> Void) {
+        guard putting.insert(target.key).inserted else { return }
+        if sessions[target.key]?.exited == true { restart(target.key) }
+        let session = open(target)
+        Task { @MainActor [weak self] in
+            defer { self?.putting.remove(target.key) }
+            while true {
+                switch session.putStep(for: block) {
+                case .wait:
+                    try? await Task.sleep(for: .milliseconds(50))
+                case .type:
+                    session.put(block.command)
+                    return done(.typed)
+                case .replaceLast:
+                    session.clearLastPut()
+                    session.put(block.command)
+                    return done(.typed)
+                case .alreadyThere:
+                    return done(.alreadyThere)
+                case .busy:
+                    return done(.busy)
+                }
+            }
+        }
+    }
+
     /// A new shell in place of one that has exited.
     func restart(_ key: String) {
         guard let old = sessions[key] else { return }
@@ -129,6 +164,16 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
     @ObservationIgnored let view: LocalProcessTerminalView
     private(set) var exited = false
     private(set) var title = ""
+    @ObservationIgnored let startedAt = Date()
+    /// How long a new shell may take to reach its first prompt. A slower
+    /// one is treated as having no bracketed paste: one line still goes
+    /// in, and the tty holds it until the shell reads it.
+    static let startingFor: TimeInterval = 6
+    /// What a play icon last put at this shell's prompt.
+    @ObservationIgnored private var lastPut: String?
+    /// A command is waiting at the prompt for Return, so the panel says so.
+    private(set) var waitingForReturn = false
+    @ObservationIgnored private var returnWatch: Task<Void, Never>?
 
     init(target: TerminalTarget) {
         self.target = target
@@ -173,6 +218,57 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
         let pid = view.process?.shellPid ?? 0
         if pid > 0, !exited { kill(pid, SIGHUP) }
         view.removeFromSuperview()
+    }
+
+    /// What putting `block` in this shell should do now (TerminalPut).
+    func putStep(for block: ShellBlock, now: Date = Date()) -> TerminalPut.Step {
+        let state = view.terminalStateSnapshot()
+        let pid = view.process?.shellPid ?? 0
+        let fd = view.process?.childfd ?? -1
+        // The foreground job of the shell's terminal: the shell itself, or
+        // whatever it's running (vim, a dev server, a command still going).
+        let inFront = pid > 0 && fd >= 0 && tcgetpgrp(fd) == pid
+        return TerminalPut.step(for: block, shellInFront: inFront, bracketedPaste: state.bracketedPasteMode,
+                                starting: now.timeIntervalSince(startedAt) < Self.startingFor, lastPut: lastPut,
+                                screen: { state.visibleRows.map(\.text).joined(separator: "\n") })
+    }
+
+    /// Pasted as the terminal's own paste is: bracketed where the shell
+    /// asked for that, so a newline in it doesn't run anything.
+    func put(_ text: String) {
+        lastPut = text
+        view.pasteText(text)
+        watchForReturn(text)
+    }
+
+    /// Shows the hint until the command has gone from the end of the
+    /// screen: run, edited, or cleared. Stops by itself after a while, so a
+    /// command left there overnight costs nothing.
+    private func watchForReturn(_ text: String) {
+        returnWatch?.cancel()
+        waitingForReturn = true
+        returnWatch = Task { @MainActor [weak self] in
+            // Time for the shell to echo it before it's looked for.
+            try? await Task.sleep(for: .milliseconds(400))
+            for _ in 0..<600 {
+                guard let self, !Task.isCancelled else { return }
+                let screen = self.view.terminalStateSnapshot().visibleRows.map(\.text).joined(separator: "\n")
+                if !TerminalPut.endsWith(screen, text) { break }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            guard !Task.isCancelled else { return }
+            self?.waitingForReturn = false
+        }
+    }
+
+    /// Deletes the last command put here, which is known to be everything
+    /// on the prompt (TerminalPut.replaceLast). Ctrl-U clears a line in
+    /// zsh, bash and fish, but zsh and fish take it a line of a multi-line
+    /// paste at a time, and fish needs a second go to remove each newline;
+    /// any extra ones land on an empty prompt and do nothing.
+    func clearLastPut() {
+        let lines = (lastPut ?? "").split(separator: "\n", omittingEmptySubsequences: false).count
+        view.send(txt: String(repeating: "\u{15}", count: lines * 2))
     }
 
     /// Text typed into the shell, for the automation.
@@ -231,6 +327,15 @@ struct TerminalPanel: View {
                 ZStack(alignment: .bottom) {
                     TerminalHost(session: session, focusTick: Terminals.shared.focusTick)
                         .dockDragDisabled()
+                    if session.waitingForReturn {
+                        Text("Return runs it")
+                            .font(.system(size: TypeScale.detail))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, zoomed(10))
+                            .padding(.vertical, zoomed(6))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .allowsHitTesting(false)
+                    }
                     if session.exited {
                     HStack(spacing: zoomed(8)) {
                         Text("The shell has exited.").foregroundStyle(.secondary)

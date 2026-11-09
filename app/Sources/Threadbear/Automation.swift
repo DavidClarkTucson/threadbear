@@ -1439,13 +1439,15 @@ enum Automation {
             return await waitFor(c, app: app)
         case "terminal":
             // The Terminal panel: {"toggle": true} is ⌘J, {"type": "ls\r"}
-            // types into the showing thread's shell; each says whether it's
+            // types into the showing thread's shell, {"put": "ls"} does what
+            // a ```bash block's play icon does; each says whether it's
             // showing and every shell's folder. SwiftTerm doesn't take in
             // output while the window is behind others, so look with `shot`
             // after `front` (ask Mike first).
             if c["toggle"] as? Bool == true { app.toggleTerminal() }
             let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
             if let text = c["type"] as? String { Terminals.shared.open(target).type(text) }
+            if let command = c["put"] as? String { app.putInTerminal(ShellBlock(command: command)) { _ in } }
             if let ms = c["wait"] as? Int { try? await Task.sleep(for: .milliseconds(ms)) }
             let focused = (NSApp.mainWindow?.firstResponder as? NSView).map { String(describing: type(of: $0)) } ?? "none"
             return "ok shown=\(app.terminalShown) focus=\(focused) cwd=\(target.cwd) shells=\(Terminals.shared.debugSummary)"

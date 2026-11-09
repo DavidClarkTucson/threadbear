@@ -327,6 +327,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | ID | Feature | What it does | How in GPUI | Route | Size | Swift |
 |---|---|---|---|---|---|---|
 | `terminal.panel` | Terminal panel | Full emulator, per-thread shell, ⌘J, New Shell | `alacritty_terminal` drawn as our own GPUI element, as Ghostex does with libghostty-vt. | build | L | `TerminalPanel` |
+| `terminal.putcommand` | Put a command in the Terminal | Play icon on a shell block types it at the prompt, never presses Return, replaces its own unrun command, copies instead if the shell is busy | Icons on the code block, then the terminal's own paste. | build | S | `ShellBlockIcons`, `ShellBlock`, `TerminalPanel` (`Terminals.put`) |
 | `terminal.lifecycle` | Shell lifecycle | Starts on request, stops on archive or quit | Unix pty on macOS and Linux, ConPTY on Windows. | shim | M | `TerminalPanel` (`Terminals`) |
 
 ## 14. Projects, Librarian, Schedules, Usage, Runners, Connectors, Updates
