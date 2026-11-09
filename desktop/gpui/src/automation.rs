@@ -106,7 +106,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "status" => Ok(json!("ok")),
         // The sidebar's commands (sidebar.rs). Guarded ones only take the forms
         // that name a section, a row or a tip; the others fall through below.
-        "hover" | "sort" | "star" | "unstar" | "unarchive" | "new" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),
+        "hover" | "sort" | "archive-more" | "star" | "unstar" | "unarchive" | "new" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("section").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "archive" | "snooze" if cmd.get("id").is_some() || cmd.get("said").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "click" if cmd.get("tip").is_some() || cmd.get("tipPrefix").is_some() => crate::sidebar::automation(app, cmd, window, cx),

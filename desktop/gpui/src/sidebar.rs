@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use threadbear_core::inbox::{iso_time, InboxOrder, ThreadSummary};
-use threadbear_core::sidebar::{self as rows, RowAction, RowLook, RowMode, RowStatus, Tile, TrailingKind};
+use threadbear_core::sidebar::{self as rows, RowAction, RowLook, RowMode, Tile, TrailingKind};
 
 type Clock = threadbear_core::chrono::DateTime<threadbear_core::chrono::Local>;
 
@@ -55,7 +55,12 @@ pub(crate) struct OpenMenu {
     pub(crate) thread: Option<String>,
     position: Point<Pixels>,
     view: Entity<PopupMenu>,
+    /// What's on it, for scripts (`menu-popover`, `realMenu`).
+    #[cfg_attr(not(feature = "automation"), allow(dead_code))]
     pub(crate) rows: Vec<MenuRow>,
+    /// Hibernate choices ask first if the thread's busy: the moon's menu does,
+    /// the row's right-click one doesn't (`SnoozeNSMenu`, `SnoozeMenuItems`).
+    confirm_busy: bool,
     _dismissed: Subscription,
 }
 
@@ -227,6 +232,12 @@ mod metrics {
     pub const INDENT: f32 = 18.;
 }
 use metrics::*;
+
+/// Under where a button was clicked, where a dropdown opens (`MenuAnchor`'s
+/// `below`), so the first item isn't under the pointer as the mouse lifts.
+fn below(position: Point<Pixels>) -> Point<Pixels> {
+    point(position.x, position.y + px(12.))
+}
 
 /// An SF Symbol's icon, at a point size and in a colour.
 fn icon(name: &str, size: f32, color: Hsla) -> Icon {
@@ -493,17 +504,25 @@ impl Threadbear {
     }
 
     /// Runs a menu line for a row (or the Inbox's sort).
+    /// Runs a menu line for a row (or the Inbox's sort), after asking if the
+    /// moon's menu is about to stop a running turn (`BusyConfirm`).
     pub(crate) fn run_menu_action(&mut self, thread: Option<String>, action: MenuAction, window: &mut Window, cx: &mut Context<Self>) {
-        self.sidebar.menu = None;
-        match action {
-            MenuAction::Sort(order) => {
-                self.sidebar.order = order;
-                cx.notify();
-                return;
-            }
-            _ => {}
+        let confirm_busy = self.sidebar.menu.take().is_some_and(|m| m.confirm_busy);
+        if let MenuAction::Sort(order) = action {
+            self.sidebar.order = order;
+            cx.notify();
+            return;
         }
         let Some(id) = thread else { return };
+        if confirm_busy && matches!(action, MenuAction::Hibernate(_) | MenuAction::HibernateUntilRestart | MenuAction::PickTime | MenuAction::WakeWhen) {
+            let (inner_id, inner_action) = (id.clone(), action.clone());
+            self.confirm_if_busy(&id, false, window, cx, move |this, window, cx| this.run_row_action(inner_id.clone(), inner_action.clone(), window, cx));
+            return;
+        }
+        self.run_row_action(id, action, window, cx);
+    }
+
+    fn run_row_action(&mut self, id: String, action: MenuAction, window: &mut Window, cx: &mut Context<Self>) {
         match action {
             MenuAction::Star(on) => self.star_row(&id, on, cx),
             MenuAction::Archive => self.archive_row(id, window, cx),
@@ -519,7 +538,7 @@ impl Threadbear {
             MenuAction::Delete => self.delete_row(id, window, cx),
             MenuAction::Rename => self.open_rename(id, window, cx),
             MenuAction::CopyId => cx.write_to_clipboard(ClipboardItem::new_string(id)),
-            // Beardock isn't in this app yet, so a thread opens in the main pane.
+            // BearDock isn't in this app yet, so a thread opens in the main pane.
             MenuAction::OpenInPanel => self.open(id, window, cx),
             MenuAction::Sort(_) => {}
         }
@@ -578,7 +597,7 @@ impl Threadbear {
     }
 
     /// Opens `rows` as a popup menu at `position`, for a row or a heading.
-    pub(crate) fn open_menu(&mut self, thread: Option<String>, menu_rows: Vec<MenuRow>, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_menu(&mut self, thread: Option<String>, menu_rows: Vec<MenuRow>, position: Point<Pixels>, confirm_busy: bool, window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity().downgrade();
         let (build_rows, build_thread) = (menu_rows.clone(), thread.clone());
         let view = PopupMenu::build(window, cx, move |menu, window, cx| fill_menu(menu, &build_rows, entity.clone(), build_thread.clone(), window, cx));
@@ -587,19 +606,19 @@ impl Threadbear {
             this.sidebar.menu = None;
             cx.notify();
         });
-        self.sidebar.menu = Some(OpenMenu { thread, position, view, rows: menu_rows, _dismissed: dismissed });
+        self.sidebar.menu = Some(OpenMenu { thread, position, view, rows: menu_rows, confirm_busy, _dismissed: dismissed });
         cx.notify();
     }
 
     pub(crate) fn open_row_menu(&mut self, id: String, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.threads.get(&id).cloned() else { return };
         let menu_rows = self.thread_menu_rows(&t);
-        self.open_menu(Some(id), menu_rows, position, window, cx);
+        self.open_menu(Some(id), menu_rows, position, false, window, cx);
     }
 
     pub(crate) fn open_hibernate_menu(&mut self, id: String, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let menu_rows = self.snooze_menu_rows();
-        self.open_menu(Some(id), menu_rows, position, window, cx);
+        self.open_menu(Some(id), menu_rows, position, true, window, cx);
     }
 
     /// "Wake when…": a text box for when, in Mike's own words (`WakeWhenPrompt`).
@@ -787,6 +806,8 @@ impl Threadbear {
         // The glass and the prompt sit on the same columns as a button row's
         // icon and title, so the Input's own padding is dropped.
         h_flex()
+            .id("search-field")
+            .tooltip(|window, cx| Tooltip::new("Search threads").build(window, cx))
             .flex_1()
             .min_w_0()
             .pl(px(LEADING - 2.))
@@ -881,7 +902,7 @@ impl Threadbear {
         tipped!(div().flex_none().mt(px(12.)).size(px(16.)).rounded(px(4.)).flex().items_center().justify_center().text_color(color).hover(move |s| s.bg(hover).text_color(fg)), "sort-inbox", format!("Sort: {}", order.title()))
             .on_click(cx.listener(|this, ev: &ClickEvent, window, cx| {
                 let menu_rows = this.sort_menu_rows();
-                this.open_menu(None, menu_rows, ev.position(), window, cx);
+                this.open_menu(None, menu_rows, below(ev.position()), false, window, cx);
             }))
             .child(icon("arrow.up.arrow.down", 10., color))
     }
@@ -912,9 +933,10 @@ impl Threadbear {
         let trailing = rows::trailing(t, &look, mode, clock);
         let id = t.id.clone();
         let selected = self.selected.as_deref() == Some(id.as_str());
-        let show_buttons = self.sidebar.hover_override.as_deref() == Some(id.as_str())
-            || self.sidebar.hovered.as_deref() == Some(id.as_str())
-            || self.sidebar.menu.as_ref().is_some_and(|m| m.thread.as_deref() == Some(id.as_str()));
+        // A script's hover wins over the real pointer, which on a shared
+        // desktop can be resting on another row (`ThreadRowView.pointerOver`).
+        let hovered_row = self.sidebar.hover_override.as_deref().or(self.sidebar.hovered.as_deref());
+        let show_buttons = hovered_row == Some(id.as_str()) || self.sidebar.menu.as_ref().is_some_and(|m| m.thread.as_deref() == Some(id.as_str()));
         let title = if t.title.is_empty() { "Untitled".to_string() } else { t.title.clone() };
         let tip = format!("{title}\n{}", abbreviate_home(&t.cwd));
         let (bg_hover, bg_sel, fg, secondary) = (p.hover, p.selected, p.fg, p.secondary);
@@ -1018,7 +1040,7 @@ impl Threadbear {
                 }
                 RowAction::Snooze => {
                     let id = id.clone();
-                    let listener = cx.listener(move |this, ev: &ClickEvent, window, cx| this.confirm_hibernate_menu(id.clone(), ev.position(), window, cx));
+                    let listener = cx.listener(move |this, ev: &ClickEvent, window, cx| this.open_hibernate_menu(id.clone(), below(ev.position()), window, cx));
                     icon_button(key, icon(symbol, 13., p.secondary), tip, &p, listener).into_any_element()
                 }
                 RowAction::Archive => {
@@ -1051,14 +1073,6 @@ impl Threadbear {
             row = row.child(button);
         }
         row.into_any_element()
-    }
-
-    /// The moon's menu, asked for from a hover button: a thread with a turn
-    /// going asks first when an item is chosen, as `SnoozeNSMenu` does; here
-    /// the question comes before the menu, so nothing is hibernated by accident.
-    fn confirm_hibernate_menu(&mut self, id: String, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        let inner_id = id.clone();
-        self.confirm_if_busy(&id, false, window, cx, move |this, window, cx| this.open_hibernate_menu(inner_id.clone(), position, window, cx));
     }
 
     /// `SubagentList`: indented rows under the thread with a drawn trunk.
@@ -1109,7 +1123,7 @@ impl Threadbear {
             };
             json!({
                 "id": t.id, "title": t.title, "status": t.status, "needsYou": t.needs_you, "unread": look.unread, "hovered": hovered,
-                "background": (look.status == RowStatus::Background).then(|| rows::background_short(&t.background_tasks())),
+                "background": (look.status == rows::RowStatus::Background).then(|| rows::background_short(&t.background_tasks())),
                 "waiting": t.waiting_for_room_until_ms().map(|u| rows::waiting_line(u, &clock)).or_else(|| t.waiting_for_network.as_ref().map(|_| "Waiting for connection".to_string())),
                 "subagents": subagents,
                 "place": t.place(),
@@ -1127,19 +1141,23 @@ impl Threadbear {
             .map(|s| {
                 let folded = self.folded.contains(s.key);
                 let count = (!searching && folded && !s.rows.is_empty()).then_some(s.rows.len());
-                json!({ "name": s.title, "collapsed": folded, "count": count, "threads": s.rows.iter().map(|t| row(t, Some(s.key))).collect::<Vec<_>>() })
+                let drawn = (s.key == "archived").then(|| {
+                    let selected = self.selected.as_ref().and_then(|id| s.rows.iter().position(|t| &t.id == id));
+                    rows::archive_rows(s.rows.len(), self.sidebar.archive_limit, searching, selected).0
+                });
+                json!({ "name": s.title, "collapsed": folded, "count": count, "shown": drawn, "threads": s.rows.iter().map(|t| row(t, Some(s.key))).collect::<Vec<_>>() })
             })
             .collect();
         let snoozed = shown.iter().find(|s| s.key == "hibernating").map_or(0, |s| s.rows.len());
         let archived = shown.iter().find(|s| s.key == "archived").map_or(0, |s| s.rows.len());
-        json!({ "mode": "inbox", "sections": sections, "snoozed": snoozed, "archived": archived, "sort": self.sidebar.order.name() })
+        json!({ "mode": "inbox", "sections": sections, "snoozed": snoozed, "archived": archived, "sort": self.sidebar.order.name(), "loading": !self.sidebar.loaded })
     }
 
     /// `row` as `dump` shows the open thread (`selection`).
     #[cfg(feature = "automation")]
     pub(crate) fn selection_dump(&self) -> Value {
         let Some(t) = self.selected.as_ref().and_then(|id| self.threads.get(id)) else { return Value::Null };
-        json!({ "id": t.id, "title": t.title, "status": t.status, "needsYou": t.needs_you, "unread": t.unread() })
+        json!({ "id": t.id, "title": t.title, "status": t.status, "needsYou": t.needs_you, "unread": RowLook::of(t, None).unread })
     }
 }
 
@@ -1396,6 +1414,14 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
             });
             Ok(json!(id.map_or("ok".to_string(), |id| format!("ok {id}"))))
         }
+        // The Archived section's Show more row.
+        "archive-more" => {
+            app.update(cx, |t, cx| {
+                t.sidebar.archive_limit += rows::ARCHIVE_STEP;
+                cx.notify();
+            });
+            Ok(json!("ok"))
+        }
         "sort" => {
             let Some(order) = cmd["order"].as_str().and_then(InboxOrder::from_name) else { return Err(format!("order must be one of {:?}", InboxOrder::ALL.map(InboxOrder::name))) };
             app.update(cx, |t, cx| {
@@ -1472,13 +1498,17 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
         // read back; `tipPrefix` names the row by the start of its tip.
         "realMenu" => {
             let prefix = cmd["tipPrefix"].as_str().ok_or("realMenu here takes tipPrefix")?;
-            let id = {
-                let t = app.read(cx);
-                t.threads.values().find(|th| format!("{}\n{}", if th.title.is_empty() { "Untitled" } else { &th.title }, abbreviate_home(&th.cwd)).starts_with(prefix)).map(|th| th.id.clone())
-            }
-            .ok_or_else(|| format!("no row with the tip {prefix}"))?;
-            app.update(cx, |t, cx| t.open_row_menu(id.clone(), point(px(320.), px(160.)), window, cx));
-            let titles: Vec<String> = app.read(cx).sidebar.menu.iter().flat_map(|m| m.rows.iter()).filter(|r| !r.separator).map(|r| if r.children.is_empty() { r.title.clone() } else { format!("{} >", r.title) }).collect();
+            // A right-click through real events and hit testing, as a person's
+            // goes, on the row whose tooltip starts with this.
+            window.render_frame(cx);
+            let Some(row) = window.elements().into_iter().filter(|e| e.visible() && e.label().is_some_and(|l| l.starts_with(prefix))).last() else {
+                return Err(format!("no row with the tip {prefix:?} on screen"));
+            };
+            let at = row.bounds().center();
+            window.pointer_move(at, None, cx);
+            window.pointer_down(at, MouseButton::Right, cx);
+            window.pointer_up(at, MouseButton::Right, cx);
+            let titles: Vec<String> =app.read(cx).sidebar.menu.iter().flat_map(|m| m.rows.iter()).filter(|r| !r.separator).map(|r| if r.children.is_empty() { r.title.clone() } else { format!("{} >", r.title) }).collect();
             app.update(cx, |t, cx| {
                 t.sidebar.menu = None;
                 cx.notify();
