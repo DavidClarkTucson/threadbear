@@ -39,6 +39,7 @@ import { CodexAdapter } from './adapters/codex/adapter.ts';
 import { resolveCodexBinary } from './adapters/codex/appserver.ts';
 import { checkSurface, testedVersion } from './adapters/codex/surface.ts';
 import { CliUpdates } from './updates/manager.ts';
+import { ExtraUpdates } from './updates/extra.ts';
 import { UsageStore } from './usage.ts';
 import { UsageHistory } from './usage-history.ts';
 import { TokenTally } from './token-tally.ts';
@@ -165,6 +166,8 @@ async function main(): Promise<void> {
     codex: { resolve: (start) => resolveCodexBinary(start), checkSurface, testedVersion },
     notice: (level, message) => runner.notice(level, message),
   });
+  // Other CLIs you use alongside Threadbear (Grok, Muse...), from runner.json.
+  const extraUpdates = new ExtraUpdates({ home: cfg.home, log, clock: realClock, extra: cfg.cliUpdates.extra ?? [] });
   // The gateway's own word on which services are signed out, asked fresh
   // when a turn's gateway call failed: a sign-in ask comes only from that,
   // never from what a tool result says (connectors.ts, signInSignal).
@@ -734,6 +737,7 @@ async function main(): Promise<void> {
   tellLaunchListening();
   // Checks start a minute after this; installs never while a restart waits.
   updates.start();
+  extraUpdates.start();
   // The runner's log is held open by launchd too, so it's emptied in place.
   // The app's update log sits beside it, but only for the real data dir: a
   // dev runner's log is in its temp home.
@@ -794,6 +798,7 @@ async function main(): Promise<void> {
     usage.stop();
     tally.stop();
     updates.stop();
+    extraUpdates.stop();
     // A restart's new release writes everything again under the same
     // runnerId; only a stop for good tells the phone this runner is gone.
     secretCheck.stop();
@@ -841,6 +846,7 @@ async function main(): Promise<void> {
       connectors.stop();
       projects.freeze();
       updates.stop();
+      extraUpdates.stop();
       usage.stopWriting();
       tally.stopWriting();
       // The new release mirrors from here on.

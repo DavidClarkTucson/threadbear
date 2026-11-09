@@ -153,8 +153,11 @@ File references are where to look.
   `runner/bring-in.json` in the data folder.
 - **CLI updates** (`runner/src/updates/`): every hour it checks for new
   Claude Code and Codex versions and installs them. If you don't point it
-  at your own Codex, it installs one into the data folder.
-  `THREADBEAR_CLI_UPDATES=off` stops this.
+  at your own Codex, it installs one into the data folder. It also runs
+  any update commands you list under `cliUpdates.extra` in `runner.json`
+  (none unless you add them), once a day each, and keeps when each last
+  ran in `extra-updates.json` in the data folder.
+  `THREADBEAR_CLI_UPDATES=off` stops all of this.
 - **Small model calls** (`runner/src/models/`): thread titles, filing
   threads into projects (the librarian, every 5 minutes) and similar jobs
   send short excerpts of your threads to `claude -p` on your own logins.
