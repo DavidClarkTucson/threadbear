@@ -56,9 +56,13 @@ and ask the user what they use instead, rather than trying to reach them.
   (8 Nov). A new thread request needs a row in `runner/src/parity.ts`
   saying where it works (`parity.test.ts` fails without one, and checks
   each yes against the code; `npm run parity-docs` remakes
-  `docs/parity.md`). A new field on a card, message or thread row has to
-  get through Convex too: the backend tests' fake Convex checks the real
-  schema and validators, so test it there.
+  `docs/parity.md`). A change to what a thread shows (a card's field, a
+  message's content, the done card) gets a scenario in
+  `runner/test/unit/scenarios.test.ts`: it plays the thread on this
+  runner, writes it through the real backend functions, and checks
+  another Mac and the phone see the same, or a difference listed there
+  with why. The backend tests' fake Convex checks the real schema and
+  validators, so a field Convex would refuse fails there too.
 - Only ever spawn the official `claude` (and later `codex`) binaries under
   Mike's own logins. Never read or copy OAuth tokens or Keychain credentials.
 - Tests that hit a real model use the cheapest model, tiny prompts, a temp
