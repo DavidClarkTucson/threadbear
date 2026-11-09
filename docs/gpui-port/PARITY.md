@@ -13,54 +13,54 @@ The full list of features is [features.md](features.md).
 
 21 of 325 features have a spec so far, across 24 scenarios.
 
-Scenarios passing: Swift: 24 of 24, Mac: 24 of 24, Windows: not run, Linux: 24 of 24.
+Scenarios passing: Swift: 24 of 24, Mac: 24 of 24, Windows: 24 of 24, Linux: 24 of 24.
 
 
 ### 0. Foundations everything else needs
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `foundation.rpc` Runner RPC client | pass | pass | pending | pass |
+| `foundation.rpc` Runner RPC client | pass | pass | pass | pass |
 
 ### 3. Sidebar and inbox
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `sidebar.sections` Sections | pass | pass | pending | pass |
-| `sidebar.search` Thread search | pass | pass | pending | pass |
-| `sidebar.row.marks` Row left marks | pass | pass | pending | pass |
-| `sidebar.row.hoverbuttons` Hover buttons | pass | pass | pending | pass |
-| `sidebar.hibernate.presets` Hibernate presets | pass | pass | pending | pass |
+| `sidebar.sections` Sections | pass | pass | pass | pass |
+| `sidebar.search` Thread search | pass | pass | pass | pass |
+| `sidebar.row.marks` Row left marks | pass | pass | pass | pass |
+| `sidebar.row.hoverbuttons` Hover buttons | pass | pass | pass | pass |
+| `sidebar.hibernate.presets` Hibernate presets | pass | pass | pass | pass |
 
 ### 5. Transcript row kinds
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `transcript.user` Your bubble | pass | pass | pending | pass |
-| `transcript.reply` Assistant reply | pass | pass | pending | pass |
-| `transcript.tool` Tool line | pass | pass | pending | pass |
-| `transcript.approval` Approval card | pass | pass | pending | pass |
-| `transcript.approval.settled` Settled approval | pass | pass | pending | pass |
-| `transcript.question` Question card | pass | pass | pending | pass |
-| `transcript.turnfooter` Turn footer | pass | pass | pending | pass |
-| `transcript.error` Error row | pass | pass | pending | pass |
-| `transcript.workedfor` Worked-for group | pass | pass | pending | pass |
-| `transcript.changes` Changes card | pass | pass | pending | pass |
+| `transcript.user` Your bubble | pass | pass | pass | pass |
+| `transcript.reply` Assistant reply | pass | pass | pass | pass |
+| `transcript.tool` Tool line | pass | pass | pass | pass |
+| `transcript.approval` Approval card | pass | pass | pass | pass |
+| `transcript.approval.settled` Settled approval | pass | pass | pass | pass |
+| `transcript.question` Question card | pass | pass | pass | pass |
+| `transcript.turnfooter` Turn footer | pass | pass | pass | pass |
+| `transcript.error` Error row | pass | pass | pass | pass |
+| `transcript.workedfor` Worked-for group | pass | pass | pass | pass |
+| `transcript.changes` Changes card | pass | pass | pass | pass |
 
 ### 7. Composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `composer.textbox` Text box | pass | pass | pending | pass |
-| `composer.return` Return, Shift-Return | pass | pass | pending | pass |
-| `composer.send` Send and Stop | pass | pass | pending | pass |
+| `composer.textbox` Text box | pass | pass | pass | pass |
+| `composer.return` Return, Shift-Return | pass | pass | pass | pass |
+| `composer.send` Send and Stop | pass | pass | pass | pass |
 
 ### 8. Cards in the composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `card.needsyou` Needs you card | pass | pass | pending | pass |
-| `card.answers` Answer and follow-up state | pass | pass | pending | pass |
+| `card.needsyou` Needs you card | pass | pass | pass | pass |
+| `card.answers` Answer and follow-up state | pass | pass | pass | pass |
 
 <!-- parity:end -->
 
@@ -70,6 +70,16 @@ One entry a slice, newest first. Every entry has a `Verification:` line: a spec
 run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
+
+### 2026-11-09 Risk checks: Chromium in a slot, accessibility, Windows
+
+- Spike (`gpui-web-spike` branch): CEF 156 in a GPUI layout slot on macOS, with a
+  gpui-kit menu in its own window over the page.
+- Accessibility: Voice Type works; the AX tree below the window doesn't yet.
+- Windows: CI ran all 24 scenarios on a real `windows-latest` machine.
+- Remaining: Windows and Linux for the web engine, the accessibility tree.
+- Verification: spike screenshots from Tinker Desk; `ax-dump` on Tinker Desk;
+  `Behaviour specs` in the Desktop app workflow, 24 of 24 on Windows.
 
 ### 2026-11-09 The transcript's logic in Rust
 

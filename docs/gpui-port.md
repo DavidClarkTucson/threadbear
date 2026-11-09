@@ -425,13 +425,27 @@ for real browsing. I'd skip it: two engines means two sandboxes to prove.
 
 ## Risks
 
-- **The transcript's feel.** Scroll anchoring, streaming with no jumps, and
-  text selection are the heart of the app. Stage 0 tests this first on a
-  5,000-row thread, before anything's built on top.
-- **Web pages over GPUI** on Windows and Wayland. Stage 0 spike.
-- **Accessibility.** GPUI has it, but ComputerCub saw nothing inside Ghostex and
-  we don't know why. Voice Type and agent tools rely on it, so it's checked
-  early.
+What stage 0 found (9 Nov):
+
+- **The transcript's speed: fine.** On Tinker Desk's M2, a release build loads
+  and folds 12,500 rows in 94 ms and draws a scrolling frame in 0.6 ms (2.5 ms
+  at worst). Scroll anchoring and streaming with no jumps still have to prove
+  themselves as the real rows arrive.
+- **Web pages inside GPUI: works on the Mac.** A spike put a real Chromium page
+  in a normal layout slot, resizing with it. GPUI's own menus can't draw over a
+  page, so those popups open in small borderless windows of their own, as
+  Ghostex does (the spike is the `gpui-web-spike` branch). Not run yet: Windows,
+  Linux, Google sign-in, PDFs, video.
+- **Accessibility: a gap to close.** Voice Type's paste already works with GPUI
+  apps (it treats them as "can't tell" and goes by whether the app read the
+  clipboard, 7e47882). But a screen reader or computer-use tool sees almost
+  nothing below the window: on Tinker Desk the tree was the window and a title
+  at first, then a broken repeating list once AccessKit woke up. Agents don't
+  need it, because they use the app's own automation socket, but people with
+  screen readers do, so this gets looked into before cutover.
+
+Still open:
+
 - **Keeping up with GPUI.** gpui-kit is young and pre-1.0. Pin it, upgrade on
   purpose, and let the specs catch what breaks.
 - **Two apps for a while.** Hence the freeze as soon as Mike moves over.

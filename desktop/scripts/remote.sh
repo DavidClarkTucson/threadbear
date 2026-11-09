@@ -4,11 +4,12 @@
 #
 #   desktop/scripts/remote.sh <ssh host> [--desk] -- <command...>
 #
-# It copies the checkout, committed or not, less its build folders, to
-# ~/.cache/threadbear-check/gpui/src there and runs the command from that
-# folder, with Rust and Node on the PATH and cargo's target folder kept
-# between runs. --desk runs it on Tinker Desk's desktop (Desk Runner), which is
-# what a window needs there.
+# It copies the checkout, committed or not, less its build folders, to a folder
+# of its own under ~/.cache/threadbear-check/gpui there (so two checkouts at once
+# don't overwrite each other), and runs the command from that folder, with Rust
+# and Node on the PATH, npm packages installed the first time, and cargo's target
+# folder kept between runs. --desk runs it on Tinker Desk's desktop (Desk Runner),
+# which is what a window needs there.
 #
 # Everything lives under ~/.cache/threadbear-check, as scripts/check-remote.sh
 # has it, so the host still looks like one with no Threadbear on it. Tinker
@@ -21,19 +22,20 @@ if [ "${1:-}" = "--desk" ]; then desk=1; shift; fi
 [ $# -gt 0 ] || { echo "no command given" >&2; exit 2; }
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 base=".cache/threadbear-check/gpui"
+src="$base/src-$(printf '%s' "$root" | shasum | cut -c1-10)"
 
-ssh "$host" "mkdir -p $base/src"
+ssh "$host" "mkdir -p $src"
 # Named by hand, not read from .gitignore: rsync takes those rules from the
 # receiving side when it decides what to delete, which removed part of a
 # Swift build and a node_modules here on 9 Nov.
 rsync -az --delete --exclude .git --exclude node_modules --exclude .build --exclude target --exclude reports \
   --exclude .fixtures --exclude .swiftpm --exclude dist --exclude DerivedData --exclude .DS_Store \
-  "$root/" "$host:$base/src/"
+  "$root/" "$host:$src/"
 
 printf -v cmd '%q ' "$@"
 read -r -d '' prelude <<PRELUDE || true
 set -e
-cd "\$HOME/$base/src"
+cd "\$HOME/$src"
 . runner/scripts/find-node.sh
 NODE="\$(threadbear_find_node)"
 export PATH="\${NODE%/*}:\$PATH"
@@ -46,6 +48,10 @@ fi
 export CARGO_TARGET_DIR="\$HOME/$base/target" CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10
 export TMPDIR="\$HOME/$base/tmp"
 mkdir -p "\$TMPDIR"
+# What the specs need, the first time this folder's used.
+for dir in features app/Tools/mock-runner runner; do
+  [ -d "\$dir/node_modules" ] || npm ci --silent --prefix "\$dir" >/dev/null 2>&1 || true
+done
 PRELUDE
 
 if [ "$desk" = 1 ]; then
