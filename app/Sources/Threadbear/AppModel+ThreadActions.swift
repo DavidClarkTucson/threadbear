@@ -307,6 +307,7 @@ extension AppModel {
                     newThreadCwd = nil
                     newThreadProjectId = nil
                     newThreadPermissionPick = nil
+                    newThreadFastMode = false
                     newThreadAccount = nil
                     newThreadPool = nil
                     newThreadProvider = nil

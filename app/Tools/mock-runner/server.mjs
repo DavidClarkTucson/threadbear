@@ -501,7 +501,7 @@ async function dispatch(client, method, p) {
       }
       return {
         runnerVersion, protocol: 1, accounts: publicAccounts(),
-        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools, experiments: ['moveToRunner'] }),
+        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools, experiments: ['moveToRunner', 'fastMode'] }),
       };
     // Moving a thread to another runner (docs/protocol.md): a guess from
     // "that runner", and a move that only marks the row, for the app's

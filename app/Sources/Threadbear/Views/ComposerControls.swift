@@ -236,8 +236,9 @@ struct ThreadSettings {
             runnerDefault: thread == nil ? logins.defaults.efforts[provider] : nil)
     }
 
-    /// Whether the picker offers fast mode: a Claude model that has it.
-    var offersFastMode: Bool { ModelPicker.offersFastMode(model: effectiveModel, in: choices, provider: provider) }
+    /// Whether the picker offers fast mode: a Claude model that has it,
+    /// with the fastMode experiment on.
+    var offersFastMode: Bool { app.experiments.contains("fastMode") && ModelPicker.offersFastMode(model: effectiveModel, in: choices, provider: provider) }
 
     /// Fast mode as the chip and the picker show it: the thread's own (the
     /// runner keeps it only where the model has it), or the draft's toggle

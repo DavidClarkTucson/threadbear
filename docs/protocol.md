@@ -1122,6 +1122,11 @@ one process per live thread, over stdio. With it off no account, pool or
 
 ### Fast mode
 
+An experiment (`fastMode`, off by default): while it's off the runner drops
+`fastMode` without a note, starts no CLI in fast mode, leaves it off
+`ThreadSummary` and `/fast` out of the command list, and clients show no
+control (`hello`'s `experiments`).
+
 Claude Code's fast mode runs the same model with faster output, at a
 higher price (on a subscription it draws from usage credits). It's per
 thread, like model and effort: `threads.create` and `threads.update` take

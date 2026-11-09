@@ -82,6 +82,7 @@ import { cleanUpWorktree, makeWorktree, sameSubfolder, worktreeInstructions } fr
 import { stripModelSuffix, type AccountRegistry, type LearnedAccountInfo } from './accounts.ts';
 import { pickAccount as pickByRoom, resetTime, type UsageReading } from './usage.ts';
 import { DEFAULT_POOL_FOLDERS, RUNNER_VERSION, expandHome, paths, peekRunnerJson, type Config } from './config.ts';
+import { experimentOn } from './experiments.ts';
 import { WAIT_SLACK_MS, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from './pools.ts';
 import { copyImageInto, imageRefFor } from './media.ts';
 import { isDirectory } from './fsutil.ts';
@@ -1842,7 +1843,8 @@ export class Runner {
         account,
         model: rec.model,
         effort: rec.effort,
-        ...(rec.fastMode ? { fastMode: true } : {}),
+        // Off again if the experiment was turned off since it was picked.
+        ...(rec.fastMode && experimentOn(this.cfg.home, 'fastMode') ? { fastMode: true } : {}),
         permissionMode: rec.permissionMode,
         ...(rec.confined ? { confined: true } : {}),
         sessionId: rec.nativeSessionId,
@@ -2017,7 +2019,7 @@ export class Runner {
         // Asked for and turned down (a login without usage credits, an
         // organization that turned it off): said once, so Mike knows he's
         // not getting it. A cooldown after a rate limit passes by itself.
-        const why = rec.fastMode && o.state === 'off' && o.reason && o.reason !== 'pending' ? o.reason : undefined;
+        const why = rec.fastMode && experimentOn(this.cfg.home, 'fastMode') && o.state === 'off' && o.reason && o.reason !== 'pending' ? o.reason : undefined;
         if (why && rt.fastModeNoted !== why) this.emit(st, { type: 'system.note', text: `Fast mode isn't available (${fastModeWhy(why)}), so this thread runs at standard speed.` }, rt.turn?.turnId);
         if (o.state === 'on' || why) rt.fastModeNoted = why;
         break;
@@ -3295,7 +3297,7 @@ export class Runner {
     if (pendingReviews) s.pendingReviews = pendingReviews;
     if (rec.model) s.model = rec.model;
     if (rec.effort) s.effort = rec.effort;
-    if (rec.fastMode) s.fastMode = true;
+    if (rec.fastMode && experimentOn(this.cfg.home, 'fastMode')) s.fastMode = true;
     if (rec.modelInUse) s.modelInUse = rec.modelInUse;
     if (rec.effortInUse) s.effortInUse = rec.effortInUse;
     if (rec.snoozedUntil) s.snoozedUntil = rec.snoozedUntil;

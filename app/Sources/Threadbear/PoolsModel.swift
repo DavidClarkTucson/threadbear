@@ -98,7 +98,7 @@ extension AppModel {
     /// where the model it starts on has it (the picker hides it elsewhere,
     /// so a hidden "on" never sends).
     func newThreadFast(provider: String, model: String?, logins: RunnerLogins) -> Bool {
-        guard newThreadFastMode else { return false }
+        guard newThreadFastMode, experiments.contains("fastMode") else { return false }
         let account = logins.account(newThreadAccountId)
         let resolved = ComposerChips.resolvedModel(model, logins.defaults.model(for: provider), account?.defaultModel)
         let choices = account?.provider == provider ? account?.models ?? [] : logins.accounts.first { $0.provider == provider }?.models ?? []

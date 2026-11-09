@@ -521,6 +521,19 @@ final class PendingSendTests: XCTestCase {
         XCTAssertNil(app.errorMessage)
     }
 
+    /// The new-thread toggle is for the thread it was picked for: fast mode
+    /// costs more, so the next new thread starts on Standard again.
+    func testFastModeOnANewThreadIsForThatThreadOnly() async throws {
+        let (app, transport) = try await connected()
+        app.newThreadFastMode = true
+        app.drafts["new"] = Draft(text: "Start something")
+        app.send(threadId: nil)
+        try await until { transport.waiting("threads.create") }
+        transport.answer("threads.create", ["thread": ["id": "th_new", "title": "Start something"]])
+        try await until { app.selection == "th_new" }
+        XCTAssertFalse(app.newThreadFastMode)
+    }
+
     /// Fast mode shows on at once, and goes back off if the runner says no.
     func testFastModeShowsAtOnceAndRollsBack() async throws {
         let (app, transport) = try await connected()

@@ -57,8 +57,9 @@ test('commandList puts Threadbear\'s own first and hides Claude\'s terminal-only
     { name: 'model', source: 'cli' },
     { name: 'resume', source: 'cli' },
     { name: 'code-review', source: 'skill' },
-  ]);
+  ], true);
   assert.deepEqual(claude.map((c) => c.name), ['model', 'effort', 'fast', 'compact', 'code-review']);
+  assert.deepEqual(commandList('claude', [{ name: 'fast', source: 'cli' }]).map((c) => c.name), ['model', 'effort'], "/fast waits for its experiment, and the CLI's own stays hidden");
   const codex = commandList('codex', [{ name: 'deslop', source: 'skill' }, { name: 'review', source: 'skill' }]);
   assert.deepEqual(codex.map((c) => c.name), ['model', 'effort', 'compact', 'review', 'clear', 'new', 'status', 'deslop']);
 });
@@ -166,8 +167,22 @@ test('/effort sets the level, and default puts it back', async () => {
   assert.equal(notes(h, thread.id).at(-1), "Back to the model's own effort level.");
 });
 
+test('/fast says so while its experiment is off', async () => {
+  const h = harness();
+  const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-main' });
+  const s = h.adapter.last;
+  s.init();
+  s.result();
+  h.runner.send(thread.id, '/fast on');
+  await tick();
+  assert.equal(h.runner.get(thread.id).fastMode, undefined);
+  assert.match(notes(h, thread.id).at(-1)!, /an experiment, and it's off here/);
+  assert.deepEqual(s.fastModes, []);
+});
+
 test('/fast turns fast mode on and off on a Claude thread; Codex has none', async () => {
   const h = harness();
+  fs.writeFileSync(path.join(h.home, 'runner.json'), JSON.stringify({ experiments: { fastMode: true } }));
   const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-main' });
   const s = h.adapter.last;
   s.init();
@@ -243,7 +258,7 @@ test('threads.commands lists the CLI\'s commands for the thread\'s folder, cache
   };
   const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-main' });
   const a = await h.runner.threadCommands(thread.id);
-  assert.deepEqual(a.commands.map((c) => c.name), ['model', 'effort', 'fast', 'compact', 'code-review']);
+  assert.deepEqual(a.commands.map((c) => c.name), ['model', 'effort', 'compact', 'code-review']);
   await h.runner.threadCommands(thread.id);
   assert.equal(asked, 1);
 });

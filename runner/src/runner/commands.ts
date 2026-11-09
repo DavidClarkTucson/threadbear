@@ -9,6 +9,7 @@ import type { Account, EffortLevel } from '../protocol.ts';
 import { isEffortLevel } from '../protocol.ts';
 import type { QueuedSend } from '../store.ts';
 import { claudeOptions, claudeSettingsWithoutCommands } from '../claude-trust.ts';
+import { experimentOn } from '../experiments.ts';
 import { commandList, parseCommand, planCommand, type CommandPlan, type SlashCommand } from '../slash-commands.ts';
 
 // A folder's command list (its skills, its .claude/commands) changes
@@ -102,6 +103,10 @@ export const commandsPart = {
           break;
         }
         case 'fast': {
+          if (!experimentOn(this.cfg.home, 'fastMode')) {
+            say('Fast mode is an experiment, and it\'s off here. Turn on fastMode under experiments in runner.json to try it.');
+            break;
+          }
           const arg = plan.args.trim().toLowerCase();
           const on = arg === '' ? !rec.fastMode : arg === 'on' ? true : arg === 'off' ? false : undefined;
           if (on === undefined) {
@@ -166,7 +171,7 @@ export const commandsPart = {
         this.log.warn('could not list commands', { threadId, error: String(e) });
       }
     }
-    return { commands: commandList(rec.provider, cli) };
+    return { commands: commandList(rec.provider, cli, experimentOn(this.cfg.home, 'fastMode')) };
   },
 };
 

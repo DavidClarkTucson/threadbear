@@ -757,8 +757,23 @@ test('archiving during a turn archives in Codex only once the live CLI has exite
 
 // ---------------------------------------------------------------- fast mode
 
+test('fast mode: with its experiment off nothing can turn it on, and turning it off stops a thread that had it', async () => {
+  const h = codexHarness();
+  const off = h.runner.create({ text: 'hi', accountId: 'claude-3', fastMode: true }).thread;
+  assert.equal(off.fastMode, undefined);
+  assert.equal(h.adapter.last.opts.fastMode, undefined);
+  assert.equal(h.runner.update({ threadId: off.id, fastMode: true }).thread.fastMode, undefined);
+  fs.writeFileSync(path.join(h.home, 'runner.json'), JSON.stringify({ experiments: { fastMode: true } }));
+  const on = h.runner.create({ text: 'hi', accountId: 'claude-3', fastMode: true }).thread;
+  assert.equal(on.fastMode, true);
+  assert.equal(h.adapter.last.opts.fastMode, true);
+  fs.writeFileSync(path.join(h.home, 'runner.json'), JSON.stringify({ experiments: { fastMode: false } }));
+  assert.equal(h.runner.get(on.id).fastMode, undefined, 'not shown as on');
+});
+
 test('fast mode: on a Claude thread it goes to the CLI at start and live, and a turn the CLI ran at standard speed says why, once', async () => {
   const h = codexHarness();
+  fs.writeFileSync(path.join(h.home, 'runner.json'), JSON.stringify({ experiments: { fastMode: true } }));
   const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-3', fastMode: true });
   assert.equal(thread.fastMode, true);
   assert.deepEqual(checkSummary(thread), []);
@@ -784,6 +799,7 @@ test('fast mode: on a Claude thread it goes to the CLI at start and live, and a 
 
 test("fast mode: a Codex thread never has it, a model that doesn't offer it drops it, and a move to Codex clears it", async () => {
   const h = codexHarness();
+  fs.writeFileSync(path.join(h.home, 'runner.json'), JSON.stringify({ experiments: { fastMode: true } }));
   h.adapter.models = async () => [
     { id: 'opus', model: 'claude-opus-5-5', title: 'Opus 5.5', fastMode: true },
     { id: 'sonnet', model: 'claude-sonnet-5-5', title: 'Sonnet 5.5' },

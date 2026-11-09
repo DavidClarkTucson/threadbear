@@ -10,6 +10,7 @@ import { ErrorCode, LIMITS, RpcError } from '../protocol.ts';
 import type { Schedule } from '../protocol.ts';
 import type { ThreadRecord } from '../store.ts';
 import { expandHome, peekRunnerJson } from '../config.ts';
+import { experimentOn } from '../experiments.ts';
 import { isDirectory } from '../fsutil.ts';
 import { ASK_CODEX_MODEL, HAIKU } from '../models/index.ts';
 import fs from 'node:fs';
@@ -305,7 +306,8 @@ export const newThreadsPart = {
   // CLI's list says doesn't have it. Before the list is known, or for a
   // model it doesn't list, the CLI decides (Runner's 'fastMode' output).
   checkFastMode(this: Runner, account: Account, model: string | undefined): { ok: boolean; note?: string } {
-    if (account.provider !== 'claude') return { ok: false };
+    // Off with no note, as nothing offers it while the experiment is off.
+    if (account.provider !== 'claude' || !experimentOn(this.cfg.home, 'fastMode')) return { ok: false };
     const row = modelRow(account, model ?? account.defaultModel);
     if (row && !row.fastMode) return { ok: false, note: `${row.title} doesn't have fast mode, so this thread runs at standard speed.` };
     return { ok: true };

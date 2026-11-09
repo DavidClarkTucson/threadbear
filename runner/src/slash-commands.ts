@@ -139,8 +139,9 @@ export function planCommand(provider: Provider, cmd: ParsedCommand, skills: Read
 }
 
 // The picker's list for a thread: Threadbear's own first, then the CLI's.
-export function commandList(provider: Provider, cli: SlashCommand[]): SlashCommand[] {
-  const own = provider === 'codex' ? [...THREADBEAR_COMMANDS, ...CODEX_COMMANDS] : [...THREADBEAR_COMMANDS, FAST_COMMAND];
+// `fastMode`: the experiment is on, so Claude threads list /fast.
+export function commandList(provider: Provider, cli: SlashCommand[], fastMode = false): SlashCommand[] {
+  const own = provider === 'codex' ? [...THREADBEAR_COMMANDS, ...CODEX_COMMANDS] : fastMode ? [...THREADBEAR_COMMANDS, FAST_COMMAND] : THREADBEAR_COMMANDS;
   const seen = new Set(own.map((c) => c.name));
   const rest = cli.filter((c) => {
     if (seen.has(c.name) || (provider === 'claude' && CLAUDE_HIDDEN.has(c.name))) return false;
