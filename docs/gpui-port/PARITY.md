@@ -13,7 +13,7 @@ The full list of features is [features.md](features.md).
 
 108 of 326 features have a spec so far, across 194 scenarios.
 
-Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 24 of 194, Linux: 192 of 194.
+Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linux: 192 of 194.
 
 
 ### 0. Foundations everything else needs
@@ -21,168 +21,168 @@ Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 24 of 194, Linux
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `foundation.rpc` Runner RPC client | pass | pass | pass | pass |
-| `foundation.zoom` Zoom | partly | pass | pending | pass |
+| `foundation.zoom` Zoom | partly | pass | pass | pass |
 
 ### 1. Windows and panel dock
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `dock.layout` Layout tree | pass | pass | pending | pass |
+| `dock.layout` Layout tree | pass | pass | pass | pass |
 | `dock.frame` Window frame memory | pending | pending | pending | pending |
-| `dock.reset` Default layout and Reset | pass | pass | pending | pass |
+| `dock.reset` Default layout and Reset | pass | pass | pass | pass |
 
 ### 2. Rails
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `rail.activity` Activity bar | pass | pass | pending | pass |
-| `rail.dots` Rail dots | pass | pass | pending | pass |
-| `rail.right` Right rail | pass | pass | pending | pass |
+| `rail.activity` Activity bar | pass | pass | pass | pass |
+| `rail.dots` Rail dots | pass | pass | pass | pass |
+| `rail.right` Right rail | pass | pass | pass | pass |
 
 ### 3. Sidebar and inbox
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `sidebar.sections` Sections | pass | pass | partly | pass |
-| `sidebar.sort` Inbox sort | pass | pass | pending | pass |
+| `sidebar.sections` Sections | pass | pass | pass | pass |
+| `sidebar.sort` Inbox sort | pass | pass | pass | pass |
 | `sidebar.search` Thread search | pass | pass | pass | pass |
-| `sidebar.newthread` New thread button | pass | pass | pending | pass |
-| `sidebar.row` Thread row | pass | pass | pending | pass |
-| `sidebar.row.marks` Row left marks | pass | pass | partly | pass |
-| `sidebar.row.origin` Origin mark | pass | pass | pending | pass |
-| `sidebar.row.status` Row right status | pass | pass | pending | pass |
-| `sidebar.row.remote` Other-Mac icon | pass | pass | pending | pass |
-| `sidebar.row.hoverbuttons` Hover buttons | pass | pass | partly | pass |
-| `sidebar.row.menu` Row context menu | pass | pass | pending | pass |
-| `sidebar.subagents` Sub-agent tree | pass | pass | pending | pass |
-| `sidebar.archived.paging` Archived paging | pass | pass | pending | pass |
-| `sidebar.skeleton` Loading skeleton | pass | pass | pending | pass |
-| `sidebar.hibernate.presets` Hibernate presets | pass | pass | partly | pass |
+| `sidebar.newthread` New thread button | pass | pass | pass | pass |
+| `sidebar.row` Thread row | pass | pass | pass | pass |
+| `sidebar.row.marks` Row left marks | pass | pass | pass | pass |
+| `sidebar.row.origin` Origin mark | pass | pass | pass | pass |
+| `sidebar.row.status` Row right status | pass | pass | pass | pass |
+| `sidebar.row.remote` Other-Mac icon | pass | pass | pass | pass |
+| `sidebar.row.hoverbuttons` Hover buttons | pass | pass | pass | pass |
+| `sidebar.row.menu` Row context menu | pass | pass | pass | pass |
+| `sidebar.subagents` Sub-agent tree | pass | pass | pass | pass |
+| `sidebar.archived.paging` Archived paging | pass | pass | pass | pass |
+| `sidebar.skeleton` Loading skeleton | pass | pass | pass | pass |
+| `sidebar.hibernate.presets` Hibernate presets | pass | pass | pass | pass |
 | `sidebar.hibernate.pick` Pick a time | pending | pending | pending | pending |
-| `sidebar.hibernate.wake` Wake when… | pass | pass | pending | pass |
-| `sidebar.move` Move to another runner | pass | pass | pending | pass |
+| `sidebar.hibernate.wake` Wake when… | pass | pass | pass | pass |
+| `sidebar.move` Move to another runner | pass | pass | pass | pass |
 
 ### 4. Thread header, banners, toasts
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `header.title` Title line | pass | pass | pending | pass |
-| `header.backforward` Back and forward | pass | pass | pending | pass |
-| `header.share` Share | pass | pass | pending | pass |
-| `header.more` ... menu | pass | pass | pending | pass |
-| `banner.connection` Connection banner | pass | pass | pending | pass |
-| `banner.error` Error banner | pass | pass | pending | pass |
-| `toast.archived` Archived toast | pass | pass | pending | pass |
-| `toast.inboxend` Inbox end toast | pass | pass | pending | pass |
-| `thread.newpage` New-thread page | pass | pass | pending | pass |
+| `header.title` Title line | pass | pass | pass | pass |
+| `header.backforward` Back and forward | pass | pass | pass | pass |
+| `header.share` Share | pass | pass | pass | pass |
+| `header.more` ... menu | pass | pass | pass | pass |
+| `banner.connection` Connection banner | pass | pass | pass | pass |
+| `banner.error` Error banner | pass | pass | pass | pass |
+| `toast.archived` Archived toast | pass | pass | pass | pass |
+| `toast.inboxend` Inbox end toast | pass | pass | pass | pass |
+| `thread.newpage` New-thread page | pass | pass | pass | pass |
 
 ### 5. Transcript row kinds
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `transcript.list` The transcript list | pass | pass | pending | pass |
+| `transcript.list` The transcript list | pass | pass | pass | pass |
 | `transcript.user` Your bubble | pass | pass | pass | pass |
-| `transcript.reply` Assistant reply | pass | pass | partly | pass |
-| `transcript.thinking` Thinking line | pass | pass | pending | pass |
-| `transcript.tool` Tool line | pass | pass | partly | pass |
-| `transcript.tooloutput` Tool output styling | pass | pass | pending | pass |
-| `transcript.diff` Diff row | pass | pass | pending | pass |
-| `transcript.images` Images row | partly | pass | pending | pass |
+| `transcript.reply` Assistant reply | pass | pass | pass | pass |
+| `transcript.thinking` Thinking line | pass | pass | pass | pass |
+| `transcript.tool` Tool line | pass | pass | pass | pass |
+| `transcript.tooloutput` Tool output styling | pass | pass | pass | pass |
+| `transcript.diff` Diff row | pass | pass | pass | pass |
+| `transcript.images` Images row | partly | pass | pass | pass |
 | `transcript.approval` Approval card | pass | pass | pass | pass |
-| `transcript.approval.stacked` Stacked approval | pass | pass | pending | pass |
+| `transcript.approval.stacked` Stacked approval | pass | pass | pass | pass |
 | `transcript.approval.settled` Settled approval | pass | pass | pass | pass |
 | `transcript.question` Question card | pass | pass | pass | pass |
-| `transcript.secret` Secret card | pass | pass | pending | pass |
-| `transcript.review` Review card | pass | pass | pending | pass |
+| `transcript.secret` Secret card | pass | pass | pass | pass |
+| `transcript.review` Review card | pass | pass | pass | pass |
 | `transcript.turnfooter` Turn footer | pass | pass | pass | pass |
 | `transcript.error` Error row | pass | pass | pass | pass |
 | `transcript.workedfor` Worked-for group | pass | pass | pass | pass |
-| `transcript.working` Working line | pass | pass | pending | pass |
-| `transcript.changes` Changes card | pass | pass | partly | pass |
-| `transcript.rowmenu` Row context menu | pass | pass | pending | pass |
+| `transcript.working` Working line | pass | pass | pass | pass |
+| `transcript.changes` Changes card | pass | pass | pass | pass |
+| `transcript.rowmenu` Row context menu | pass | pass | pass | pass |
 
 ### 7. Composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `composer.textbox` Text box | pass | pass | partly | pass |
+| `composer.textbox` Text box | pass | pass | pass | pass |
 | `composer.return` Return, Shift-Return | pass | pass | pass | pass |
-| `composer.listcontinue` List continuation | pass | pass | pending | pass |
-| `composer.picturechips` Picture chips | pass | pass | pending | pass |
-| `composer.chiphover` Chip hover and × | pass | pass | pending | pass |
-| `composer.filedrop` File path drop | pass | pass | pending | pass |
-| `composer.dropanywhere` Drop anywhere on thread | pass | pass | pending | pass |
-| `composer.runner` Runner chip | pass | pass | pending | pass |
-| `composer.modelpicker` Model picker | pass | pass | pending | pass |
-| `composer.permission` Permission chip | pass | pass | pending | pass |
-| `composer.contextring` Context ring | pass | pass | pending | pass |
+| `composer.listcontinue` List continuation | pass | pass | pass | pass |
+| `composer.picturechips` Picture chips | pass | pass | pass | pass |
+| `composer.chiphover` Chip hover and × | pass | pass | pass | pass |
+| `composer.filedrop` File path drop | pass | pass | pass | pass |
+| `composer.dropanywhere` Drop anywhere on thread | pass | pass | pass | pass |
+| `composer.runner` Runner chip | pass | pass | pass | pass |
+| `composer.modelpicker` Model picker | pass | pass | pass | pass |
+| `composer.permission` Permission chip | pass | pass | pass | pass |
+| `composer.contextring` Context ring | pass | pass | pass | pass |
 | `composer.send` Send and Stop | pass | pass | pass | pass |
-| `composer.starting` Starting state | pass | pass | pending | pass |
-| `composer.slash` Slash palette | pass | pass | pending | pass |
-| `composer.slash.keys` Palette keys | pass | pass | pending | pass |
+| `composer.starting` Starting state | pass | pass | pass | pass |
+| `composer.slash` Slash palette | pass | pass | pass | pass |
+| `composer.slash.keys` Palette keys | pass | pass | pass | pass |
 
 ### 8. Cards in the composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `card.done` Done card | pass | pass | pending | pass |
-| `card.needsyou` Needs you card | pass | pass | partly | pass |
-| `card.collapse` Collapse | pass | pass | pending | pass |
-| `card.somethingelse` Something else box | pass | pass | pending | pass |
-| `card.returnflow` Return flow | pass | pass | pending | pass |
-| `card.answers` Answer and follow-up state | pass | pass | partly | pass |
+| `card.done` Done card | pass | pass | pass | pass |
+| `card.needsyou` Needs you card | pass | pass | pass | pass |
+| `card.collapse` Collapse | pass | pass | pass | pass |
+| `card.somethingelse` Something else box | pass | pass | pass | pass |
+| `card.returnflow` Return flow | pass | pass | pass | pass |
+| `card.answers` Answer and follow-up state | pass | pass | pass | pass |
 
 ### 9. Highlights
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `highlights.panel` Panel and folds | pass | pass | pending | pass |
-| `highlights.librarian` Librarian line | pass | pass | pending | pass |
-| `highlights.needsyou` Needs you list | pass | pass | pending | pass |
-| `highlights.projects` Project blocks | pass | pass | pending | pass |
-| `highlights.scheduled` Scheduled list | pass | pass | pending | pass |
-| `highlights.subagents` Sub-agents list | pass | pass | pending | pass |
-| `highlights.started` Threads it started | pass | pass | pending | pass |
-| `highlights.pinned` Pinned, Files, Links | pass | pass | pending | pass |
-| `highlights.changes` Changes | pass | pass | pending | pass |
-| `highlights.rowmenus` Row menus | pass | pass | pending | pass |
+| `highlights.panel` Panel and folds | pass | pass | pass | pass |
+| `highlights.librarian` Librarian line | pass | pass | pass | pass |
+| `highlights.needsyou` Needs you list | pass | pass | pass | pass |
+| `highlights.projects` Project blocks | pass | pass | pass | pass |
+| `highlights.scheduled` Scheduled list | pass | pass | pass | pass |
+| `highlights.subagents` Sub-agents list | pass | pass | pass | pass |
+| `highlights.started` Threads it started | pass | pass | pass | pass |
+| `highlights.pinned` Pinned, Files, Links | pass | pass | pass | pass |
+| `highlights.changes` Changes | pass | pass | pass | pass |
+| `highlights.rowmenus` Row menus | pass | pass | pass | pass |
 
 ### 10. Patches panels and web panels
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `patches.list` Patches list | pass | pass | pending | pass |
-| `patches.run` Patch chips run | pass | pass | pending | pass |
-| `panel.list` List panel | pass | pass | pending | pass |
-| `panel.image` Image panel | pass | pass | pending | pass |
+| `patches.list` Patches list | pass | pass | pass | pass |
+| `patches.run` Patch chips run | pass | pass | pass | pass |
+| `panel.list` List panel | pass | pass | pass | pass |
+| `panel.image` Image panel | pass | pass | pass | pass |
 
 ### 12. File previews and folders
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `file.host` Preview host | pass | pass | pending | pass |
-| `file.picture` Picture view | pass | pass | pending | pass |
-| `file.textview` Text viewer | pass | pass | pending | pass |
-| `file.markdown` Markdown preview | pass | pass | pending | pass |
-| `folder.list` Folder list | pass | pass | pending | pass |
-| `folder.pathbar` Path bar | pass | pass | pending | pass |
-| `folder.menu` Folder menu | pass | pass | pending | pass |
-| `folder.filespanel` Files panel | pass | pass | pending | pass |
+| `file.host` Preview host | pass | pass | pass | pass |
+| `file.picture` Picture view | pass | pass | pass | pass |
+| `file.textview` Text viewer | pass | pass | pass | pass |
+| `file.markdown` Markdown preview | pass | pass | pass | pass |
+| `folder.list` Folder list | pass | pass | pass | pass |
+| `folder.pathbar` Path bar | pass | pass | pass | pass |
+| `folder.menu` Folder menu | pass | pass | pass | pass |
+| `folder.filespanel` Files panel | pass | pass | pass | pass |
 
 ### 17. Navigation, shortcuts, main menu
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `nav.history` Back/forward history | partly | pass | pending | pass |
-| `nav.sidebuttons` Mouse side buttons | pass | pass | pending | pass |
-| `nav.nextinbox` Next Inbox Thread | pass | pass | pending | pass |
-| `menu.app` App menu | pass | pass | pending | pass |
-| `menu.file` File menu | pass | pass | pending | pass |
-| `menu.view` View menu | pass | pass | pending | pass |
-| `menu.go` Go menu | pass | pass | pending | pass |
-| `menu.thread` Thread menu | pass | pass | pending | pass |
-| `menu.help` Help menu | pass | pass | pending | pass |
-| `nav.shortcuts` Keyboard shortcuts | partly | pass | pending | pass |
+| `nav.history` Back/forward history | partly | pass | pass | pass |
+| `nav.sidebuttons` Mouse side buttons | pass | pass | pass | pass |
+| `nav.nextinbox` Next Inbox Thread | pass | pass | pass | pass |
+| `menu.app` App menu | pass | pass | pass | pass |
+| `menu.file` File menu | pass | pass | pass | pass |
+| `menu.view` View menu | pass | pass | pass | pass |
+| `menu.go` Go menu | pass | pass | pass | pass |
+| `menu.thread` Thread menu | pass | pass | pass | pass |
+| `menu.help` Help menu | pass | pass | pass | pass |
+| `nav.shortcuts` Keyboard shortcuts | partly | pass | pass | pass |
 
 <!-- parity:end -->
 
@@ -192,6 +192,15 @@ One entry a slice, newest first. Every entry has a `Verification:` line: a spec
 run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
+
+### 2026-11-10 Every spec on real Windows
+
+- Windows paths: the runner's `C:\\` paths work in folder names, relative paths
+  and Highlights (`forward_slashes` in `desktop/core`), and the mock accepts them.
+- Remaining: the folder browser still joins with `/`, which Windows tolerates
+  but shows as mixed separators.
+- Verification: `Behaviour specs` in the Desktop app workflow, 192 of 192 on
+  Windows, Mac and Linux (run 42648513140).
 
 ### 2026-11-09 The first app that can be used all day
 
