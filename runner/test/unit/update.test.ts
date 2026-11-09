@@ -9,7 +9,7 @@ import type { UpdateFailure } from '../../src/fix-update.ts';
 import { nullLogger } from '../../src/log.ts';
 import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, MAX_SLEPT_TRIES, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, buildTreeAt, type UpdateDeps } from '../../src/update.ts';
 import type { ReleaseJson } from '../../src/release.ts';
-import { patiently } from '../helpers/patience.ts';
+import { noFileWatches, patiently } from '../helpers/patience.ts';
 
 const running = { id: 'r1', tree: 'a+b+c+d' };
 const none = { pendingRestart: false, crashedTrees: new Set<string>() };
@@ -371,7 +371,8 @@ test('main moving in the checkout is checked within seconds, not at the next fiv
   h.u.stop();
 });
 
-test('watchMainRef hears a commit on main, from a worktree too', async () => {
+test('watchMainRef hears a commit on main, from a worktree too', async (t) => {
+  if (noFileWatches(t)) return;
   const { repo, commit } = makeRepo();
   let heard = 0;
   const stop = watchMainRef(repo, () => heard++);
