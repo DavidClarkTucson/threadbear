@@ -21,7 +21,7 @@ import type { RestartResult } from './restart.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { inBackground } from './background.ts';
 import type { UpdateFailure } from './fix-update.ts';
-import { followOrigin as fetchAndFollowOrigin, oldestMissingAt, type OriginResult } from './follow-origin.ts';
+import { cleanGitError, followOrigin as fetchAndFollowOrigin, oldestMissingAt, type OriginResult } from './follow-origin.ts';
 
 export const CHECK_INTERVAL_MS = 5 * 60_000;
 // After main's ref changes in the checkout (a commit or merge landing), the
@@ -439,6 +439,9 @@ export class RunnerUpdater {
   private followsOrigin = false;
   private followProblem?: string;
   private fetchFailingSince?: number;
+  private syncFailingSince?: number;
+  // What followOrigin itself said, kept for a check that fails after it.
+  private originTrouble?: string;
   // When this runner was first seen missing something that runs, for a
   // release commit git can't count from.
   private behindSeenAt?: number;
@@ -552,13 +555,23 @@ export class RunnerUpdater {
       this.followsOrigin = this.deps.followsOrigin?.() ?? false;
       const origin = this.followsOrigin ? await (this.deps.fetchOrigin ?? fetchAndFollowOrigin)(release.checkout) : undefined;
       if (this.stopped) return undefined;
+      // Before anything below can fail, so it's said even when the clone is stuck.
+      this.originTrouble = origin ? this.originTroubleOf(origin) : undefined;
+      this.followProblem = this.originTrouble;
+      // Nothing from GitHub to build, and the checkout's own main may be a
+      // commit made only here: stay on this release rather than build that.
+      if (origin && !origin.ref) {
+        this.state = wasFailed ? 'failed' : 'idle';
+        return { action: 'nothing', why: 'no origin/main to build yet' };
+      }
       const main = await (this.deps.sync ?? syncClone)(release.checkout, release.prefix, dir, origin?.ref);
+      this.syncFailingSince = undefined;
       this.checkedAt = new Date(this.deps.clock.now()).toISOString();
       this.commit = main.commit;
       this.subject = main.subject;
       this.launcherReason = launchAgentBehind(path.join(dir, release.prefix), home, this.deps.env ?? process.env, this.deps.findLauncherApp, this.deps.platform);
       this.launcherChanged = this.launcherReason !== undefined;
-      this.followProblem = origin ? await this.originProblem(origin, main, release) : undefined;
+      if (origin) this.followProblem = joined(this.originTrouble, await this.behindTrouble(origin, main, release));
       if (origin) this.deps.onChange?.();
       if (main.commit !== this.backendTried) {
         this.backendTried = main.commit;
@@ -640,6 +653,13 @@ export class RunnerUpdater {
     } catch (e) {
       // Git trouble in the clone, say: logged, and tried again next time.
       log.warn('could not check main', { error: String(e) });
+      if (this.followsOrigin) {
+        const now = this.deps.clock.now();
+        this.syncFailingSince ??= now;
+        if (now - this.syncFailingSince >= FETCH_WARN_MS) {
+          this.followProblem = joined(this.originTrouble, `Couldn't bring the runner's update clone to GitHub's main for ${hours(now - this.syncFailingSince)}: ${cleanGitError(String(e))}`);
+        }
+      }
       this.state = wasFailed ? 'failed' : 'idle';
       return undefined;
     } finally {
@@ -648,32 +668,36 @@ export class RunnerUpdater {
     }
   }
 
-  // What to say about following GitHub, or undefined for nothing.
-  private async originProblem(origin: OriginResult, main: MainInfo, release: ReleaseJson & { checkout?: string; prefix?: string }): Promise<string | undefined> {
-    const now = this.deps.clock.now();
-    const out: string[] = [];
+  // What followOrigin found, with GitHub out of reach only once it's lasted.
+  private originTroubleOf(origin: OriginResult): string | undefined {
     const p = origin.problem;
-    if (p?.kind === 'fetch') {
-      this.fetchFailingSince ??= now;
-      if (now - this.fetchFailingSince >= FETCH_WARN_MS) out.push(`Couldn't reach GitHub for ${hours(now - this.fetchFailingSince)}: ${p.message}`);
-    } else {
+    if (p?.kind !== 'fetch') {
       this.fetchFailingSince = undefined;
-      if (p) out.push(p.message);
+      return p?.message;
     }
-    const runningTree = release.tree ?? (release.dirty ? undefined : (this.deps.treeOf ?? releaseTreeAt)(path.join(updateDir(this.deps.home), 'src'), release.prefix ?? '', release.commit));
-    if (!runningTree || runningTree === main.tree) {
+    const now = this.deps.clock.now();
+    this.fetchFailingSince ??= now;
+    return now - this.fetchFailingSince >= FETCH_WARN_MS ? `Couldn't reach GitHub for ${hours(now - this.fetchFailingSince)}: ${p.message}` : undefined;
+  }
+
+  // Whether something that runs has been on GitHub's main and not here for
+  // hours. A release built with local changes has no tree to compare and is
+  // never updated (decideUpdate), so that's judged from its commit alone.
+  private async behindTrouble(origin: OriginResult, main: MainInfo, release: ReleaseJson): Promise<string | undefined> {
+    const prefix = release.prefix ?? '';
+    const tree = release.tree ?? (release.dirty ? undefined : (this.deps.treeOf ?? releaseTreeAt)(path.join(updateDir(this.deps.home), 'src'), prefix, release.commit));
+    if (tree === main.tree) {
       this.behindSeenAt = undefined;
-    } else {
-      this.behindSeenAt ??= now;
-      let since: number | undefined;
-      if (origin.ref && release.checkout) {
-        // Failing to count isn't worth stopping the check for.
-        since = await (this.deps.oldestMissing ?? oldestMissingAt)(release.checkout, release.prefix ?? '', release.commit, origin.ref).catch(() => undefined);
-      }
-      const missingFor = now - (since ?? this.behindSeenAt);
-      if (missingFor >= BEHIND_WARN_MS) out.push(`This runner is ${hours(missingFor)} behind GitHub's main.`);
+      return undefined;
     }
-    return out.length ? out.join(' ') : undefined;
+    const now = this.deps.clock.now();
+    // Failing to count isn't worth stopping the check for.
+    const since = origin.ref && release.checkout ? await (this.deps.oldestMissing ?? oldestMissingAt)(release.checkout, prefix, release.commit, origin.ref).catch(() => undefined) : undefined;
+    if (!tree && since === undefined) return undefined;
+    this.behindSeenAt ??= now;
+    const missingFor = now - (since ?? this.behindSeenAt);
+    if (missingFor < BEHIND_WARN_MS) return undefined;
+    return `This runner is ${hours(missingFor)} behind GitHub's main.${tree ? '' : " It was built with uncommitted changes, so it won't update itself: deploy once by hand."}`;
   }
 
   // A thread to fix it when one can be started, else the notice.
@@ -703,6 +727,10 @@ export class RunnerUpdater {
     }
     return out;
   }
+}
+
+function joined(...parts: (string | undefined)[]): string | undefined {
+  return parts.filter(Boolean).join(' ') || undefined;
 }
 
 function hours(ms: number): string {

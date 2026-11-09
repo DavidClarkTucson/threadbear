@@ -531,7 +531,11 @@ async function main(): Promise<void> {
     sharedUsage: usage,
     // The sidebar's list carries what the relay has changed that the
     // backend's rows don't show yet (relay.ts overlay); made below.
-    publish: (n) => runner.publish(n.method === 'remoteThreads.updated' ? { ...n, params: dressRemote(n.params) } : n),
+    publish: (n) => {
+      runner.publish(n.method === 'remoteThreads.updated' ? { ...n, params: dressRemote(n.params) } : n);
+      // Another runner's followProblem comes in with these rows.
+      if (n.method === 'remoteThreads.updated') publishUpdates();
+    },
     home: cfg.home,
     // A key the backend turns down (sync.ts KEY_REJECTED): said in the app,
     // and once tb runner add has written a new one, a restart onto it.

@@ -13,7 +13,7 @@
 // thread had made on that machine's main. So a local commit can no longer hold
 // the runner back (it builds origin/main regardless), it's never thrown away,
 // and it's said loudly (tb status, the app's Updates panel, the runner row).
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readJsonSync } from './fsutil.ts';
@@ -102,7 +102,9 @@ export async function followOrigin(checkout: string): Promise<OriginResult> {
   const fastForward = await run(checkout, ['merge-base', '--is-ancestor', local, tip]);
   if (!fastForward.ok) return { ...out, problem: await divergedProblem(checkout, tip) };
   const wt = await worktreeOnMain(checkout);
-  const moved = wt ? await run(wt, ['merge', '-q', '--ff-only', tip]) : await run(checkout, ['update-ref', LOCAL_MAIN, tip, local]);
+  // git branch -f, not update-ref, as git refuses it for a branch that's
+  // being rebased or bisected, which the worktree list doesn't show.
+  const moved = wt ? await run(wt, ['merge', '-q', '--ff-only', tip]) : await run(checkout, ['branch', '-f', 'main', tip]);
   if (moved.ok) return out;
   return { ...out, problem: { kind: 'stuck', message: `main in ${wt ?? checkout} couldn't move to GitHub's main, so new threads here start from the old one: ${cleanGitError(moved.err)}` } };
 }
@@ -131,11 +133,16 @@ export async function oldestMissingAt(checkout: string, prefix: string, since: s
   return Number.isFinite(at) && at > 0 ? at : undefined;
 }
 
-function real(p: string): string {
+// What makes two folders the same repo: a release can record a linked
+// worktree as its checkout (deploy.mjs), and tb land names the main one.
+function repoOf(dir: string): string {
+  let at = dir;
+  const r = spawnSync('git', ['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' });
+  if (r.status === 0 && r.stdout.trim()) at = r.stdout.trim();
   try {
-    return fs.realpathSync(p);
+    return fs.realpathSync(at);
   } catch {
-    return path.resolve(p);
+    return path.resolve(at);
   }
 }
 
@@ -148,6 +155,6 @@ export function landRefusal(home: string, mainCheckout: string): string | undefi
   if (!followOriginOn(home)) return undefined;
   const id = currentLink(home);
   const checkout = id ? readRelease(path.join(home, 'runner', 'releases', id))?.checkout : undefined;
-  if (!checkout || real(checkout) !== real(mainCheckout)) return undefined;
-  return "This machine follows GitHub's main (followOrigin in runner.json), so nothing lands here: it would only leave its main apart from GitHub's. Push the branch instead if this machine can (git push origin HEAD:cloud/<topic>), or give the work to the main Mac (create_thread with runner: \"main\"). Say which in your reply.";
+  if (!checkout || repoOf(checkout) !== repoOf(mainCheckout)) return undefined;
+  return "This machine follows GitHub's main (followOrigin in runner.json), so nothing lands here: it would only leave its main apart from GitHub's. Give the work to the main Mac to land instead: create_thread with runner: \"main\". If this machine can push (git push origin HEAD:cloud/<topic>), name that branch in the brief; if not, put the whole diff in it.";
 }

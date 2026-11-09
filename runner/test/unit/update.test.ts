@@ -680,3 +680,74 @@ test('followOrigin: GitHub out of reach is said only once it has lasted an hour'
   await u.check();
   assert.equal(u.status().followProblem, undefined);
 });
+
+function originRig(over: Partial<UpdateDeps>, releaseOver: Partial<ReleaseJson> = {}) {
+  const home = tmpDir('tb-update-origin-');
+  fs.mkdirSync(path.join(home, 'runner', 'releases', 'r1'), { recursive: true });
+  fs.symlinkSync(path.join('releases', 'r1'), path.join(home, 'runner', 'current'));
+  const clock = new FakeClock();
+  const release = { id: 'r1', commit: 'abc', checkout: home, prefix: 'runner/', tree: 'same', ...releaseOver } as ReleaseJson;
+  const u = new RunnerUpdater({
+    home,
+    release,
+    enabled: true,
+    clock,
+    log: nullLogger,
+    notice: () => {},
+    restart: () => ({ scheduled: true, waitingFor: [] }),
+    pendingRestart: () => false,
+    env: {},
+    followsOrigin: () => true,
+    sync: async () => ({ commit: 'c1', short: 'c1', subject: 's', tree: 'same' }),
+    deployBackend: async () => ({ ok: true }),
+    ...over,
+  });
+  return { u, clock };
+}
+
+test("followOrigin: with no origin/main to build it stays put rather than build the local main", async () => {
+  let synced = 0;
+  const { u, clock } = originRig({
+    fetchOrigin: async () => ({ problem: { kind: 'fetch', message: 'no route to host' } }),
+    sync: async () => {
+      synced++;
+      return { commit: 'stray', short: 'stray', subject: 's', tree: 'stray' };
+    },
+    deploy: async () => assert.fail('a local commit must not be built'),
+  });
+  await u.check();
+  assert.equal(synced, 0);
+  clock.advance(61 * 60_000);
+  await u.check();
+  assert.equal(synced, 0);
+  assert.match(u.status().followProblem ?? '', /no route to host/);
+});
+
+test('followOrigin: a stuck clone does not hide what the fetch found, and is said once it lasts', async () => {
+  let broken = true;
+  const { u, clock } = originRig({
+    fetchOrigin: async () => ({ ref: 'refs/remotes/origin/main', problem: { kind: 'diverged', message: 'main has a stray commit.' } }),
+    sync: async () => {
+      if (broken) throw new Error("git checkout failed: fatal: Unable to create 'index.lock': File exists.");
+      return { commit: 'c1', short: 'c1', subject: 's', tree: 'same' };
+    },
+  });
+  await u.check();
+  assert.equal(u.status().followProblem, 'main has a stray commit.');
+  clock.advance(61 * 60_000);
+  await u.check();
+  assert.match(u.status().followProblem ?? '', /stray commit.*update clone.*index\.lock/);
+  broken = false;
+  await u.check();
+  assert.equal(u.status().followProblem, 'main has a stray commit.');
+});
+
+test('followOrigin: a release built with local changes is still said to be behind', async () => {
+  const { u, clock } = originRig({
+    fetchOrigin: async () => ({ ref: 'refs/remotes/origin/main' }),
+    oldestMissing: async () => clock.now() - 30 * 3600_000,
+    sync: async () => ({ commit: 'c2', short: 'c2', subject: 's', tree: 'newer' }),
+  }, { tree: undefined, dirty: true });
+  await u.check();
+  assert.match(u.status().followProblem ?? '', /30 hours behind.*deploy once by hand/);
+});

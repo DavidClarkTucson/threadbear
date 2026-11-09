@@ -142,6 +142,24 @@ test('main checked out in another worktree moves there', async () => {
   assert.equal(fs.readFileSync(path.join(other, 'runner/src/main.ts'), 'utf8'), 'second\n');
 });
 
+test('main being rebased is left alone and said, though the worktree list shows it detached', async () => {
+  const { upstream, checkout } = rig();
+  // A rebase of main onto a conflicting commit: it stops partway, HEAD detached.
+  git(checkout, 'checkout', '-q', '-b', 'onto');
+  commit(checkout, 'onto', 'runner/README.md', 'onto\n');
+  git(checkout, 'checkout', '-q', 'main');
+  commit(checkout, 'conflicts', 'runner/README.md', 'main\n');
+  const before = git(checkout, 'rev-parse', 'refs/heads/main');
+  assert.notEqual(spawnSync('git', ['-C', checkout, 'rebase', 'onto'], { encoding: 'utf8', env }).status, 0);
+  // GitHub moves on from the main being rebased, so it's a fast-forward.
+  git(upstream, 'fetch', '-q', checkout, 'refs/heads/main');
+  git(upstream, 'merge', '-q', '--ff-only', 'FETCH_HEAD');
+  commit(upstream, 'second');
+  const res = await followOrigin(checkout);
+  assert.equal(res.problem?.kind, 'stuck');
+  assert.equal(git(checkout, 'rev-parse', 'refs/heads/main'), before);
+});
+
 test('GitHub out of reach is a fetch problem; what was last fetched is still built', async () => {
   const { upstream, checkout, first } = rig();
   fs.rmSync(upstream, { recursive: true, force: true });
@@ -193,6 +211,8 @@ test('followOriginOn reads runner.json each time, and only true counts', () => {
 test('tb land refuses only on a followOrigin machine, and only for the repo it follows', () => {
   const home = tmpDir('tb-origin-land-');
   const checkout = tmpDir('tb-origin-land-co-');
+  git(checkout, 'init', '-q', '-b', 'main');
+  commit(checkout, 'first');
   const elsewhere = tmpDir('tb-origin-land-other-');
   const release = (id: string, c?: string) => {
     fs.mkdirSync(path.join(home, 'runner', 'releases', id), { recursive: true });
@@ -204,8 +224,14 @@ test('tb land refuses only on a followOrigin machine, and only for the repo it f
   assert.equal(landRefusal(home, checkout), undefined, 'the setting is off');
   fs.writeFileSync(path.join(home, 'runner.json'), '{"followOrigin":true}');
   assert.match(landRefusal(home, checkout) ?? '', /follows GitHub/);
-  assert.match(landRefusal(home, checkout) ?? '', /cloud\//);
+  assert.match(landRefusal(home, checkout) ?? '', /runner: "main"/);
   assert.equal(landRefusal(home, elsewhere), undefined, "another repo's main is its own");
+  // A release deployed from a linked worktree names that, and tb land the main one.
+  const linked = path.join(tmpDir('tb-origin-land-wt-'), 'wt');
+  git(checkout, 'worktree', 'add', '-q', '-b', 'side', linked);
+  release('r2', linked);
+  assert.match(landRefusal(home, checkout) ?? '', /follows GitHub/);
+  release('r3', checkout);
   // The same folder through a link is still the followed checkout.
   const link = path.join(tmpDir('tb-origin-land-ln-'), 'link');
   fs.symlinkSync(checkout, link);

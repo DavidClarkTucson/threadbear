@@ -80,6 +80,7 @@ test('on a machine that follows GitHub the thread is told not to land, and to ha
   assert.match(text, /tb land refuses/);
   assert.match(text, /runner: "main"/);
   assert.match(text, /cloud\//);
+  assert.match(text, /ask it to land/);
   assert.doesNotMatch(text, /Land the fix on main/);
   // A flake still needs nothing more than a rerun.
   assert.ok(text.includes(`${home}/runner/update.json`));
