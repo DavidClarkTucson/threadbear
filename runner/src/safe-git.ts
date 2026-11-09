@@ -25,15 +25,28 @@ export function untrustedGitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.P
   return env;
 }
 
+// A listing never fetches or runs a hook. A folder's .git can also say
+// it's a partial clone with objects missing (a sparse index whose tree
+// isn't there), and git fetches a missing object by itself as it reads the
+// index, through the repo's own core.sshCommand, a remote's uploadpack or
+// an ext:: address: `git ls-files -s` ran a planted core.sshCommand with
+// fsmonitor off (Codex's review of this fix, 9 Nov 2026). GIT_NO_LAZY_FETCH
+// stops that in git 2.44 and later. For older git, every transport is
+// refused too, each by name, as a protocol's own setting in the repo's
+// config would beat protocol.allow. A listing missing an object leaves
+// those files out, which is what Claude would see too.
+const NO_FETCH: readonly string[] = ['allow', 'ext.allow', 'fd.allow', 'file.allow', 'git.allow', 'ssh.allow', 'http.allow', 'https.allow'].flatMap((k) => ['-c', `protocol.${k}=never`]);
+export const LISTING_GIT_CONFIG: readonly string[] = [...UNTRUSTED_GIT_CONFIG, ...NO_FETCH, '-c', 'core.hooksPath=/dev/null'];
+
 // A git listing in `dir`, read whole: what claude-trust and tracked-packages
 // use to see what a folder holds before it's trusted. Throws as
 // execFileSync does when git fails.
 export function untrustedGitSync(dir: string, args: readonly string[]): string {
-  return execFileSync('git', untrustedGitArgs(dir, args), {
+  return execFileSync('git', [...LISTING_GIT_CONFIG, '-C', dir, ...args], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
     timeout: 10_000,
     maxBuffer: 64 * 1024 * 1024,
-    env: untrustedGitEnv(),
+    env: { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1' },
   });
 }
