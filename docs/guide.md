@@ -475,8 +475,8 @@ box, so the change sticks. On their own they say what the thread is on and
 what you can pick. `/clear` starts the agent on a fresh session; the
 transcript above stays for you to read.
 
-Type `/` in a thread's message box and a palette opens above it with
-every command the thread can run: Threadbear's, the CLI's and your
+Type `/` in a thread's message box, a new thread's included, and a
+palette opens above it with every command the thread can run: Threadbear's, the CLI's and your
 skills, with Recent for the ones you picked lately. What you type narrows
 it, and the one picked is described on the right: how to use it, its
 other names, what `/model` and `/effort` are set to now, and where it

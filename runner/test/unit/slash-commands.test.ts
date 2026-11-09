@@ -223,6 +223,36 @@ test('threads.commands lists the CLI\'s commands for the thread\'s folder, cache
   assert.equal(asked, 1);
 });
 
+test('folders.commands lists a new thread\'s commands before it exists, sharing the folder\'s cache', async () => {
+  const h = harness();
+  const asked: { account: string; cwd: string }[] = [];
+  h.adapter.commands = async (a, cwd) => {
+    asked.push({ account: a.id, cwd });
+    return [{ name: 'alert-duty', source: 'skill', description: 'Weekly alert duty' }];
+  };
+  const before = await h.runner.folderCommands({ accountId: 'claude-main', cwd: '/tmp' });
+  assert.deepEqual(before.commands.map((c) => c.name), ['model', 'effort', 'alert-duty']);
+  assert.deepEqual(asked, [{ account: 'claude-main', cwd: '/tmp' }]);
+  // The thread it becomes has the list already.
+  const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-main', cwd: '/tmp' });
+  const after = await h.runner.threadCommands(thread.id);
+  assert.deepEqual(after.commands.map((c) => c.name), ['model', 'effort', 'alert-duty']);
+  assert.equal(asked.length, 1);
+});
+
+test('folders.commands with no login or folder uses the ones a new thread would', async () => {
+  const h = harness();
+  let got: { account?: string; cwd?: string } = {};
+  h.adapter.commands = async (a, cwd) => {
+    got = { account: a.id, cwd };
+    return [];
+  };
+  await h.runner.folderCommands({});
+  assert.equal(got.account, h.runner.defaultAccountId());
+  assert.equal(got.cwd, (h.runner as any).cfg.defaults.cwd);
+  await assert.rejects(h.runner.folderCommands({ accountId: 'nobody' }), /No account called nobody/);
+});
+
 test('a CLI command\'s output leaves no card, as it asks nothing', async () => {
   const h = harness();
   const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-main' });

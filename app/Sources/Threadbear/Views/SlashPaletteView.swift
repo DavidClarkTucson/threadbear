@@ -332,6 +332,40 @@ extension AppModel {
             }
         }
     }
+
+    /// Where a new thread's palette keeps its list: per login and folder,
+    /// so changing either in the box's chips asks again.
+    var newThreadCommandsKey: String {
+        "new\u{0}\(newThreadRunnerId ?? "")\u{0}\(newThreadAccountId)\u{0}\(newThreadCwd ?? draftLogins.defaults.cwd)"
+    }
+
+    /// The same for a new thread's box, before there's a thread
+    /// (`folders.commands`): the login, folder and mode it would start
+    /// with. Before 9 Nov 2026 a new thread's box had no palette, so its
+    /// first message couldn't pick a skill (David). Another runner's draft
+    /// isn't asked yet; its palette lists none.
+    func loadNewThreadSlashCommands() {
+        let key = newThreadCommandsKey
+        guard slashFetches[key] == nil else { return }
+        guard newThreadRunnerId == nil, let client else {
+            if slashCommands[key] == nil { slashCommands[key] = [] }
+            return
+        }
+        let accountId = newThreadAccountId.isEmpty ? nil : newThreadAccountId
+        let cwd = newThreadCwd
+        let mode = newThreadPermission(for: newThreadProviderId)
+        slashFetches[key] = Task { [weak self] in
+            defer { self?.slashFetches[key] = nil }
+            do {
+                let list = try await client.folderCommands(cwd: cwd, accountId: accountId, permissionMode: mode)
+                if self?.slashCommands[key] != list { self?.slashCommands[key] = list }
+            } catch {
+                // An older runner (-32601): none, as for a thread.
+                if self?.slashCommands[key] == nil { self?.slashCommands[key] = [] }
+                AppLog.write("rpc", "folders.commands failed: \(error.localizedDescription)")
+            }
+        }
+    }
 }
 
 /// A line between the palette's columns that drags to size the column on

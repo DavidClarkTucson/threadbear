@@ -730,6 +730,12 @@ export class RpcServer {
       }
       case 'threads.commands':
         return r.threadCommands(reqString(p, 'threadId'));
+      case 'folders.commands':
+        return r.folderCommands({
+          cwd: p.cwd === undefined ? undefined : reqString(p, 'cwd'),
+          accountId: p.accountId === undefined ? undefined : reqString(p, 'accountId'),
+          permissionMode: optMode(p),
+        });
       case 'threads.hibernateWhen':
         return r.hibernateWhen({ threadId: reqString(p, 'threadId'), said: reqString(p, 'said') });
       case 'threads.removeHighlight':
