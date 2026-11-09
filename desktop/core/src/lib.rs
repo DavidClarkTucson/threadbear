@@ -3,5 +3,7 @@
 // rows. Keeping it out of the GPUI crate means its tests need no graphics
 // libraries and take seconds.
 pub mod inbox;
+pub mod sidebar;
 pub mod transcript;
+pub use chrono;
 pub mod reducer;
