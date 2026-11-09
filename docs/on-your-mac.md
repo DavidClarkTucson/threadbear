@@ -52,8 +52,8 @@ File references are where to look.
   runner shares, so one starts with them while the backend can't be reached,
   and `shortcuts.json`, the keyboard shortcuts you've changed in Settings >
   Keyboard, which the app reads and writes and never sends anywhere,
-  `schedule-runs.json`, schedule runs your Convex backend hasn't been told
-  of yet, kept only until it has, and
+  `schedule-runs/`, schedule runs your Convex backend hasn't been told
+  of yet, a file each, kept only until it has, and
   with the standing instructions experiment on, `instructions.md`, which every
   agent is given, and `instructions.sig`, which says Settings saved it). In `secrets/`, `asked/` holds the answers you
   type into an agent's secret card, one owner-only file each with a small

@@ -4511,11 +4511,15 @@ kept in `schedules.json` in the data dir.
   that, the row still says the run is due, and once the claim lapses it
   would be sent again (THREADBEAR-15: a daily schedule sent twice when the
   network dropped as it was recorded and a self-update's new runner read
-  the row). So the run is written to `schedule-runs.json` first and tried
-  again every tick until `scheduleRan` lands, by the next runner process
-  if need be, and meanwhile laid over the row the subscription brings, so
-  it isn't due again here. `scheduleRan` counts a run it already has
-  (same `lastRun.at` and outcome) once. Making, changing and
+  the row). So the run is written to `schedule-runs/` (a file each) first
+  and tried again every tick until `scheduleRan` lands, by the next runner
+  process if need be, and meanwhile laid over the row the subscription
+  brings, so it isn't due again here; the `nextRunAt` it ran at is never
+  claimed again. If the row was edited meanwhile but still says that time,
+  the run takes the row's `updatedAt` and is told again. `scheduleRan`
+  counts a run it already has (same `lastRun` time, outcome and thread)
+  once, and one older than its `lastRun` (left in flight by a runner
+  process that has gone) changes nothing but the claim. Making, changing and
   deleting go straight to the backend and answer once it has them; with
   no backend reachable they fail with `-32000` saying so. Nothing fires
   without the backend. The first time a runner meets a backend of API 9

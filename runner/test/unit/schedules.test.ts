@@ -416,12 +416,16 @@ function fakeBackend(clock: { now(): number }, runners: { id: string; name: stri
       check(`ran ${p.lastRun.outcome}`);
       const r = rows.get(p.scheduleId);
       if (!r) return;
-      if (r.lastRun?.at === p.lastRun.at && r.lastRun.outcome === p.lastRun.outcome) return;
-      r.lastRun = p.lastRun;
-      r.runs += p.sent ? 1 : 0;
+      const had = r.lastRun;
+      const older = had !== undefined && p.lastRun.at < had.at;
+      const seen = older || (had !== undefined && had.at === p.lastRun.at && had.outcome === p.lastRun.outcome && had.threadId === p.lastRun.threadId);
+      if (!seen) {
+        r.lastRun = p.lastRun;
+        r.runs += p.sent ? 1 : 0;
+      }
       if (r.claim?.holder === holder) delete r.claim;
       if (p.request !== undefined && r.runRequestedAt === p.request) delete r.runRequestedAt;
-      if (r.updatedAt === p.expectUpdatedAt) {
+      if (r.updatedAt === p.expectUpdatedAt && !older) {
         if (p.nextRunAt) r.nextRunAt = p.nextRunAt;
         else delete r.nextRunAt;
         if (p.finishedAt) r.finishedAt = p.finishedAt;
@@ -977,4 +981,48 @@ test('a run the backend missed hearing of is not sent again by the next runner a
   assert.equal(row.nextRunAt, '2026-10-27T13:00:00.000Z', 'the next runner recorded it');
   assert.equal(row.runs, 1);
   next.stop();
+});
+
+// From Codex's review of the THREADBEAR-15 fix: a rename on another Mac
+// while the run was unrecorded gave the row a new updatedAt, so the run's
+// next time wasn't taken, and the slot that ran was due again.
+test('a run the backend missed hearing of is not sent again after the schedule is edited on another Mac meanwhile', async () => {
+  const h = makeHarness();
+  const { thread } = idleThread(h);
+  const sends = countSends(h, thread.id);
+  const b = fakeBackend(h.clock, [M5, BRUCE]);
+  const s = backendScheduler(h);
+  const f = flakyRan(b.for('m5-a', M5.id));
+  await s.attach(f.backend);
+  const sc = await s.create({ text: 'Daily digest', title: 'Digest', cron: '0 13 * * *', threadId: thread.id });
+  await tick();
+  f.state.down = true;
+  h.clock.advance(60 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sends.n, 1);
+
+  const bruce = backendScheduler(h, BRUCE, path.join(h.home, 'bruce'));
+  await bruce.attach(b.for('bruce', BRUCE.id));
+  for (let i = 0; i < 5; i++) await tick();
+  h.clock.advance(1000);
+  await bruce.update({ scheduleId: sc.id, title: 'Renamed' });
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(b.rows.get(sc.id)?.nextRunAt, '2026-10-26T13:00:00.000Z', 'still the slot that ran');
+  h.clock.advance(5 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sends.n, 1, 'not sent again while unrecorded');
+
+  f.state.down = false;
+  h.clock.advance(MIN);
+  for (let i = 0; i < 10; i++) await tick();
+  const row = b.rows.get(sc.id)!;
+  assert.equal(row.title, 'Renamed');
+  assert.equal(row.nextRunAt, '2026-10-27T13:00:00.000Z', 'its next time went in after all');
+  assert.equal(row.runs, 1);
+  h.clock.advance(5 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sends.n, 1);
+  assert.deepEqual(fs.readdirSync(path.join(h.home, 'schedule-runs')), [], 'nothing left waiting');
+  bruce.stop();
+  s.stop();
 });

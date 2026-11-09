@@ -2129,28 +2129,34 @@ export const scheduleRan = mutation({
     // refusal to say it's there or whose it is.
     const row = visibleTo(caller, await scheduleRow(ctx, scheduleId));
     if (!row) return null;
-    // Already recorded: the runner tries a run again until it hears back
-    // (THREADBEAR-15), so one whose answer got lost comes again. Counted once.
-    if (row.lastRun && row.lastRun.at === lastRun.at && row.lastRun.outcome === lastRun.outcome) {
-      const again: Record<string, unknown> = {};
-      if (row.claim?.holder === holder) again.claim = undefined;
-      if (request !== undefined && row.runRequestedAt === request) again.runRequestedAt = undefined;
-      if (Object.keys(again).length) await ctx.db.patch(row._id, { ...again, updatedMs: Date.now() });
-      return null;
-    }
+    // One it has already, or older (THREADBEAR-15): the runner tells a run
+    // again until it hears back, so one whose answer got lost comes again,
+    // and a runner process that has gone can have left one in flight. Counted
+    // once, and an older one moves nothing: its next time is behind the one
+    // recorded since. The same one can still put in its next time, when the
+    // runner has caught up with an edit made meanwhile (expectUpdatedAt).
+    const had = row.lastRun;
+    const older = had !== undefined && lastRun.at < had.at;
+    const seen = older || (had !== undefined && had.at === lastRun.at && had.outcome === lastRun.outcome && had.threadId === lastRun.threadId);
     // A runner key's run record is cut to fit: the row it's recorded on is
     // read whole with every other schedule (CAP).
     const run = caller.owner ? lastRun : { ...lastRun, at: cutBytes(lastRun.at, 64), outcome: cutBytes(lastRun.outcome, 64), ...(lastRun.threadId !== undefined ? { threadId: cutBytes(lastRun.threadId, 100) } : {}), ...(lastRun.note !== undefined ? { note: cutBytes(lastRun.note, CAP.note) } : {}) };
-    const patch: Record<string, unknown> = { lastRun: run, runs: row.runs + (sent ? 1 : 0), updatedMs: Date.now() };
+    const patch: Record<string, unknown> = seen ? { updatedMs: Date.now() } : { lastRun: run, runs: row.runs + (sent ? 1 : 0), updatedMs: Date.now() };
     if (row.claim?.holder === holder) patch.claim = undefined;
     if (request !== undefined && row.runRequestedAt === request) patch.runRequestedAt = undefined;
-    if (row.updatedAt === expectUpdatedAt) {
+    const timing = row.updatedAt === expectUpdatedAt && !older;
+    if (timing) {
       patch.nextRunAt = caller.owner || nextRunAt === undefined ? nextRunAt : cutBytes(nextRunAt, 64);
       patch.finishedAt = caller.owner || finishedAt === undefined ? finishedAt : cutBytes(finishedAt, 64);
     }
-    // And the row as it will be, checked whole.
-    if (!caller.owner && docBytes({ ...row, ...patch }) > CAP.scheduleDoc) delete patch.lastRun;
-    if (row.updatedAt === expectUpdatedAt) await syncWake(ctx, { ...row, nextRunAt: patch.nextRunAt as string | undefined, finishedAt: patch.finishedAt as string | undefined });
+    // And the row as it will be, checked whole. Its note goes first: the
+    // run's time is what tells a retry it's been counted.
+    if (!caller.owner && !seen && docBytes({ ...row, ...patch }) > CAP.scheduleDoc) {
+      const { note: _n, ...bare } = run;
+      patch.lastRun = bare;
+      if (docBytes({ ...row, ...patch }) > CAP.scheduleDoc) delete patch.lastRun;
+    }
+    if (timing) await syncWake(ctx, { ...row, nextRunAt: patch.nextRunAt as string | undefined, finishedAt: patch.finishedAt as string | undefined });
     await ctx.db.patch(row._id, patch);
     return null;
   },
