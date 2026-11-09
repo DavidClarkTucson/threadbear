@@ -514,20 +514,25 @@ export class Upstream {
       try {
         const staged = await this.stageReleases(checkout, signers, path.join(work, 'git'));
         await this.promote(checkout, signers, staged);
-        this.newestVerified = undefined;
-        const keysBefore = this.signersHash(signers);
-        release = await this.newestSigned(checkout, signers, staged);
         // A release can change which keys count (keyChanges), and so can
         // another runner's check meanwhile (a handover): then what it found
         // is worked out again with the keys as they are now, so a release
-        // whose own key was revoked isn't offered (Codex's review).
-        if (release && ((await this.keyChanges(checkout, signers)) || this.signersHash(signers) !== keysBefore)) {
-          await this.sweep(checkout, signers);
-          // An older release that still counts takes its place.
-          await this.promote(checkout, signers, staged);
+        // whose own key was revoked isn't offered, until the keys stayed
+        // the same through a whole look (Codex's reviews). An older
+        // release that still counts takes its place.
+        let settled = false;
+        for (let look = 0; look < 3 && !settled; look++) {
+          if (look) {
+            await this.sweep(checkout, signers);
+            await this.promote(checkout, signers, staged);
+          }
+          const keysBefore = this.signersHash(signers);
           this.newestVerified = undefined;
           release = await this.newestSigned(checkout, signers, staged);
+          const changed = release ? await this.keyChanges(checkout, signers) : false;
+          settled = !changed && this.signersHash(signers) === keysBefore;
         }
+        if (!settled) throw new Error('the release keys kept changing while the check ran; it looks again next time');
       } finally {
         fs.rmSync(work, { recursive: true, force: true });
       }

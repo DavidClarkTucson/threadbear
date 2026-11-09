@@ -38,7 +38,10 @@ test('the merge preview shows clashes and changes, and runs no merge driver from
   const release = git(repo, 'rev-parse', 'HEAD');
   git(repo, 'checkout', '-q', 'main');
   const marker = path.join(root, 'ran');
-  const driver = `sh -c 'echo ran >> ${marker}; exit 1'`;
+  // A script, so its path is the whole command: a `;` would start a
+  // comment in a config file written by hand (the template's, below).
+  const driver = path.join(root, 'driver.sh');
+  fs.writeFileSync(driver, `#!/bin/sh\necho ran >> '${marker}'\nexit 1\n`, { mode: 0o755 });
   git(repo, 'config', 'merge.preview.driver', driver);
   git(repo, 'config', 'merge.custom.driver', driver);
   git(repo, 'config', 'merge.default', 'custom');
@@ -46,11 +49,17 @@ test('the merge preview shows clashes and changes, and runs no merge driver from
   git(repo, 'config', 'diff.preview.textconv', driver);
   fs.mkdirSync(path.join(repo, '.git', 'info'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.git', 'info', 'attributes'), '* merge=preview diff=preview\n');
+  // And a git template that would copy one into any new repo (Codex's
+  // third look: the preview's own throwaway repo).
+  const template = path.join(root, 'template');
+  fs.mkdirSync(path.join(template, 'info'), { recursive: true });
+  fs.writeFileSync(path.join(template, 'config'), `[merge "custom"]\n\tdriver = ${driver}\n[merge]\n\tdefault = custom\n`);
+  fs.writeFileSync(path.join(template, 'info', 'attributes'), '* merge=custom\n');
   // Plain git would run it, so the check below means something.
   spawnSync('git', ['-C', repo, 'merge-tree', '--write-tree', 'main', release], { env: ENV });
   assert.ok(fs.existsSync(marker), 'plain merge-tree runs the driver');
   fs.rmSync(marker);
-  const r = spawnSync(SCRIPT, [release], { cwd: repo, encoding: 'utf8', env: ENV });
+  const r = spawnSync(SCRIPT, [release], { cwd: repo, encoding: 'utf8', env: { ...ENV, GIT_TEMPLATE_DIR: template } });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /a\.sh/);
   assert.match(r.stdout, /clashes/);

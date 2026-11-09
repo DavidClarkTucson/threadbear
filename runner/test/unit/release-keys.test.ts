@@ -56,12 +56,15 @@ test('a new key gets the principal of the first real key line, past a comment', 
 test("one runner at a time changes the keys: another's lock makes it wait for the next check, a dead runner's doesn't", () => {
   const { home, keys, signers } = setup(2);
   const lock = path.join(home, 'upstream-keys.lock');
-  fs.mkdirSync(lock);
-  assert.throws(() => applyKeyChanges({ home, signers, signer: keys[1]!.key, announced: [], revoke: [keys[0]!.key], tag: 't', now: 0 }), KeysBusy);
+  const go = () => applyKeyChanges({ home, signers, signer: keys[1]!.key, announced: [], revoke: [keys[0]!.key], tag: 't', now: 0 });
+  // One with no owner to read, from just now: left alone.
+  fs.writeFileSync(lock, '');
+  assert.throws(go, KeysBusy);
   assert.equal(readRevoked(home).length, 0, 'nothing changed');
+  // Old enough to be a dead runner's: taken over.
   const old = new Date(Date.now() - 10 * 60_000);
   fs.utimesSync(lock, old, old);
-  assert.deepEqual(applyKeyChanges({ home, signers, signer: keys[1]!.key, announced: [], revoke: [keys[0]!.key], tag: 't', now: 0 }).revoked, [keys[0]!.key]);
+  assert.deepEqual(go().revoked, [keys[0]!.key]);
   assert.ok(!fs.existsSync(lock));
   assert.ok(fs.existsSync(keyStatePath(home)));
 });
@@ -70,16 +73,15 @@ test("a lock is taken over only from a runner that's gone, never from a live one
   const { home, keys, signers } = setup(2);
   const lock = path.join(home, 'upstream-keys.lock');
   const go = () => applyKeyChanges({ home, signers, signer: keys[1]!.key, announced: [], revoke: [keys[0]!.key], tag: 't', now: 0 });
-  // Held by a live process (this one's parent stands in for another runner),
-  // however old: left alone.
-  fs.mkdirSync(lock);
-  fs.writeFileSync(path.join(lock, 'owner'), `${process.ppid} other`);
+  // Held by a live process (this one's parent stands in for another
+  // runner), however old: left alone.
+  fs.writeFileSync(lock, `${process.ppid} other`);
   const old = new Date(Date.now() - 10 * 60_000);
   fs.utimesSync(lock, old, old);
   assert.throws(go, KeysBusy);
-  assert.equal(fs.readFileSync(path.join(lock, 'owner'), 'utf8'), `${process.ppid} other`, 'still theirs');
+  assert.equal(fs.readFileSync(lock, 'utf8'), `${process.ppid} other`, 'still theirs');
   // Held by a pid that isn't running: taken over.
-  fs.writeFileSync(path.join(lock, 'owner'), '999999 gone');
+  fs.writeFileSync(lock, '999999 gone');
   assert.deepEqual(go().revoked, [keys[0]!.key]);
   assert.ok(!fs.existsSync(lock));
 });

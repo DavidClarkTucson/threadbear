@@ -116,11 +116,12 @@ export type KeyChange = { added: string[]; revoked: string[]; waiting: string[];
 const LOCK_STALE_MS = 60_000;
 export class KeysBusy extends Error {}
 
-// The lock is a folder holding its owner ("pid random"). It's taken over
-// only when its owner is gone (that pid isn't running, or it has no owner
-// after LOCK_STALE_MS), by moving it aside and checking it was still that
-// owner's: two runners finding the same dead lock can't both end up in, and
-// neither can take a live one (Codex's review).
+// The lock is a file holding its owner ("pid random"), written whole
+// before link() puts it in place, so it never exists without one. It's
+// taken over only when its owner is gone (that pid isn't running), by
+// moving it aside and checking it was still that owner's: two runners
+// finding the same dead lock can't both end up in, and neither can take a
+// live one (Codex's review).
 function ownerAlive(owner: string | undefined): boolean {
   const pid = Number(owner?.split(' ')[0]);
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -132,9 +133,9 @@ function ownerAlive(owner: string | undefined): boolean {
   }
 }
 
-function readOwner(dir: string): string | undefined {
+function readOwner(file: string): string | undefined {
   try {
-    return fs.readFileSync(path.join(dir, 'owner'), 'utf8').trim() || undefined;
+    return fs.readFileSync(file, 'utf8').trim() || undefined;
   } catch {
     return undefined;
   }
@@ -143,48 +144,55 @@ function readOwner(dir: string): string | undefined {
 function withKeyLock<T>(home: string, fn: () => T): T {
   const lock = path.join(home, 'upstream-keys.lock');
   const me = `${process.pid} ${Math.random().toString(36).slice(2)}`;
-  const take = () => {
-    fs.mkdirSync(lock);
-    fs.writeFileSync(path.join(lock, 'owner'), me);
+  const busy = () => new KeysBusy('another runner is changing the release keys');
+  const take = (): boolean => {
+    const tmp = `${lock}.${me.replace(' ', '-')}`;
+    fs.writeFileSync(tmp, me);
+    try {
+      fs.linkSync(tmp, lock);
+      return true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      throw e;
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
   };
-  try {
-    take();
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+  if (!take()) {
     const owner = readOwner(lock);
+    // One whose owner can't be read is left for LOCK_STALE_MS (it may be
+    // a lock from an older runner), then counts as dead.
     let old = false;
     try {
       old = Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS;
     } catch {
       old = true;
     }
-    if (owner ? ownerAlive(owner) : !old) throw new KeysBusy('another runner is changing the release keys');
+    if (owner ? ownerAlive(owner) : !old) throw busy();
     const aside = `${lock}.dead-${me.replace(' ', '-')}`;
     try {
       fs.renameSync(lock, aside);
     } catch {
-      throw new KeysBusy('another runner is changing the release keys');
+      throw busy();
     }
     if (readOwner(aside) !== owner) {
-      // Someone took it between the look and the move: give it back.
+      // Someone took it between the look and the move: put it back only if
+      // the place is still free, never over a newer lock.
       try {
-        fs.renameSync(aside, lock);
+        fs.linkSync(aside, lock);
       } catch {
-        // they'll find theirs gone and stop at their own check
+        // taken again meanwhile; theirs stands
       }
-      throw new KeysBusy('another runner is changing the release keys');
+      fs.rmSync(aside, { recursive: true, force: true });
+      throw busy();
     }
     fs.rmSync(aside, { recursive: true, force: true });
-    try {
-      take();
-    } catch {
-      throw new KeysBusy('another runner is changing the release keys');
-    }
+    if (!take()) throw busy();
   }
   try {
     return fn();
   } finally {
-    if (readOwner(lock) === me) fs.rmSync(lock, { recursive: true, force: true });
+    if (readOwner(lock) === me) fs.rmSync(lock, { force: true });
   }
 }
 

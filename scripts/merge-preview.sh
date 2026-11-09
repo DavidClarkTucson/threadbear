@@ -22,13 +22,18 @@ base_id=$(git -C "$top" rev-parse --verify "$base^{commit}")
 commit_id=$(git -C "$top" rev-parse --verify "$commit^{commit}")
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tb-merge-preview.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
-git init -q --bare "--object-format=$format" "$tmp/r"
-printf '%s\n' "$objects" > "$tmp/r/objects/info/alternates"
 # Nothing of anyone's config: not this repo's, the user's or the system's.
-clean() {
-  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT \
+bare() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_TEMPLATE_DIR \
     HOME="$tmp" XDG_CONFIG_HOME="$tmp" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_ATTR_NOSYSTEM=1 \
-    git -C "$tmp/r" -c core.attributesFile=/dev/null -c merge.default=text "$@"
+    git "$@"
+}
+# No template either: init.templateDir or GIT_TEMPLATE_DIR could copy in a
+# config and info/attributes naming a driver (Codex's third look).
+bare init -q --bare --template= "--object-format=$format" "$tmp/r"
+printf '%s\n' "$objects" > "$tmp/r/objects/info/alternates"
+clean() {
+  bare -C "$tmp/r" -c core.attributesFile=/dev/null -c merge.default=text "$@"
 }
 empty=$(clean hash-object -t tree /dev/null)
 status=0
