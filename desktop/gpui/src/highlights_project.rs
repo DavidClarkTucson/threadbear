@@ -19,10 +19,6 @@ pub(crate) fn project_icon(project: &ProjectInfo, cx: &App) -> AnyElement {
     if let Some(path) = picture {
         return img(path).size(px(14.)).rounded(px(3.)).into_any_element();
     }
-    let symbol = project.icon.as_ref().and_then(|i| i.get("symbol")).and_then(Value::as_str);
-    if let Some(symbol) = symbol.and_then(crate::icons::try_symbol) {
-        let _ = symbol;
-    }
     if let Some(name) = project.icon.as_ref().and_then(|i| i.get("symbol")).and_then(Value::as_str).filter(|s| crate::icons::try_symbol(s).is_some()) {
         return icon(name, 11., style::secondary_text(cx)).into_any_element();
     }
@@ -51,12 +47,11 @@ impl SidePane {
 }
 
 /// The ⓘ at the end of the project's heading.
-pub(crate) fn why_button(pane: &mut SidePane, row: &ProjectRow, thread_id: String, p: Palette, cx: &mut Context<SidePane>) -> impl IntoElement {
+pub(crate) fn why_button(row: &ProjectRow, p: Palette, cx: &mut Context<SidePane>) -> impl IntoElement {
     let project_id = row.project.id.clone();
     let tip = format!("Why it's in {}", row.project.title);
-    let shown = pane.project_why.as_ref().is_some_and(|(id, _)| *id == project_id);
     let open_id = project_id.clone();
-    let mut button = div()
+    div()
         .id(SharedString::from(format!("hl-why-{project_id}")))
         .size(px(14.))
         .flex()
@@ -72,15 +67,13 @@ pub(crate) fn why_button(pane: &mut SidePane, row: &ProjectRow, thread_id: Strin
                 _ => Some((open_id.clone(), position)),
             };
             cx.notify();
-        }));
-    let _ = (&mut button, thread_id);
-    div().child(button).when(shown, |s| s).into_any_element()
+        }))
 }
 
 impl SidePane {
     /// The ⓘ's popover, when one is open. Drawn over everything at the place
     /// it was asked for, as a menu is.
-    pub(crate) fn why_popover(&mut self, thread: &ThreadSummary, p: Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(crate) fn why_popover(&mut self, thread: &ThreadSummary, p: Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (project_id, position) = self.project_why.clone()?;
         let member = thread.projects.as_ref()?.iter().find(|m| m.id == project_id)?.clone();
         let project = self.projects.get(&project_id)?.clone();
@@ -110,7 +103,20 @@ impl SidePane {
             .when_some(reason, |s, r| s.child(div().text_size(px(style::size::LABEL)).child(r)))
             .child(div().text_size(px(style::size::DETAIL)).text_color(p.secondary).child(who))
             .child(buttons);
-        Some(deferred(anchored().position(position).snap_to_window_with_margin(px(8.)).child(card)).with_priority(1).into_any_element())
+        // A click anywhere else closes it, as a popover does (a clear
+        // backdrop over the window; the card sits on top of it).
+        let size = window.viewport_size();
+        let backdrop = div()
+            .id("why-backdrop")
+            .w(size.width)
+            .h(size.height)
+            .occlude()
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.project_why = None;
+                cx.notify();
+            }))
+            .child(anchored().position(position).snap_to_window_with_margin(px(8.)).child(card));
+        Some(deferred(anchored().position(point(px(0.), px(0.))).child(backdrop)).with_priority(1).into_any_element())
     }
 
     fn why_action(&mut self, label: &'static str, tip: String, p: Palette, cx: &mut Context<Self>, action: impl Fn(&mut SidePane, &mut Context<SidePane>) + 'static) -> impl IntoElement {

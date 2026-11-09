@@ -12,7 +12,7 @@ use crate::highlights::{palette, Palette, PanePreview, SidePane, Target, FILES};
 use crate::{call, style};
 use gpui_kit::base::{TextViewState, TextViewStyle};
 use gpui_kit::component::input::{Editor, EditorState};
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
+use gpui_kit::component::{h_flex, spinner::Spinner, v_flex, ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use serde_json::{json, Value};
@@ -120,6 +120,19 @@ pub(crate) fn open_web(url: &str, cx: &mut App) {
     cx.open_url(url);
 }
 
+/// A path as a `file://` URL, with spaces and the like percent-encoded.
+pub(crate) fn file_url(path: &str) -> String {
+    let mut out = String::with_capacity(path.len() + 7);
+    out.push_str("file://");
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 /// A file in its own app, the way a click on `Open` does on this Mac. A file
 /// whose default app would run it never opens from a click (`LinkPolicy`,
 /// OpenGate's rule).
@@ -127,7 +140,7 @@ pub(crate) fn open_file_in_app(path: &str, cx: &mut App) {
     if core::runs_code(path) {
         return;
     }
-    cx.open_url(&format!("file://{path}"));
+    cx.open_url(&file_url(path));
 }
 
 pub(crate) fn reveal(path: &str, cx: &mut App) {
@@ -150,9 +163,15 @@ impl SidePane {
         let Some(preview) = self.previews.get(&thread.id).cloned() else { return };
         match &preview.target {
             Target::File(path) => match core::viewer_for_path(path) {
-                // A page in the system browser for now, and the preview closes.
+                // A page in the system browser for now, and the preview
+                // closes. Another Mac's file has no copy here to open.
+                Viewer::Web if thread.is_remote() => {
+                    let note = "Web pages from another Mac can't be opened from here yet.".to_owned();
+                    self.files.open.insert(thread.id.clone(), OpenFile { path: path.clone(), opened: preview.opened, body: FileBody::Opaque { note }, truncated: false });
+                    cx.notify();
+                }
                 Viewer::Web => {
-                    open_web(&format!("file://{path}"), cx);
+                    open_web(&file_url(path), cx);
                     self.previews.remove(&thread.id);
                     cx.notify();
                 }
@@ -264,13 +283,11 @@ impl SidePane {
     /// The bar's buttons over a preview: Reveal, Open (`PreviewButtons`).
     pub(crate) fn preview_buttons(&mut self, preview: &PanePreview, thread: &ThreadSummary, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let mut row = h_flex().flex_none().gap(px(0.));
-        if let Some(path) = preview.file_path().map(str::to_owned) {
-            if !thread.is_remote() {
-                let reveal_path = path.clone();
-                row = row.child(self.header_button("hl-reveal", "folder", REVEAL_TITLE.to_owned(), p, cx, move |_, cx| reveal(&reveal_path.clone(), cx)));
-            }
+        if let Some(path) = preview.file_path().filter(|_| !thread.is_remote()).map(str::to_owned) {
+            let reveal_path = path.clone();
+            row = row.child(self.header_button("hl-reveal", "folder", REVEAL_TITLE.to_owned(), p, cx, move |_, cx| reveal(&reveal_path.clone(), cx)));
             let open_path = path.clone();
-            row = row.child(self.header_button("hl-open", "arrow.up.right", "Open in its app".to_owned(), p, cx, move |_, cx| open_file_in_app(&open_path.clone(), cx)));
+            row = row.child(self.header_button("hl-open", "arrow.up.right", "Open in its app".to_owned(), p, cx, move |this, cx| this.open_externally(&open_path.clone(), cx)));
         }
         row
     }
@@ -308,7 +325,9 @@ impl SidePane {
         };
         let cut = open.truncated.then(|| div().flex_none().w_full().py(px(6.)).text_center().text_size(px(style::size::SMALL)).text_color(p.secondary).child("Only the start of this file came from the runner."));
         let body: AnyElement = match &open.body {
-            FileBody::Loading => div().size_full().into_any_element(),
+            // A spinner so a click shows something at once; the header already
+            // says which file it's getting.
+            FileBody::Loading => div().size_full().flex().items_center().justify_center().child(Spinner::new().with_size(px(14.)).color(p.secondary)).into_any_element(),
             FileBody::Failed { message } => pane_note(&format!("Couldn't read it: {message}"), p).into_any_element(),
             FileBody::Opaque { note } => pane_note(note, p).into_any_element(),
             FileBody::Picture { image, .. } => {

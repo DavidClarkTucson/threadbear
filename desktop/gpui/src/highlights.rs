@@ -211,6 +211,8 @@ pub(crate) struct SidePane {
     pub(crate) folders: crate::folders::FoldersState,
     pub(crate) panels: crate::patches::PanelsState,
     pub(crate) viewer: crate::viewer::ViewerState,
+    /// How wide the pane was last drawn, for the folder list's columns.
+    pub(crate) width: f32,
     _subs: Vec<Subscription>,
 }
 
@@ -239,7 +241,8 @@ impl SidePane {
             files: Default::default(),
             folders: Default::default(),
             panels: Default::default(),
-            viewer: Default::default(),
+            viewer: crate::viewer::ViewerState::new(cx),
+            width: PANE_WIDTH,
             _subs: vec![],
         };
         // The pane follows the window's model: what's selected, and each
@@ -464,7 +467,10 @@ impl SidePane {
         }
     }
 
-    /// A link from a row: a file in the pane, a page in the browser (for now).
+    /// A link from a row: a file in the pane, a page in the browser (for
+    /// now). Anything else (a `slack:` link and the like) isn't opened from
+    /// here: an agent's links only start other apps once Mike has been
+    /// asked, which the app can't do yet (`LinkPolicy.ask`).
     pub(crate) fn open_url(&mut self, url: &str, cx: &mut Context<Self>) {
         if let Some(path) = url.strip_prefix("file://") {
             if let Some(thread) = self.thread(cx) {
@@ -473,11 +479,19 @@ impl SidePane {
             }
             return;
         }
-        crate::files::open_web(url, cx);
+        if core::is_web_page(url) {
+            crate::files::open_web(url, cx);
+        }
     }
 
-    /// Opens a file or folder on this runner in its own app (or the browser for a page). A thread on another Mac has no copy here.
+    /// Opens a file on this runner in its own app (OpenGate's rule: a
+    /// program never opens from a click here). A thread on another Mac has
+    /// no copy here, so its rows don't offer this.
     pub(crate) fn open_externally(&mut self, path: &str, cx: &mut Context<Self>) {
+        if core::runs_code(path) {
+            self.note_error(format!("{} is a program. It doesn't open from here.", core::last_component(path)), cx);
+            return;
+        }
         crate::files::open_file_in_app(path, cx);
     }
 
@@ -601,7 +615,11 @@ impl SidePane {
             MenuAction::PreviewFile { path, title } => self.preview_path(&path, Some(title), thread, cx),
             MenuAction::PreviewPage { url } => crate::files::open_web(&url, cx),
             MenuAction::OpenFile { path } => self.open_externally(&path, cx),
-            MenuAction::OpenUrl { url } => crate::files::open_web(&url, cx),
+            MenuAction::OpenUrl { url } => {
+                if core::is_web_page(&url) {
+                    crate::files::open_web(&url, cx);
+                }
+            }
             MenuAction::Reveal { path } => crate::files::reveal(&path, cx),
             MenuAction::Copy { text } => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             MenuAction::Remove { id, title } => self.remove_highlight(id, title, thread.id.clone(), cx),
@@ -634,9 +652,9 @@ impl SidePane {
     /// A file row's menu (`FileMenu`).
     pub(crate) fn file_menu(path: &str, title: &str, thread: &ThreadSummary) -> Vec<MenuItem> {
         let mut items = vec![MenuItem::action("Preview here", "sidebar.right", MenuAction::PreviewFile { path: path.to_owned(), title: title.to_owned() })];
-        // On that Mac: its copy here is fetched when it's asked for.
-        items.push(MenuItem::action("Open", "arrow.up.forward.app", MenuAction::OpenFile { path: path.to_owned() }));
+        // Another Mac's file has no copy here to open or reveal (yet).
         if !thread.is_remote() {
+            items.push(MenuItem::action("Open", "arrow.up.forward.app", MenuAction::OpenFile { path: path.to_owned() }));
             items.push(MenuItem::action(crate::files::REVEAL_TITLE, "folder", MenuAction::Reveal { path: path.to_owned() }));
         }
         items.push(MenuItem::action("Copy path", "doc.on.doc", MenuAction::Copy { text: path.to_owned() }));
@@ -724,7 +742,9 @@ pub(crate) fn palette(cx: &App) -> Palette {
 
 /// An SF Symbol's icon, at a point size and colour.
 pub(crate) fn icon(name: &str, size: f32, color: Hsla) -> Icon {
-    icons::symbol(name).with_size(px(size)).text_color(color)
+    // A patch can name any SF Symbol; one with no bundled twin gets a plain
+    // square rather than `icons::symbol`'s question mark.
+    icons::try_symbol(name).unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::SquareDashed)).with_size(px(size)).text_color(color)
 }
 
 /// A control's tooltip and the label scripts find it by, as Swift's `.tip`.
@@ -869,10 +889,10 @@ impl PaneRow {
             .min_w_0()
             .gap(px(2.))
             .child(title_row)
-            .when_some(self.note.filter(|n| !n.is_empty()), |s, note| s.child(div().text_size(px(style::size::DETAIL)).line_height(px(16.)).text_color(p.secondary).line_clamp(4).child(note)))
+            .when_some(self.note.filter(|n| !n.is_empty()), |s, note| s.child(div().text_size(px(style::size::DETAIL)).line_height(px(16.)).text_color(p.secondary).line_clamp(4).overflow_hidden().text_ellipsis().child(note)))
             .when_some(self.detail.filter(|d| !d.is_empty()), |s, detail| {
                 let mut d = div().text_size(px(style::size::SMALL)).line_height(px(14.)).text_color(p.faint);
-                d = if self.detail_lines > 1 { d.line_clamp(self.detail_lines) } else { d.truncate() };
+                d = if self.detail_lines > 1 { d.line_clamp(self.detail_lines).overflow_hidden().text_ellipsis() } else { d.truncate() };
                 s.child(d.child(detail))
             });
         let needs_blank_icon = self.reserves_icon && self.icon.is_none();
@@ -954,12 +974,12 @@ impl SidePane {
         self.collapsed.contains(key)
     }
 
-    fn project_block(&mut self, row: &ProjectRow, thread: &ThreadSummary, p: Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn project_block(&mut self, row: &ProjectRow, p: Palette, cx: &mut Context<Self>) -> AnyElement {
         let key = fold::project(&row.project.id);
         let folded = self.is_folded(&key);
         let count = row.project.links.len() + row.project.open_task_count();
         let project_id = row.project.id.clone();
-        let accessory = crate::highlights_project::why_button(self, row, thread.id.clone(), p, cx).into_any_element();
+        let accessory = crate::highlights_project::why_button(row, p, cx).into_any_element();
         let mut list = v_flex();
         list = list.child(self.heading(Heading { key: key.clone(), title: row.project.title.clone(), icon: Some(crate::highlights_project::project_icon(&row.project, cx).into_any_element()), count: Some(count), folded: folded && count > 0, foldable: count > 0, accessory: Some(accessory) }, p, cx));
         if !(folded && count > 0) {
@@ -1071,7 +1091,7 @@ impl SidePane {
         // The thread's projects, each under its own icon with why it's there
         // behind an ⓘ, then the places Mike keeps going back to for it.
         for row in &projects {
-            list = list.child(self.project_block(row, thread, p, cx));
+            list = list.child(self.project_block(row, p, cx));
         }
         if !scheduled.is_empty() {
             let folded = self.is_folded(fold::SCHEDULED);
@@ -1376,13 +1396,36 @@ impl Render for SidePane {
             }
         };
         let menu = self.menu.as_ref().map(|m| (m.position, m.view.clone()));
-        let popover = self.why_popover(&thread, p, cx);
+        let popover = self.why_popover(&thread, p, window, cx);
         let viewer = self.viewer_overlay(window, cx);
+        // The pane's width as drawn, for the folder list's columns (the
+        // column hides under a width, FolderPaneView's layout).
+        let measure = {
+            let entity = cx.entity().downgrade();
+            canvas(
+                move |bounds, _, cx| {
+                    let width = f32::from(bounds.size.width);
+                    entity
+                        .update(cx, |this, cx| {
+                            if (this.width - width).abs() >= 1. {
+                                this.width = width;
+                                cx.notify();
+                            }
+                        })
+                        .ok();
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full()
+        };
         v_flex()
             .track_focus(&self.focus)
+            .relative()
             .size_full()
             .bg(bg)
             .text_color(p.fg)
+            .child(measure)
             .child(header)
             .child(div().flex_1().min_h_0().child(body))
             .when_some(menu, |s, (position, view)| s.child(deferred(anchored().position(position).snap_to_window_with_margin(px(8.)).child(div().occlude().child(view))).with_priority(1)))
