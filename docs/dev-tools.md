@@ -100,7 +100,14 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   `[--skip-checks] [--allow-dirty] [--now [--force]] [--wait 30m]
   [--resume "text"] [--rollback] [--list] [--home DIR] [--label LABEL]
   [--dry-run]`:
-  1. Checks: typecheck and unit tests with the pinned Node.
+  0. The Node: the one the installed runner starts releases with (the
+     argument before `launch.mjs` in its LaunchAgent or unit). Started on
+     another, it runs itself again on that one, so a release is built and
+     tested on the Node it will run on; a LaunchAgent naming a Node that's
+     gone, or a program that isn't one, is refused. install-runner.sh's
+     own Node, which the plist may not name yet, is taken as it is
+     (`THREADBEAR_DEPLOY_NODE_GIVEN`).
+  1. Checks: typecheck and unit tests on that Node.
   2. Snapshot of the committed `runner/` at HEAD (refuse uncommitted
      changes under `runner/` unless `--allow-dirty`), then
      `npm ci --omit=dev` inside the release.
@@ -204,7 +211,7 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   required). `--app` is the app's part alone. `--e2e`
   adds the runner's real-model e2e (cheapest model, temp dirs); `--shots`
   runs `app/Tools/screenshots.sh`. One line per step, nonzero exit if
-  anything failed, pinned Node 24.
+  anything failed, on the Node `runner/scripts/find-node.sh` picks.
 
 ### 5. Docs
 
