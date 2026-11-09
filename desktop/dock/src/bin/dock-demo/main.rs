@@ -214,6 +214,11 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions { title: Some("BearDock".into()), appears_transparent: true, traffic_light_position: None }),
+                // The dock's bars are the window's top edge. Without this AppKit
+                // treats them as a title bar and moves the window on a drag there,
+                // as BearDock's DockAnchor exists to stop. Any app embedding the
+                // dock in a window with no title bar needs the same.
+                app_owns_titlebar_drag: true,
                 window_min_size: Some(size(px(800.), px(500.))),
                 app_id: Some("beardock-demo".into()),
                 ..Default::default()

@@ -4,9 +4,9 @@
 // Only built with the `automation` feature. Points are window-local, top-left
 // origin. Steps: down x y | drag x y (in ten moves) | move x y | up | right x y
 // | middle x y | dragby dx dy (the pointer moved in screen points, for a window that
-// follows the pointer) | esc | wait ms | shot path | others prefix (each other window
+// follows the pointer) | esc | wait ms | busy ms (block the main thread) | shot path | others prefix (each other window
 // as prefix-N.png: a panel's window, its outline) | window n (send what follows
-// to that window, 0 being the main one) | quit. Add `BEARDOCK_FRESH=1` to
+// to that window, 0 being the main one) | pos path (the window's top-left on screen) | quit. Add `BEARDOCK_FRESH=1` to
 // start from the default layout without saving and `BEARDOCK_QUIT=1` to quit
 // at the end.
 use gpui_kit::test::{TestEventExt as _, TestWindowExt as _};
@@ -92,6 +92,11 @@ pub fn run(main: AnyWindowHandle, cx: &mut App) {
                 "esc" => {
                     let _ = window.update(cx, |_, window, cx| window.key_down("escape", false, cx));
                 }
+                "busy" => {
+                    // Keeps the main thread busy, as a big render or a slow
+                    // handler would: the check AGENTS.md asks for on animations.
+                    std::thread::sleep(Duration::from_millis(arg(1) as u64));
+                }
                 "wait" => {
                     cx.background_executor().timer(Duration::from_millis(arg(1) as u64)).await;
                 }
@@ -136,6 +141,13 @@ pub fn run(main: AnyWindowHandle, cx: &mut App) {
                             }
                         });
                     }
+                }
+                "pos" => {
+                    // The window's top-left on screen, for a test that drives the
+                    // real pointer (desktop/dock/pointer-test.sh).
+                    let path = parts.get(1).copied().unwrap_or("/tmp/beardock-pos.txt").to_string();
+                    let origin = window.update(cx, |_, window, _| window.bounds().origin).unwrap_or_default();
+                    let _ = std::fs::write(&path, format!("{} {}\n", origin.x.as_f32(), origin.y.as_f32()));
                 }
                 "quit" => {
                     let _ = cx.update(|cx| cx.quit());

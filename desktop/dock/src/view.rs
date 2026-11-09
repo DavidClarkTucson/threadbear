@@ -911,10 +911,12 @@ impl Render for DockView {
             .min_w(px(0.))
             .min_h(px(0.))
             .overflow_hidden()
-            // The hairlines between panels, showing through the 1 pt gaps.
-            .bg(theme.hairline)
+            // The hairlines between panels, showing through the 1 pt gaps:
+            // the separator colour over the panel colour, as Swift's are.
+            .bg(theme.panel)
             .text_color(theme.header_text)
             .child(measure_root)
+            .child(div().absolute().top_0().left_0().size_full().bg(theme.hairline))
             .child(tree)
             .child(overlay)
             // Last, so the drag's cursor wins over what's under the pointer,

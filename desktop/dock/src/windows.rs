@@ -184,6 +184,10 @@ fn open_floating_window(float: &DockFloat, focus: bool, model: Entity<DockModel>
         titlebar: Some(TitlebarOptions { title: Some(title), appears_transparent: true, traffic_light_position: None }),
         focus,
         show: true,
+        // The bar is the panel's: AppKit must not treat the top of the
+        // window as its title bar and start moving the window on a drag
+        // there (Swift's DockAnchor locks it for the same reason).
+        app_owns_titlebar_drag: true,
         window_min_size: Some(size(px(240.), px(160.))),
         app_id: Some("threadbear".into()),
         ..Default::default()

@@ -176,7 +176,7 @@ pub fn overlay(view: &mut DockView, theme: &DockTheme, window: &mut Window, cx: 
     }
 
     // The ghost: the panel under the pointer, or flying to where it landed.
-    let ghost: Option<(String, dl::Size, dl::Rect, f32, f32)> = if let Some(d) = controller.drag.as_ref().filter(|d| d.window.is_none()) {
+    let ghost: Option<(String, dl::Size, dl::Rect, f32, f32, Option<f32>)> = if let Some(d) = controller.drag.as_ref().filter(|d| d.window.is_none()) {
         let lift = view.lift.as_ref().map(|r| r.value(now)).unwrap_or(1.);
         any_running |= view.lift.as_ref().is_some_and(|r| !r.settled(now));
         // See-through over the compass, so its choices stay readable, and
@@ -190,20 +190,25 @@ pub fn overlay(view: &mut DockView, theme: &DockTheme, window: &mut Window, cx: 
         } else {
             1.
         };
-        Some((d.panel.clone(), d.source_frame.size(), dl::DockController::ghost_rect(d, lift as f64), lift, opacity))
+        Some((d.panel.clone(), d.source_frame.size(), dl::DockController::ghost_rect(d, lift as f64), lift, opacity, None))
     } else if let Some(run) = &view.landing {
         let progress = run.progress(now) as f64;
         // The spring's overshoot carries a little past the spot; that's the settle.
         let rect = lerp_rect(run.from, run.to, progress);
         let fade = run.fading_since.map(|since| (now.saturating_duration_since(since).as_secs_f64() / dl::LANDING_FADE_SECONDS).min(1.) as f32).unwrap_or(0.);
         any_running = true;
-        Some((run.panel.clone(), run.source_size, rect, 0., 1. - fade))
+        // The text grows back to its own size as it lands, so the landing
+        // matches the real panel it cross-fades into, even when the new spot
+        // is a different width from the one it left.
+        let start_scale = dl::DockController::ghost_scale(run.source_size) as f32;
+        let content_scale = start_scale + (1. - start_scale) * (progress as f32).clamp(0., 1.);
+        Some((run.panel.clone(), run.source_size, rect, 0., 1. - fade, Some(content_scale)))
     } else {
         None
     };
-    if let Some((panel, source, rect, lift, opacity)) = ghost {
+    if let Some((panel, source, rect, lift, opacity, content_scale)) = ghost {
         if opacity > 0.001 {
-            root = root.child(ghost_element(view, &panel, source, rect, lift, opacity, theme, window, cx));
+            root = root.child(ghost_element(view, &panel, source, rect, lift, opacity, content_scale, theme, window, cx));
         }
     }
 
@@ -218,11 +223,44 @@ pub fn overlay(view: &mut DockView, theme: &DockTheme, window: &mut Window, cx: 
     root.into_any_element()
 }
 
+/// A rounded card tilted about its centre, for the ghost's plate. GPUI can
+/// rotate a path but not a subtree of elements, so only the plate tilts; the
+/// content sits inside it, inset a little, level.
+fn paint_tilted_card(bounds: Bounds<Pixels>, radius: f32, degrees: f32, fill: Hsla, stroke: Hsla, window: &mut Window) {
+    let (w, h) = (bounds.size.width.as_f32(), bounds.size.height.as_f32());
+    let (hw, hh) = (w / 2., h / 2.);
+    let r = radius.min(hw).min(hh);
+    let mut points = Vec::with_capacity(4 * 9);
+    let steps = 8;
+    let corners = [(hw - r, -hh + r, -90f32), (hw - r, hh - r, 0.), (-hw + r, hh - r, 90.), (-hw + r, -hh + r, 180.)];
+    for (cx_, cy, start) in corners {
+        for i in 0..=steps {
+            let a = (start + 90. * i as f32 / steps as f32).to_radians();
+            points.push(point(px(cx_ + r * a.cos()), px(cy + r * a.sin())));
+        }
+    }
+    let center = bounds.center();
+    let mut plate = PathBuilder::fill();
+    plate.add_polygon(&points, true);
+    plate.rotate(degrees);
+    plate.translate(center);
+    if let Ok(path) = plate.build() {
+        window.paint_path(path, fill);
+    }
+    let mut edge = PathBuilder::stroke(px(1.));
+    edge.add_polygon(&points, true);
+    edge.rotate(degrees);
+    edge.translate(center);
+    if let Ok(path) = edge.build() {
+        window.paint_path(path, stroke);
+    }
+}
+
 /// The panel itself, picked up: drawn at its real size and scaled, so it
 /// shrinks rather than reflowing, with the grab point under the pointer.
-fn ghost_element(view: &DockView, panel: &str, source: dl::Size, rect: dl::Rect, lift: f32, opacity: f32, theme: &DockTheme, window: &mut Window, cx: &mut Context<DockView>) -> AnyElement {
+fn ghost_element(view: &DockView, panel: &str, source: dl::Size, rect: dl::Rect, lift: f32, opacity: f32, content_scale: Option<f32>, theme: &DockTheme, window: &mut Window, cx: &mut Context<DockView>) -> AnyElement {
     let lift = lift.clamp(0., 1.2);
-    let s = (rect.width / source.width.max(1.)) as f32;
+    let s = content_scale.unwrap_or((rect.width / source.width.max(1.)) as f32);
     let header_h = view.options.header_height * s;
     let title_size = view.options.title_size * s;
     let content = view.content.clone();
@@ -230,6 +268,9 @@ fn ghost_element(view: &DockView, panel: &str, source: dl::Size, rect: dl::Rect,
     let icon = content.icon(panel, window, cx);
     let body = content.view(panel, true, window, cx);
     let shadow_alpha = 0.5 * lift.min(1.);
+    // Tilted by the plate only: GPUI can't rotate elements (see paint_tilted_card).
+    let degrees = dl::GHOST_TILT_DEGREES as f32 * lift.clamp(0., 1.);
+    let (plate_fill, plate_edge) = (theme.panel, theme.ghost_border);
 
     div()
         .absolute()
@@ -238,15 +279,22 @@ fn ghost_element(view: &DockView, panel: &str, source: dl::Size, rect: dl::Rect,
         .w(px(rect.width as f32))
         .h(px(rect.height as f32))
         .opacity(opacity)
-        .overflow_hidden()
         .rounded(px(10.))
-        .border_1()
-        .border_color(theme.ghost_border)
-        .bg(theme.panel)
         .shadow(vec![BoxShadow { color: hsla(0., 0., 0., shadow_alpha), offset: point(px(0.), px(12. * lift)), blur_radius: px(24. * lift), spread_radius: px(0.), inset: false }])
-        .flex()
-        .flex_col()
+        .child(canvas(|_, _, _| {}, move |bounds, _, window, _| paint_tilted_card(bounds, 10., degrees, plate_fill, plate_edge, window)).absolute().top_0().left_0().size_full())
         .child(
+            div()
+                .absolute()
+                .top(px(3.))
+                .left(px(3.))
+                .right(px(3.))
+                .bottom(px(3.))
+                .rounded(px(8.))
+                .overflow_hidden()
+                .bg(theme.panel)
+                .flex()
+                .flex_col()
+                .child(
             div()
                 .flex()
                 .flex_none()
@@ -260,8 +308,9 @@ fn ghost_element(view: &DockView, panel: &str, source: dl::Size, rect: dl::Rect,
                 .text_color(theme.secondary)
                 .when_some(icon, |d, i| d.child(RemScaled { child: i, scale: s }))
                 .child(div().text_size(px(title_size)).font_weight(FontWeight::SEMIBOLD).text_color(theme.header_text).child(title)),
+                )
+                .child(div().flex_1().min_h(px(0.)).overflow_hidden().relative().child(RemScaled { child: body, scale: s })),
         )
-        .child(div().flex_1().min_h(px(0.)).overflow_hidden().relative().child(RemScaled { child: body, scale: s }))
         .into_any_element()
 }
 
