@@ -105,7 +105,7 @@ export class GpuiDriver implements Driver {
 
   async dump(): Promise<Dump> {
     const r = await this.ask({ cmd: 'dump' }, 30);
-    if (r.error) throw new Error(`dump: ${r.error as string}`);
+    if (r.error) throw new Error(`dump: ${r.error as string}\n${this.log.slice(-3000)}`);
     return r.result as Dump;
   }
 

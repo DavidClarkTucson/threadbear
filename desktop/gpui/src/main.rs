@@ -8,11 +8,18 @@ mod automation;
 mod composer;
 mod composer_card;
 mod composer_chips;
+mod files;
+mod folders;
+mod highlights;
+mod highlights_project;
+mod highlights_store;
 mod icons;
+mod patches;
 mod rows;
 mod sidebar;
 mod style;
 mod thread;
+mod viewer;
 
 use app::Threadbear;
 use gpui_kit::*;

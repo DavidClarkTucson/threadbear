@@ -110,6 +110,13 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "expand" | "collapse" if cmd.get("section").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "archive" | "snooze" if cmd.get("id").is_some() || cmd.get("said").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "click" if cmd.get("tip").is_some() || cmd.get("tipPrefix").is_some() => crate::sidebar::automation(app, cmd, window, cx),
+        // The pane beside the thread (highlights.rs): the Swift app's names.
+        "panel" | "preview" | "folder" | "highlight" | "trust" | "action" | "project-why" => crate::highlights::automation(app, cmd, window, cx),
+        "expand" | "collapse" if cmd.get("highlightSection").is_some() => crate::highlights::automation(app, cmd, window, cx),
+        "viewer" => {
+            let side = app.read(cx).side.clone();
+            crate::viewer::viewer_command(&side, cmd, cx)
+        }
         "open" | "select" => {
             let id = app.read(cx).thread_id_from(text(cmd, "id"))?;
             app.update(cx, |t, cx| t.open(id.clone(), window, cx));

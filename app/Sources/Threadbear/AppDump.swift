@@ -262,6 +262,66 @@ struct AppDump: Encodable {
         var preview: String?
         /// What the Highlights section has: "3 pinned, 2 files, ..." or why not.
         var highlights: String?
+        /// What the pane shows, as drawn: scripts and the specs read this.
+        var pane: Pane?
+    }
+
+    /// The pane as drawn (`panels.pane`): Highlights' headings and rows, a
+    /// patches list, a list panel, or the file open in it.
+    struct Pane: Codable {
+        struct Row: Codable {
+            var title: String
+            /// A commit's short sha, before the title.
+            var lead: String?
+            var trailing: String?
+            var note: String?
+            var detail: String?
+            var symbol: String?
+            /// Needs you's tick box.
+            var ticked: Bool?
+        }
+        struct Section: Codable {
+            var key: String
+            var title: String
+            /// What the heading counts, shown when it's folded.
+            var count: Int
+            var folded: Bool
+            /// Left out while folded.
+            var rows: [Row]
+        }
+        struct Patch: Codable {
+            var id: String
+            var source: String
+            /// The orange line and its Trust button, while it's waiting.
+            var waiting: String?
+            var trusting: Bool?
+            var gives: String?
+            var error: String?
+            var file: String?
+        }
+        /// Which section shows (a panel's id, or threadbear.highlights).
+        var section: String
+        /// The one line it has in place of rows ("Nothing here yet...").
+        var empty: String?
+        var brief: [String]?
+        /// Tool patches' cards at the top of Highlights, by title.
+        var cards: [String]?
+        var sections: [Section]?
+        /// The Patches section's rows.
+        var patches: [Patch]?
+        /// A list panel's rows under their headings, in order.
+        var list: [Section]?
+        /// An image panel: its size, or the note it shows.
+        var image: String?
+        /// What's open over the section (a file, folder or page): its kind
+        /// ("markdown", "code", "text", "picture", "video", "quickLook", "web",
+        /// "folder", "page", "fetching", "note") and what it shows, from the
+        /// start (a picture's size, the words).
+        var previewKind: String?
+        var previewText: String?
+        /// The folder browser's summary (as `dump`'s preview line), when one
+        /// is showing, the Files panel's too.
+        var folder: String?
     }
 
     static func connectionName(_ state: ConnectionState) -> String {
@@ -480,7 +540,191 @@ struct AppDump: Encodable {
             }
         }
         return Panels(shown: app.showsPanels(for: thread), width: Int(app.dock.frame(of: section.id)?.width ?? 0), items: items, preview: preview,
-                      highlights: highlightsLine(app, thread.id))
+                      highlights: highlightsLine(app, thread.id), pane: pane(thread, section: section, app: app))
+    }
+
+    /// The pane as drawn: mirrors DockPane, PreviewBody and HighlightsView's
+    /// content so a script can read what a person would.
+    @MainActor
+    private static func pane(_ thread: ThreadSummary, section chosen: PaneSection, app: AppModel) -> Pane {
+        // The rail's Files panel isn't one of the sections `paneSection`
+        // chooses between, but it's what's showing once it was picked.
+        let section = app.panelChoice[thread.id] == BuiltinPanels.files && app.dock.isShowing(BuiltinPanels.files) ? PaneSection(id: BuiltinPanels.files) : chosen
+        var pane = Pane(section: section.id)
+        pane.folder = FolderPaneView.current?.summary
+        if let preview = app.panePreview[thread.id], preview.from == section {
+            fillPreview(&pane, preview, thread: thread, app: app)
+            return pane
+        }
+        switch section {
+        case .highlights:
+            fillHighlights(&pane, thread, app: app)
+        case .patches:
+            pane.patches = thread.patches.map { patch in
+                Pane.Patch(id: patch.id, source: PatchesList.sourceName(patch.source),
+                           waiting: patch.untrusted.map { PatchesList.waitingText(patch, untrusted: $0) },
+                           trusting: patch.untrusted != nil ? app.isTrusting(patch) : nil,
+                           gives: patch.untrusted == nil && patch.error == nil ? PatchesList.gives(patch.id, in: thread) : nil,
+                           error: patch.error ?? patch.liveError, file: patch.file)
+            }
+        case .panel(let id):
+            guard id != BuiltinPanels.files, let panel = thread.panels.first(where: { $0.id == id }) else { break }
+            switch panel.kind {
+            case .list:
+                guard let render = PanelDebug.renders[panel.id] else { pane.empty = "Loading…"; break }
+                guard let items = render.items, !items.isEmpty else { pane.empty = render.note ?? "Nothing in this list."; break }
+                var sections: [Pane.Section] = []
+                let headings = PanelItem.headings(items)
+                for (index, item) in items.enumerated() {
+                    if let heading = headings[index] ?? (sections.isEmpty ? "" : nil) {
+                        sections.append(Pane.Section(key: heading, title: heading, count: 0, folded: false, rows: []))
+                    }
+                    let symbol = item.icon.flatMap { $0.isEmpty ? nil : $0 } ?? item.tone.map(\.rawValue)
+                    sections[sections.count - 1].rows.append(Pane.Row(title: item.title, trailing: item.trailing, detail: item.detail, symbol: symbol))
+                    sections[sections.count - 1].count += 1
+                }
+                pane.list = sections
+            case .image:
+                let image = PanelDebug.images[panel.id]
+                pane.image = image.map { "picture \(Int($0.size.width))x\(Int($0.size.height))" } ?? PanelDebug.renders[panel.id]?.note ?? "Taking a screenshot…"
+            case .url:
+                break
+            }
+        }
+        return pane
+    }
+
+    @MainActor
+    private static func fillPreview(_ pane: inout Pane, _ preview: PanePreview, thread: ThreadSummary, app: AppModel) {
+        switch preview.target {
+        case .page(let url):
+            pane.previewKind = url.isFileURL ? "web" : "page"
+            pane.previewText = url.absoluteString
+        case .remote(_, let failed):
+            pane.previewKind = failed == nil ? "fetching" : "note"
+            pane.previewText = failed.map { _ in "Couldn't get it from \(preview.away ?? "that Mac")" }
+        case .explain:
+            pane.previewKind = "note"
+        case .folder(let path):
+            pane.previewKind = "folder"
+            pane.previewText = path
+        case .file(let path):
+            if !FileManager.default.fileExists(atPath: path) {
+                pane.previewKind = "note"
+                pane.previewText = "This file isn't there any more."
+            } else if PreviewRules.viewer(forPath: path) == .web {
+                pane.previewKind = "web"
+                pane.previewText = path
+            } else if TextFileView.shows(path) {
+                // The rendered text, once its controller is up for this file.
+                pane.previewKind = PreviewRules.isMarkdown(path) ? (preview.editing ? "text" : "markdown") : (PreviewRules.codeLanguage(forPath: path) != nil ? "code" : "text")
+                if let controller = TextFileController.current, controller.url.path == path {
+                    pane.previewText = String(controller.textView.string.prefix(4000))
+                }
+            } else {
+                let shows = FilePreviewView.current?.debugShows ?? "quickLook"
+                if shows.hasPrefix("picture") {
+                    pane.previewKind = "picture"
+                    pane.previewText = String(shows.dropFirst("picture ".count))
+                } else {
+                    pane.previewKind = shows
+                }
+            }
+        }
+    }
+
+    /// HighlightsView's content, as rows.
+    @MainActor
+    private static func fillHighlights(_ pane: inout Pane, _ thread: ThreadSummary, app: AppModel) {
+        if app.highlightsUnsupported { pane.empty = "This runner doesn't keep highlights yet."; return }
+        guard let fetched = app.highlights[thread.id] else { return }
+        let sections = HighlightSections.build(fetched)
+        let projects = HighlightProjects.build(thread: thread, project: app.project)
+        let tools = Set(thread.patches.filter { !($0.matched ?? []).isEmpty }.map(\.id))
+        let toolPanels = thread.panels.filter { tools.contains($0.patch) }
+        let scheduled = ScheduleRows.rows(for: thread, in: app.schedules, now: app.now, target: app.scheduleTarget)
+        let started = StartedThreadRows.rows(for: thread, in: app.threads, now: app.now)
+        let asks = thread.asks
+        if sections.isEmpty && asks.isEmpty && projects.isEmpty && toolPanels.isEmpty && scheduled.isEmpty && thread.subagents.isEmpty && started.isEmpty {
+            pane.empty = "Nothing here yet. Files, links and commits from this thread show up here as it works."
+            return
+        }
+        let flags = HighlightsFlags.current
+        var out: [Pane.Section] = []
+        func add(_ key: String, _ title: String, count: Int, rows: @autoclosure () -> [Pane.Row]) {
+            let folded = app.collapsedHighlights.contains(key)
+            out.append(Pane.Section(key: key, title: title, count: count, folded: folded, rows: folded ? [] : rows()))
+        }
+        if !toolPanels.isEmpty { pane.cards = toolPanels.map { [$0.title, $0.summary ?? $0.note].compactMap { $0 }.joined(separator: ": ") } }
+        if let brief = sections.brief { pane.brief = HighlightSections.points(brief) }
+        if !asks.isEmpty {
+            add(HighlightFold.needsYou, "Needs you", count: asks.filter { !$0.ticked }.count,
+                rows: asks.map { Pane.Row(title: $0.plainAction, detail: $0.plainWhere, symbol: $0.ticked ? "checkmark.square.fill" : "square", ticked: $0.ticked) })
+        }
+        for row in projects {
+            let tasks = row.project.tasks.flatMap { $0.loading ? nil : $0 }
+            let key = HighlightFold.project(row.project.id)
+            let count = row.project.links.count + (tasks?.openCount ?? 0)
+            add(key, row.project.title, count: count, rows: row.project.links.map {
+                let address = HighlightText.address($0.url)
+                return Pane.Row(title: $0.title, detail: address == $0.title ? nil : address, symbol: "globe")
+            })
+        }
+        if !scheduled.isEmpty {
+            add(HighlightFold.scheduled, "Scheduled", count: scheduled.count,
+                rows: scheduled.map { Pane.Row(title: $0.title, trailing: $0.when, detail: $0.detail, symbol: $0.paused ? "pause.circle" : "clock") })
+        }
+        if !thread.subagents.isEmpty {
+            let all = SubagentRows.highlights(thread)
+            let shown = HighlightSections.capped(all, limit: HighlightSections.subagentLimit, showAll: flags?.allSubagents ?? false)
+            add(HighlightFold.subagents, "Sub-agents", count: all.count, rows: shown.shown.map { subagent in
+                let icon: String = switch subagent.status {
+                case .running: "circle.dashed"
+                case .completed: "checkmark"
+                case .failed: "xmark"
+                case .stopped: "minus"
+                }
+                return Pane.Row(title: SubagentRows.title(subagent), trailing: SubagentRows.duration(subagent, now: app.now), detail: SubagentRows.detail(subagent), symbol: icon)
+            } + (shown.more > 0 ? [Pane.Row(title: "Show all \(all.count)", symbol: "ellipsis")] : []))
+        }
+        if !started.isEmpty {
+            let shown = HighlightSections.capped(started, limit: HighlightSections.subagentLimit, showAll: flags?.allStarted ?? false)
+            add(HighlightFold.startedThreads, "Threads it started", count: started.count, rows: shown.shown.map {
+                Pane.Row(title: $0.thread.title, detail: StartedThreadRows.detail($0, now: app.now), symbol: StartedThreadRows.icon($0.state))
+            } + (shown.more > 0 ? [Pane.Row(title: "Show all \(started.count)", symbol: "ellipsis")] : []))
+        }
+        func item(_ h: Highlight) -> Pane.Row {
+            let isCommit = h.kind == .commit
+            let detail: String? = if let path = h.path {
+                HighlightText.folder(of: path, cwd: thread.cwd)
+            } else if isCommit {
+                HighlightText.commitLine(h)
+            } else {
+                h.url.map(HighlightText.address).flatMap { $0 == h.title ? nil : $0 }
+            }
+            let how = h.isPinned || isCommit ? nil : h.how.word
+            return Pane.Row(title: h.title, lead: isCommit ? h.sha : nil, trailing: how.flatMap { $0.isEmpty ? nil : $0 }, note: h.note, detail: detail, symbol: FileIcon.symbol(for: h))
+        }
+        if !sections.pinned.isEmpty { add(HighlightFold.pinned, "Pinned", count: sections.pinned.count, rows: sections.pinned.map(item)) }
+        if !sections.files.isEmpty { add(HighlightFold.files, "Files", count: sections.files.count, rows: sections.files.map(item)) }
+        if !sections.links.isEmpty {
+            let links = HighlightSections.capped(sections.links, limit: HighlightSections.linkLimit, showAll: flags?.allLinks ?? false)
+            add(HighlightFold.links, "Links", count: sections.links.count, rows: links.shown.map(item) + (links.more > 0 ? [Pane.Row(title: "Show all \(sections.links.count)", symbol: "ellipsis")] : []))
+        }
+        if !sections.commits.isEmpty || !sections.edited.isEmpty {
+            let commits = HighlightSections.capped(sections.commits, limit: HighlightSections.commitLimit, showAll: flags?.allCommits ?? false)
+            var rows = commits.shown.map(item)
+            if commits.more > 0 { rows.append(Pane.Row(title: "Show all \(sections.commits.count)", symbol: "ellipsis")) }
+            if !sections.edited.isEmpty {
+                let open = flags?.editedOpen ?? false
+                rows.append(Pane.Row(title: HighlightText.editedCount(sections.edited.count), symbol: open ? "chevron.down" : "chevron.right"))
+                if open {
+                    rows += sections.edited.map { Pane.Row(title: ($0 as NSString).lastPathComponent, detail: HighlightText.folder(of: $0, cwd: thread.cwd), symbol: FileIcon.symbol(forPath: $0)) }
+                }
+            }
+            add(HighlightFold.changes, "Changes", count: sections.commits.count + sections.edited.count, rows: rows)
+        }
+        pane.sections = out
     }
 
     @MainActor

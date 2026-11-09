@@ -9,6 +9,97 @@ import ThreadbearCore
 extension Automation {
     // MARK: Commands
 
+    /// Highlights' rows and heads-up parts, as their clicks do (app/README.md,
+    /// `highlight`): `tick` (an ask's index), `edited` (its disclosure, true or
+    /// false), `showAll` (`links`, `commits`, `subagents` or `started`), `open`
+    /// (a row's title: a click), `menu` (a row's title: its right-click menu,
+    /// " | " between items, "---" for a separator), `choose` (an item of it,
+    /// with `row`).
+    static func highlightCommand(_ c: [String: Any], app: AppModel) async -> String {
+        guard let thread = app.selectedThread else { return "error no thread selected" }
+        if let index = c["tick"] as? Int {
+            guard let seq = thread.asksSeq, thread.asks.indices.contains(index) else { return "error no ask \(index)" }
+            let ticked = !thread.asks[index].ticked
+            app.session(for: thread.id).tickAsk(asksSeq: seq, index: index, ticked: ticked)
+            return "ok \(ticked ? "ticked" : "unticked")"
+        }
+        if let open = c["edited"] as? Bool {
+            guard let flags = HighlightsFlags.current else { return "error Highlights isn't showing" }
+            flags.editedOpen = open
+            return "ok"
+        }
+        if let show = c["showAll"] as? String {
+            guard let flags = HighlightsFlags.current else { return "error Highlights isn't showing" }
+            switch show {
+            case "links": flags.allLinks = true
+            case "commits": flags.allCommits = true
+            case "subagents": flags.allSubagents = true
+            case "started": flags.allStarted = true
+            default: return "error showAll is links, commits, subagents or started"
+            }
+            return "ok"
+        }
+        guard let fetched = app.highlights[thread.id] else { return "error highlights not fetched" }
+        let sections = HighlightSections.build(fetched)
+        func find(_ title: String) -> Highlight? {
+            (sections.pinned + sections.files + sections.links + sections.commits).first { $0.title == title }
+        }
+        if let title = c["open"] as? String {
+            guard let item = find(title) else { return "error no row \(title)" }
+            guard item.kind != .commit else { return "error a commit doesn't open" }
+            app.open(item, in: thread, external: false)
+            try? await Task.sleep(for: .milliseconds(300))
+            return "ok \(app.panePreview[thread.id].map { "showing \($0.title)" } ?? "no preview")"
+        }
+        if let title = c["menu"] as? String {
+            guard let item = find(title) else { return "error no row \(title)" }
+            return "ok " + highlightMenu(item, in: thread).map(\.title).joined(separator: " | ")
+        }
+        if let chosen = c["choose"] as? String, let title = c["row"] as? String {
+            guard let item = find(title), let entry = highlightMenu(item, in: thread).first(where: { $0.title == chosen }) else { return "error no menu item \(chosen)" }
+            entry.action?(app, item, thread)
+            try? await Task.sleep(for: .milliseconds(200))
+            return "ok " + (NSPasteboard.general.string(forType: .string) ?? "")
+        }
+        return "error highlight needs tick, edited, showAll, open, menu or choose"
+    }
+
+    /// A row's menu, as HighlightsView builds it (FileMenu, LinkMenu, Copy
+    /// sha, Divider, Remove), with what each item does.
+    private static func highlightMenu(_ item: Highlight, in thread: ThreadSummary) -> [(title: String, action: ((AppModel, Highlight, ThreadSummary) -> Void)?)] {
+        var items: [(title: String, action: ((AppModel, Highlight, ThreadSummary) -> Void)?)] = []
+        if let path = item.path {
+            items.append(("Preview here", { app, item, thread in app.preview(path: path, title: item.title, in: thread) }))
+            if thread.isRemote {
+                items.append(("Open", { app, item, thread in app.openRemoteFile(URL(fileURLWithPath: path), .app, in: thread, title: item.title) }))
+            } else {
+                items.append(("Open", { app, _, _ in app.openExternally(URL(fileURLWithPath: path)) }))
+                items.append(("Reveal in Finder", { app, _, _ in app.revealInFinder(path) }))
+            }
+            items.append(("Copy path", { app, _, _ in app.copyToPasteboard(path) }))
+        } else if let url = item.link {
+            if url.isFileURL {
+                items.append(("Preview here", { app, item, thread in app.preview(path: url.path, title: item.title, in: thread) }))
+                items.append(("Open", { app, item, thread in app.openLink(url, title: item.title, in: thread, external: true) }))
+            } else {
+                items.append((WebLinkAction.browser.title, { app, _, _ in app.openExternally(url) }))
+                if PreviewRules.isWebPage(url) {
+                    items.append((WebLinkAction.panel.title, { app, item, thread in app.preview(page: url, title: item.title, in: thread) }))
+                }
+            }
+            items.append(("Copy link", { app, _, _ in app.copyToPasteboard(url.absoluteString) }))
+            if PreviewRules.isWebPage(url) {
+                items.append(("---", nil))
+                items.append(("Default", nil))
+            }
+        } else if let sha = item.sha {
+            items.append(("Copy sha", { app, _, _ in app.copyToPasteboard(sha) }))
+        }
+        items.append(("---", nil))
+        items.append(("Remove", { app, item, thread in app.removeHighlight(item, in: thread.id) }))
+        return items
+    }
+
     /// Settings > Keyboard from a script: `record` starts listening for a
     /// command, `press` is a key through the recorder ("cmd+e"), `answer` is
     /// `use` or `cancel`, `reset` is a command or `all`. `post` is a real key

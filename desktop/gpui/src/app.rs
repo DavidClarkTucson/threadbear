@@ -1,6 +1,7 @@
 // The app's state: the connection, the thread list, what's open. The sidebar
 // (sidebar.rs) and the thread pane (thread.rs) draw from it.
 use crate::composer::Composer;
+use crate::highlights::SidePane;
 use crate::thread::ThreadPane;
 use crate::{call, now_ms, ChannelSink, Seen, RT};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -37,6 +38,8 @@ pub struct Threadbear {
     /// pictures) stays with the thread while others are open.
     pub(crate) composers: HashMap<String, Entity<Composer>>,
     pub(crate) sidebar: crate::sidebar::SidebarState,
+    /// The pane beside the thread: Highlights, previews, Patches, Files (highlights.rs).
+    pub(crate) side: Entity<SidePane>,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -58,6 +61,10 @@ impl Threadbear {
             }
         });
         let status = client.status();
+        let weak_app = cx.entity().downgrade();
+        let side_client = client.clone();
+        let side = cx.new(|cx| SidePane::new(weak_app, side_client, window, cx));
+        crate::viewer::viewer_handle_global(side.downgrade(), cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
         // The filter is worked out at render, so a change only needs a redraw.
         let searching = cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
@@ -80,6 +87,7 @@ impl Threadbear {
             composers: HashMap::new(),
             logins: RunnerLogins::default(),
             sidebar: crate::sidebar::SidebarState::new(cx),
+            side,
             _events: events,
             _subs: vec![appearance, searching],
         }
@@ -99,6 +107,7 @@ impl Threadbear {
                     self.load_list(cx);
                     self.refresh_restart(cx);
                     self.load_projects(cx);
+                    self.side.update(cx, |side, cx| side.connected(cx));
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.load(cx));
                     }
@@ -117,7 +126,11 @@ impl Threadbear {
                     self.threads.remove(params["threadId"].as_str().unwrap_or(""));
                 }
                 "runner.notice" => self.refresh_restart(cx),
-                "projects.updated" => self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]),
+                "projects.updated" => {
+                    self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]);
+                    self.side.update(cx, |side, cx| side.projects_updated(&params["projects"], cx));
+                }
+                "schedules.updated" => self.side.update(cx, |side, cx| side.schedules_updated(&params["schedules"], cx)),
                 "thread.event" => {
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.event(&params, cx));
@@ -283,6 +296,8 @@ impl Threadbear {
             "composer": self.dump_composer(cx),
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
+            "panels": self.side.read(cx).dump(cx),
+            "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
             "banner": Value::Null,
         })
     }
@@ -349,5 +364,7 @@ impl Render for Threadbear {
             .items_start()
             .child(self.render_sidebar(cx))
             .child(div().flex_1().min_w_0().h_full().child(main))
+            // A simple split until the shell hosts this as a dock panel.
+            .when(self.selected.is_some(), |s| s.child(div().w(px(crate::highlights::PANE_WIDTH)).flex_none().h_full().border_l_1().border_color(cx.theme().border).child(self.side.clone())))
     }
 }

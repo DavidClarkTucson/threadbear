@@ -104,6 +104,29 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 The pane beside the thread: Highlights
+
+- `desktop/core/src/highlights.rs` ports the logic and protocol types of
+  HighlightSections, HighlightFold, HighlightProjects, PreviewRules, FileIcon,
+  HighlightText, PanelIcon, ScheduleRows, StartedThreadRows and PatchGroups,
+  with the Swift tests. `desktop/gpui/src/highlights.rs` is the pane: one
+  self-contained `SidePane` entity beside the thread in a simple split (`new`
+  and `render`; the shell will host it as a dock panel), drawing the brief,
+  Needs you ticks (the same `threads.tickAsk`, optimistic), project blocks with
+  the ⓘ popover (Keep, Take out), Scheduled, Sub-agents, Threads it started,
+  Pinned, Files, Links and Changes, with Show all, the folds remembered across
+  launches, and the row menus.
+- `dump`'s new `panels.pane` says what's drawn on both apps (AppDump.swift,
+  `highlights.rs` `dump`); `highlight` joins the automation commands
+  (app/README.md).
+- Files: `desktop/core/src/highlights.rs`, `desktop/gpui/src/highlights*.rs`,
+  `features/highlights.feature`, `features/support/pane.ts`,
+  `app/Sources/Threadbear/AppDump.swift`, `Automation+Commands.swift`.
+- Remaining: the Notion board (`highlights.board`), the project page link from
+  the ⓘ, middle truncation of file names, drag-out, Open in Panel's page view.
+- Verification: `TB_APP=swift` 14 of 14 and `TB_APP=gpui` 14 of 14 on Linux
+  (`cloud`) and on Tinker Desk; side-by-side picture of the pane against Swift's.
+
 ### 2026-11-09 BearDock for GPUI
 
 - New crates: `desktop/dock/layout` (the tree, line for line from Swift, no GPUI)

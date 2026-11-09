@@ -3,6 +3,8 @@
 // rows. Keeping it out of the GPUI crate means its tests need no graphics
 // libraries and take seconds.
 pub mod composer;
+pub mod folders;
+pub mod highlights;
 pub mod inbox;
 pub mod logins;
 pub mod sidebar;

@@ -795,6 +795,7 @@ impl Render for ThreadPane {
             .when_some(self.error.clone(), |s, e| s.child(div().px_7().py_1().text_sm().text_color(danger).child(e)))
             .when(!self.loaded && self.error.is_none(), |s| s.child(div().p_4().text_sm().text_center().text_color(muted).child("Loading…")))
             .child(div().flex_1().min_h_0().child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx)))
+            .when_some(crate::viewer::action_chips(&self.summary, cx), |s, chips| s.child(chips))
             .child(self.composer.clone())
     }
 }

@@ -8,6 +8,7 @@ mod export;
 mod images;
 pub(crate) mod list;
 pub(crate) mod markdown;
+pub(crate) use markdown::reading_style;
 pub(crate) mod metrics;
 mod work;
 
@@ -229,7 +230,7 @@ impl ThreadPane {
             .border_1()
             .border_color(border)
             .child(div().mb(px(8.)).text_size(px(size::SMALL)).line_height(px(17.)).text_color(faint).child(title))
-            .when_some(doc, |d, doc| d.child(div().text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(TextView::new(&doc).selectable(true).style(text_style))));
+            .when_some(doc, |d, doc| d.child(div().text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(TextView::new(&doc).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks))));
         h_flex().w_full().px(px(SIDE_INSET)).justify_center().child(div().w_full().max_w(px(MAX_CONTENT_WIDTH)).pt(px(USER_TOP)).pb(px(USER_BOTTOM)).child(card)).into_any_element()
     }
 
@@ -242,7 +243,7 @@ impl ThreadPane {
         let text_style = self.reading_style(cx);
         let weak = cx.weak_entity();
         let row_id = row.id.clone();
-        let text = TextView::new(&doc).selectable(true).style(text_style).on_link_click(move |url: &SharedString, _event: &ClickEvent, window: &mut Window, cx: &mut App| {
+        let text = TextView::new(&doc).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks).on_link_click(move |url: &SharedString, _event: &ClickEvent, window: &mut Window, cx: &mut App| {
             let (url, row_id) = (url.to_string(), row_id.clone());
             let _ = weak.update(cx, |this, cx| this.link_clicked(&url, &row_id, window, cx));
         });
@@ -474,6 +475,12 @@ fn card(border: Hsla) -> Div {
 }
 
 /// A tooltip builder for `.tooltip(...)`, Every control gets one.
+/// The transcript's code blocks stay plain, as the Swift app's do; the kit's
+/// highlighter is for the file preview (files.rs).
+pub(crate) fn plain_code_blocks(_: &gpui_kit::base::text::CodeBlock) -> Vec<(std::ops::Range<usize>, gpui_kit::HighlightStyle)> {
+    Vec::new()
+}
+
 pub(crate) fn tip(text: &str) -> impl Fn(&mut Window, &mut App) -> AnyView + use<> {
     let text: SharedString = text.to_owned().into();
     move |window, cx| Tooltip::new(text.clone()).build(window, cx)
