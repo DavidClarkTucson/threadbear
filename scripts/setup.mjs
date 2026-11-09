@@ -6,7 +6,7 @@
 //   ./threadbear setup [--dry-run] [--yes] [--team SLUG] [--project NAME]
 //                      [--region REGION] [--cwd DIR] [--name NAME]
 //                      [--home DIR] [--skip-install] [--existing]
-//                      [--self-hosted]
+//                      [--self-hosted] [--local]
 //
 // Convex cloud is the default, and the one we recommend: it keeps working
 // while your Mac sleeps, sends phone notifications, and needs nothing else
@@ -14,6 +14,9 @@
 // this Mac instead, reached over Tailscale (docs/self-hosting.md). With it
 // you lose phone notifications, the phone needs Tailscale on, nothing works
 // while this Mac sleeps, and share links only open on your tailnet.
+// --local is --self-hosted with no Tailscale: the backend is only on this
+// Mac (http://127.0.0.1:3210, the site on 3211, the dashboard on 6791), so
+// no phone, no website from elsewhere and no share links, just the Mac app.
 //
 //   1. this Mac: macOS, Xcode's command line tools, git, Node 24, Claude Code
 //      or Codex, and Tailscale (optional)
@@ -80,6 +83,7 @@ const { values: v } = parseArgs({
     'skip-install': { type: 'boolean' },
     existing: { type: 'boolean' },
     'self-hosted': { type: 'boolean' },
+    local: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -110,7 +114,13 @@ const joining = isJoining({ existing: v.existing, local: localKey });
 // Self-hosted by the flag, or by an earlier self-hosted setup (its admin key
 // is here), so running setup again without the flag carries on the same way.
 // A Mac joining another's Threadbear has no backend of its own either way.
-const selfHosted = !joining && (Boolean(v['self-hosted']) || fs.existsSync(selfHostedFile));
+const selfHosted = !joining && (Boolean(v['self-hosted']) || Boolean(v.local) || fs.existsSync(selfHostedFile));
+// --local: the same Docker backend, on this Mac's loopback only, with no
+// Tailscale. Kept by an earlier local setup too: its admin key file points
+// at the local API port, which a tailnet setup's never does.
+const LOCAL_ADMIN_URL = 'http://127.0.0.1:3210';
+const localBefore = fs.existsSync(selfHostedFile) && fs.readFileSync(selfHostedFile, 'utf8').includes(`'${LOCAL_ADMIN_URL}'`);
+const local = selfHosted && (Boolean(v.local) || localBefore);
 const npm = path.join(path.dirname(process.execPath), 'npm');
 
 class Fail extends Error {}
@@ -436,7 +446,12 @@ const DATA_VOLUME = 'threadbear-convex-data';
 // Tailnet port, then this Mac's loopback port. Not 3210 on loopback: that's
 // where `npx convex dev` runs a local deployment.
 const PORTS = { api: [3210, 13210], site: [3211, 13211], dashboard: [6791, 16791] };
-const ADMIN_URL = `http://127.0.0.1:${PORTS.api[1]}`;
+// --local publishes the container's own ports on loopback as they are, so
+// http://127.0.0.1:3211 is the same site inside the container (where the
+// backend fetches its stored files through CONVEX_CLOUD_ORIGIN) and on the
+// Mac. It takes 3210 from `npx convex dev`, which can't run alongside.
+const LOCAL_PORTS = { api: 3210, site: 3211, dashboard: 6791 };
+const ADMIN_URL = local ? LOCAL_ADMIN_URL : `http://127.0.0.1:${PORTS.api[1]}`;
 
 function docker(args, opts = {}) {
   return run('docker', args, opts);
@@ -561,14 +576,16 @@ function selfHostedConvex(args, input) {
 async function selfHostedBackend() {
   say('4. Self-hosted backend (Convex cloud is the one we recommend: docs/self-hosting.md)');
   if (fs.existsSync(deployKeyFile)) throw new Fail(`This Mac is already set up with Convex cloud (${deployKeyFile}). Setup doesn't move a Threadbear between backends; leave out --self-hosted to carry on with cloud.`);
+  if (fs.existsSync(selfHostedFile) && v.local && !localBefore) throw new Fail(`This Mac is already set up with a self-hosted backend on your tailnet (${selfHostedFile}). Setup doesn't move it to --local; leave the flag out to carry on.`);
   checkDocker();
   ok('Docker');
-  const { ts, name, ip } = tailnetSelf();
-  ok(`Tailscale: this Mac is ${name}`);
-  const origin = (port) => `https://${name}:${port}`;
-  const url = origin(PORTS.api[0]);
-  const site = origin(PORTS.site[0]);
-  const dashboard = origin(PORTS.dashboard[0]);
+  const tailnet = local ? undefined : tailnetSelf();
+  if (tailnet) ok(`Tailscale: this Mac is ${tailnet.name}`);
+  else ok('local only: no Tailscale, the backend is on this Mac\'s loopback');
+  const origin = (port) => (local ? `http://127.0.0.1:${port}` : `https://${tailnet.name}:${port}`);
+  const url = origin(local ? LOCAL_PORTS.api : PORTS.api[0]);
+  const site = origin(local ? LOCAL_PORTS.site : PORTS.site[0]);
+  const dashboard = origin(local ? LOCAL_PORTS.dashboard : PORTS.dashboard[0]);
   if (!dry) {
     for (const image of [BACKEND_IMAGE, DASHBOARD_IMAGE]) {
       if (docker(['image', 'inspect', image]).status === 0) continue;
@@ -576,12 +593,16 @@ async function selfHostedBackend() {
       if (docker(['pull', '-q', image], { stdio: ['ignore', 'ignore', 'inherit'] }).status !== 0) throw new Fail(`docker pull ${image} failed.`);
     }
   }
+  const apiPort = local ? LOCAL_PORTS.api : PORTS.api[1];
+  const sitePort = local ? LOCAL_PORTS.site : PORTS.site[1];
+  const dashboardPort = local ? LOCAL_PORTS.dashboard : PORTS.dashboard[1];
   ensureContainer(BACKEND_CONTAINER, BACKEND_IMAGE, { CONVEX_CLOUD_ORIGIN: url, CONVEX_SITE_ORIGIN: site, DISABLE_BEACON: 'true' }, [
-    '-p', `127.0.0.1:${PORTS.api[1]}:3210`, '-p', `127.0.0.1:${PORTS.site[1]}:3211`,
-    '-v', `${DATA_VOLUME}:/convex/data`, '--add-host', `${name}:${ip}`,
+    '-p', `127.0.0.1:${apiPort}:3210`, '-p', `127.0.0.1:${sitePort}:3211`,
+    '-v', `${DATA_VOLUME}:/convex/data`,
+    ...(tailnet ? ['--add-host', `${tailnet.name}:${tailnet.ip}`] : []),
   ]);
-  ensureContainer(DASHBOARD_CONTAINER, DASHBOARD_IMAGE, { NEXT_PUBLIC_DEPLOYMENT_URL: url }, ['-p', `127.0.0.1:${PORTS.dashboard[1]}:6791`]);
-  for (const [tailnetPort, localPort] of Object.values(PORTS)) serve(ts, tailnetPort, localPort);
+  ensureContainer(DASHBOARD_CONTAINER, DASHBOARD_IMAGE, { NEXT_PUBLIC_DEPLOYMENT_URL: url }, ['-p', `127.0.0.1:${dashboardPort}:6791`]);
+  if (tailnet) for (const [tailnetPort, localPort] of Object.values(PORTS)) serve(tailnet.ts, tailnetPort, localPort);
   if (dry) {
     if (!fs.existsSync(selfHostedFile)) todo(`the backend's admin key, in ${selfHostedFile}`);
     todo('PUSH_RELAY=off on the backend (the push relay only reaches Convex cloud)');
@@ -664,6 +685,12 @@ function joined() {
 
 function finish(url, sh) {
   say('9. Finish setting up');
+  if (sh && local) {
+    note(`Your backend runs in Docker on this Mac only, at ${url}; its dashboard is ${sh.dashboard} (log in with the admin key in ${selfHostedFile}).`);
+    note('Local only means: no iPhone, no website or share links from anywhere else, and nothing works while Docker is stopped. Open Threadbear for a short tour that ends with your first thread; skip the phone and website steps.');
+    note('Your threads\' text is mirrored to that local backend, in the Docker volume threadbear-convex-data. `tb status` says what this runner does.');
+    return;
+  }
   if (sh) {
     note(`Your backend runs in Docker on this Mac, at ${url} on your tailnet; its dashboard is ${sh.dashboard} (log in with the admin key in ${selfHostedFile}).`);
     note('Self-hosted means: no phone notifications, the phone needs Tailscale on, nothing works while this Mac sleeps or Docker is stopped, and share links only open on your tailnet. Convex cloud has none of those limits (docs/self-hosting.md).');
