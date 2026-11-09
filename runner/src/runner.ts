@@ -2272,7 +2272,11 @@ export class Runner {
     // archive, which Mike asked it for). It can't archive itself mid-turn,
     // as that stops the CLI, so it happens here, once the turn is over, and
     // not if a message is already waiting for the next one.
-    const away = outcome === 'completed' && !turn.auto && said?.needs === 'nothing' && !rec.queue.length;
+    // Nor while a card is still waiting (a subagent's, which outlives the
+    // turn): archiving or snoozing would hide it and stop the work behind it.
+    // More likely now the runner's own threads run on the install's mode
+    // (own-threads.ts; Codex review, 9 Nov 2026).
+    const away = outcome === 'completed' && !turn.auto && said?.needs === 'nothing' && !rec.queue.length && !rt.approvals.size;
     const archive = away && archiveFromTool(turn.endTurn);
     // Hibernating likewise (end_turn's snooze). Archive wins if it asked for both.
     const snooze = away && !archive ? snoozeFromTool(turn.endTurn) : undefined;
