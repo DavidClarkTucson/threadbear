@@ -1026,3 +1026,82 @@ test('a run the backend missed hearing of is not sent again after the schedule i
   bruce.stop();
   s.stop();
 });
+
+// Codex's second look: the backend's yes to a run sent before an edit came
+// in doesn't count for the edit's updatedAt, so the run is told again.
+test('a run whose yes comes back after an edit elsewhere is told again, so its next time goes in', async () => {
+  const h = makeHarness();
+  const { thread } = idleThread(h);
+  const sends = countSends(h, thread.id);
+  const b = fakeBackend(h.clock, [M5, BRUCE]);
+  const s = backendScheduler(h);
+  const be = b.for('m5-a', M5.id);
+  let open!: () => void;
+  let hold: Promise<void> | undefined;
+  await s.attach({
+    ...be,
+    ran: async (p) => {
+      if (hold) await hold;
+      await be.ran(p);
+      // Its row comes back before its answer does.
+      for (let i = 0; i < 5; i++) await tick();
+    },
+  });
+  const sc = await s.create({ text: 'Daily digest', title: 'Digest', cron: '0 13 * * *', threadId: thread.id });
+  await tick();
+  const bruce = backendScheduler(h, BRUCE, path.join(h.home, 'bruce'));
+  await bruce.attach(b.for('bruce', BRUCE.id));
+  for (let i = 0; i < 5; i++) await tick();
+  hold = new Promise((r) => (open = r));
+  h.clock.advance(60 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sends.n, 1);
+  h.clock.advance(1000);
+  await bruce.update({ scheduleId: sc.id, title: 'Renamed' });
+  for (let i = 0; i < 5; i++) await tick();
+  hold = undefined;
+  open();
+  for (let i = 0; i < 10; i++) await tick();
+  h.clock.advance(MIN);
+  for (let i = 0; i < 10; i++) await tick();
+  assert.equal(b.rows.get(sc.id)?.nextRunAt, '2026-10-27T13:00:00.000Z');
+  assert.equal(b.rows.get(sc.id)?.runs, 1);
+  h.clock.advance(5 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sends.n, 1);
+  bruce.stop();
+  s.stop();
+});
+
+// And a one-off run early by hand has used its time, the same as a due run.
+test('a one-off run now that the backend missed hearing of is not sent again at its time after an edit elsewhere', async () => {
+  const h = makeHarness();
+  const { thread } = idleThread(h);
+  const sends = countSends(h, thread.id);
+  const b = fakeBackend(h.clock, [M5, BRUCE]);
+  const s = backendScheduler(h);
+  const f = flakyRan(b.for('m5-a', M5.id));
+  await s.attach(f.backend);
+  const sc = await s.create({ text: 'Check the deploy', title: 'Deploy', at: iso(h.clock.now() + 60 * MIN), threadId: thread.id });
+  await tick();
+  const bruce = backendScheduler(h, BRUCE, path.join(h.home, 'bruce'));
+  await bruce.attach(b.for('bruce', BRUCE.id));
+  for (let i = 0; i < 5; i++) await tick();
+  f.state.down = true;
+  await s.runNow(sc.id);
+  assert.equal(sends.n, 1);
+  h.clock.advance(MIN);
+  await bruce.update({ scheduleId: sc.id, title: 'Renamed' });
+  for (let i = 0; i < 5; i++) await tick();
+  f.state.down = false;
+  h.clock.advance(MIN);
+  for (let i = 0; i < 10; i++) await tick();
+  h.clock.advance(60 * MIN);
+  for (let i = 0; i < 10; i++) await tick();
+  assert.equal(sends.n, 1, 'not sent again at its time');
+  const row = b.rows.get(sc.id)!;
+  assert.equal(row.nextRunAt, undefined);
+  assert.ok(row.finishedAt, 'finished');
+  bruce.stop();
+  s.stop();
+});

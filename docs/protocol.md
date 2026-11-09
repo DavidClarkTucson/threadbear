@@ -4519,7 +4519,8 @@ kept in `schedules.json` in the data dir.
   the run takes the row's `updatedAt` and is told again. `scheduleRan`
   counts a run it already has (same `lastRun` time, outcome and thread)
   once, and one older than its `lastRun` (left in flight by a runner
-  process that has gone) changes nothing but the claim. Making, changing and
+  process that has gone) changes nothing but the claim. A runner key's
+  schedule keeps 400 bytes of its 16 KB for that run record. Making, changing and
   deleting go straight to the backend and answer once it has them; with
   no backend reachable they fail with `-32000` saying so. Nothing fires
   without the backend. The first time a runner meets a backend of API 9

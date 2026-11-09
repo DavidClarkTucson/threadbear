@@ -1834,6 +1834,11 @@ export const setSchedules = mutation({
 // code and the zones); this only stores them.
 
 const CLAIM_MS = 2 * 60_000;
+// Room a runner key's schedule keeps for a run record with no note (at,
+// outcome and threadId as scheduleRan cuts them): the run's time is how a
+// retried scheduleRan knows it was counted (THREADBEAR-15).
+const RUN_ROOM = 400;
+const scheduleRoom = (s: { lastRun?: unknown }) => ({ ...s, lastRun: undefined });
 
 const ownedScheduleDoc = v.object({
   ...scheduleDoc.fields,
@@ -1987,6 +1992,7 @@ export const saveSchedule = mutation({
     if (!mayWrite(caller, schedule.runnerId, row?.runnerId) || (await scheduleIdTaken(ctx, caller, schedule.id))) throw forbidden(`save schedule ${schedule.id}`);
     capText(caller, "A schedule's text", schedule.text, CAP.scheduleText);
     capDoc(caller, 'A schedule', schedule, CAP.scheduleDoc);
+    capDoc(caller, 'A schedule', scheduleRoom(schedule), CAP.scheduleDoc - RUN_ROOM);
     if (!row && !caller.owner && (await ownedCount(ctx, schedule.runnerId)) >= CAP.schedules) throw tooMany('schedules', CAP.schedules);
     await syncWake(ctx, schedule);
     if (!row) {
@@ -2042,7 +2048,7 @@ export const adoptSchedules = mutation({
       }
       if (!caller.owner) {
         if (!SCHEDULE_ID.test(s.id)) held.push({ id: s.id.slice(0, 64), why: "its id isn't a UUID" });
-        else if (utf8Bytes(s.text) > CAP.scheduleText || docBytes(s) > CAP.scheduleDoc) held.push({ id: s.id, why: `it's over ${CAP.scheduleText} bytes` });
+        else if (utf8Bytes(s.text) > CAP.scheduleText || docBytes(s) > CAP.scheduleDoc || docBytes(scheduleRoom(s)) > CAP.scheduleDoc - RUN_ROOM) held.push({ id: s.id, why: `it's over ${CAP.scheduleText} bytes` });
         else if (count >= CAP.schedules) held.push({ id: s.id, why: `over ${CAP.schedules} schedules` });
         else count++;
       }

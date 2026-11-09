@@ -754,8 +754,10 @@ export class Scheduler {
     this.notMidCheck(rec);
     const res = this.send(rec, true, this.keptFor(rec));
     if (res.outcome !== 'sent') throw new RpcError(ErrorCode.other, res.note ?? "Couldn't run it.");
+    // A one-off run now has used its time: that slot isn't due again.
+    const slot = rec.at ? rec.nextRunAt : undefined;
     if (rec.at) this.finish(rec);
-    if (this.mode === 'backend') await this.recordRun(rec, true);
+    if (this.mode === 'backend') await this.recordRun(rec, true, undefined, slot);
     this.changed();
     return { schedule: this.view(rec), threadId: res.threadId!, turnId: res.turnId! };
   }
@@ -799,7 +801,9 @@ export class Scheduler {
       try {
         const { since: _s, slot: _sl, tries: _t, warned: _w, acked: _a, ...p } = run;
         await backend.ran(p);
-        run.acked = true;
+        // A yes for what was sent: if an edit came in meanwhile and the run
+        // took its updatedAt (overlayUnrecorded), it's told again with that.
+        if (run.expectUpdatedAt === p.expectUpdatedAt) run.acked = true;
         if (run.tries) this.log.info('recorded a schedule run in the backend after retrying', { scheduleId, tries: run.tries });
       } catch (e) {
         run.tries = (run.tries ?? 0) + 1;
@@ -1069,9 +1073,10 @@ export class Scheduler {
       }
       throw e;
     }
+    const slot = res.outcome === 'sent' && rec.at ? rec.nextRunAt : undefined;
     if (res.outcome === 'sent' && rec.at) this.finish(rec);
     delete rec.runRequestedAt;
-    await this.recordRun(rec, res.outcome === 'sent', request);
+    await this.recordRun(rec, res.outcome === 'sent', request, slot);
   }
 
   // The schedule a claim was taken for, as the subscription has it now, or
