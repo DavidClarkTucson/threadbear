@@ -172,6 +172,21 @@ skip() {
   printf 'skip  %-20s (%s; --all runs it)\n' "$1" "$2"
 }
 
+# Swift's test modules (XCTest, Testing) come with Xcode, not the Command
+# Line Tools: with only those, swift test can't build a test target, so its
+# steps are skipped and say why (the app's build still runs).
+case "${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}" in
+  */CommandLineTools|"") NO_XCODE=1 ;;
+  *) NO_XCODE="" ;;
+esac
+swift_test_step() {
+  if [ -n "$NO_XCODE" ]; then
+    printf 'skip  %-20s (needs Xcode; only the Command Line Tools are here)\n' "$1"
+  else
+    step "$@"
+  fi
+}
+
 TMP_ROOT="${TMPDIR:-/tmp}"
 LOGS="$(mktemp -d "${TMP_ROOT%/}/threadbear-check.XXXXXX")"
 FAILED=""
@@ -294,10 +309,10 @@ if [ "$QUICK" = 0 ]; then
     step "mock runner packages" "$ROOT/app/Tools/mock-runner" npm ci --no-audit --no-fund
   fi
   step "app build" "$ROOT/app" "${LIMITED[@]}" swift build --disable-keychain
-  step "app tests" "$ROOT/app" env THREADBEAR_REQUIRE_MOCK=1 "${LIMITED[@]}" swift test --disable-keychain
+  swift_test_step "app tests" "$ROOT/app" env THREADBEAR_REQUIRE_MOCK=1 "${LIMITED[@]}" swift test --disable-keychain
   # BearDock, the window's docking panels: its layout tests.
   if needed '^dock/'; then
-    step "dock tests" "$ROOT/dock" "${LIMITED[@]}" swift test --disable-keychain
+    swift_test_step "dock tests" "$ROOT/dock" "${LIMITED[@]}" swift test --disable-keychain
   else
     skip "dock tests" "nothing in dock/ changed"
   fi
@@ -307,7 +322,7 @@ fi
 if [ "$RUNNER_ONLY" = 1 ]; then
   :
 elif needed "$IOS_NEEDS"; then
-  step "iphone kit tests" "$ROOT/ios/ThreadbearKit" "${LIMITED[@]}" swift test --disable-keychain
+  swift_test_step "iphone kit tests" "$ROOT/ios/ThreadbearKit" "${LIMITED[@]}" swift test --disable-keychain
 else
   skip "iphone kit tests" "nothing in ios/ changed"
 fi
