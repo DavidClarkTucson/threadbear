@@ -45,6 +45,11 @@ printf -v cmd '%q ' "$@"
 read -r -d '' prelude <<PRELUDE || true
 set -e
 cd "\$HOME/$src"
+# rsync just set this folder's time to the Mac's, and the age limit above reads it.
+touch .
+# So trim-remote-cache.sh can tell this target's in use for the whole run. Its
+# output goes nowhere, or ssh would wait for it after the command ends.
+( while kill -0 \$\$ 2>/dev/null; do touch "\$HOME/$target/.in-use"; sleep 60; done ) >/dev/null 2>&1 </dev/null &
 . runner/scripts/find-node.sh
 NODE="\$(threadbear_find_node)"
 export PATH="\${NODE%/*}:\$PATH"

@@ -11,45 +11,55 @@
 set -u
 own="${1:?usage: trim-remote-cache.sh <key>}"
 
-# Room for a build from nothing (a debug target has reached 7 GiB) with some to
-# spare. Under this, idle checkouts lose their target folders.
+# Under this, idle checkouts lose their target folders: room for a build from
+# nothing (a debug target has reached 7 GiB) with some to spare.
 TRIM_GIB=12
-# Under this a build isn't started at all: it would take the last of the disk
-# from whatever else runs on the host.
+# Under these a run isn't started at all: it would take the last of the disk
+# from whatever else runs on the host. A first build writes far more than one
+# with a target to build on.
 REFUSE_GIB=3
-# A checkout used this recently may be building now, so its folder stays.
-BUSY_MINUTES=120
+REFUSE_COLD_GIB=8
+# A target with anything changed this recently is in use. Cargo writes as it
+# compiles, and remote.sh touches .in-use inside it every minute of a run, so
+# this also covers a run that's only driving a built binary.
+BUSY_MINUTES=15
 
 free_gib() {
   local kb
   kb="$(df -Pk . | awk 'NR==2 {print $4}')"
-  # A df we can't read says nothing: don't delete or refuse on it.
-  case "$kb" in ""|*[!0123456789]*) echo 999999; return ;; esac
+  case "$kb" in
+    # A filesystem past its reserved blocks can report less than nothing.
+    -[0123456789]*) echo 0; return ;;
+    # A df we can't read says nothing: don't delete or refuse on it.
+    ""|*[!0123456789]*) echo 999999; return ;;
+  esac
   echo $((kb / 1048576))
 }
 
-# Removes a target folder if the host is short and it's idle. $1 is what says
-# when it was last used, $2 the folder.
+# Removes a target folder if the host is short and nothing's using it. Look
+# inside it, not at it: rsync sets a checkout's own time to the Mac's, and cargo
+# working inside a folder doesn't change that folder's.
 evict() {
   [ "$(free_gib)" -lt "$TRIM_GIB" ] || return 0
-  [ -d "$2" ] || return 0
-  [ -n "$(find "$1" -maxdepth 0 -mmin +"$BUSY_MINUTES" 2>/dev/null)" ] || return 0
-  echo "Short of disk on this host, so removing $2, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
-  rm -rf "$2"
+  [ -d "$1" ] || return 0
+  [ -z "$(find "$1" -mmin -"$BUSY_MINUTES" 2>/dev/null | head -1)" ] || return 0
+  echo "Short of disk on this host, so removing $1, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
+  rm -rf "$1"
 }
 
 # The one folder every checkout shared before they each got their own.
-evict target target
-# Oldest first, by the checkout's copy: remote.sh touches that on every run,
-# and a target folder's own time doesn't move while cargo works inside it.
-# Names are src-<hex>, so the unquoted list is safe.
-for s in $(ls -dtr src-* 2>/dev/null); do
-  key="${s#src-}"
-  [ "$key" = "$own" ] || evict "$s" "target-$key"
+evict target
+# Longest since a run first: remote.sh touches each target as a run starts.
+# Names are target-<hex>, so the unquoted list is safe.
+for t in $(ls -dtr target-* 2>/dev/null); do
+  [ "$t" = "target-$own" ] || evict "$t"
 done
 
+need="$REFUSE_GIB"
+# ls without -A, so the .in-use a run that failed early left doesn't count.
+[ -n "$(ls "target-$own" 2>/dev/null)" ] || need="$REFUSE_COLD_GIB"
 free="$(free_gib)"
-if [ "$free" -lt "$REFUSE_GIB" ]; then
-  echo "This host has only $free GiB free, and every build folder left is in use, so this run won't start. Free some space there and run it again." >&2
+if [ "$free" -lt "$need" ]; then
+  echo "This host has only $free GiB free and this run wants $need, with every other build folder in use, so it won't start. Free some space there and run it again." >&2
   exit 3
 fi

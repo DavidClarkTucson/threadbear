@@ -26,7 +26,15 @@ function host(t: TestContext, freeGib: number, folders: Record<string, number>) 
   for (const [name, hoursAgo] of Object.entries(folders)) {
     const p = path.join(base, name);
     fs.mkdirSync(p);
-    fs.utimesSync(p, new Date(now - hoursAgo * HOUR), new Date(now - hoursAgo * HOUR));
+    const when = new Date(now - hoursAgo * HOUR);
+    // A negative age: an empty folder, a checkout that has never built.
+    if (hoursAgo >= 0 && name.startsWith('target')) {
+      fs.mkdirSync(path.join(p, 'debug'));
+      fs.writeFileSync(path.join(p, 'debug', 'out'), 'x');
+      fs.utimesSync(path.join(p, 'debug', 'out'), when, when);
+      fs.utimesSync(path.join(p, 'debug'), when, when);
+    }
+    fs.utimesSync(p, when, when);
   }
   const targets = Object.keys(folders).filter((n) => /^target(-|$)/.test(n)).length;
   fs.writeFileSync(path.join(bin, 'df'), `#!/bin/bash
@@ -46,7 +54,7 @@ const WORK = {
   'src-aaa': 0, 'target-aaa': 0, // this checkout
   'src-bbb': 30, 'target-bbb': 30, // idle the longest
   'src-ccc': 10, 'target-ccc': 10, // idle
-  'src-ddd': 0.5, 'target-ddd': 0.5, // building now
+  'src-ddd': 0.1, 'target-ddd': 0.1, // building now
 };
 
 test('a disk with room is left alone', (t) => {
@@ -75,18 +83,39 @@ test('the old shared folder goes before any checkout loses its own', (t) => {
   assert.deepEqual(h.left(), ['target-aaa', 'target-bbb', 'target-ccc', 'target-ddd']);
 });
 
-test("the last-used time is the checkout's copy, as a target folder's own time doesn't move during a build", (t) => {
-  const h = host(t, 8, { 'src-aaa': 0, 'target-aaa': 0, 'src-eee': 0.5, 'target-eee': 50 });
+test("what's inside a target says whether it's in use, not the folder's own time", (t) => {
+  const h = host(t, 8, { 'target-aaa': 0, 'target-eee': 50 });
+  // A long run: the folder itself hasn't changed since it started.
+  fs.writeFileSync(path.join(h.base, 'target-eee', '.in-use'), '');
+  fs.utimesSync(path.join(h.base, 'target-eee'), new Date(Date.now() - 50 * HOUR), new Date(Date.now() - 50 * HOUR));
   assert.equal(h.trim().status, 0);
   assert.deepEqual(h.left(), ['target-aaa', 'target-eee']);
 });
 
-test('a disk still nearly full refuses the build and says why', (t) => {
-  const h = host(t, 2, { 'src-aaa': 0, 'target-aaa': 0, 'src-ddd': 0.5, 'target-ddd': 0.5 });
+test('a disk still nearly full refuses the run and says why', (t) => {
+  const h = host(t, 2, { 'target-aaa': 0, 'target-ddd': 0.1 });
   const r = h.trim();
   assert.equal(r.status, 3);
   assert.match(r.stderr, /2 GiB free/);
   assert.deepEqual(h.left(), ['target-aaa', 'target-ddd']);
+});
+
+test('a first build wants more room than one with a target to build on', (t) => {
+  const warm = host(t, 5, { 'target-aaa': 0, 'target-ddd': 0.1 });
+  assert.equal(warm.trim().status, 0);
+  const cold = host(t, 5, { 'target-aaa': -1, 'target-ddd': 0.1 });
+  const r = cold.trim();
+  assert.equal(r.status, 3);
+  assert.match(r.stderr, /wants 8/);
+});
+
+test('a df reporting less than nothing counts as full, and one it can not read blocks nothing', (t) => {
+  const h = host(t, 5, { 'target-aaa': 0 });
+  const df = (kb: string) => fs.writeFileSync(path.join(h.bin, 'df'), `#!/bin/bash\necho header\necho "fake 0 0 ${kb} 0% /"\n`, { mode: 0o755 });
+  df('-100');
+  assert.equal(h.trim().status, 3);
+  df('n/a');
+  assert.equal(h.trim().status, 0);
 });
 
 test('remote.sh stops before copying anything when the host refuses, and marks its target as used', (t) => {
@@ -101,4 +130,26 @@ test('remote.sh stops before copying anything when the host refuses, and marks i
   assert.equal(fs.readdirSync(h.base).filter((n) => n.startsWith('target-')).length, 1, 'its target folder exists, so the age limit sees it used');
   const own = fs.readdirSync(h.base).find((n) => n.startsWith('target-'))!;
   assert.ok(Date.now() - fs.statSync(path.join(h.base, own)).mtimeMs < HOUR);
+});
+
+test('a run marks its target in use and its copy as used, and ssh does not wait on the marking', (t) => {
+  const h = host(t, 40, {});
+  fs.writeFileSync(path.join(h.bin, 'ssh'), `#!/bin/bash\nshift\ncd "$HOME" && eval "$*"\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(h.bin, 'npm'), '#!/bin/bash\nexit 0\n', { mode: 0o755 });
+  // The real rsync sets the copy's time to the Mac's, which is the point here.
+  const findNode = path.join(import.meta.dirname, '..', '..', 'scripts', 'find-node.sh');
+  fs.writeFileSync(path.join(h.bin, 'rsync'), `#!/bin/bash
+dest="$HOME/\${!##*:}"
+mkdir -p "$dest/runner/scripts"
+cp ${JSON.stringify(findNode)} "$dest/runner/scripts/"
+touch -t 202601010000 "$dest"
+`, { mode: 0o755 });
+  const r = spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), 'somehost', '--', 'true'], { env: h.env, encoding: 'utf8', timeout: 30_000 });
+  assert.equal(r.error, undefined, 'it returned rather than waiting for the marker loop');
+  assert.equal(r.status, 0, r.stderr);
+  const names = fs.readdirSync(h.base);
+  const target = names.find((n) => n.startsWith('target-'))!;
+  const src = names.find((n) => n.startsWith('src-'))!;
+  assert.ok(fs.existsSync(path.join(h.base, target, '.in-use')));
+  assert.ok(Date.now() - fs.statSync(path.join(h.base, src)).mtimeMs < HOUR, 'the copy looks used, whatever rsync set');
 });
