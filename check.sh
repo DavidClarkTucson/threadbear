@@ -52,6 +52,11 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NODE="${THREADBEAR_NODE:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+# Not there and not set: the newest Node 24 nvm has (another 24.x installed since).
+if [ -z "${THREADBEAR_NODE:-}" ] && [ ! -x "$NODE" ]; then
+  NODE="$(ls -d "$HOME"/.nvm/versions/node/v24.*/bin/node 2>/dev/null | sort -V | tail -1 || true)"
+  NODE="${NODE:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+fi
 QUICK=0
 APP_ONLY=0
 ALL=0

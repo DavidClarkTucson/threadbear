@@ -92,7 +92,11 @@ usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' 
 
 node_bin() {
   local pinned="${THREADBEAR_NODE:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
-  if [ -x "$pinned" ]; then printf '%s' "$pinned"; else command -v node || die "no node binary (set THREADBEAR_NODE)"; fi
+  if [ -x "$pinned" ]; then printf '%s' "$pinned"; return; fi
+  # Not there and not set: the newest Node 24 nvm has, then the PATH's.
+  local newest
+  [ -n "${THREADBEAR_NODE:-}" ] || newest="$(ls -d "$HOME"/.nvm/versions/node/v24.*/bin/node 2>/dev/null | sort -V | tail -1 || true)"
+  if [ -n "${newest:-}" ]; then printf '%s' "$newest"; else command -v node || die "no node binary (set THREADBEAR_NODE)"; fi
 }
 
 # The folder with symlinks resolved, or as given if it doesn't exist.
