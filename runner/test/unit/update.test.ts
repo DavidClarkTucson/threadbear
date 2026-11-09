@@ -120,7 +120,7 @@ type Harness = {
   deploys: number;
   follows: string[];
   main: { commit: string; short: string; subject: string; tree: string; buildTree?: string };
-  deployResult: { ok: true; id: string } | { ok: false; error: string; transient?: boolean; slept?: boolean };
+  deployResult: { ok: true; id: string } | { ok: false; error: string; transient?: boolean; slept?: boolean; unavailable?: boolean };
   backendDeploys: string[];
   backendResult: { ok: boolean; error?: string };
   pending: boolean;
@@ -517,6 +517,30 @@ test('a build that failed while the Mac slept is tried again later, and words in
   fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), "console.log(\"The Mac slept during Unit tests, so it's tried again later\"); console.error(\"The Mac slept during Unit tests, so it's tried again later\"); process.exit(1);\n");
   const broken = await runDeploy(root, root, path.join(root, 'build.log'), root);
   assert.equal(!broken.ok && broken.transient, false);
+});
+
+// deploy.mjs's exit when no check step failed on the check host (ChecksUnavailable):
+// the host's trouble, tried again later, and given up on after the same few tries.
+test('a build whose check host could not run the checks is tried again, then marked failed', async () => {
+  const root = tmpDir();
+  fs.mkdirSync(path.join(root, 'scripts'));
+  const stepsUrl = new URL('../../scripts/deploy-steps.mjs', import.meta.url).href;
+  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import { UNAVAILABLE_EXIT } from ${JSON.stringify(stepsUrl)};\nconsole.error('No check host has room'); process.exit(UNAVAILABLE_EXIT);\n`);
+  const result = await runDeploy(root, root, path.join(root, 'build.log'), root);
+  assert.equal(!result.ok && result.transient && result.unavailable && !result.slept, true);
+
+  const failures: UpdateFailure[] = [];
+  const h = harness({}, { onFailed: (f) => (failures.push(f), true) });
+  h.deployResult = { ok: false, error: 'No check host has room', transient: true, unavailable: true };
+  h.u.start();
+  h.main = { ...h.main, buildTree: 'B1' };
+  for (let i = 1; i < MAX_SLEPT_TRIES; i++) {
+    await h.u.check();
+    assert.equal(h.u.status().state, 'idle', `try ${i}`);
+  }
+  await h.u.check();
+  assert.equal(h.u.status().state, 'failed');
+  assert.match(failures[0]!.error, /no check host could run the checks in all 3 tries/);
 });
 
 test('a commit the Mac slept through every build of is marked failed after a few tries', async () => {

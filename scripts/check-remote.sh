@@ -286,6 +286,7 @@ over_time() {
 ARGS=()
 SHOTS=""
 QUICK=0
+RUNNER_ONLY=0
 ALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -293,6 +294,7 @@ while [ $# -gt 0 ]; do
       case "$2" in /*) SHOTS="$2" ;; *) SHOTS="$PWD/$2" ;; esac
       shift ;;
     --quick) QUICK=1; ARGS+=("$1") ;;
+    --runner) QUICK=1; RUNNER_ONLY=1; ARGS+=("$1") ;;
     --all) ALL=1; ARGS+=("$1") ;;
     *) ARGS+=("$1") ;;
   esac
@@ -314,6 +316,10 @@ changed="$(mktemp)"
 # shots.
 linux_ok=0
 if [ "$QUICK" = 1 ] && [ "$ALL" = 0 ] && [ -z "$SHOTS" ] && [ -s "$changed" ] && ! grep -qE '^ios/|^check\.sh$' "$changed"; then linux_ok=1; fi
+# --runner is only Node, whatever changed: the runner's self-update sends
+# it from a clone on main, where nothing has, and with Tinker Desk away a
+# Linux host should still take it rather than this Mac (Codex, 9 Nov).
+if [ "$RUNNER_ONLY" = 1 ] && [ -z "$SHOTS" ]; then linux_ok=1; fi
 
 # The disk a run wants free on its host. On 7 Nov Tinker Desk fell under 1 GiB
 # and an --app check died with a CodeSign error that said nothing about space,

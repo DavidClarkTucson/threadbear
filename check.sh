@@ -3,7 +3,7 @@
 # what failed and the end of the log for each step that failed, and a
 # nonzero exit if any did.
 #
-#   ./check.sh [--quick | --app] [--all] [--e2e] [--shots DIR] [--local]
+#   ./check.sh [--quick | --runner | --app] [--all] [--e2e] [--shots DIR] [--local]
 #
 # With a check host set (THREADBEAR_CHECK_HOST, or "checkHost" in the
 # runner's runner.json, an ssh host such as "tinker-desk"; or "checkHosts",
@@ -18,6 +18,11 @@
 #   (no options)  runner typecheck, unit tests and deploy tests, then the
 #                 app's swift build and swift test, and BearDock's tests
 #   --quick       runner typecheck and unit tests only (about a minute)
+#   --runner      only the runner's typecheck and unit tests, nothing else
+#                 that --quick adds (Convex, web, app tools, iPhone kit), on
+#                 main too: the runner's self-update runs this (deploy.mjs),
+#                 so a website test can't hold the runner back, and a Linux
+#                 check host can take it
 #   --app         the app's swift build and swift test only, for a change
 #                 that doesn't touch runner/
 #   --all         don't skip the dock and deploy tests (below)
@@ -53,6 +58,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NODE="${THREADBEAR_NODE:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
 QUICK=0
+RUNNER_ONLY=0
 APP_ONLY=0
 ALL=0
 E2E=0
@@ -63,6 +69,7 @@ ARGS=("$@")
 while [ $# -gt 0 ]; do
   case "$1" in
     --quick) QUICK=1 ;;
+    --runner) QUICK=1; RUNNER_ONLY=1 ;;
     --app) APP_ONLY=1 ;;
     --all) ALL=1 ;;
     --e2e) E2E=1 ;;
@@ -219,6 +226,8 @@ if [ "$APP_ONLY" = 0 ]; then
     step "runner packages" "$ROOT/runner" npm ci --no-audit --no-fund
   fi
   step "runner typecheck" "$ROOT/runner" npm run typecheck
+fi
+if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
   # The app's Node tools (the tour's end-to-end test, the mock runner)
   # aren't typechecked or run here: at least they have to parse. A quote
   # slip in tour-e2e.mjs went unnoticed until it was next run (2 Nov).
@@ -230,6 +239,8 @@ if [ "$APP_ONLY" = 0 ]; then
   step "convex typecheck" "$ROOT" npm run convex:typecheck
   step "web typecheck" "$ROOT" npm run web:typecheck
   step "web tests" "$ROOT" npm run web:test
+fi
+if [ "$APP_ONLY" = 0 ]; then
   runner_unit_tests
   if [ "$QUICK" = 0 ]; then
     if needed '^runner/(scripts/|launch\.mjs$|launcher/|test/deploy/)'; then
@@ -257,7 +268,9 @@ if [ "$QUICK" = 0 ]; then
 fi
 # The iPhone app's logic and source checks (ios/ThreadbearKit), on the Mac.
 # The app itself only builds with Xcode; ios/scripts/sim-shots.sh does that.
-if needed '^ios/'; then
+if [ "$RUNNER_ONLY" = 1 ]; then
+  :
+elif needed '^ios/'; then
   step "iphone kit tests" "$ROOT/ios/ThreadbearKit" "${LIMITED[@]}" swift test --disable-keychain
 else
   skip "iphone kit tests" "nothing in ios/ changed"

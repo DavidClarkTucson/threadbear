@@ -106,16 +106,45 @@ export function checkHostsFrom(json) {
 // runner has one. Mike asked on 9 Nov, with his M5 at a load of 50: every
 // runner update (six that morning) ran the whole unit suite on it for 10
 // minutes, the one suite that never went to Tinker Desk with the others on
-// 6 Nov. check.sh --quick sends them there (scripts/check-remote.sh), and
-// runs them here at low priority only when no host can be reached, as it
-// does for a thread's checks. With no check host (a fork, a sandbox), the
-// steps run here as before. Returns whether it ran them.
+// 6 Nov. check.sh --runner sends them there (scripts/check-remote.sh), or to
+// a Linux host, and runs them here at low priority only when no host can be
+// reached, as it does for a thread's checks. --runner rather than --quick:
+// only what the runner's own tests cover, so a website or iPhone test can't
+// hold the runner back from main (update.ts keys a failure by runner/'s tree,
+// so fixing one of those wouldn't even retry it). With no check host (a fork,
+// a sandbox), the steps run here as before. Returns whether it ran them.
+//
+// A run where no check step failed (the host too full or too busy for three
+// hours, its npm ci failing) is the host's trouble, not main's: ChecksUnavailable,
+// which update.ts tries again later, rather than a failure it keeps until
+// runner/ changes. A real failure gets one more whole run, as unitTests()
+// gives one, since check.sh only reruns up to 8 named files; not when it ran
+// here, which would be the full suite on this Mac twice.
+export const UNAVAILABLE_EXIT = 69; // EX_UNAVAILABLE
+export class ChecksUnavailable extends Fail {}
 export function remoteChecks(hosts, root, opts, io = {}) {
+  const { say = console.log, node = process.execPath } = io;
   const checkSh = path.join(root, 'check.sh');
   if (!hosts.length || !fs.existsSync(checkSh)) return false;
-  const env = { ...opts.env, THREADBEAR_CHECK_HOST: hosts.join(',') };
-  step(`Typecheck and unit tests (on ${hosts.join(' or ')})`, checkSh, ['--quick'], { ...opts, cwd: root, env }, io);
-  return true;
+  // The deploy's own Node, which check.sh would otherwise take as the pinned
+  // nvm path (an install with --node elsewhere has none there), here and as
+  // what it uses on a fallback run.
+  const env = { ...opts.env, THREADBEAR_CHECK_HOST: hosts.join(','), THREADBEAR_NODE: node };
+  const run = (name) => step(name, checkSh, ['--runner'], { ...opts, cwd: root, env }, io);
+  const name = `Typecheck and unit tests (on ${hosts.join(' or ')})`;
+  try {
+    run(name);
+    return true;
+  } catch (e) {
+    if (!(e instanceof StepFailed)) throw e;
+    const out = readOr(e.logFile);
+    if (!/^FAIL\s/m.test(out)) throw new ChecksUnavailable(`${e.message}. No check step failed, so it's taken as the check host's trouble and tried again later`);
+    if (/run on this Mac instead/.test(out)) throw e;
+    say(`Running them once more, in case that was a flaky test.`);
+    run(`${name}, again`);
+    say(`The second run passed (first run's output: ${e.logFile})`);
+    return true;
+  }
 }
 
 // The full suite runs files in parallel on a Mac that's usually busy with

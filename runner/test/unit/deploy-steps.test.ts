@@ -172,28 +172,52 @@ test('checkHostsFrom reads runner.json the way check.sh does', () => {
 });
 
 // 9 Nov: every self-update ran the whole unit suite on Mike's M5.
-test('remoteChecks hands the checks to check.sh --quick with the hosts named', () => {
+function withCheckSh() {
   const root = tmpDir();
   fs.writeFileSync(path.join(root, 'check.sh'), '#!/bin/bash\n');
+  return root;
+}
+
+test('remoteChecks hands the runner checks to check.sh --runner with the hosts and the deploy\'s Node', () => {
+  const root = withCheckSh();
   const { io, calls } = fakeIo([{ status: 0 }]);
   let env: Record<string, string> | undefined;
   const spawn = io.spawn;
-  io.spawn = (cmd: string, args: string[], opts: any) => {
-    env = opts.env;
-    assert.equal(opts.cwd, root);
-    return spawn(cmd, args, opts);
+  const io2 = {
+    ...io,
+    node: '/opt/node/bin/node',
+    spawn: (cmd: string, args: string[], opts: any) => {
+      env = opts.env;
+      assert.equal(opts.cwd, root);
+      return spawn(cmd, args, opts);
+    },
   };
-  assert.equal(steps.remoteChecks(['tinker-desk', 'cloud'], root, { cwd: '/elsewhere', env: { PATH: '/bin' } }, io), true);
-  assert.deepEqual(calls, [{ cmd: path.join(root, 'check.sh'), args: ['--quick'] }]);
+  assert.equal(steps.remoteChecks(['tinker-desk', 'cloud'], root, { cwd: '/elsewhere', env: { PATH: '/bin' } }, io2), true);
+  assert.deepEqual(calls, [{ cmd: path.join(root, 'check.sh'), args: ['--runner'] }]);
   assert.equal(env?.THREADBEAR_CHECK_HOST, 'tinker-desk,cloud');
+  assert.equal(env?.THREADBEAR_NODE, '/opt/node/bin/node');
   assert.equal(env?.PATH, '/bin');
 });
 
-test('remoteChecks fails the update when the checks there fail', () => {
-  const root = tmpDir();
-  fs.writeFileSync(path.join(root, 'check.sh'), '#!/bin/bash\n');
-  const { io } = fakeIo([{ status: 1, output: 'FAIL runner unit tests' }]);
-  assert.throws(() => steps.remoteChecks(['tinker-desk'], root, { env: {} }, io), steps.StepFailed);
+test('remoteChecks runs a failed check once more, and a second failure fails the update', () => {
+  const fail = { status: 1, output: 'Checking on tinker-desk\nFAIL  runner unit tests   80s  /tmp/x.log\n' };
+  const flaky = fakeIo([fail, { status: 0 }]);
+  assert.equal(steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, flaky.io), true);
+  assert.equal(flaky.calls.length, 2);
+  const broken = fakeIo([fail, fail]);
+  assert.throws(() => steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, broken.io), (e: unknown) => e instanceof steps.StepFailed && !(e instanceof steps.ChecksUnavailable));
+});
+
+test('remoteChecks does not rerun a failure that ran on this Mac', () => {
+  const { io, calls } = fakeIo([{ status: 1, output: 'None of tinker-desk can run this check now.\nSo the checks run on this Mac instead, at low priority.\nFAIL  runner unit tests\n' }]);
+  assert.throws(() => steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, io), steps.StepFailed);
+  assert.equal(calls.length, 1);
+});
+
+test('remoteChecks takes a failure with no failed check step as the host\'s trouble', () => {
+  const { io, calls } = fakeIo([{ status: 1, output: 'No check host has room for this check: tinker-desk (0.5 GiB free)\n' }]);
+  assert.throws(() => steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, io), steps.ChecksUnavailable);
+  assert.equal(calls.length, 1);
 });
 
 test('remoteChecks leaves the checks here with no host, or no check.sh', () => {

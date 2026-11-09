@@ -47,6 +47,11 @@ const SLEPT_EXIT = 75;
 // marked failed after all, with what the last try said, so a real break on
 // a laptop that sleeps through every build can't stay hidden (Codex, 9 Nov).
 export const MAX_SLEPT_TRIES = 3;
+// deploy.mjs's exit when its checks went to a check host and no check step
+// failed there (the host too full, or busy past check-remote.sh's limit):
+// the host's trouble, so tried again like a sleep, with the same limit
+// (deploy-steps.mjs, ChecksUnavailable).
+const UNAVAILABLE_EXIT = 69;
 
 export type UpdateState = 'off' | 'idle' | 'checking' | 'building' | 'waiting' | 'failed';
 
@@ -73,7 +78,7 @@ export type UpdateStatus = {
 // the whole of runner/ (tests, scripts, configs too), everything a build
 // reads, so a failed build can be retried when only a test was fixed.
 export type MainInfo = { commit: string; short: string; subject: string; tree: string; buildTree?: string };
-export type DeployResult = { ok: true; id: string } | { ok: false; error: string; transient?: boolean; slept?: boolean };
+export type DeployResult = { ok: true; id: string } | { ok: false; error: string; transient?: boolean; slept?: boolean; unavailable?: boolean };
 
 // <home>/runner/update.json: the build that failed, so it isn't retried
 // every five minutes.
@@ -372,7 +377,8 @@ export function runDeploy(runnerDir: string, home: string, logFile: string, foll
       const lines = text.trim().split('\n').filter(Boolean);
       const last = lines.at(-1) ?? (signal ? `stopped by ${signal}` : `exit ${code}`);
       const slept = code === SLEPT_EXIT;
-      resolve({ ok: false, error: last.slice(0, 300), transient: slept || TRANSIENT.test(text), ...(slept ? { slept } : {}) });
+      const unavailable = code === UNAVAILABLE_EXIT;
+      resolve({ ok: false, error: last.slice(0, 300), transient: slept || unavailable || TRANSIENT.test(text), ...(slept ? { slept } : {}), ...(unavailable ? { unavailable } : {}) });
     });
   });
 }
@@ -392,7 +398,8 @@ export class RunnerUpdater {
   private launcherChanged = false;
   private launcherReason?: string;
   private releaseBuilt?: string;
-  // The tree whose builds the Mac slept through, and how many in a row.
+  // The tree whose builds the Mac slept through (or no check host could
+  // check), and how many in a row.
   private slept?: { tree: string; tries: number };
   private busy = false;
   private stopped = false;
@@ -548,7 +555,7 @@ export class RunnerUpdater {
       // Counted per build tree, as failedAlready keys a failure, so a commit
       // that only fixes a test starts its own count (Codex, 9 Nov).
       const builds = main.buildTree ?? main.tree;
-      const tries = !result.ok && result.slept ? (this.slept?.tree === builds ? this.slept.tries : 0) + 1 : 0;
+      const tries = !result.ok && (result.slept || result.unavailable) ? (this.slept?.tree === builds ? this.slept.tries : 0) + 1 : 0;
       this.slept = tries ? { tree: builds, tries } : undefined;
       if (!result.ok) {
         if (result.transient && tries < MAX_SLEPT_TRIES) {
@@ -557,7 +564,11 @@ export class RunnerUpdater {
           return decision;
         }
         if (tries) this.slept = undefined;
-        const error = tries ? `${result.error} (the Mac slept through all ${tries} tries at this commit, so this may be a real failure)` : result.error;
+        const error = !tries
+          ? result.error
+          : !result.ok && result.unavailable
+            ? `${result.error} (no check host could run the checks in all ${tries} tries at this commit)`
+            : `${result.error} (the Mac slept through all ${tries} tries at this commit, so this may be a real failure)`;
         result = { ...result, error };
         this.state = 'failed';
         this.reason = result.error;
