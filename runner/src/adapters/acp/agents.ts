@@ -20,6 +20,8 @@ export type AcpAgent = {
   // explicit: runner.json's path for it. Undefined when not installed.
   findBinary(o: { explicit?: string; home: string; pathEnv: string }): string | undefined;
   args: string[];
+  // Runs the agent's own updater, when Update is pressed.
+  updateArgs: string[];
   // Set on every process it starts. What stops a thread running tools
   // unguarded is here, so it applies whatever mode the thread starts in and
   // whatever it changes to later: the runner answers each request (AcpSession).
@@ -96,12 +98,15 @@ export const ACP_AGENTS: Record<AcpProvider, AcpAgent> = {
     // Free models work with no login, so being installed is enough.
     loggedIn: () => true,
     findBinary({ explicit, home, pathEnv }) {
-      if (explicit) return isExecutableFile(explicit) ? explicit : undefined;
+      // Whole paths only: a relative one would resolve against the thread's
+      // folder when it's run, and that can be anyone's repo.
+      if (explicit) return path.isAbsolute(explicit) && isExecutableFile(explicit) ? explicit : undefined;
       const own = path.join(home, '.opencode', 'bin', 'opencode');
       return isExecutableFile(own) ? own : onPath('opencode', pathEnv);
     },
     // --pure: no plugins, the user's own included, for the same reason.
     args: ['acp', '--pure'],
+    updateArgs: ['upgrade'],
     env: opencodeEnv,
     identifies: (init) => /opencode/i.test(init.agentInfo?.name ?? '') || Boolean(init.authMethods?.some((m) => m.id === 'opencode-login')),
     modeFor: (mode) => (mode === 'plan' ? 'plan' : 'build'),
@@ -114,11 +119,12 @@ export const ACP_AGENTS: Record<AcpProvider, AcpAgent> = {
     // Written once the CLI has been used; only whether it exists is read.
     loggedIn: (home) => fs.existsSync(path.join(home, '.cursor', 'cli-config.json')),
     findBinary({ explicit, home, pathEnv }) {
-      if (explicit) return isExecutableFile(explicit) ? explicit : undefined;
+      if (explicit) return path.isAbsolute(explicit) && isExecutableFile(explicit) ? explicit : undefined;
       const candidates = [path.join(home, '.local', 'bin', 'cursor-agent'), onPath('cursor-agent', pathEnv), path.join(home, '.local', 'bin', 'agent'), onPath('agent', pathEnv)];
       return candidates.find((f): f is string => Boolean(f) && isExecutableFile(f!) && isCursorBinary(f!));
     },
     args: ['acp'],
+    updateArgs: ['update'],
     // Nothing to set: the mode does the job. See modeFor.
     env: () => ({}),
     identifies: (init) => Boolean(init.authMethods?.some((m) => m.id === 'cursor_login')) || /cursor/i.test(init.agentInfo?.name ?? ''),

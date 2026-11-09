@@ -44,7 +44,9 @@ export const PROVIDER_INFO: Record<Provider, ProviderInfo> = {
     autoMode: 'asks',
     sandbox: false,
     rewind: false,
-    smallJobs: true,
+    // Its read tools work in any mode and nothing turns them off, and a small
+    // job's text can come from anywhere.
+    smallJobs: false,
     usageReadings: false,
   },
   opencode: {

@@ -65,7 +65,7 @@ const CLOSE_GRACE_MS = 1000;
 // Requests about one thread. During a handover (docs/protocol.md) the
 // primary passes these to the draining runner that has the thread, and a
 // draining runner answers -32030 for one it has let go.
-const THREAD_METHODS = new Set([
+export const THREAD_METHODS = new Set([
   'reviews.list',
   'reviews.create',
   'reviews.get',
@@ -607,7 +607,6 @@ export class RpcServer {
           poolId: optString(p, 'poolId'),
           model: optString(p, 'model'),
           effort: optEffort(p),
-          ...(optFastMode(p) ? { fastMode: true } : {}),
           permissionMode: optMode(p),
           title: optString(p, 'title'),
           ...(p.worktree === false ? { worktree: false } : {}),
@@ -660,7 +659,6 @@ export class RpcServer {
         if (p.poolId !== undefined) upd.poolId = p.poolId === null ? null : reqString(p, 'poolId');
         if (p.model !== undefined) upd.model = p.model === null ? null : reqString(p, 'model');
         if (p.effort !== undefined) upd.effort = p.effort === null ? null : optEffort(p);
-        if (p.fastMode !== undefined) upd.fastMode = optFastMode(p) === true;
         if (p.permissionMode !== undefined) upd.permissionMode = optMode(p);
         if (p.snoozedUntil !== undefined) upd.snoozedUntil = p.snoozedUntil === null ? null : reqString(p, 'snoozedUntil');
         if (p.archived !== undefined) {
@@ -942,14 +940,6 @@ function optEffort(p: Record<string, unknown>): EffortLevel | undefined {
   const v = p.effort;
   if (v === undefined || v === null) return undefined;
   if (!isEffortLevel(v)) throw bad(`effort must be one of ${EFFORT_LEVELS.join(', ')}`);
-  return v;
-}
-
-// null means off, as threads.update's other settings take null for their default.
-function optFastMode(p: Record<string, unknown>): boolean | undefined {
-  const v = p.fastMode;
-  if (v === undefined || v === null) return v === null ? false : undefined;
-  if (typeof v !== 'boolean') throw bad('fastMode must be a boolean');
   return v;
 }
 

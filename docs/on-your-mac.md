@@ -118,7 +118,9 @@ File references are where to look.
   which process it is and whether it's under a thread's CLI
   (`runner/src/peer.ts`, docs/protocol.md "Who's really calling").
 - **With the `acpAgents` experiment on** (off by default) it also starts the
-  `opencode acp` and Cursor's `agent acp` CLIs for threads on them, and each
+  `opencode acp` and Cursor's `agent acp` CLIs for threads on them, runs each
+  with `--version` when the runner starts, and runs its own updater
+  (`opencode upgrade`, `agent update`) only when you press Update in the app, and each
   live thread on one has a listener on `127.0.0.1` on a port the system picks,
   serving that thread's Threadbear tools, needing a random token made for it.
 - **New installs start threads on Auto.** On Auto, Claude runs with its
@@ -159,6 +161,15 @@ File references are where to look.
   only hear about it when it needs you (including a step its mode asks
   you about). A later failure goes to the same thread.
   `followMain: false` turns this off with the rest.
+- **Following GitHub on a second machine** (`runner/src/follow-origin.ts`):
+  only with `followOrigin: true` in that machine's `runner.json`, which
+  nothing sets for you. Every 5 minutes the runner runs `git fetch origin
+  main` in its checkout (the only network call it adds, to whatever
+  `origin` is), fast-forwards that checkout's `main` when it can, and builds
+  and runs `origin/main`, with no signature check. It never resets or
+  rewrites anything: a commit made only there stays, and `tb status` says so.
+  `tb land` refuses in that repo. If `origin` is Mike's repo rather than
+  your own, leave this off.
 - **Schedule checks** (`runner/src/schedule-check.ts`, experiment
   `scheduleChecks`, off by default): a schedule's check command runs in
   `/bin/sh` before each run, as you, for at most a minute (or up to five,
@@ -177,11 +188,21 @@ File references are where to look.
   `upstream`'s `release/*` tags, fetches the newest few into a folder of
   their own (`<home>/runner/upstream-fetch`, deleted after each check),
   checks each with `ssh-keygen -Y verify` against the pinned key (the
-  signature goes in a temp file under `$TMPDIR` for a moment), and copies
-  the newest that passes into your checkout, as `refs/threadbear/upstream/`. It never changes your code by
+  signature goes in a temp file under `$TMPDIR` for a moment), fetches
+  upstream's `main` with them to check the tag's commit is on it, and
+  copies the newest that passes into your checkout, as
+  `refs/threadbear/upstream/`. A release's `scripts/release-signers` and
+  `scripts/release-keys-revoked` can change the pinned keys
+  (`<home>/upstream-signers`, `<home>/upstream-revoked`, and what's waiting
+  in `<home>/upstream-keys.json`, changed by one runner at a time under
+  `<home>/upstream-keys.lock`): a new key after a week, a revoked one at
+  once (`runner/src/release-keys.ts`). It never changes your code by
   itself. Every 5 days, when there's one your copy doesn't have, it starts
   one thread (on your own Claude or Codex login, on your default mode) that
-  merges it in a worktree, runs the checks and asks you before it lands
+  works out the merge without checking it out (`scripts/merge-preview.sh`,
+  in a throwaway repo under `$TMPDIR` it deletes), tells you what it brings
+  and asks; it runs nothing from the release (no checks, installs or builds)
+  until you say go, then merges, checks and lands
   (`runner/src/bring-in.ts`). A release Mike marks important starts one
   straight away. Settings › General › Updates from Mike, or
   `"releases": { "bringIn": 14 }` (or `"important"`, or `"off"`) in

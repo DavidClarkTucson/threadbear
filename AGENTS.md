@@ -49,6 +49,20 @@ and ask the user what they use instead, rather than trying to reach them.
   shorter or go behind something agents look up.
 - The protocol is the contract. Change `docs/protocol.md` first, then both
   sides, and keep both sides tolerant of unknown fields and event types.
+- A thread is reached four ways: this runner's own threads, another
+  runner's through Convex (`runner/src/relay.ts`), and the iPhone and the
+  website through Convex (`convex/phone.ts`). Pictures, a card's notes and
+  send_message each worked on the first and went missing on the others
+  (8 Nov). A new thread request needs a row in `runner/src/parity.ts`
+  saying where it works (`parity.test.ts` fails without one, and checks
+  each yes against the code; `npm run parity-docs` remakes
+  `docs/parity.md`). A change to what a thread shows (a card's field, a
+  message's content, the done card) gets a scenario in
+  `runner/test/unit/scenarios.test.ts`: it plays the thread on this
+  runner, writes it through the real backend functions, and checks
+  another Mac and the phone see the same, or a difference listed there
+  with why. The backend tests' fake Convex checks the real schema and
+  validators, so a field Convex would refuse fails there too.
 - Only ever spawn the official `claude` (and later `codex`) binaries under
   Mike's own logins. Never read or copy OAuth tokens or Keychain credentials.
 - Tests that hit a real model use the cheapest model, tiny prompts, a temp
@@ -237,7 +251,10 @@ default, on for him (Mike asked 6 Nov).
   to take it out (for forks). Check `experimentOn(home, '<id>')` where
   it starts. Put `"experiments": { "<id>": true }` in Mike's
   `runner.json` (`~/Library/Application Support/Threadbear/runner.json`)
-  so it's on for him.
+  so it's on for him. Settings > General > Experiments lists it by
+  itself, with its name and "What it does" behind the ⓘ, so there's
+  nothing to add in the app for its switch (`settings.update`'s
+  `experiments`). Write its name and that text for the people flipping it.
 - Run `npm run experiment-docs` in `runner/` and commit
   `docs/experiments.md` with it: the guide and the forking table point
   there, and `experiment-docs.test.ts` fails while it's out of date. Edit

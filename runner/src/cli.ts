@@ -15,6 +15,7 @@ import { DEV_HELP, formatModels, logsCommand, runDev } from './tb-dev.ts';
 import { findWorktreePatch, isInside } from './patches.ts';
 import { TRUST_ALL } from './patch-trust.ts';
 import { land, landTargetFromGit, type LandTarget } from './worktrees.ts';
+import { landRefusal } from './follow-origin.ts';
 import { activityCommand } from './activity.ts';
 import { pairCommand } from './pair.ts';
 import { runnerKeysCommand } from './runner-keys.ts';
@@ -346,6 +347,11 @@ async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean):
       return 1;
     }
     target = found.target;
+  }
+  const refused = landRefusal(cfg.home, target.mainCheckout);
+  if (refused) {
+    console.error(refused);
+    return 1;
   }
   return land(target, {
     dryRun,

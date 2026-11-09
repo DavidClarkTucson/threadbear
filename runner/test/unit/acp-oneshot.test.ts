@@ -8,6 +8,7 @@ import path from 'node:path';
 import { ACP_AGENTS, opencodeEnv, type AcpAgent } from '../../src/adapters/acp/agents.ts';
 import { acpAsker, promptBlocks, type Asker } from '../../src/models/acp-oneshot.ts';
 import { Models } from '../../src/models/index.ts';
+import { providerInfo } from '../../src/providers.ts';
 import type { Account, Pool } from '../../src/protocol.ts';
 import { nullLogger } from '../../src/log.ts';
 import { ProcessRegistry } from '../../src/proc.ts';
@@ -37,7 +38,8 @@ test('the prompt never goes in the arguments or the environment', async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-argv-')));
   const seen = path.join(root, 'seen');
   const wrap = path.join(root, 'wrap');
-  fs.writeFileSync(wrap, `#!/bin/sh\necho "$@" > ${seen}\nenv >> ${seen}\nexec ${FAKE} "$@"\n`, { mode: 0o755 });
+  // Quoted: the runner's release builds run from under "Application Support".
+  fs.writeFileSync(wrap, `#!/bin/sh\necho "$@" > "${seen}"\nenv >> "${seen}"\nexec "${FAKE}" "$@"\n`, { mode: 0o755 });
   const r = rig(ACP_AGENTS.opencode, {}, wrap);
   const res = await r.ask({ account, user: 'SECRET-THREAD-TEXT', system: 'SECRET-SYSTEM', cwd: r.root, timeoutMs: 8000 });
   assert.equal(res.ok, true);
@@ -149,4 +151,22 @@ test('Codex logins still answer nothing', async () => {
   const { m } = models({ pools: { x: pool('x', [codex]) }, poolId: 'x', claudePath: '/c', askers: {} });
   const r = await m.summarize({ feature: 't', text: 'x' });
   assert.equal((r as { reason: string }).reason, 'no-pool');
+});
+
+test('Cursor takes no small jobs, as its read tools cannot be turned off', () => {
+  assert.equal(providerInfo('cursor').smallJobs, false);
+  assert.equal(providerInfo('opencode').smallJobs, true);
+});
+
+test('a read-only mode the agent did not confirm means no text is sent', async () => {
+  const r = rig(ACP_AGENTS.opencode, { FAKE_ACP_IGNORE_MODE: '1' });
+  const res = await r.ask({ account, user: 'SECRET', cwd: r.root, timeoutMs: 8000 });
+  assert.equal(res.ok, false);
+  assert.ok(!r.log().some((l) => l.prompt));
+});
+
+test('the folder it runs in is made if it is not there', async () => {
+  const r = rig();
+  const res = await r.ask({ account, user: 'hello', cwd: path.join(r.root, 'not', 'yet'), timeoutMs: 8000 });
+  assert.equal(res.ok, true);
 });
