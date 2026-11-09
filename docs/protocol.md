@@ -220,6 +220,8 @@ type CliStatus = {
                         // hand, never updated
   installedVersion?: string // what new sessions start on
   latestVersion?: string
+  canUpdateNow?: boolean // an ACP agent: no version feed, so the row offers an
+                        // update on demand (`clis.update`) and never updates by itself
   status: "current" | "behind" | "held" | "unknown" | "missing"
   policy: "auto" | "notify" | "off"
   inUse: { version: string, threadIds: string[] }[] // versions live sessions run
@@ -1162,11 +1164,16 @@ one process per live thread, over stdio. With it off no account, pool or
   `127.0.0.1` (a port per live session), with a random bearer token in a
   header; loopback `Host` and no `Origin` required. They go through the same
   gate as a Codex thread's, so `delete_thread` always asks.
-- **Small jobs** (titles, summaries; `models.run`) run on one of these only when
-  Settings picks a pool with no Claude login in it, so the built-in `claude`
+- **Small jobs** (titles, summaries; `models.run`) run on OpenCode only when
+  Settings picks a pool with no Claude login in it (never on Cursor, whose read
+  tools can't be turned off), so the built-in `claude`
   pool never becomes another agent. The agent starts in an empty folder with no
   MCP servers and every tool denied, in its read-only mode; every request it
   makes is refused, and the prompt goes over stdin, never in its arguments.
+- **Updates.** Threadbear never updates these CLIs by itself, as they have no
+  version feed to compare with: `clis.list` has a row for each, and
+  `clis.update` runs the agent's own updater when asked. `clis.setPolicy` does
+  nothing for them, and `THREADBEAR_CLI_UPDATES=off` turns updating off.
 - **Not offered:** the sandbox (a confined thread is refused), rewind, steering
   (a message sent during a turn runs next).
 

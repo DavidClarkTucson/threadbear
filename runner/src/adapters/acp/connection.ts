@@ -186,7 +186,7 @@ export class AcpProcess {
     const hasId = typeof msg.id === 'number' || typeof msg.id === 'string';
     if (typeof msg.method === 'string') {
       if (hasId) this.dispatchRequest(msg.id as RequestId, msg.method, msg.params);
-      else this.onNotification?.(msg.method, msg.params);
+      else this.safely(msg.method, () => this.onNotification?.(msg.method as string, msg.params));
       return;
     }
     if (hasId) {
@@ -196,6 +196,16 @@ export class AcpProcess {
       if (p.timer) clearTimeout(p.timer);
       if (msg.error) p.reject(new AcpRpcError(p.method, msg.error as { code?: unknown; message?: unknown; data?: unknown }));
       else p.resolve(msg.result);
+    }
+  }
+
+  // What the agent sends is its own to get wrong: a bad frame is logged, as
+  // an exception out of a stream handler would take the runner down.
+  private safely(method: string, f: () => void): void {
+    try {
+      f();
+    } catch (e) {
+      this.opts.log.error('acp notification handler threw', { threadId: this.opts.label, method, error: String(e) });
     }
   }
 

@@ -8,6 +8,7 @@
 // it runs in its read-only mode, and every request it makes is refused. The
 // text can be from anywhere (a thread, a web page it quoted), so nothing in it
 // gets to run anything. Never throws; models/index.ts decides what's next.
+import fs from 'node:fs';
 import type { Account } from '../protocol.ts';
 import type { Logger } from '../log.ts';
 import type { ProcessRegistry } from '../proc.ts';
@@ -85,6 +86,7 @@ export function acpAsker(deps: AcpAskerDeps): Asker {
       timer.unref();
     });
     const work = async (): Promise<CliResponse> => {
+      fs.mkdirSync(req.cwd, { recursive: true });
       const init: InitializeResult = await proc.start();
       if (!deps.agent.identifies(init)) return fail(`The program found for ${name} isn't ${name}.`);
       const session = await proc.request<{ sessionId?: string; configOptions?: Option[] | null }>('session/new', { cwd: req.cwd, mcpServers: [] });
@@ -93,8 +95,12 @@ export function acpAsker(deps: AcpAskerDeps): Asker {
       const options = session.configOptions ?? [];
       const want = deps.agent.modeFor('plan');
       const mode = options.find((o) => o.category === 'mode');
-      if (want && mode?.id && mode.currentValue !== want) await proc.request('session/set_config_option', { sessionId, configId: mode.id, value: want });
-      else if (want && !mode?.id) return fail(`${name} has no read-only mode to answer in.`);
+      if (want && !mode?.id) return fail(`${name} has no read-only mode to answer in.`);
+      if (want && mode?.currentValue !== want) {
+        const set = await proc.request<{ configOptions?: Option[] | null }>('session/set_config_option', { sessionId, configId: mode!.id, value: want });
+        // Believed only from the agent's own answer.
+        if (set?.configOptions?.find((o) => o.category === 'mode')?.currentValue !== want) return fail(`${name} didn't go into its read-only mode.`);
+      }
       const model = options.find((o) => o.category === 'model');
       if (req.model && model?.id) await proc.request('session/set_config_option', { sessionId, configId: model.id, value: req.model });
       const r = await proc.request<{ stopReason?: string }>('session/prompt', { sessionId, prompt: promptBlocks(req) }, null);

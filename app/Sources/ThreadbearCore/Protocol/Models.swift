@@ -241,6 +241,8 @@ public struct CliStatus: Sendable, Hashable, Decodable, Identifiable {
     public var inUse: [InUse]
     /// Codex: the kept version "Go back" returns to.
     public var previousVersion: String?
+    /// An agent with no version feed: Update is offered at any time.
+    public var canUpdateNow: Bool = false
     public var checkedAt: Date?
     public var hold: Hold?
     public var update: Update?
@@ -275,13 +277,14 @@ public struct CliStatus: Sendable, Hashable, Decodable, Identifiable {
         policy = (try? c.decodeIfPresent(String.self, forKey: .policy)) ?? "auto"
         inUse = c.lossyArray(InUse.self, forKey: .inUse)
         previousVersion = try? c.decodeIfPresent(String.self, forKey: .previousVersion)
+        canUpdateNow = ((try? c.decodeIfPresent(Bool.self, forKey: .canUpdateNow)) ?? nil) ?? false
         checkedAt = ((try? c.decodeIfPresent(String.self, forKey: .checkedAt)) ?? nil).flatMap(ISO8601.parse)
         hold = try? c.decodeIfPresent(Hold.self, forKey: .hold)
         update = try? c.decodeIfPresent(Update.self, forKey: .update)
     }
 
     enum CodingKeys: String, CodingKey {
-        case provider, path, managedBy, installedVersion, latestVersion, status, policy, inUse, previousVersion, checkedAt, hold, update
+        case provider, path, managedBy, installedVersion, latestVersion, status, policy, inUse, previousVersion, canUpdateNow, checkedAt, hold, update
     }
 }
 

@@ -58,6 +58,24 @@ function toolKind(acp: string | undefined): ToolKind {
   }
 }
 
+// Every file a permission request names, from what the agent says it touches
+// and from the tool's own arguments, as one could say less than the other.
+// A check takes all of them: more names only makes it stricter.
+const PATH_KEY = /path|file|dest|target|^to$|^from$/i;
+
+export function requestPaths(call: AcpToolCall): string[] {
+  const out = new Set<string>();
+  for (const l of Array.isArray(call.locations) ? call.locations : []) if (typeof l?.path === 'string' && l.path) out.add(l.path);
+  for (const c of Array.isArray(call.content) ? call.content : []) if (c?.type === 'diff' && typeof c.path === 'string' && c.path) out.add(c.path);
+  if (isPlainObject(call.rawInput)) {
+    for (const [k, v] of Object.entries(call.rawInput)) {
+      if (!PATH_KEY.test(k)) continue;
+      for (const s of Array.isArray(v) ? v : [v]) if (typeof s === 'string' && s) out.add(s);
+    }
+  }
+  return [...out];
+}
+
 // Kinds whose paths say what a call will change.
 export function writesFiles(kind: string | undefined): boolean {
   return kind === 'edit' || kind === 'delete' || kind === 'move';
@@ -231,7 +249,7 @@ export class AcpNormalizer {
     for (const c of t.output) {
       if (c?.type !== 'diff' || typeof c.path !== 'string' || typeof c.newText !== 'string' || t.diffed.has(c.path)) continue;
       t.diffed.add(c.path);
-      out.push({ kind: 'event', event: { type: 'edit.diff', itemId: t.id, path: c.path, hunks: diffLines(c.oldText ?? '', c.newText) } });
+      out.push({ kind: 'event', event: { type: 'edit.diff', itemId: t.id, path: c.path, hunks: diffLines(typeof c.oldText === 'string' ? c.oldText : '', c.newText) } });
     }
   }
 

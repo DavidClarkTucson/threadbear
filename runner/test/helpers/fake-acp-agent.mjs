@@ -139,7 +139,7 @@ const handlers = {
   'session/close': () => ({}),
   'session/set_config_option': (p) => {
     if (env.FAKE_ACP_NO_SET_MODE && p.configId === 'mode') throw new Error('no such mode');
-    if (p.configId === 'mode') mode = p.value;
+    if (p.configId === 'mode' && !env.FAKE_ACP_IGNORE_MODE) mode = p.value;
     if (p.configId === 'model') model = p.value;
     log({ set: { [p.configId]: p.value } });
     return { configOptions: configOptions() };
@@ -167,7 +167,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (m.id === undefined) return;
   if (!h) return send({ id: m.id, error: { code: -32601, message: `no ${m.method}` } });
   try {
-    send({ id: m.id, result: h(m.params) });
+    const result = h(m.params);
+    if (m.method === 'session/set_config_option' && env.FAKE_ACP_SLOW_SET) return void setTimeout(() => send({ id: m.id, result }), Number(env.FAKE_ACP_SLOW_SET));
+    send({ id: m.id, result });
   } catch (e) {
     send({ id: m.id, error: { code: e.code ?? -32603, message: e.message } });
   }

@@ -139,6 +139,9 @@ export type CliStatus = {
   policy: CliPolicy;
   inUse: { version: string; threadIds: string[] }[];
   previousVersion?: string; // Codex: the kept version "Go back" returns to
+  // An agent with no version feed to compare against: its row offers an
+  // update on demand (ACP agents).
+  canUpdateNow?: boolean;
   checkedAt?: string;
   hold?: { version: string; reason: string; missing?: string[] };
   update?: {

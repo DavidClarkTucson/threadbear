@@ -362,6 +362,7 @@ public enum CliText {
     /// The update button's title, or nil when there's nothing to install.
     public static func updateTitle(_ cli: CliStatus) -> String? {
         if isUpdating(cli) { return nil }
+        if cli.canUpdateNow { return "Update" }
         switch cli.status {
         case "behind": return "Update"
         case "held": return "Update anyway"

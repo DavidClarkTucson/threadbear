@@ -20,6 +20,8 @@ export type AcpAgent = {
   // explicit: runner.json's path for it. Undefined when not installed.
   findBinary(o: { explicit?: string; home: string; pathEnv: string }): string | undefined;
   args: string[];
+  // Runs the agent's own updater, when Update is pressed.
+  updateArgs: string[];
   // Set on every process it starts. What stops a thread running tools
   // unguarded is here, so it applies whatever mode the thread starts in and
   // whatever it changes to later: the runner answers each request (AcpSession).
@@ -102,6 +104,7 @@ export const ACP_AGENTS: Record<AcpProvider, AcpAgent> = {
     },
     // --pure: no plugins, the user's own included, for the same reason.
     args: ['acp', '--pure'],
+    updateArgs: ['upgrade'],
     env: opencodeEnv,
     identifies: (init) => /opencode/i.test(init.agentInfo?.name ?? '') || Boolean(init.authMethods?.some((m) => m.id === 'opencode-login')),
     modeFor: (mode) => (mode === 'plan' ? 'plan' : 'build'),
@@ -119,6 +122,7 @@ export const ACP_AGENTS: Record<AcpProvider, AcpAgent> = {
       return candidates.find((f): f is string => Boolean(f) && isExecutableFile(f!) && isCursorBinary(f!));
     },
     args: ['acp'],
+    updateArgs: ['update'],
     // Nothing to set: the mode does the job. See modeFor.
     env: () => ({}),
     identifies: (init) => Boolean(init.authMethods?.some((m) => m.id === 'cursor_login')) || /cursor/i.test(init.agentInfo?.name ?? ''),
