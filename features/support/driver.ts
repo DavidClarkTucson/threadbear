@@ -20,6 +20,17 @@ export type Thread = {
   status: string;
   needsYou: boolean;
   unread: boolean;
+  /** The sidebar row as drawn (sidebar specs). */
+  place?: string;
+  bold?: boolean;
+  mark?: string | null;
+  trailing?: string;
+  tile?: string;
+  hovered?: boolean;
+  hoverButtons?: string[] | null;
+  background?: string | null;
+  waiting?: string | null;
+  subagents?: { id: string; depth: number; status: string; title: string; detail: string; selected: boolean }[];
 };
 
 export type Dump = {
@@ -27,9 +38,11 @@ export type Dump = {
   selection?: Thread | null;
   sidebar: {
     mode: string;
-    sections: { name: string; collapsed?: boolean; threads: Thread[] }[];
+    sections: { name: string; collapsed?: boolean; count?: number | null; threads: Thread[] }[];
     snoozed: number;
     archived: number;
+    /** The Inbox's sort: "needsYou", "newest" or "oldest". */
+    sort?: string;
   };
   composer: { draft: string; text: string };
   transcript: {

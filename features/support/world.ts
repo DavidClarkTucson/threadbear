@@ -10,6 +10,8 @@ setDefaultTimeout(90_000);
 
 export class ThreadbearWorld extends World {
   app: Driver;
+  /** What the last right-click on a sidebar row offered. */
+  menuTitles?: string[];
 
   constructor(options: IWorldOptions) {
     super(options);
