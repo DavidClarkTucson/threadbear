@@ -1095,6 +1095,10 @@ async function main(): Promise<void> {
         runner,
         log,
         onlyOwn: true,
+        // Its port is on disk too (drain-<pid>.json), so a thread's shell can
+        // reach this one as well as the primary.
+        gate: new CallerGate({ runner, schedules: scheduler }),
+        callerOfPort: (port) => threadOfPort(port, { registry, known: (id) => runner.has(id), log }),
         methods: {
           'drain.hello': () => {
             primaryHeard = true;

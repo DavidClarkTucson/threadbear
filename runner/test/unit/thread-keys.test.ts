@@ -465,3 +465,31 @@ test("a thread's connection can't pass as the Mac app in hello", async () => {
     await server.close();
   }
 });
+
+test("tb runner can't be talked past its check by pointing at no runner", async () => {
+  const { ownerOnly, underThread } = await import('../../src/tb-connect.ts');
+  const h = makeHarness();
+  const cfg = { home: h.home, host: '127.0.0.1', port: 1 } as Parameters<typeof ownerOnly>[0];
+  // The key's still in the environment, the runner's unreachable.
+  assert.match((await ownerOnly(cfg, { THREADBEAR_THREAD_KEY: 'a'.repeat(64) })) ?? '', /Full access/);
+  // Wiped from this process, but a parent still has it.
+  const table = async () => [{ pid: process.ppid, ppid: 300 }, { pid: 300, ppid: 1 }];
+  assert.equal(await underThread(table, (p) => (p === 300 ? `claude THREADBEAR_THREAD_KEY=${'b'.repeat(64)} X=1` : 'zsh')), true);
+  assert.equal(await underThread(table, () => 'zsh THREADBEAR_THREAD_KEY= X=1'), false, 'an empty key is no key');
+  assert.equal(await underThread(async () => { throw new Error('no ps'); }, () => ''), false);
+});
+
+test('a draining server takes the same care with a thread as the main one', async () => {
+  let from: string | undefined;
+  const { h, server, token, url } = await serve({ onlyOwn: true, callerOfPort: async () => from });
+  const me = thread(h, 'auto');
+  try {
+    from = me.id;
+    const c = await RunnerClient.connect(url, token, { server: 'drain' });
+    await assert.rejects(c.call('threads.create', { text: 'x', permissionMode: 'full', accountId: 'claude-3' }), refused);
+    assert.equal((await c.call<{ limited: boolean }>('auth.whoami')).limited, true);
+    c.close();
+  } finally {
+    await server.close();
+  }
+});
