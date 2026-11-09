@@ -7010,6 +7010,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "threadbear-dock-layout"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "threadbear-gpui"
 version = "0.1.0"
 dependencies = [
