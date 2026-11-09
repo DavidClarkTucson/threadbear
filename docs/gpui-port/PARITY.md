@@ -181,12 +181,12 @@ built parsers and gates with no launch of the app, which is the trap.)
   `desktop/core/src/new_thread.rs`, `features/new-thread.feature`, a page branch
   in `desktop/gpui/src/app.rs`.
 - Remaining: the page doesn't clamp the heading and note for very short windows
-  as ComposerPlacement does; pictures attached on the page aren't re-sized for
-  another runner; the bear over the heading.
+  as ComposerPlacement does; the bear over the heading.
 - Verification: `TB_APP=gpui` whole suite, 125 of 125 on Tinker Desk (real Mac
-  desktop) and 125 of 125 on Linux (`cloud`) at this point; the new scenarios
-  also 32 of 32 on `TB_APP=swift` on Tinker Desk; `cargo test -p threadbear-core`
-  (91 lib tests); side-by-side of the page at `/tmp/gpui-new-thread-side-by-side.png`.
+  desktop) at the final commit; on Linux (`cloud`), see the run recorded below this
+  list; `TB_APP=swift` whole suite, 125 of 125 on Tinker Desk; `cargo test -p
+  threadbear-core` (92 lib tests); side-by-side of the page at
+  `/tmp/gpui-new-thread-side-by-side.png`.
 
 ### 2026-11-09 BearDock for GPUI
 
