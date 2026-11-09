@@ -72,6 +72,52 @@ extension ReviewWindowTests {
         }
     }
 
+    /// Narrowing the window mustn't lose the one you're on.
+    func testResizingKeepsTheCurrentThumbnailAndDotInView() throws {
+        let review = try XCTUnwrap(shapes()["thirty shots"])
+        let (session, host, window) = make(review, size: ReviewWindowController.maxSize)
+        defer { window.close() }
+        session.enlarge(0, shot: 25)
+        pump()
+        window.setContentSize(NSSize(width: 780, height: 650))
+        pump()
+        let tip = "A. Thirty, Step 26"
+        let thumb = try XCTUnwrap(anchors(in: host).first { $0.text == tip && !inRail($0, host) && !isMark($0) })
+        XCTAssertEqual(shown(thumb, host).width, thumb.bounds.width, accuracy: 1, "the thumbnail fell out of view")
+        let dot = try XCTUnwrap(anchors(in: host).first { $0.text == tip && !inRail($0, host) && isMark($0) })
+        XCTAssertEqual(shown(dot, host).width, dot.bounds.width, accuracy: 1, "the dot fell out of view")
+    }
+
+    /// An option with more dots than the row has room for: the one you're on
+    /// is what has to show, not the middle of the option.
+    func testTheCurrentDotStaysInViewInsideAWideOption() throws {
+        let review = try XCTUnwrap(shapes()["thirty shots"])
+        let (session, host, window) = make(review, size: NSSize(width: 780, height: 650))
+        defer { window.close() }
+        session.enlarge(1, shot: 0)
+        pump()
+        for shot in [0, 29, 12] {
+            session.enlarge(0, shot: shot)
+            pump()
+            let tip = "A. Thirty, Step \(shot + 1)"
+            let dot = try XCTUnwrap(anchors(in: host).first { $0.text == tip && !inRail($0, host) && isMark($0) }, "no dot for shot \(shot)")
+            XCTAssertEqual(shown(dot, host).width, dot.bounds.width, accuracy: 1, "dot \(shot) is out of view")
+        }
+    }
+
+    /// A reply longer than the window scrolls in its own box: Done stays on
+    /// the window and the options above still have room.
+    func testALongSentReplyLeavesRoomForEverythingElse() throws {
+        let review = try XCTUnwrap(shapes()["sent, long reply"])
+        let (_, host, window) = make(review, size: NSSize(width: 780, height: 650))
+        defer { window.close() }
+        let done = try XCTUnwrap(anchor("Close it", in: host))
+        assertOnWindowTopToBottom(done.convert(done.bounds, to: host), host, "Done", line: #line)
+        let row = try XCTUnwrap(anchor("Show B", in: host))
+        let options = try XCTUnwrap(row.enclosingScrollView)
+        XCTAssertGreaterThan(options.frame.height, 200, "the reply squeezed the options out")
+    }
+
     /// With dozens of options the way to the grid and the arrows stay put.
     func testTheArrowsAndGridStayReachableWithAVeryLongRowOfMarks() throws {
         let review = try XCTUnwrap(shapes()["two dozen options"])
@@ -109,10 +155,13 @@ extension ReviewWindowTests {
                 let frame = anchor.convert(anchor.bounds, to: host)
                 XCTAssertGreaterThanOrEqual(frame.minX, divider - 1, "\(tip) is out of the left of the rail", line: line)
                 XCTAssertLessThanOrEqual(frame.maxX, width + 1, "\(tip) is off the window", line: line)
+                // The footer's: Send, None, Done. The rest scroll up and down.
+                if anchor.enclosingScrollView == nil { assertOnWindowTopToBottom(frame, host, tip, line: line) }
             } else {
                 // What can be seen of it: the strip and the marks scroll.
                 let frame = shown(anchor, host)
                 if frame.isEmpty { continue }
+                if anchor.enclosingScrollView == nil { assertOnWindowTopToBottom(frame, host, tip, line: line) }
                 XCTAssertGreaterThanOrEqual(frame.minX, -1, "\(tip) is off the window", line: line)
                 XCTAssertLessThanOrEqual(frame.maxX, divider + 1, "\(tip) runs into the rail", line: line)
             }
@@ -122,6 +171,11 @@ extension ReviewWindowTests {
             guard let anchor = anchor(tip, in: host) else { XCTFail("no \(tip) in \(name)", line: line); continue }
             XCTAssertEqual(shown(anchor, host).width, anchor.bounds.width, accuracy: 1, "\(tip) is cut off in \(name)", line: line)
         }
+    }
+
+    private func assertOnWindowTopToBottom(_ frame: NSRect, _ host: NSView, _ tip: String, line: UInt) {
+        XCTAssertGreaterThanOrEqual(frame.minY, -1, "\(tip) is off the window, up or down", line: line)
+        XCTAssertLessThanOrEqual(frame.maxY, host.bounds.height + 1, "\(tip) is off the window, up or down", line: line)
     }
 
     /// Words have no views to measure, so this looks at the picture. The

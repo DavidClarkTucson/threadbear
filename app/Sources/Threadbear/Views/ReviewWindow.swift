@@ -437,7 +437,7 @@ struct ReviewWindow: View {
                         .foregroundStyle(session.peeking ? Color.white : Color.primary)
                         .background(session.peeking ? Color.accentColor : Color.primary.opacity(0.08), in: Capsule())
                         .contentShape(Capsule())
-                }.buttonStyle(.plain).fixedSize()
+                }.buttonStyle(.plain)
                     .tip(session.peeking ? "Back to \(session.focusedOption?.id ?? "it") (or let go of Space)" : "Flick to \(baseline.title): click, or hold Space")
             }
             // Only a web page, which is all an option's url is for: a runner
@@ -551,6 +551,8 @@ struct ReviewWindow: View {
             .scrollIndicators(.never)
             .onAppear { scroller.scrollTo(session.shot, anchor: .center) }
             .onChange(of: session.shot) { _, shot in scroller.scrollTo(shot, anchor: .center) }
+            // Narrowing the window can leave the one on show out of view.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in scroller.scrollTo(session.shot, anchor: .center) }
         }
     }
 
@@ -560,17 +562,26 @@ struct ReviewWindow: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
                     ForEach(Array(session.review.options.enumerated()), id: \.element.id) { index, option in
-                        marks(index, option).id(option.id)
+                        marks(index, option)
                     }
                 }
             }
             .scrollIndicators(.never)
-            .onChange(of: session.focused) { _, index in
-                guard session.review.options.indices.contains(index) else { return }
-                scroller.scrollTo(session.review.options[index].id, anchor: .center)
-            }
+            .onAppear { followMark(scroller) }
+            .onChange(of: session.focused) { followMark(scroller) }
+            .onChange(of: session.shot) { followMark(scroller) }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in followMark(scroller) }
         }
     }
+
+    /// To the dot on show, not its option: an option with dozens of shots is
+    /// wider than the row, so centring the whole of it could hide the dot.
+    private func followMark(_ scroller: ScrollViewProxy) {
+        guard let option = session.focusedOption else { return }
+        scroller.scrollTo(Self.markId(option, session.shot), anchor: .center)
+    }
+
+    private static func markId(_ option: ReviewOption, _ shot: Int) -> String { "\(option.id)#\(shot)" }
 
     private func shotTip(_ option: ReviewOption, _ index: Int) -> String {
         let shots = option.allShots
@@ -596,7 +607,7 @@ struct ReviewWindow: View {
                     }
                     .frame(width: current ? 10 : 7, height: current ? 10 : 7)
                     .frame(width: 13, height: 26).contentShape(Rectangle())
-                }.buttonStyle(.plain).tip(shotTip(option, shot))
+                }.buttonStyle(.plain).tip(shotTip(option, shot)).id(Self.markId(option, shot))
             }
         }
     }
