@@ -270,10 +270,29 @@ function programArgs(c) {
   }
 }
 
-// The Node the installed runner runs on, if it names one that's there.
+// The Node the installed runner starts launch.mjs with, there or not.
 function installedNode(c) {
-  const node = nodeBeforeLaunch(programArgs(c), path.join(c.dir, 'launch.mjs'), sameDir);
-  return node && fs.existsSync(node) ? node : undefined;
+  return nodeBeforeLaunch(programArgs(c), path.join(c.dir, 'launch.mjs'), sameDir);
+}
+
+// deploy.mjs again on `node`, as a child this one waits for. Stopping this
+// one stops it too (the exit cleanups run on SIGINT and SIGTERM), and its
+// exit is this one's: a code as it is, a signal as 128 + its number.
+function reRunOn(node, argv) {
+  const env = { ...process.env, THREADBEAR_DEPLOY_NODE_GIVEN: '1' };
+  return new Promise((resolve, reject) => {
+    const child = spawn(node, [fileURLToPath(import.meta.url), ...argv], { stdio: 'inherit', env });
+    const stop = () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    };
+    cleanups.push(stop);
+    child.on('error', (e) => reject(new Fail(`Couldn't run ${node}: ${e.message}`)));
+    child.on('exit', (code, signal) => {
+      const at = cleanups.indexOf(stop);
+      if (at >= 0) cleanups.splice(at, 1);
+      resolve(signal ? 128 + (os.constants.signals[signal] ?? 0) : (code ?? 1));
+    });
+  });
 }
 
 // Same file, through links (nvm's current, Homebrew's bin/node).
@@ -1472,21 +1491,28 @@ async function main(argv) {
     console.error(off);
     return 1;
   }
-  // Run by hand, deploy-runner.sh found its Node by looking (find-node.sh:
-  // the node on PATH, else nvm's newest), which needn't be the one the
-  // runner runs on. A release tested on Node 26 that the LaunchAgent starts
-  // on Node 24 could pass here and crash there (Codex's review, 9 Nov 2026),
-  // so it runs again on the runner's. A thread passes the runner's own, and
-  // install-runner.sh the one it's installing, so neither is second-guessed.
-  if (process.env.THREADBEAR_NODE_LOOKED_UP === '1' && !v.rollback) {
+  // Builds and tests run on the Node the installed runner starts releases
+  // with, so one that passes here also starts there: run by hand,
+  // deploy-runner.sh takes the node on PATH or nvm's newest (find-node.sh),
+  // and a thread's THREADBEAR_NODE is its own runner's, which a deploy to
+  // another one (--home, --label) needn't share. A release tested on Node 26
+  // and started on 24 could pass here and crash there (Codex's review, 9 Nov
+  // 2026). install-runner.sh says when the Node it passes is the one it's
+  // installing (THREADBEAR_DEPLOY_NODE_GIVEN), as the plist may still name
+  // the old one. A rollback builds and tests nothing.
+  if (process.env.THREADBEAR_DEPLOY_NODE_GIVEN !== '1' && !v.rollback) {
     const target = installedNode(c);
+    if (target && !fs.existsSync(target)) {
+      throw new Fail(`The runner at ${c.home} is installed to start on ${target}, which isn't there any more, so no release would start. Reinstall it on a Node 24 or newer: ${path.join(c.runnerDir, 'scripts', 'install-runner.sh')} --node <path>${c.isDefaultHome ? '' : ` --home ${c.home} --label ${c.label}`}`);
+    }
     if (target && !sameFile(target, process.execPath)) {
-      say(`Using the Node the runner runs on, ${target}, not ${process.execPath}.`);
-      const env = { ...process.env, THREADBEAR_NODE: target };
-      delete env.THREADBEAR_NODE_LOOKED_UP;
-      const r = spawnSync(target, [fileURLToPath(import.meta.url), ...argv], { stdio: 'inherit', env });
-      if (r.error) throw new Fail(`Couldn't run ${target}: ${r.error.message}`);
-      return r.status ?? 1;
+      const ver = spawnSync(target, ['--version'], { encoding: 'utf8', timeout: 30_000 });
+      const said = (ver.stdout ?? '').trim();
+      if (ver.status !== 0 || !/^v\d+\.\d+\.\d+/.test(said)) {
+        throw new Fail(`The runner at ${c.home} is installed to start on ${target}, which doesn't answer --version as Node does (${ver.error?.message ?? (said.slice(0, 80) || `exit ${ver.status}`)}). Reinstall it with install-runner.sh --node <path>.`);
+      }
+      say(`Using the Node the runner runs on, ${target} (${said}), not ${process.execPath}.`);
+      return reRunOn(target, argv);
     }
   }
   // Everything that can be refused is refused before anything is built.

@@ -102,11 +102,20 @@ esac
 IN_WORK=""
 if [ ! -e "$DATA_HOME/runner.json" ]; then
   mkdir -p "$WORK"
+  # With CLI updates off, the runner takes the codex beside its Node, which
+  # isn't there when the Node found isn't the one Codex was installed with
+  # (Homebrew's, say): then the one on PATH, as codexPath (Codex's review,
+  # 9 Nov 2026).
+  DEV_CODEX=""
+  if [ -z "${THREADBEAR_CODEX_PATH:-}" ] && [ ! -x "$(dirname "$NODE")/codex" ]; then
+    DEV_CODEX="$(command -v codex 2>/dev/null || true)"
+  fi
   "$NODE" -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({
     defaults: { cwd: process.argv[2], accountId: process.argv[3], keepAccount: true, model: "claude-haiku-5-5", models: { codex: "gpt-6-luna" }, efforts: { codex: "low" } },
     cliUpdates: { claude: "off", codex: "off" },
+    ...(process.argv[4] ? { codexPath: process.argv[4] } : {}),
   }, null, 2) + "\n")' \
-    "$DATA_HOME/runner.json" "$WORK" "${TB_E2E_ACCOUNT:-claude-main}"
+    "$DATA_HOME/runner.json" "$WORK" "${TB_E2E_ACCOUNT:-claude-main}" "$DEV_CODEX"
   IN_WORK="   (in $(printf '%q' "$WORK"), on claude-haiku-5-5)"
 fi
 # THREADBEAR_PORT and THREADBEAR_URL go too: tb then reads the port this

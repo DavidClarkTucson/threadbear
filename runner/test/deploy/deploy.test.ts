@@ -324,6 +324,59 @@ test('a second release goes live through runner.restart', { timeout: 60_000 }, a
   assert.deepEqual(leftovers(), []);
 });
 
+// A deploy builds and tests on the Node the installed runner starts releases
+// with, not whichever it was started on (Codex's review, 9 Nov 2026): one
+// tested on Node 26 that the LaunchAgent starts on 24 could pass here and
+// crash there.
+test('a deploy moves over to the Node the installed runner starts releases with', { timeout: 120_000 }, () => {
+  const plistFile = path.join(agents, `${LABEL}.plist`);
+  const saved = fs.readFileSync(plistFile);
+  // The whole array: plutil -replace at an index inserts rather than replaces.
+  const args = JSON.parse(spawnSync('plutil', ['-convert', 'json', '-o', '-', plistFile], { encoding: 'utf8' }).stdout).ProgramArguments as string[];
+  const setNode = (p: string) => assert.equal(spawnSync('plutil', ['-replace', 'ProgramArguments', '-json', JSON.stringify([args[0], p, ...args.slice(2)]), plistFile]).status, 0);
+  const re = (s: string) => new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const dir = path.join(root, 'other-node');
+  fs.mkdirSync(dir, { recursive: true });
+  const log = path.join(dir, 'ran.log');
+  // Another file than this Node, that runs it: what it's asked is logged.
+  const other = path.join(dir, 'node');
+  fs.writeFileSync(other, `#!/bin/sh\necho "$*" >> ${JSON.stringify(log)}\nexec ${JSON.stringify(NODE)} "$@"\n`, { mode: 0o755 });
+  try {
+    setNode(other);
+    let r = deploy(['--skip-checks', '--dry-run']);
+    assert.equal(r.status, 0, out(r));
+    assert.match(r.stdout, re(`Using the Node the runner runs on, ${other}`));
+    const ran = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(ran[0], '--version', 'asked it is a Node first');
+    assert.equal(ran.filter((l) => /deploy\.mjs --home .* --dry-run/.test(l)).length, 1, 'and ran the deploy on it, once');
+
+    // The Node install-runner.sh is installing is taken as it is: the plist
+    // may still name the old one.
+    fs.rmSync(log);
+    r = deploy(['--skip-checks', '--dry-run'], { THREADBEAR_DEPLOY_NODE_GIVEN: '1' });
+    assert.equal(r.status, 0, out(r));
+    assert.ok(!fs.existsSync(log), 'not moved over');
+
+    // A Node that's gone: refused before anything is built or switched.
+    const before = current();
+    setNode(path.join(dir, 'gone', 'node'));
+    r = deploy(['--skip-checks']);
+    assert.notEqual(r.status, 0, out(r));
+    assert.match(r.stderr, /isn't there any more, so no release would start/);
+    assert.equal(current(), before);
+
+    // Something that isn't a Node: refused too, rather than "succeeding".
+    const notNode = path.join(dir, 'not-node');
+    fs.writeFileSync(notNode, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    setNode(notNode);
+    r = deploy(['--skip-checks', '--dry-run']);
+    assert.notEqual(r.status, 0, out(r));
+    assert.match(r.stderr, /doesn't answer --version as Node does/);
+  } finally {
+    fs.writeFileSync(plistFile, saved);
+  }
+});
+
 test('inside a thread, the restart waits for the thread and then resumes it', { timeout: 60_000 }, async () => {
   const inThread = { THREADBEAR_THREAD_ID: 'thread-1', THREADBEAR_HOME: home };
   setBusy(['thread-1']);

@@ -406,7 +406,9 @@ fi
 
 # deploy-runner.sh, on the Node the plist pins.
 deploy() {
-  THREADBEAR_NODE="$NODE" bash "$RUNNER_DIR/scripts/deploy-runner.sh" --home "$DATA_HOME" --label "$LABEL" "$@"
+  # THREADBEAR_DEPLOY_NODE_GIVEN: this is the Node being installed, which
+  # the plist may not name yet, so deploy.mjs takes it as it is.
+  THREADBEAR_NODE="$NODE" THREADBEAR_DEPLOY_NODE_GIVEN=1 bash "$RUNNER_DIR/scripts/deploy-runner.sh" --home "$DATA_HOME" --label "$LABEL" "$@"
 }
 
 # Loads $PLIST and starts it. Straight after a bootout, bootstrap can fail

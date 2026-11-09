@@ -37,7 +37,7 @@ test('the docker run mounts the folder, the login and the CLI at the same paths,
       command: '/home/mike/.local/bin/claude',
       args: ['--output-format', 'stream-json', '--settings', '/tmp/settings-abc.json', '--resume', 'abc'],
       cwd: '/home/mike/sandboxed/demo',
-      env: { PATH: '/usr/bin', HOME: '/home/mike', ANTHROPIC_MODEL: 'x', THREADBEAR_THREAD_ID: 't1', THREADBEAR_NODE: '/Users/mike/.nvm/node', GONE: undefined },
+      env: { PATH: '/usr/bin', HOME: '/home/mike', ANTHROPIC_MODEL: 'x', THREADBEAR_THREAD_ID: 't1', THREADBEAR_NODE: '/Users/mike/.nvm/node', THREADBARE_NODE: '/Users/mike/.nvm/node', GONE: undefined },
     },
     { folders: ['/home/mike/sandboxed'], image: 'threadbear-sandbox', docker: 'docker' },
     {
