@@ -87,7 +87,7 @@ built parsers and gates with no launch of the app, which is the trap.)
   sub-agent tree, archived paging, the loading rows. `icons.rs` maps SF Symbols
   to Lucide.
 - `sidebar.archived.foot` dropped: the Swift app undid it on 9 Nov (cfbf3cb3).
-- Specs: four new files, 31 scenarios (`sidebar-rows`, `-sections`, `-actions`,
+- Specs: four new files, 32 scenarios (`sidebar-rows`, `-sections`, `-actions`,
   `-loading`); the Swift `dump` says what a row draws; `desktop/scripts/spec.sh`
   builds and runs them through `remote.sh` with a private copy of the binary.
 - Remaining: other runners' rows and Move to, swipe and drag, row motion; Open
@@ -95,8 +95,8 @@ built parsers and gates with no launch of the app, which is the trap.)
   (no sub-agent transcript yet); the open row doesn't hold its place when read;
   folds and sort aren't kept across launches; Pick a time has no script path on
   either app (`@manual`).
-- Verification: `TB_APP=swift cucumber-js` on Tinker Desk, 55 of 55 scenarios;
-  `TB_APP=gpui cucumber-js` on Tinker Desk 55 of 55 and on `cloud` 55 of 55;
+- Verification: `TB_APP=swift cucumber-js` on Tinker Desk, 56 of 56 scenarios;
+  `TB_APP=gpui cucumber-js` on Tinker Desk 56 of 56 and on `cloud` 56 of 56;
   `cargo test -p threadbear-core`; side-by-side pictures from Tinker Desk.
 
 ### 2026-11-09 Risk checks: Chromium in a slot, accessibility, Windows
