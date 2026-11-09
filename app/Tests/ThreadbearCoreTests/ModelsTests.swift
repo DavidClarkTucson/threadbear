@@ -247,8 +247,8 @@ final class ModelsTests: XCTestCase {
     }
 
     /// The runner's default mode for new threads: by its name, with Plan
-    /// first and a mode this app doesn't know as none (Full access), never
-    /// as Full access said outright.
+    /// first as none, and a mode this app doesn't know as unknown, never as
+    /// Full access.
     func testHelloDefaultPermissionMode() throws {
         func mode(_ raw: String) throws -> PermissionMode? {
             let json = #"{"cwd":"/w","accountId":"claude-3","permissionMode":\#(raw)}"#
@@ -258,9 +258,28 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(try mode(#""ask""#), .ask)
         XCTAssertEqual(try mode(#""full""#), .full)
         XCTAssertNil(try mode(#""plan""#))
-        XCTAssertNil(try mode(#""yolo""#))
+        XCTAssertEqual(try mode(#""yolo""#), .unknown)
         XCTAssertNil(try mode("7"))
         XCTAssertNil(try JSONDecoder().decode(RunnerDefaults.self, from: Data(#"{"cwd":"/w","accountId":"a"}"#.utf8)).permissionMode)
+    }
+
+    /// A mode from a newer runner is never read, shown or sent as Full
+    /// access: it's `.unknown`, and what this app sends for it is Ask.
+    func testUnknownPermissionModeIsNeverFullAccess() throws {
+        func thread(_ json: String) throws -> ThreadSummary {
+            try JSONDecoder().decode(ThreadSummary.self, from: Data(json.utf8))
+        }
+        XCTAssertEqual(try thread(#"{"id":"t","permissionMode":"sandboxed"}"#).permissionMode, .unknown)
+        XCTAssertEqual(try thread(#"{"id":"t","permissionMode":"full"}"#).permissionMode, .full)
+        XCTAssertEqual(try thread(#"{"id":"t"}"#).permissionMode, .full, "none said: a runner from before modes, whose threads were all Full")
+        let schedule = try JSONDecoder().decode(Schedule.self, from: Data(#"{"id":"s","text":"x","permissionMode":"sandboxed"}"#.utf8))
+        XCTAssertEqual(schedule.permissionMode, .unknown)
+
+        XCTAssertEqual(PermissionMode.unknown.sent, .ask)
+        for mode in [PermissionMode.full, .ask, .auto, .plan] { XCTAssertEqual(mode.sent, mode) }
+        XCTAssertEqual(ThreadUpdate(permissionMode: .unknown).params["permissionMode"], .string("ask"))
+        XCTAssertEqual(NewScheduleRequest(text: "x", when: .cron("0 9 * * *"), permissionMode: .unknown).params["permissionMode"], .string("ask"))
+        XCTAssertEqual(NewScheduleRequest(text: "x", when: .cron("0 9 * * *"), permissionMode: .auto).params["permissionMode"], .string("auto"))
     }
 
     func testHelloWithPerProviderDefaultsAndCLIs() throws {

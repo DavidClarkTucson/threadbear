@@ -37,7 +37,7 @@ public extension RPCClient {
         if let poolId = request.poolId { params["poolId"] = .string(poolId) }
         if let model = request.model { params["model"] = .string(model) }
         if let effort = request.effort { params["effort"] = .string(effort) }
-        if let mode = request.permissionMode { params["permissionMode"] = .string(mode.rawValue) }
+        if let mode = request.permissionMode { params["permissionMode"] = .string(mode.sent.rawValue) }
         if let title = request.title { params["title"] = .string(title) }
         if let runnerId = request.runnerId { params["runnerId"] = .string(runnerId) }
         if !request.projectIds.isEmpty { params["projectIds"] = .array(request.projectIds.map { .string($0) }) }
@@ -431,7 +431,7 @@ public struct ThreadUpdate: Sendable, Hashable {
         if let accountId { params["accountId"] = .string(accountId) }
         if let model { params["model"] = model.map { .string($0) } ?? .null }
         if let effort { params["effort"] = effort.map { .string($0) } ?? .null }
-        if let permissionMode { params["permissionMode"] = .string(permissionMode.rawValue) }
+        if let permissionMode { params["permissionMode"] = .string(permissionMode.sent.rawValue) }
         if snoozeUntilRestart {
             params["snoozedUntil"] = .string("restart")
         } else if let snoozedUntil {
@@ -682,7 +682,7 @@ public struct NewScheduleRequest: Sendable, Hashable {
             if let poolId { params["poolId"] = .string(poolId) } else if let accountId { params["accountId"] = .string(accountId) }
             if let model { params["model"] = .string(model) }
             if let effort { params["effort"] = .string(effort) }
-            if let permissionMode { params["permissionMode"] = .string(permissionMode.rawValue) }
+            if let permissionMode { params["permissionMode"] = .string(permissionMode.sent.rawValue) }
             if let runnerId { params["runnerId"] = .string(runnerId) }
         }
         return params

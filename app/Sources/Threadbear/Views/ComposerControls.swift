@@ -701,6 +701,7 @@ private extension PermissionMode {
         case .ask: "Ask before edits"
         case .auto: "Auto"
         case .plan: "Plan first"
+        case .unknown: "Unknown mode"
         }
     }
 
@@ -710,6 +711,7 @@ private extension PermissionMode {
         case .ask: "lock"
         case .auto: "lock.shield"
         case .plan: "list.bullet.clipboard"
+        case .unknown: "questionmark.circle"
         }
     }
 
@@ -719,6 +721,7 @@ private extension PermissionMode {
         case .ask: "Asks before editing files or running commands"
         case .auto: "A safety check approves or blocks each action, and asks only when unsure"
         case .plan: "Reads and plans, and changes nothing until you approve its plan"
+        case .unknown: "A mode from a newer runner that this app doesn't know. Update the app to see it. Anything made from this thread here asks before edits"
         }
     }
 }

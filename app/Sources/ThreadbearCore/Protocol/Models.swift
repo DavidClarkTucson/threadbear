@@ -333,11 +333,21 @@ public enum PermissionMode: String, Sendable, Hashable, Codable {
     /// plan is "Plan first": the agent reads and plans but changes nothing
     /// until Mike approves its plan (docs/protocol.md, "Plan first").
     case full, ask, auto, plan
+    /// A mode from a newer runner that this app doesn't know. It used to be
+    /// read as Full access, the least safe reading, and a schedule made
+    /// from such a thread then asked for full access (9 Nov review). Now
+    /// it shows as unknown, and anything this app sends for it says Ask
+    /// before edits (`sent`), the strictest mode that still runs turns.
+    case unknown
 
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
-        self = PermissionMode(rawValue: raw) ?? .full
+        self = PermissionMode(rawValue: raw) ?? .unknown
     }
+
+    /// What to send the runner for this mode: never `unknown`, which no
+    /// runner takes, and never anything looser than Ask in its place.
+    public var sent: PermissionMode { self == .unknown ? .ask : self }
 }
 
 public struct ImageRef: Sendable, Hashable, Codable {
@@ -1670,11 +1680,11 @@ public struct RunnerDefaults: Sendable, Hashable, Codable {
         models = Self.strings(c, .models)
         efforts = Self.strings(c, .efforts)
         poolId = ((try? c.decodeIfPresent(String.self, forKey: .poolId)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
-        // By its raw name: PermissionMode's own decoding turns a mode this
-        // app doesn't know into Full access, where none is right. Plan first
-        // is never a default (the runner ignores it too).
+        // A mode this app doesn't know stays `.unknown`: read as none, the
+        // composer fell back to Full access and asked for it. Plan first is
+        // never a default (the runner ignores it too).
         permissionMode = ((try? c.decodeIfPresent(String.self, forKey: .permissionMode)) ?? nil)
-            .flatMap(PermissionMode.init(rawValue:)).flatMap { $0 == .plan ? nil : $0 }
+            .map { PermissionMode(rawValue: $0) ?? .unknown }.flatMap { $0 == .plan ? nil : $0 }
     }
 
     /// The model a new thread on `provider` gets when it names none.
