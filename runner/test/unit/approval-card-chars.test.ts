@@ -87,6 +87,15 @@ test("a Codex patch's line is its one file: more files, a folder to write under,
   assert.equal(remoteCardShowsAll('apply_patch', { paths: ['/w/a.txt'], grantRoot: '/w' }), false);
 });
 
+test("a tool's one value is taken as it is: spaces at its ends, or nothing but spaces or separators, aren't whole", () => {
+  assert.equal(remoteCardShowsAll('mcp__files__delete', { path: 'notes.txt ' }), false);
+  assert.equal(remoteCardShowsAll('mcp__files__delete', { path: ' notes.txt' }), false);
+  assert.equal(remoteCardShowsAll('mcp__notes__add', { text: '\u2028'.repeat(200) }), false);
+  assert.equal(remoteCardShowsAll('mcp__notes__add', { text: '   ' }), false);
+  assert.equal(remoteCardShowsAll('mcp__files__delete', { path: 'notes.txt' }), true);
+  assert.equal(remoteCardShowsAll('mcp__threadbear__list_threads', {}), true);
+});
+
 test("a path or address must fit, and can't hide spaces at its ends", () => {
   assert.equal(remoteCardShowsAll('WebFetch', { url: 'https://example.com/' + 'a'.repeat(200) }), false);
   assert.equal(remoteCardShowsAll('Write', { file_path: '/w/notes.txt ', content: 'x' }), false);

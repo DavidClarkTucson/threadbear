@@ -53,7 +53,9 @@ public enum ApprovalText {
     /// instead (`⟨U+2028⟩`), as the shell reads it as an ordinary
     /// character. Controls other than a line break and a tab, format
     /// characters (bidi overrides and isolates, zero-width ones, the
-    /// byte-order mark) and the line and paragraph separators. A line
+    /// byte-order mark), the line and paragraph separators, characters that
+    /// draw as nothing, spaces other than the plain one, and right-to-left
+    /// letters. A line
     /// break and a tab are left: the shell reads those as they look. A
     /// carriage return isn't: it draws as a new line, and bash reads it
     /// as part of a word (security review, 9 Nov 2026: `ls`, six U+2028
@@ -81,10 +83,26 @@ public enum ApprovalText {
 
     private static func hides(_ scalar: Unicode.Scalar) -> Bool {
         if scalar == "\n" || scalar == "\t" { return false }
+        // Characters that draw as nothing though they're there (a combining
+        // grapheme joiner, variation selectors, Hangul fillers), spaces that
+        // aren't the shell's space, and the braille blank (Codex's review,
+        // 9 Nov 2026: `./deploy` + U+034F + `.sh` looked like `./deploy.sh`).
+        if scalar.properties.isDefaultIgnorableCodePoint || scalar.value == 0x2800 { return true }
+        if scalar.properties.generalCategory == .spaceSeparator { return scalar != " " }
+        // Right-to-left letters turn the `;` and `|` around them round with
+        // no control character at all, so the order drawn isn't the order run.
+        if rightToLeft(scalar.value) { return true }
         switch scalar.properties.generalCategory {
         case .control, .format, .lineSeparator, .paragraphSeparator: return true
         default: return false
         }
+    }
+
+    /// Hebrew, Arabic, Syriac, Thaana, N'Ko and the other right-to-left
+    /// scripts' blocks, and their presentation forms.
+    private static func rightToLeft(_ v: UInt32) -> Bool {
+        (0x0590...0x08FF).contains(v) || (0xFB1D...0xFDFF).contains(v) || (0xFE70...0xFEFF).contains(v)
+            || (0x10800...0x10FFF).contains(v) || (0x1E800...0x1EFFF).contains(v)
     }
 
     /// The file a request would write or edit, if it names one.

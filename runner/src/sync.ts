@@ -1342,7 +1342,17 @@ export class ConvexSync {
       // value found since (a .env read late): then it can't be allowed
       // from there any more (Codex review, 9 Nov 2026).
       if (fn === 'sync:upsertThreads' && Array.isArray(args.threads)) {
-        args = { ...args, threads: (args.threads as ThreadDoc[]).map((t) => holdAllowIfScrubbed(t, this.scrubber.safeText)) };
+        args = {
+          ...args,
+          threads: (args.threads as ThreadDoc[]).map((t) => {
+            const held = holdAllowIfScrubbed(t, this.scrubber.safeText);
+            // And the card an answer from there is checked against, so an
+            // allow sent anyway is refused (the respond command, below).
+            const card = held.pendingApproval;
+            if (held !== t && card && this.pending.get(t.threadId)?.approvalId === card.approvalId) this.pending.set(t.threadId, card);
+            return held;
+          }),
+        };
       }
       return send(kind, fn, this.scrubber.doc(args));
     };

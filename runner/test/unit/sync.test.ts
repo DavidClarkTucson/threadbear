@@ -2634,40 +2634,6 @@ test("a runner key doesn't ask for the list of runners, which only the main key 
   assert.equal(main.calls.filter((c) => c.fn === 'sync:runnersList').length, 1);
 });
 
-test("an approval card loses Allow off the Mac when a value found after it was made would change its line", async () => {
-  const { h } = setup();
-  const calls: Call[] = [];
-  const scrubber = new Scrubber({ env: {}, folders: false });
-  const sync = new ConvexSync({
-    config: { enabled: true, url: 'https://x.convex.cloud', name: 'TestMac', runnerId: 'r1' },
-    key: 'k',
-    runner: h.runner,
-    version: '0.1.0+test',
-    startedAt: '2026-10-27T00:00:00.000Z',
-    clock: h.clock,
-    log: nullLogger,
-    scrubber,
-    post: async (kind, fn, args) => {
-      calls.push({ kind, fn, args });
-      return fn === 'sync:heartbeat' ? { apiVersion: BACKEND_API_VERSION } : null;
-    },
-  });
-  sync.start();
-  await sync.flushNow();
-  const t = h.runner.create({ text: 'go', cwd: h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
-  h.runner.publish({ method: 'thread.event', params: { threadId: t.id, event: { seq: 902, ts: '2026-11-09T00:00:00.000Z', threadId: t.id, type: 'approval.requested', approvalId: 'a', name: 'Bash', title: 'Run a command', options: ['allow', 'deny'], input: { command: 'echo lateword | login' } } } } as never);
-  await tick();
-  // A .env read late turns up a value the card's line holds (Codex's
-  // review, 9 Nov 2026): what goes up can't keep Allow.
-  const before = scrubber.safeText;
-  scrubber.safeText = (text: string) => before(text).replaceAll('lateword', '[REDACTED]');
-  await sync.flushNow();
-  const rows = calls.filter((c) => c.fn === 'sync:upsertThreads').flatMap((c) => c.args.threads as ThreadDoc[]).filter((d) => d.threadId === t.id && d.pendingApproval);
-  const card = rows.at(-1)!.pendingApproval as { options: string[]; title: string };
-  assert.deepEqual(card.options, ['deny']);
-  assert.equal(card.title, `Run a command. ${REMOTE_ALLOW_REFUSED}`);
-});
-
 test('text waits rather than go up while .env files are still being read', async () => {
   const { h } = setup();
   const calls: Call[] = [];
@@ -3143,6 +3109,39 @@ test("a subagent's cards reach the phone between turns, and an older one comes b
 // suffix"): the phone and another Mac's view show one line of a card, at
 // most 200 characters, and could allow it. A card that line can't show all
 // of offers only Deny there, and the runner refuses an allow from there.
+test('approvals: a card whose line a value found since would change loses Allow there, and an allow from there is refused', async () => {
+  const f = setupFull();
+  const docs = () => f.calls.filter((c) => c.fn === 'sync:upsertThreads').flatMap((c) => c.args.threads as ThreadDoc[]);
+  const { h, sync, push, calls } = f;
+  sync.start();
+  await sync.flushNow();
+  const t = h.runner.create({ text: 'go', cwd: h.cfg.defaults.cwd, accountId: 'claude-3', permissionMode: 'ask' }).thread;
+  const s = session(h, t.id);
+  s.init();
+  const answer = s.sink.requestApproval({ toolUseId: undefined, name: 'Bash', title: 'Run', input: { command: 'echo lateword | login' }, canAlwaysAllow: true, signal: new AbortController().signal });
+  // The card is made while nothing in its line is known to be secret...
+  await tick();
+  // ...and a .env read late turns up a value it holds before the row goes
+  // up (Codex's review, 9 Nov 2026).
+  const scrubber = (sync as unknown as { scrubber: { safeText: (t: string) => string } }).scrubber;
+  const before = scrubber.safeText;
+  scrubber.safeText = (text: string) => before(text).replaceAll('lateword', '[REDACTED]');
+  h.clock.advance(SYNC_COALESCE_MS);
+  await tick();
+  const card = docs().filter((d) => d.threadId === t.id && d.pendingApproval).at(-1)!.pendingApproval as { approvalId: string; options: string[]; title: string };
+  assert.deepEqual(card.options, ['deny']);
+  assert.equal(card.title, `Run. ${REMOTE_ALLOW_REFUSED}`);
+  const respond = async (id: string, decision: string) => {
+    push([{ commandId: id, kind: 'respond', threadId: t.id, args: { approvalId: card.approvalId, decision }, createdAt: Date.now() }]);
+    await tick(10);
+    return calls.filter((c) => c.fn === 'sync:finishCommand' && c.args.commandId === id).at(-1)!.args;
+  };
+  const refused = await respond('r1', 'allow');
+  assert.equal(refused.ok, false, 'an allow sent anyway is refused');
+  assert.equal((await respond('r2', 'deny')).ok, true);
+  assert.equal((await answer).decision, 'deny');
+});
+
 test('approvals: a card the phone cannot show whole offers only Deny there, and an allow from there is refused', async () => {
   const f = setupFull();
   const docs = () => f.calls.filter((c) => c.fn === 'sync:upsertThreads').flatMap((c) => c.args.threads as ThreadDoc[]);

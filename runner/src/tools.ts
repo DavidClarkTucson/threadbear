@@ -267,10 +267,13 @@ export function remoteCardShowsAll(name: string, input: Record<string, unknown>,
   if (name.startsWith('mcp__')) {
     // Only ours are known to be ids; another server's `id` can be what it acts on.
     const ids = name.startsWith('mcp__threadbear__') ? ID_KEYS : new Set<string>();
-    const values = Object.entries(input).filter(([k, v]) => v !== undefined && v !== null && !ids.has(k));
+    const values = Object.entries(input).filter(([k, v]) => v !== undefined && v !== null && v !== '' && !ids.has(k));
     if (values.some(([, v]) => typeof v === 'object')) return false;
-    const words = values.map(([, v]) => String(v)).filter((v) => v.trim());
-    return words.length === 0 || (words.length === 1 && summaryField(input) === words[0] && fits(words[0]!));
+    // A tool's value is taken as it is, not as a command: its spaces at the
+    // ends can be a file's name, and one of only spaces or separators is
+    // still something it's handed (Codex review, 9 Nov 2026).
+    const words = values.map(([, v]) => String(v));
+    return words.length === 0 || (words.length === 1 && summaryField(input) === words[0] && words[0] === words[0].trim() && drawnAsWritten(words[0]));
   }
   if (typeof input.command === 'string') {
     if (input.network !== undefined || (typeof input.cwd === 'string' && input.cwd !== cwd)) return false;
