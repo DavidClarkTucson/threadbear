@@ -7,32 +7,12 @@ import type { RunnerPart } from './part.ts';
 import type { Action, EventBody } from '../protocol.ts';
 import type { ThreadRecord } from '../store.ts';
 import { BIN_DIR, threadEnv } from '../restart.ts';
-import { cleanUpWorktree, makeWorktree, sameSubfolder, stillCheckedOut, worktreeGone, type WorktreeRecord } from '../worktrees.ts';
+import { cleanUpWorktree, makeWorktree, readPlainFile, sameSubfolder, stillCheckedOut, worktreeFolderNow, worktreeGone, type WorktreeRecord } from '../worktrees.ts';
 import { isDirectory } from '../fsutil.ts';
 import { automaticTrust, findWorktreePatch, isInside, readWorktreePatch, runCommand, type PatchSet, type WorktreePatch, worktreePatchFiles } from '../patches.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ThreadState } from '../runner.ts';
-
-// The start of a patch file, without waiting: undefined when it isn't a
-// plain file (opening a fifo would block the runner) or is too big to be a
-// patch, read only that far.
-const PATCH_READ_BYTES = 1024 * 1024;
-function readPlainFile(file: string): string | undefined {
-  let fd: number | undefined;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
-    const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > PATCH_READ_BYTES) return undefined;
-    const buf = Buffer.alloc(st.size);
-    const n = st.size ? fs.readSync(fd, buf, 0, st.size, 0) : 0;
-    return buf.subarray(0, n).toString('utf8');
-  } catch {
-    return undefined;
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
-}
 
 export const worktreesPart = {
   // ------------------------------------------------------------ worktrees
@@ -239,8 +219,16 @@ export const worktreesPart = {
         return;
       }
     }
+    // The last check, with nothing awaited between it and the start: the
+    // folder can have been swapped (for a link to the main checkout, say)
+    // while the patch was read, and it runs by the path checked.
+    const cwd = worktreeFolderNow(w);
+    if (!cwd) {
+      this.log.warn("didn't run a worktree's teardown: its folder changed", { threadId: rec.id, path: w.path });
+      return;
+    }
     const outcome = await runCommand(found.run ?? found.command, {
-      cwd: w.path,
+      cwd,
       env: { ...process.env, ...threadEnv(rec.id, this.cfg.home) },
       shell: this.actionShell,
       timeoutMs: this.actionTimeoutMs,

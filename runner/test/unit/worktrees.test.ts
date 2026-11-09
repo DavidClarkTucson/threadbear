@@ -9,7 +9,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
 import { makeHarness, tmpDir, type Harness } from '../helpers/fakes.ts';
 import { checkSequence, checkSummary } from '../helpers/protocol-check.ts';
 import { automaticTrust, findWorktreePatch, readPatchModule } from '../../src/patches.ts';
-import { cleanUpWorktree, land, landTargetFromGit, makeWorktree, MAX_SPARES, overwrittenFiles, type LandTarget } from '../../src/worktrees.ts';
+import { cleanUpWorktree, git, gitLimits, land, landTargetFromGit, makeWorktree, MAX_SPARES, overwrittenFiles, type LandTarget } from '../../src/worktrees.ts';
 import { RpcServer } from '../../src/rpc.ts';
 import { RunnerClient } from '../../src/client.ts';
 import { readToken } from '../../src/config.ts';
@@ -1146,44 +1146,43 @@ function trustedTeardownRepo(log: string) {
   return { main, trust, h };
 }
 
-// Codex's review of the teardown, 9 Nov, thought a patch symlinked to a copy
-// elsewhere could run its script's `./helper.sh` from beside the link, which
-// the hash didn't cover. It does cover it: the hash follows a script's
-// `./` paths from the link's folder as well, so changing that helper is a
-// version nobody trusted, for setup and teardown alike. Kept as a guard.
-test('a symlinked patch whose script runs a helper beside the link needs trusting again when that helper changes', async () => {
+// Codex's review of the teardown, 9 Nov: a patch file that's a link into
+// another folder was hashed with its scripts followed from the folder it's
+// linked to, but its commands run from the folder holding the link. So a
+// script's own `./helper.sh` ran from beside the link, unhashed. (Beside
+// the repo's top it happened to be hashed anyway, which hid this from the
+// first test of it.) Setup, hooks and actions are bound the same way.
+test('a symlinked patch has its scripts followed from where they run, so a helper beside the link is hashed', async () => {
   const dir = fs.realpathSync(tmpDir('tb-td-'));
   const log = path.join(dir, 'log');
-  const { main } = makeRepo(PATCH(`{ setup: "./cleanup.sh", teardown: "./cleanup.sh" }`));
-  write(main, { 'cleanup.sh': '#!/bin/sh\n./helper.sh\n', 'helper.sh': `#!/bin/sh\necho safe >> ${log}\n` });
-  for (const f of ['cleanup.sh', 'helper.sh']) fs.chmodSync(path.join(main, f), 0o755);
-  const patch = path.join(main, '.threadbear/patches/checks.ts');
+  const { main } = makeRepo('');
+  write(main, {
+    'nested/.threadbear/patches/p.ts': PATCH(`{ setup: "./cleanup.sh", teardown: "./cleanup.sh" }`),
+    'nested/cleanup.sh': '#!/bin/sh\n./helper.sh\n',
+    'nested/helper.sh': `#!/bin/sh\necho nested >> ${log}\n`,
+    'sub/helper.sh': `#!/bin/sh\necho beside >> ${log}\n`,
+  });
+  for (const f of ['nested/cleanup.sh', 'nested/helper.sh', 'sub/helper.sh']) fs.chmodSync(path.join(main, f), 0o755);
+  fs.mkdirSync(path.join(main, 'sub/.threadbear/patches'), { recursive: true });
+  fs.symlinkSync(path.join(main, 'nested/.threadbear/patches/p.ts'), path.join(main, 'sub/.threadbear/patches/p.ts'));
+  fs.symlinkSync(path.join(main, 'nested/cleanup.sh'), path.join(main, 'sub/cleanup.sh'));
+  const patch = path.join(main, 'sub/.threadbear/patches/p.ts');
   const trust = new PatchTrust();
   trust.trustCurrent([patch]);
-  // The same files under nested/, linked back from where they were.
-  const nested = path.join(main, 'nested');
-  for (const rel of ['.threadbear/patches/checks.ts', 'cleanup.sh', 'helper.sh']) {
-    fs.mkdirSync(path.dirname(path.join(nested, rel)), { recursive: true });
-    fs.copyFileSync(path.join(main, rel), path.join(nested, rel));
-    fs.chmodSync(path.join(nested, rel), 0o755);
-  }
-  for (const rel of ['.threadbear/patches/checks.ts', 'cleanup.sh']) {
-    fs.rmSync(path.join(main, rel));
-    fs.symlinkSync(path.join(nested, rel), path.join(main, rel));
-  }
-  assert.equal(await findWorktreePatch(main, dir, new Map(), undefined, trust), undefined, 'a new layout is a new version, even with the same bytes');
-  trust.trustCurrent([patch]);
-  const found = await findWorktreePatch(main, dir, new Map(), undefined, trust);
+  const found = await findWorktreePatch(path.join(main, 'sub'), dir, new Map(), undefined, trust);
   assert.ok(found?.teardownRun && found.setupRun);
+  // What runs is the helper beside the link, as the command runs there...
   sh(main, found.teardownRun);
-  assert.deepEqual(lines(log), ['safe']);
-  // The helper beside the link changed: not the version trusted, and the
-  // check just before a bound command runs says so too.
-  fs.writeFileSync(path.join(main, 'helper.sh'), `#!/bin/sh\necho evil >> ${log}\n`);
-  assert.equal(await findWorktreePatch(main, dir, new Map(), undefined, trust), undefined);
-  const by = automaticTrust(found.teardownRun);
-  assert.ok(by);
-  assert.equal(trust.verify(by.file, by.hash), false);
+  assert.deepEqual(lines(log), ['beside']);
+  // ...so changing it is a version nobody trusted, and the check just
+  // before a bound command runs says so too.
+  fs.writeFileSync(path.join(main, 'sub/helper.sh'), `#!/bin/sh\necho evil >> ${log}\n`);
+  assert.equal(await findWorktreePatch(path.join(main, 'sub'), dir, new Map(), undefined, trust), undefined);
+  for (const run of [found.teardownRun, found.setupRun]) {
+    const by = automaticTrust(run);
+    assert.ok(by);
+    assert.equal(trust.verify(by.file, by.hash), false);
+  }
 });
 
 test("a worktree folder swapped for a link to the main checkout gets no teardown, and the main checkout is left alone", async () => {
@@ -1202,6 +1201,90 @@ test("a worktree folder swapped for a link to the main checkout gets no teardown
   assert.equal(sh(main, 'git status --porcelain'), '');
   assert.ok(fs.existsSync(path.join(main, 'README.md')));
   assert.ok(fs.existsSync(path.join(`${w.path}-moved`, 'runner/a.ts')), 'the moved worktree is left alone too');
+});
+
+// Puts a git ahead of the real one on PATH that, the first time it's asked
+// for `match` (a word in its arguments), first swaps the worktree folder for
+// a link to the main checkout, as if someone did while the runner waited on
+// git. Until the function it returns is called.
+function swapDuringGit(match: string, wt: string, main: string): () => void {
+  const realGit = sh('/', 'command -v git');
+  const bin = tmpDir('tb-swap-git-');
+  const done = path.join(bin, 'swapped');
+  fs.writeFileSync(
+    path.join(bin, 'git'),
+    `#!/bin/sh\ncase " $* " in *" ${match} "*) if [ ! -e '${done}' ]; then touch '${done}'; mv '${wt}' '${wt}-moved'; ln -s '${main}' '${wt}'; fi ;; esac\nexec '${realGit}' "$@"\n`,
+    { mode: 0o755 },
+  );
+  const before = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${before}`;
+  return () => { process.env.PATH = before; };
+}
+
+// Codex's second look, 9 Nov: the folder was checked before an await, so a
+// swap while git listed the worktrees passed, and the teardown ran in main.
+test('a worktree folder swapped for a link while the cleanup waits on git gets no teardown', async () => {
+  const dir = fs.realpathSync(tmpDir('tb-td-'));
+  const log = path.join(dir, 'log');
+  const { main, h } = trustedTeardownRepo(log);
+  const { id, w } = await threadWithWorktree(h, main);
+  const restore = swapDuringGit('list', w.path, main);
+  try {
+    h.runner.update({ threadId: id, archived: true });
+    const rt = (h.runner as any).threads.get(id).rt;
+    await until(() => rt.archivePending === false && !rt.cleaning, 'the cleanup');
+  } finally {
+    restore();
+  }
+  assert.ok(fs.lstatSync(w.path).isSymbolicLink(), 'the swap happened');
+  assert.deepEqual(lines(log), []);
+  assert.equal(teardowns(h, id).length, 0);
+  assert.equal(sh(main, 'git rev-parse --abbrev-ref HEAD'), 'main');
+  assert.equal(sh(main, 'git status --porcelain'), '');
+});
+
+test("a worktree folder swapped for a link while the cleanup reads its status never has main's checkout detached or removed", async () => {
+  const { main } = makeRepo(PATCH(`{ keep: ["app/.build"] }`));
+  const h = harness();
+  const { id, w } = await threadWithWorktree(h, main);
+  const restore = swapDuringGit('status', w.path, main);
+  try {
+    h.runner.update({ threadId: id, archived: true });
+    const rt = (h.runner as any).threads.get(id).rt;
+    await until(() => rt.archivePending === false && !rt.cleaning, 'the cleanup');
+  } finally {
+    restore();
+  }
+  assert.ok(fs.lstatSync(w.path).isSymbolicLink(), 'the swap happened');
+  assert.equal(sh(main, 'git rev-parse --abbrev-ref HEAD'), 'main', 'main is still checked out in the main checkout');
+  assert.ok(fs.existsSync(path.join(main, 'README.md')));
+  assert.equal(sh(`${w.path}-moved`, 'git rev-parse --abbrev-ref HEAD'), w.branch, 'the real worktree is left as it was');
+});
+
+// A .git swapped for a fifo (or any git that hangs) used to hold the cleanup,
+// and everything waiting on it, for ever.
+test('git gives up after its time limit, and that counts as a failure', async () => {
+  const { main } = makeRepo();
+  const t = makeBranch(main);
+  const realGit = sh('/', 'command -v git');
+  const bin = tmpDir('tb-hang-git-');
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\ncase " $* " in *" status "*) exec sleep 30 ;; esac\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
+  const before = process.env.PATH;
+  const limit = gitLimits.timeoutMs;
+  process.env.PATH = `${bin}${path.delimiter}${before}`;
+  gitLimits.timeoutMs = 300;
+  try {
+    const started = Date.now();
+    const r = await git(t.path, ['status', '--porcelain']);
+    assert.equal(r.ok, false);
+    assert.ok(Date.now() - started < 10_000);
+    const rec = { repo: 'proj', mainCheckout: main, path: t.path, branch: t.branch, base: sh(main, 'git rev-parse main') };
+    assert.deepEqual(await cleanUpWorktree(rec), { removed: false, reason: `git couldn't read ${t.path}` });
+    assert.ok(fs.existsSync(t.path));
+  } finally {
+    process.env.PATH = before;
+    gitLimits.timeoutMs = limit;
+  }
 });
 
 test("a worktree's patch swapped for a fifo doesn't hold the runner up: the teardown is skipped, saying so, and the cleanup goes on", async () => {

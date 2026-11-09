@@ -3370,7 +3370,9 @@ a pull) is a version nobody trusted, so it doesn't run, and a
 and `teardown` and its hooks run without anyone pressing anything, so the hash has to
 cover what they run, and it can only see a path written in the patch.
 So each must be one script and plain words: a `./` or `../` path from
-the folder holding `.threadbear/`, to an existing file inside the repo
+the folder holding `.threadbear/` (for a patch file that's a link into
+another folder, the one holding the link, where its commands run, and
+where what its scripts run is followed from too), to an existing file inside the repo
 (the git toplevel) that the hash covered, then arguments made only of
 letters, digits and `_ @ % + = : , . / -`. Anything a shell would work
 out first (`cd scripts && ./setup.sh`, `FOO=1 ./x`, `sh -c`, `bash x.sh`,

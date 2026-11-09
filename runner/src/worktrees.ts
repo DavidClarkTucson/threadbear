@@ -50,13 +50,21 @@ export function threadBranch(threadId: string): string {
 
 type GitResult = { ok: boolean; code: number; stdout: string; stderr: string };
 
+// How long one git may take before it's killed and counts as failed. Long,
+// as a land's merge can run the repo's hooks; past it, git has hung (a .git
+// swapped for a fifo, say: Codex's review, 9 Nov), and an archive's cleanup
+// waiting on it held up messages, actions and handovers for ever. Tests
+// shorten it.
+export const gitLimits = { timeoutMs: 5 * 60_000 };
+
 // git in `cwd`. Variables that point git at some other repo (set when this
-// runs from inside a git hook) are dropped, so -C always wins.
+// runs from inside a git hook) are dropped, so -C always wins. Killed past
+// gitLimits, which makes it a failure (`ok: false`).
 export function git(cwd: string, args: string[]): Promise<GitResult> {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX']) delete env[k];
   return new Promise((resolve) => {
-    execFile('git', ['-C', cwd, ...args], { env, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile('git', ['-C', cwd, ...args], { env, maxBuffer: 16 * 1024 * 1024, timeout: gitLimits.timeoutMs, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0;
       resolve({ ok: !err, code, stdout: String(stdout), stderr: String(stderr) });
     });
@@ -592,9 +600,46 @@ function isWorktreeItself(w: WorktreeRecord): boolean {
   return main !== undefined && realpath(main) === realpath(w.mainCheckout);
 }
 
+// The start of a small file, without waiting: undefined when it isn't a
+// plain file (opening a fifo would block the runner) or is over `max`.
+export function readPlainFile(file: string, max = 1024 * 1024): string | undefined {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > max) return undefined;
+    const buf = Buffer.alloc(st.size);
+    const n = st.size ? fs.readSync(fd, buf, 0, st.size, 0) : 0;
+    return buf.subarray(0, n).toString('utf8');
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+// The worktree's folder, as a real path, if right now it's the worktree git
+// made there (isWorktreeItself) and, with `onBranch`, has the thread's branch
+// checked out, read from its own HEAD. Synchronous, so it can be the last
+// thing before running something there or changing it, with nothing awaited
+// between: checked before an await, a swap for a link to the main checkout
+// while git answered passed, and the teardown ran in main (Codex's second
+// look, 9 Nov). Run there by the path this returns.
+export function worktreeFolderNow(w: WorktreeRecord, onBranch = true): string | undefined {
+  if (!isWorktreeItself(w)) return undefined;
+  const real = realpath(w.path);
+  if (!onBranch) return real;
+  const dotGit = readPlainFile(path.join(real, '.git'), 8192);
+  const named = dotGit?.split('\n').find((l) => l.startsWith('gitdir:'))?.slice('gitdir:'.length).trim();
+  if (!named) return undefined;
+  const head = readPlainFile(path.join(path.resolve(real, named), 'HEAD'), 8192);
+  return head?.trim() === `ref: refs/heads/${w.branch}` ? real : undefined;
+}
+
 // Whether the worktree's folder is still a checkout of its own branch, so
 // what runs there (its teardown) runs in the thread's work, not in a reused
-// slot that's another thread's now, nor anywhere a link leads.
+// slot that's another thread's now, nor anywhere a link leads. Checked again
+// with worktreeFolderNow just before anything runs.
 export async function stillCheckedOut(w: WorktreeRecord): Promise<boolean> {
   if (!isWorktreeItself(w)) return false;
   const checkouts = await listCheckouts(w.mainCheckout);
@@ -639,7 +684,14 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
     }
   }
   if (ours) {
-    const status = await gitOut(w.path, ['status', '--porcelain', '--untracked-files=all']);
+    // Each git that reads or changes the folder itself goes by the folder
+    // checked just before it (worktreeFolderNow): a swap for a link to the
+    // main checkout while an earlier git ran would otherwise have main's
+    // status read as this one's and main's checkout detached.
+    const CHANGED: Cleanup = { removed: false, reason: `its folder ${w.path} changed while it was being cleaned up, so it was left alone` };
+    let here = worktreeFolderNow(w);
+    if (!here) return CHANGED;
+    const status = await gitOut(here, ['status', '--porcelain', '--untracked-files=all']);
     if (status === undefined) return { removed: false, reason: `git couldn't read ${w.path}` };
     const lines = status ? status.split('\n') : [];
     if (lines.some((l) => !l.startsWith('??'))) return { removed: false, reason: `the worktree has uncommitted changes` };
@@ -647,7 +699,9 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
       // Detached where it is (no files change), so the branch can go; its
       // untracked files go when the next thread takes it.
       if (!stillOurs()) return LET_GO;
-      if ((await git(w.path, ['checkout', '-q', '--detach'])).ok) {
+      here = worktreeFolderNow(w);
+      if (!here) return CHANGED;
+      if ((await git(here, ['checkout', '-q', '--detach'])).ok) {
         if (!stillOurs()) return LET_GO;
         if (branchThere && (await git(w.mainCheckout, ['branch', '-D', w.branch])).ok) branchThere = false;
         if (!stillOurs()) return LET_GO;
@@ -657,6 +711,8 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
     }
     const args = ['worktree', 'remove', ...(lines.length ? ['--force'] : []), w.path];
     if (!stillOurs()) return LET_GO;
+    // Detached by now, perhaps (a spare that couldn't be locked).
+    if (!worktreeFolderNow(w, false)) return CHANGED;
     const rm = await git(w.mainCheckout, args);
     if (!rm.ok) return { removed: false, reason: `git worktree remove failed: ${firstLine(rm.stderr)}` };
   } else {
