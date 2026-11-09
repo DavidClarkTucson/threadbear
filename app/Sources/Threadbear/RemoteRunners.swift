@@ -51,7 +51,8 @@ extension AppModel {
         }
         let gone = next.values.filter { $0.isRemote && !listed.contains($0.id) && !liveRemote.contains($0.id) && !madeRemote.contains($0.id) }.map(\.id)
         if next != threads { threads = next }
-        for id in gone { forget(id) }
+        // A thread that moved off another runner stays, as its new one's.
+        for id in gone where !movedAway(id) { forget(id) }
         threadCountMayHaveChanged()
     }
 
@@ -498,7 +499,7 @@ extension AppModel {
         case .threadDeleted(let threadId):
             guard threads[threadId]?.runnerId == runnerId else { return }
             liveRemote.remove(threadId)
-            forget(threadId)
+            if !movedAway(threadId) { forget(threadId) }
         // Its own logins, for the pickers on its threads.
         case .accountsUpdated(let list):
             remoteLogins[runnerId]?.accounts = list

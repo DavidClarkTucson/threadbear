@@ -405,6 +405,10 @@ final class AppModel {
     /// Empty from a runner before step 6, or before it answers: then
     /// there's no choice to offer and every schedule is this runner's.
     var runners: [RunnerInfo] = []
+    /// The experiments on for this Mac's runner, from its hello.
+    var experiments: Set<String> = []
+    /// The Move sheet, while it's open.
+    var moveRequest: MoveRequest?
     /// Other runners, from this one (docs/protocol.md, "Other runners'
     /// threads"): their names, icons, whether they're online and how to
     /// reach them. Their threads are in `threads`, marked with `runnerId`

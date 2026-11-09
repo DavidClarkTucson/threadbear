@@ -19,6 +19,8 @@ import { runnerKeysCommand } from './runner-keys.ts';
 
 const OPTIONS = {
   cwd: { type: 'string' },
+  // tb move <id> --to <runner> --preview (moving a thread to another machine).
+  preview: { type: 'boolean' },
   account: { type: 'string' },
   pool: { type: 'string' },
   model: { type: 'string' },
@@ -98,6 +100,11 @@ const HELP = `tb: talk to the Threadbear runner
   tb snooze <threadId> <ISO time or 30m, 2h, 1d, or restart>
   tb archive <threadId>      tb unarchive <threadId>
   tb move <threadId> <folder>
+  tb move <threadId> --to <runner> [--cwd DIR] [--account ID] [--preview]
+                                  moves the thread whole to another of your machines
+                                  (the moveToRunner experiment; asked of the main Mac's
+                                  runner). --preview says where it would go and what
+                                  stops it, without moving
   tb delete <threadId>
   tb accounts                     the Claude and Codex logins (* new threads start on it)
   tb accounts <account> [--json]  that account's models and its default
@@ -178,7 +185,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   snooze: [],
   archive: [],
   unarchive: [],
-  move: [],
+  move: ['to', 'cwd', 'account', 'preview', 'json'],
   delete: [],
   accounts: ['json'],
   pools: ['json'],
@@ -430,6 +437,7 @@ async function run(client: RunnerClient, cmd: string, args: string[], f: Flags):
     }
     case 'move': {
       const id = await resolveId(client, args[0]);
+      if (typeof f.to === 'string') return moveToRunner(client, id, f);
       if (!args[1]) throw new Error('folder required');
       const r = await client.call<{ thread: ThreadSummary }>('threads.update', { threadId: id, cwd: path.resolve(args[1]) });
       console.log(`moved to ${r.thread.cwd} (from the next message)`);
@@ -820,6 +828,31 @@ async function resolveApproval(client: RunnerClient, threadId: string, prefix: s
   if (hits.length === 1) return hits[0];
   if (hits.length > 1) throw new Error(`${prefix} matches ${hits.length} open approvals`);
   return prefix;
+}
+
+// tb move --to: the runner by name or id (runners.list), then
+// threads.movePreview or threads.move on this runner.
+async function moveToRunner(client: RunnerClient, threadId: string, f: Flags): Promise<number> {
+  const want = String(f.to).toLowerCase();
+  const { runners } = await client.call<{ runners: { id: string; name: string; online: boolean; isSelf?: boolean }[] }>('runners.list', {});
+  const runner = runners.find((r) => r.id === f.to) ?? runners.find((r) => r.name.toLowerCase() === want);
+  if (!runner) throw new Error(`No runner called ${String(f.to)}. There are: ${runners.map((r) => r.name).join(', ')}.`);
+  const params: Record<string, unknown> = { threadId, runnerId: runner.id };
+  if (typeof f.cwd === 'string') params.cwd = f.cwd;
+  if (typeof f.account === 'string') params.accountId = f.account;
+  if (f.preview) {
+    const p = await client.call<{ cwd?: string; accountId?: string; leftBehind: string[]; problems: string[]; worktree?: boolean; clone?: string }>('threads.movePreview', params);
+    if (f.json) console.log(JSON.stringify(p, null, 2));
+    else {
+      if (p.cwd) console.log(`${p.worktree ? 'A new worktree in' : 'In'} ${p.cwd}${p.clone ? ` (cloned to ${p.clone} first)` : ''}, on ${p.accountId}`);
+      for (const l of p.leftBehind) console.log(`Won't come: ${l}`);
+      for (const l of p.problems) console.log(`Can't move: ${l}`);
+    }
+    return p.problems.length ? 1 : 0;
+  }
+  const r = await client.call<{ moveId: string }>('threads.move', params);
+  console.log(`moving to ${runner.name} (move ${r.moveId}); it goes once its turn ends`);
+  return 0;
 }
 
 function parseWhen(s: string): string {
