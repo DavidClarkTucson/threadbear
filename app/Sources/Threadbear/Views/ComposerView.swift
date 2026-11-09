@@ -185,8 +185,21 @@ struct ComposerView: View {
     /// new thread too (folders.commands), and not once Esc closed it at
     /// this text.
     private func paletteQuery(_ text: String) -> String? {
+        paletteTyped(text)?.query
+    }
+
+    /// The command being typed as the message's last word, at its start or
+    /// partway through it (David, 9 Nov 2026: skills named mid-message).
+    private func paletteTyped(_ text: String) -> SlashPalette.Typed? {
         guard palette.closedAt != text else { return nil }
-        return SlashPalette.query(in: text)
+        return SlashPalette.typed(in: text)
+    }
+
+    /// The palette's list for what's typed: partway through a message only
+    /// the skills the agent can run there.
+    private func paletteCommands(_ typed: SlashPalette.Typed) -> [SlashCommand]? {
+        guard let all = app.slashCommands[paletteListKey] else { return nil }
+        return typed.midMessage ? SlashPalette.midMessage(all) : all
     }
 
     /// About half the window: read when the palette draws, which it does
@@ -204,16 +217,23 @@ struct ComposerView: View {
 
     /// The palette for what's typed, or nil when it's closed.
     private func paletteContent(_ draft: Binding<Draft>) -> SlashPaletteView? {
-        guard let query = paletteQuery(draft.wrappedValue.text) else { return nil }
+        let text = draft.wrappedValue.text
+        guard let typed = paletteTyped(text) else { return nil }
+        let commands = paletteCommands(typed)
+        // Partway through a message the palette only opens on a match, so
+        // a slash in other words ("the /tmp folder") doesn't get in the way.
+        if typed.midMessage, SlashPalette.matches(commands ?? [], query: typed.query, category: .all, recent: []).isEmpty { return nil }
         return SlashPaletteView(
-            commands: app.slashCommands[paletteListKey],
-            query: query,
+            commands: commands,
+            query: typed.query,
             provider: thread?.provider ?? app.newThreadProviderId,
             recent: app.recentSlashCommands,
             state: $palette,
             current: paletteCurrent(thread),
             onFill: { pick($0, run: false) },
-            onRun: { pick($0, run: true) },
+            // A skill named partway through a message isn't sent on its own.
+            onRun: { pick($0, run: !typed.midMessage) },
+            midMessage: typed.midMessage,
             // Another Mac's runner found the file there, not here; a new
             // thread has no side pane to show it in yet.
             onOpen: thread.flatMap { thread in app.runnerName(of: thread) == nil ? { path in
@@ -253,27 +273,39 @@ struct ComposerView: View {
     /// Arrows, Tab, Return and Esc while the palette is open. False lets
     /// the box have the key as usual.
     private func paletteKey(_ key: PaletteKey, text: String) -> Bool {
-        guard let query = paletteQuery(text) else { return false }
-        let matches = SlashPalette.matches(app.slashCommands[paletteListKey] ?? [], query: query, category: palette.category, recent: app.recentSlashCommands)
+        guard let typed = paletteTyped(text) else { return false }
+        let commands = paletteCommands(typed) ?? []
+        // Partway through a message, a closed palette leaves the keys alone.
+        if typed.midMessage, SlashPalette.matches(commands, query: typed.query, category: .all, recent: []).isEmpty { return false }
+        let matches = SlashPalette.matches(commands, query: typed.query, category: palette.category, recent: app.recentSlashCommands)
         // Return with nothing to pick sends what's typed, as words.
         if key == .enter, matches.isEmpty { return false }
         if let (command, run) = SlashPaletteView.handle(key, matches: matches, state: &palette, text: text) {
-            pick(command, run: run)
+            pick(command, run: run && !typed.midMessage)
         }
         return true
     }
 
-    /// Puts the command in the box: to send now, or with a space after it
-    /// for its arguments. Through the text view, so it's one undo.
+    /// Puts the command in the box in place of what was typed for it: to
+    /// send now, or with a space after it for its arguments (or, partway
+    /// through a message, the words after it). Through the text view, so
+    /// it's one undo.
     private func pick(_ command: SlashCommand, run: Bool) {
         app.recentSlashCommands = SlashPalette.used(command.name, recent: app.recentSlashCommands)
+        let current = app.drafts[draftKey]?.normalized.text ?? ""
+        // Counted from the end: the text view's string can differ earlier
+        // on (a picture's chip), never in the last word.
+        let typedLength = SlashPalette.typed(in: current).map { current.utf16.count - $0.start } ?? current.utf16.count
         palette = PaletteState()
         let text = SlashPalette.fill(command, forArguments: !run)
         if let textView = handle.textView {
-            textView.insertText(text, replacementRange: NSRange(location: 0, length: (textView.string as NSString).length))
+            let length = (textView.string as NSString).length
+            let cut = min(typedLength, length)
+            textView.insertText(text, replacementRange: NSRange(location: length - cut, length: cut))
             textView.window?.makeFirstResponder(textView)
         } else {
-            app.drafts[draftKey, default: Draft()].text = text
+            let kept = String(current.utf16.dropLast(typedLength)) ?? ""
+            app.drafts[draftKey, default: Draft()].text = kept + text
         }
         if run { send() }
     }

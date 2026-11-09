@@ -75,6 +75,28 @@ test('claudeCommands keeps the builtin row of a shared name and marks the rest s
   ]);
 });
 
+test('claudeCommands marks a skill with disable-model-invocation as userOnly', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-useronly-'));
+  const skill = (name: string, front: string) => {
+    fs.mkdirSync(path.join(home, 'skills', name), { recursive: true });
+    fs.writeFileSync(path.join(home, 'skills', name, 'SKILL.md'), `---\nname: ${name}\n${front}---\nDo it.\n`);
+  };
+  skill('alert-duty', 'description: >-\n  Weekly duty.\ndisable-model-invocation: true\n');
+  skill('tdd', 'description: Test first.\n');
+  skill('quoted', "disable-model-invocation: 'true'\n");
+  const rows = claudeCommands(
+    [
+      { name: 'alert-duty', description: 'Weekly duty. (user)' },
+      { name: 'tdd', description: 'Test first. (user)' },
+      { name: 'quoted', description: 'Q (user)' },
+      { name: 'compact', description: 'Compact', builtin: true },
+    ],
+    { cwd: home, configDir: home },
+  );
+  const by = Object.fromEntries(rows.map((r) => [r.name, r.userOnly]));
+  assert.deepEqual(by, { 'alert-duty': true, tdd: undefined, quoted: true, compact: undefined });
+});
+
 test('Codex skills become picker rows and a name-to-path map, without disabled ones', () => {
   const r = { data: [{ cwd: '/w', skills: [
     { name: 'deslop', description: 'long', shortDescription: 'short', path: '/s/deslop/SKILL.md', enabled: true },

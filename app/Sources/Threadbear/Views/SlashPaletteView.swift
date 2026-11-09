@@ -31,6 +31,9 @@ struct SlashPaletteView: View {
     var current: [String: String] = [:]
     var onFill: (SlashCommand) -> Void
     var onRun: (SlashCommand) -> Void
+    /// Typed partway through a message: a pick goes into the words, as
+    /// Return and Tab both do there, and nothing is sent.
+    var midMessage = false
     /// Opens a command's file in the side pane; nil when the thread's
     /// runner is another Mac's, whose files aren't here.
     var onOpen: ((String) -> Void)?
@@ -226,10 +229,15 @@ struct SlashPaletteView: View {
     private func actions(_ command: SlashCommand) -> some View {
         // Return comes through the composer's own keys, so no
         // keyboard shortcut here to fight it.
-        Button("Run") { onRun(command) }
-            .tip("Send /\(command.name) now (Return)")
-        Button("Add details") { onFill(command) }
-            .tip("Put /\(command.name) in the box to type more after it (Tab)")
+        if midMessage {
+            Button("Insert") { onFill(command) }
+                .tip("Put /\(command.name) in the message, for the agent to run (Return or Tab)")
+        } else {
+            Button("Run") { onRun(command) }
+                .tip("Send /\(command.name) now (Return)")
+            Button("Add details") { onFill(command) }
+                .tip("Put /\(command.name) in the box to type more after it (Tab)")
+        }
         // With the other buttons, so it's always in sight: under
         // the path it scrolled away in a short palette.
         if let path = command.path, let onOpen {

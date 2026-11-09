@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import type { AgentAdapter, AgentSession, CachePing, RewindRequest, RewindResult, SessionSink, StartSessionOptions, UserInput } from '../types.ts';
 import { RewindRefusedError } from '../types.ts';
 import type { SlashCommand } from '../../slash-commands.ts';
+import { frontmatter } from '../../claude-trust.ts';
 import { cutPointBefore, sessionTranscriptPath } from '../../transcripts.ts';
 import type { Logger } from '../../log.ts';
 import { ClaudeNormalizer, fileContext, USAGE_LIMIT_TEXT } from './normalize.ts';
@@ -1100,6 +1101,7 @@ export function claudeCommands(
     if (plugin) out.plugin = plugin;
     const file = where && (scope === 'user' || scope === 'project') ? commandFile(name, scope === 'user' ? where.configDir : path.join(where.cwd, '.claude')) : undefined;
     if (file) out.path = file;
+    if (file && userOnlyFile(file)) out.userOnly = true;
     byName.set(name, out);
   }
   return [...byName.values()];
@@ -1119,6 +1121,18 @@ export function commandScope(description: string | undefined): { text?: string; 
   // words in brackets that end a sentence ("(see below)") stay put.
   if (/^[\w.@-]+(:[\w.@-]+)?$/.test(tag)) return { text, scope: 'plugin', plugin: tag.replace(/^plugin:/, '') };
   return { text: description };
+}
+
+// A skill or command whose frontmatter says `disable-model-invocation:
+// true`: the agent can't run it, so it works only at the start of a
+// message, not named partway through one (claude -p, 9 Nov 2026).
+export function userOnlyFile(file: string): boolean {
+  try {
+    const yaml = frontmatter(fs.readFileSync(file, 'utf8'));
+    return yaml !== undefined && /^disable-model-invocation[ \t]*:[ \t]*["']?true["']?[ \t]*(#.*)?$/m.test(yaml);
+  } catch {
+    return false;
+  }
 }
 
 // A user or project command's file: its skill, else its command (a ":"
