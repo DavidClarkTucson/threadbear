@@ -232,9 +232,31 @@ export class RunnerJsonError extends Error {
   }
 }
 
-// The last runner.json each home read cleanly in this process, for the
-// read-only lookups below while the file is broken mid-run.
-const lastGoodRunnerJson = new Map<string, RunnerJson>();
+// What's wrong with JSON that didn't parse, in words that never quote it:
+// V8's message can carry a stretch of the file ("Unexpected token '}',
+// "...secret..." is not valid JSON"), and this goes to the log, an RPC
+// error and, through a logged warning, Sentry. Only its generic part and a
+// line and column worked out here.
+export function jsonProblem(text: string, error: unknown): string {
+  if (!text.trim()) return 'it is empty';
+  const message = error instanceof Error ? error.message : '';
+  const at = /^(.*?) in JSON at position (\d+)/.exec(message);
+  if (at && !/["']/.test(at[1].replace(/'[,}\]:]'/g, ''))) {
+    const position = Number(at[2]);
+    const before = text.slice(0, position);
+    const line = before.split('\n').length;
+    const column = position - before.lastIndexOf('\n');
+    return `${at[1].charAt(0).toLowerCase()}${at[1].slice(1)}, at line ${line}, column ${column}`;
+  }
+  if (message.startsWith('Unexpected end of JSON input')) return 'it ends partway through';
+  return "it isn't valid JSON (a trailing comma, a missing quote or bracket?)";
+}
+
+// The text of the last runner.json each home read cleanly in this process,
+// for the read-only lookups below while the file is broken mid-run. Text,
+// parsed again for each caller, so none can change another's copy (and a
+// structuredClone of a deeply nested file overflowed the stack).
+const lastGoodRunnerJson = new Map<string, string>();
 
 // runner.json, or {} when there's none yet. Throws RunnerJsonError when it's
 // there but broken, so a caller that writes it back can't wipe it.
@@ -244,17 +266,30 @@ export function readRunnerJson(home: string): RunnerJson {
   try {
     text = fs.readFileSync(file, 'utf8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
-    throw new RunnerJsonError(file, `it can't be read (${(e as NodeJS.ErrnoException).code ?? String(e)})`);
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      // A link whose target has gone is a runner.json that's there, not a
+      // first run: reading it as {} made a new runner id and replaced the
+      // link with a plain file.
+      let link = false;
+      try {
+        link = fs.lstatSync(file).isSymbolicLink();
+      } catch {
+        // no file and no link: a first run
+      }
+      if (link) throw new RunnerJsonError(file, "it's a link to a file that isn't there");
+      return {};
+    }
+    throw new RunnerJsonError(file, `it can't be read (${code ?? 'error'})`);
   }
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch (e) {
-    throw new RunnerJsonError(file, text.trim() ? (e as Error).message : 'it is empty');
+    throw new RunnerJsonError(file, jsonProblem(text, e));
   }
   if (!json || typeof json !== 'object' || Array.isArray(json)) throw new RunnerJsonError(file, 'it holds JSON, but not an object in { }');
-  lastGoodRunnerJson.set(home, structuredClone(json as RunnerJson));
+  lastGoodRunnerJson.set(home, text);
   return json as RunnerJson;
 }
 
@@ -266,17 +301,21 @@ export function peekRunnerJson(home: string): RunnerJson {
   try {
     return readRunnerJson(home);
   } catch (e) {
-    if (e instanceof RunnerJsonError) return structuredClone(lastGoodRunnerJson.get(home) ?? {});
-    throw e;
+    if (!(e instanceof RunnerJsonError)) throw e;
+    const last = lastGoodRunnerJson.get(home);
+    return last === undefined ? {} : (JSON.parse(last) as RunnerJson);
   }
 }
 
 export function writeRunnerJson(home: string, data: RunnerJson): void {
   // Throws on a broken file rather than writing over it, whatever the
-  // caller read (or didn't) first.
+  // caller read (or didn't) first. An edit that lands in the moment between
+  // this read and the rename below can still be replaced; nothing short of
+  // a lock every editor honours closes that.
   readRunnerJson(home);
-  atomicWriteFileSync(path.join(home, 'runner.json'), JSON.stringify(data, null, 2) + '\n');
-  lastGoodRunnerJson.set(home, structuredClone(data));
+  const text = JSON.stringify(data, null, 2) + '\n';
+  atomicWriteFileSync(path.join(home, 'runner.json'), text);
+  lastGoodRunnerJson.set(home, text);
 }
 
 // The app finds the runner through runner.json, so it always names the port

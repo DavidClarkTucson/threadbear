@@ -64,6 +64,11 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   Before 27 Oct it imported main.ts into its own process; a LaunchAgent
   installed before then still does, and can't hand over until Mike runs
   `install-runner.sh` once.
+  A broken `runner.json` is never a reason to go back: the runner refuses
+  to start on one (exit 78) and marks its own boot clean so it isn't
+  counted, launch.mjs since 9 Nov holds the rollback while the file is
+  broken, and `deploy-runner.sh` won't deploy or restore over one. A
+  release from before then would read it as `{}` and write over it.
 - **The supervisor** (launch.mjs since 27 Oct). A child counts as up when
   it sends `{ type: "listening" }` or prints `threadbear-runner listening
   on <port>` (older releases only print it), within 90 s or it's stopped

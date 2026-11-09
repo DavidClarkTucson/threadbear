@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { pointCurrent, readCurrentLink, readState, releaseExists, writeState } from '../launch.mjs';
+import { pointCurrent, readCurrentLink, readState, releaseExists, runnerJsonBroken, writeState } from '../launch.mjs';
 import { connectRpc } from './rpc-client.mjs';
 import { ChecksUnavailable, Fail, SLEPT_EXIT, SleptThrough, UNAVAILABLE_EXIT, checkHostsFrom, checkSlept, remoteChecks, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
 // THREADBARE_* was the old name for these variables (config.ts, adoptOldNames).
@@ -1083,6 +1083,12 @@ async function wentWrong(c, id, before, r, waitMs) {
   );
   const rolledBack = readState(c.dir).rolledBack;
   if (rolledBack?.from === id) console.error(`launch.mjs went back to ${rolledBack.to} after ${id} kept crashing at startup.`);
+  if (runnerJsonBroken(c.home)) {
+    // Broken since the deploy began: this release refused it, and the one
+    // before may be from before 9 Nov, which would write over it.
+    console.error(`${path.join(c.home, 'runner.json')} isn't valid JSON, which is why ${id} stopped. It stays current, not going back to ${before.current ?? 'the one before'} (which could write over the file): fix runner.json and the runner starts. Why is in ${c.log}.`);
+    return 1;
+  }
   if (before.current && before.current !== id && releaseExists(c.dir, before.current)) {
     restore(c, before, r.result === 'stopped' ? id : undefined);
     console.error(`current points at ${before.current} again.`);
@@ -1317,6 +1323,9 @@ function warnStaleLaunch(c) {
 }
 
 async function deploy(c, v, waitMs) {
+  // The new release wouldn't start on it, and going back to an older one
+  // (wentWrong) would write over it.
+  if (runnerJsonBroken(c.home)) throw new Fail(`${path.join(c.home, 'runner.json')} isn't valid JSON. Fix it first: no runner starts on it, and one from before 9 Nov would write over it.`);
   // A LaunchAgent that still runs a checkout would never pick up the release.
   if (!v['no-restart']) requireReleases(c);
   const g = gitInfo(c);

@@ -27,7 +27,7 @@ test('a runner.json that does not parse throws, naming the file and what is wron
   const { home, file } = brokenHome();
   assert.throws(
     () => readRunnerJson(home),
-    (e: unknown) => e instanceof RunnerJsonError && e.file === file && e.message.includes(file) && /JSON/.test(e.problem),
+    (e: unknown) => e instanceof RunnerJsonError && e.file === file && e.message.includes(file) && /line 5, column 1/.test(e.problem),
   );
 });
 
@@ -128,4 +128,69 @@ test('markConfigStop waits for launch.mjs to record the boot, and touches only i
   const bare = tmpDir();
   assert.equal(await markConfigStop(bare, 8, 0), false);
   assert.deepEqual(fs.readdirSync(bare), []);
+});
+
+test('the reason given never quotes the file, only where it broke', () => {
+  for (const text of ['{"private": TOP_SECRET_CANARY}', '{\n  "a": "TOP_SECRET_CANARY",\n}', '{"a": "TOP_SECRET_CANARY"', '{"a": tru}']) {
+    const { home } = brokenHome(text);
+    assert.throws(
+      () => readRunnerJson(home),
+      (e: unknown) => e instanceof RunnerJsonError && !e.message.includes('TOP_SECRET') && !e.message.includes('tru}'),
+      text,
+    );
+  }
+  const { home } = brokenHome('{\n  "a": 1,\n}\n');
+  assert.throws(() => readRunnerJson(home), /line 3, column 1/);
+});
+
+test("a runner.json that's a link to a file that has gone isn't a first run", () => {
+  const home = tmpDir();
+  const file = path.join(home, 'runner.json');
+  fs.symlinkSync(path.join(home, 'elsewhere.json'), file);
+  assert.throws(() => readRunnerJson(home), /a link to a file that isn't there/);
+  assert.throws(() => ensureRunnerId(home), RunnerJsonError);
+  assert.ok(fs.lstatSync(file).isSymbolicLink(), 'the link is left as it was');
+});
+
+test('a valid but deeply nested runner.json still loads, and peeks', () => {
+  const home = tmpDir();
+  fs.writeFileSync(path.join(home, 'runner.json'), `{"port": 4999, "extra": ${'['.repeat(5000)}${']'.repeat(5000)}}`);
+  assert.equal(readRunnerJson(home).port, 4999);
+  fs.writeFileSync(path.join(home, 'runner.json'), '{,}');
+  assert.equal(peekRunnerJson(home).port, 4999);
+});
+
+test("launch.mjs holds back a rollback while runner.json is broken, and says so", async () => {
+  const launch = await import(pathToFileURL(path.join(RUNNER, 'launch.mjs')).href);
+  assert.equal(launch.runnerJsonBroken(tmpDir()), false, 'none yet: a first run');
+  assert.equal(launch.runnerJsonBroken(brokenHome().home), true);
+  assert.equal(launch.runnerJsonBroken(brokenHome('[]').home), true);
+  assert.equal(launch.runnerJsonBroken(brokenHome('{"port":1}').home), false);
+  const now = Date.parse('2026-11-09T10:00:00Z');
+  const ago = (s: number) => new Date(now - s * 1000).toISOString();
+  const state = { current: 'B', previous: 'A', lastGood: 'A', boots: [{ release: 'B', at: ago(40) }, { release: 'B', at: ago(20) }] };
+  assert.ok(launch.planBoot(state, now, () => true, 0).rolledBack);
+  const held = launch.planBoot(state, now, () => true, 0, true);
+  assert.equal(held.rolledBack, null);
+  assert.equal(held.start, 'B');
+  assert.equal(held.stuck, false);
+  assert.equal(held.heldForConfig, true);
+});
+
+test('markConfigStop marks the boot again if launch.mjs writes over the mark from an older copy', async () => {
+  const home = tmpDir();
+  const dir = path.join(home, 'runner');
+  fs.mkdirSync(dir, { recursive: true });
+  const stateFile = path.join(dir, 'state.json');
+  const unmarked = JSON.stringify({ current: 'B', lastGood: 'A', boots: [{ release: 'A', at: 'x', pid: 7 }, { release: 'B', at: 'y', pid: 8 }] });
+  fs.writeFileSync(stateFile, unmarked);
+  let sleeps = 0;
+  const sleep = async () => {
+    // launch.mjs marking draining A's exit clean, from a copy it read
+    // before B's mark: B's boot goes back to unmarked.
+    if (++sleeps === 1) fs.writeFileSync(stateFile, JSON.stringify({ ...JSON.parse(unmarked), boots: [{ release: 'A', at: 'x', pid: 7, clean: true }, { release: 'B', at: 'y', pid: 8 }] }));
+  };
+  assert.equal(await markConfigStop(home, 8, 1000, sleep), true);
+  const after = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  assert.deepEqual(after.boots.map((b: { clean?: boolean }) => b.clean), [true, true]);
 });

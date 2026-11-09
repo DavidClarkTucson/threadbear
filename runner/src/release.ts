@@ -172,23 +172,43 @@ export function markGoodLater(home: string, releaseId: string | undefined, log: 
 // launch.mjs's to write, so only this process's own boot is touched, and
 // only once launch.mjs has written it (it does just after the spawn).
 export async function markConfigStop(home: string, pid = process.pid, waitMs = 3000, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<boolean> {
-  for (let waited = 0; ; waited += 100) {
-    let found = false;
+  const mark = (): 'marked' | 'already' | 'none' => {
+    let out: 'marked' | 'already' | 'none' = 'none';
     try {
       updateState(home, (s) => {
         const boot = Array.isArray(s.boots) ? s.boots.findLast((b) => b && b.pid === pid) : undefined;
         if (!boot) return false;
-        found = true;
-        if (boot.clean) return false;
+        if (boot.clean) {
+          out = 'already';
+          return false;
+        }
         boot.clean = true;
+        out = 'marked';
         return true;
       });
     } catch {
-      return false;
+      // state.json unreadable or unwritable: nothing to be done from here
     }
-    if (found || waited >= waitMs) return found;
+    return out;
+  };
+  let found = false;
+  for (let waited = 0; ; waited += 100) {
+    if (mark() !== 'none') {
+      found = true;
+      break;
+    }
+    if (waited >= waitMs) return false;
     await sleep(100);
   }
+  // launch.mjs may be writing state.json at the same moment (marking a
+  // draining runner's exit clean during a handover) from a copy it read
+  // before this mark, and would put the boot back as failed. Look again a
+  // little later and mark it again if so.
+  for (let i = 0; i < 3; i++) {
+    await sleep(waitMs ? 200 : 0);
+    mark();
+  }
+  return found;
 }
 
 // Whether launch.mjs started this runner as a child it supervises (a

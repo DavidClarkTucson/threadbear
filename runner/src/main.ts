@@ -1165,7 +1165,10 @@ main().catch(async (e) => {
     // sends stderr there; tb logs shows it), with no stack and nothing sent
     // to Sentry, as the parse error can quote the file. EX_CONFIG.
     process.stderr.write(`${new Date().toISOString()} ERROR runner failed to start: ${e.message}\n`);
-    if (supervised()) await markConfigStop(path.dirname(e.file));
+    // Under launch.mjs's child supervision it records the boot just after
+    // the spawn, so wait for it; the launcher from before that runs the
+    // runner in its own process and recorded it already, under this pid.
+    await markConfigStop(path.dirname(e.file), process.pid, supervised() ? 3000 : 0);
     process.exit(78);
   }
   process.stderr.write(`runner failed to start: ${e?.stack ?? e}\n`);
