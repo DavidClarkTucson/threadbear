@@ -1127,7 +1127,7 @@ function failingSaves() {
   return { h, sched, errors, updates, file, breakSaves, fixSaves, saved };
 }
 
-test('a delete whose save failed still reaches the disk, so a restart can not bring it back (THREADBEAR-1R)', async () => {
+test('a delete whose save failed is saved by itself, and a restart after that does not bring it back (THREADBEAR-1R)', async () => {
   const { h, sched, errors, updates, breakSaves, fixSaves, saved } = failingSaves();
   const { thread } = idleThread(h);
   const sc = await sched.create({ text: 'Check the deploy', at: iso(h.clock.now() + 60 * MIN), threadId: thread.id });
@@ -1152,6 +1152,11 @@ test('a delete whose save failed still reaches the disk, so a restart can not br
   h.clock.advance(SAVE_RETRY_MS);
   assert.equal(h.clock.pending(), before);
   sched.stop();
+
+  const again = new Scheduler({ runner: h.runner, home: h.home, clock: h.clock, log: nullLogger, zone: () => 'UTC' });
+  again.start();
+  assert.deepEqual(again.list(), [], 'the restarted runner reads the saved list');
+  again.stop();
 });
 
 test('a later failure of the schedules save is reported again, and stop ends the retrying', async () => {
