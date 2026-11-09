@@ -703,12 +703,12 @@ final class TranscriptTextView: NSTextView {
         case .put:
             AppModel.shared.putInTerminal(ShellBlock(command: hit.command)) { [weak self] outcome in
                 guard outcome == .busy, let self else { return }
-                // Nothing typed into whatever's running, and the command
-                // isn't lost.
+                // Nothing typed over a running program or someone's own
+                // half-typed line, and the command isn't lost.
                 ShellBlockIcons.clearPressed(.put, hit.command)
                 ShellBlockIcons.copy(hit.command)
                 self.setNeedsDisplay(hit.rect)
-                CopiedBubble.show(above: hit.rect, in: self, text: "Terminal's busy, so it's copied")
+                CopiedBubble.show(above: hit.rect, in: self, text: "Terminal's in use, so it's copied")
             }
         }
     }

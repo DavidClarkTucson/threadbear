@@ -40,11 +40,11 @@ final class ShellBlockTests: XCTestCase {
         XCTAssertFalse(ShellBlock.mayHold("```python\nx\n```"))
     }
 
-    private func step(_ command: String = "ls", front: Bool = true, bracketed: Bool = true, starting: Bool = false, screen: String = "~ $") -> TerminalPut.Step {
-        TerminalPut.step(for: ShellBlock(command: command), shellInFront: front, bracketedPaste: bracketed, starting: starting, screen: { screen })
+    private func step(_ command: String = "ls", front: Bool = true, bracketed: Bool = true, starting: Bool = false, line: TerminalPut.Line = .empty) -> TerminalPut.Step {
+        TerminalPut.step(for: ShellBlock(command: command), shellInFront: front, bracketedPaste: bracketed, starting: starting, line: line)
     }
 
-    func testTypesAtAPrompt() {
+    func testTypesOnAnEmptyPrompt() {
         XCTAssertEqual(step(), .type)
         XCTAssertEqual(step("a\nb"), .type)
     }
@@ -54,32 +54,54 @@ final class ShellBlockTests: XCTestCase {
         XCTAssertEqual(step(front: false, bracketed: true), .busy)
     }
 
+    // `read -k 11 answer; eval "$answer"` owns the terminal from inside the
+    // shell, so eleven typed characters would have run with no Return.
+    func testNeedsTheShellToBeEditingALine() {
+        XCTAssertEqual(step(front: true, bracketed: false), .busy)
+        XCTAssertEqual(step("a\nb", front: true, bracketed: false), .busy)
+    }
+
     func testWaitsForAShellThatsStarting() {
         XCTAssertEqual(step(bracketed: false, starting: true), .wait)
         XCTAssertEqual(step(front: false, starting: true), .wait)
         XCTAssertEqual(step(starting: true), .type)
     }
 
-    func testAShellWithoutBracketedPasteOnlyGetsOneLine() {
-        XCTAssertEqual(step(bracketed: false), .type)
-        XCTAssertEqual(step("a\nb", bracketed: false), .busy)
-        XCTAssertEqual(step("a\tb", bracketed: false), .busy)
+    func testNeverAddsToWhatSomeoneTyped() {
+        XCTAssertEqual(step(line: .edited), .busy)
     }
 
     func testADifferentBlockReplacesTheOneStillAtThePrompt() {
-        func put(_ command: String, screen: String) -> TerminalPut.Step {
-            TerminalPut.step(for: ShellBlock(command: command), shellInFront: true, bracketedPaste: true, starting: false, lastPut: "npm test", screen: { screen })
-        }
-        XCTAssertEqual(put("ls", screen: "~ $ npm test   \n"), .replaceLast)
-        XCTAssertEqual(put("npm test", screen: "~ $ npm test"), .alreadyThere)
-        // It was run: there's a new prompt, so nothing's left to replace.
-        XCTAssertEqual(put("ls", screen: "~ $ npm test\npassed\n~ $ "), .type)
-        // Someone's own half-typed line isn't this feature's to delete.
-        XCTAssertEqual(put("ls", screen: "~ $ git sta"), .type)
+        XCTAssertEqual(step("ls", line: .put("npm test")), .replaceLast)
     }
 
     func testASecondClickDoesntTypeItAgain() {
-        XCTAssertEqual(step("npx convex run --prod x", screen: "~ $ npx convex\n run --prod x   \n\n"), .alreadyThere)
-        XCTAssertEqual(step("ls", screen: "~ $ ls\nfile\n~ $ "), .type)
+        XCTAssertEqual(step("npm test", line: .put("npm test")), .alreadyThere)
+    }
+
+    func testCommandsThatDifferOnlyInSpacesAreDifferent() {
+        XCTAssertEqual(step(#"echo "a b""#, line: .put(#"echo "ab""#)), .replaceLast)
+    }
+
+    private func after(_ key: String?, _ line: TerminalPut.Line = .put("ls"), control: Bool = false, option: Bool = false, shift: Bool = false, command: Bool = false) -> TerminalPut.Line {
+        TerminalPut.line(line, afterKey: key, control: control, option: option, shift: shift, command: command)
+    }
+
+    func testKeysTrackWhatsOnThePrompt() {
+        XCTAssertEqual(after("\r"), .empty)
+        XCTAssertEqual(after("\r", .edited), .empty)
+        XCTAssertEqual(after("\u{3}"), .empty, "the keypad's Enter")
+        XCTAssertEqual(after("c", .edited, control: true), .empty)
+        XCTAssertEqual(after("a", .empty), .edited)
+        XCTAssertEqual(after("a", control: true), .edited, "Ctrl-A moves the cursor")
+        XCTAssertEqual(after("\r", shift: true), .edited)
+        XCTAssertEqual(after("\u{F700}"), .edited, "the up arrow brings back a command")
+        XCTAssertEqual(after("j", command: true), .put("ls"), "a shortcut isn't input")
+        XCTAssertEqual(after("c"), .edited, "a plain c is just a c")
+    }
+
+    func testEndsWithSeesThroughWrapping() {
+        XCTAssertTrue(TerminalPut.endsWith("~ $ npx convex\n run --prod x   \n\n", "npx convex run --prod x"))
+        XCTAssertFalse(TerminalPut.endsWith("~ $ ls\nfile\n~ $ ", "ls"))
     }
 }

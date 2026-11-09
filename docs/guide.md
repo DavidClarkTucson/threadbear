@@ -642,9 +642,11 @@ beside the thread, into a tab, or out into a window of its own.
 A shell command an agent gives you (a ```` ```bash ````, `sh`, `zsh` or
 `shell` block) has a play icon and a copy icon at its top right. Play
 opens the Terminal with the command typed at the prompt and the keyboard
-there, and you press Return, so you see it before it runs. If something is
-already running in that shell, nothing gets typed into it: the command
-goes on the clipboard and a bubble says so. Play isn't there on a thread
+there, and you press Return, so you see it before it runs. Pressing play
+on another block swaps it for the one still waiting. If something is
+already running in that shell, or you've typed on its prompt, nothing gets
+added: the command goes on the clipboard and a bubble says so (a shell
+without bracketed paste, like macOS's old bash, always copies). Play isn't there on a thread
 on another Mac or the cloud, or an archived one, as this Mac's shell
 wouldn't be in the right place; Copy still is. It's on the Mac app only.
 A block with control or invisible characters in it has no play icon.

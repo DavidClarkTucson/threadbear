@@ -42,12 +42,6 @@ public struct ShellBlock: Hashable, Sendable {
         return lowered.contains("sh") // sh, bash, zsh and shell all have it.
     }
 
-    /// Whether it has to go in as a paste: in a shell that can't take one,
-    /// a newline would run what's before it and a tab would complete it.
-    public var needsPaste: Bool {
-        command.contains("\n") || command.contains("\t")
-    }
-
     /// Only ordinary visible text, spaces, tabs and newlines.
     private static func isPlain(_ text: String) -> Bool {
         text.unicodeScalars.allSatisfy { scalar in
@@ -70,8 +64,20 @@ public struct ShellBlock: Hashable, Sendable {
 }
 
 /// What putting a command in a shell should do now, worked out from what
-/// the terminal says about itself, each time it's asked.
+/// the terminal says about itself and what's known to be on the prompt.
 public enum TerminalPut {
+    /// What's on the shell's prompt, from the keys that have gone to it.
+    /// Read from the keys and not the screen because the screen can't say:
+    /// it doesn't show where the prompt ends or where the cursor is in the
+    /// line, and a command edited by hand can still end the same way.
+    public enum Line: Equatable, Sendable {
+        case empty
+        /// Exactly this, cursor at the end, nothing pressed since.
+        case put(String)
+        /// Someone has typed, moved the cursor or pasted.
+        case edited
+    }
+
     public enum Step: Equatable, Sendable {
         /// The shell is still starting; ask again in a moment.
         case wait
@@ -83,32 +89,46 @@ public enum TerminalPut {
         /// It's already sitting at the prompt (a second click): only the
         /// keyboard needs to go there.
         case alreadyThere
-        /// Something else has the terminal, or it can't take this safely.
+        /// Something else has the terminal, or someone's own text is on
+        /// the prompt. It isn't typed; it's copied instead.
         case busy
     }
 
     /// - shellInFront: the shell itself owns the terminal, not a program
     ///   it's running (vim, a dev server, a command still going).
     /// - bracketedPaste: the terminal is in bracketed paste mode, which zsh,
-    ///   fish and modern bash switch on only while they wait at a prompt.
+    ///   fish and modern bash switch on only while they're editing a line.
+    ///   Both are needed: vim turns it on too, and a shell running a builtin
+    ///   like `read` owns the terminal with it off. Off means a newline, or
+    ///   simply filling `read -k`, could run something with no Return pressed,
+    ///   so nothing is typed, which includes macOS's bash 3, which never
+    ///   turns it on.
     /// - starting: the shell has only just been started.
-    /// - screen: what the terminal shows, read only if it's needed.
-    /// - lastPut: the command this last put in this shell, if any.
-    public static func step(for block: ShellBlock, shellInFront: Bool, bracketedPaste: Bool, starting: Bool, lastPut: String? = nil, screen: () -> String) -> Step {
-        guard shellInFront else { return starting ? .wait : .busy }
-        if !bracketedPaste {
-            if starting { return .wait }
-            // A shell that never does bracketed paste, like macOS's bash 3.
-            if block.needsPaste { return .busy }
+    public static func step(for block: ShellBlock, shellInFront: Bool, bracketedPaste: Bool, starting: Bool, line: Line) -> Step {
+        guard shellInFront, bracketedPaste else { return starting ? .wait : .busy }
+        switch line {
+        case .empty: return .type
+        case .put(block.command): return .alreadyThere
+        case .put: return .replaceLast
+        case .edited: return .busy
         }
-        let shown = screen()
-        if endsWith(shown, block.command) { return .alreadyThere }
-        if let lastPut, endsWith(shown, lastPut) { return .replaceLast }
-        return .type
     }
 
-    /// Compared without any whitespace: the terminal wraps a long command
-    /// and pads its lines, and a shell draws a pasted newline its own way.
+    /// What's on the prompt after a key goes to the shell. `characters` is
+    /// the key with no modifiers applied.
+    public static func line(_ line: Line, afterKey characters: String?, control: Bool, option: Bool, shift: Bool, command: Bool) -> Line {
+        // ⌘ shortcuts aren't input; ⌘V arrives as a paste.
+        if command { return line }
+        // "\u{3}" is the keypad's Enter.
+        let isReturn = characters == "\r" || characters == "\u{3}"
+        if isReturn && !control && !option && !shift { return .empty }
+        if control && characters == "c" { return .empty }
+        return .edited
+    }
+
+    /// Whether the screen ends with the command, ignoring whitespace, as a
+    /// terminal wraps a long one and pads its lines. Only good for checking
+    /// that a line just cleared has gone: it can't tell `"a b"` from `"ab"`.
     public static func endsWith(_ screen: String, _ command: String) -> Bool {
         let wanted = command.filter { !$0.isWhitespace }
         return !wanted.isEmpty && screen.filter { !$0.isWhitespace }.hasSuffix(wanted)
