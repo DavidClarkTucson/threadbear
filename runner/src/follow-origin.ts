@@ -102,11 +102,17 @@ export async function followOrigin(checkout: string): Promise<OriginResult> {
   const fastForward = await run(checkout, ['merge-base', '--is-ancestor', local, tip]);
   if (!fastForward.ok) return { ...out, problem: await divergedProblem(checkout, tip) };
   const wt = await worktreeOnMain(checkout);
-  // git branch -f, not update-ref, as git refuses it for a branch that's
-  // being rebased or bisected, which the worktree list doesn't show.
-  const moved = wt ? await run(wt, ['merge', '-q', '--ff-only', tip]) : await run(checkout, ['branch', '-f', 'main', tip]);
+  const moved = wt ? await run(wt, ['merge', '-q', '--ff-only', tip]) : await moveUnoccupiedMain(checkout, local, tip);
   if (moved.ok) return out;
   return { ...out, problem: { kind: 'stuck', message: `main in ${wt ?? checkout} couldn't move to GitHub's main, so new threads here start from the old one: ${cleanGitError(moved.err)}` } };
+}
+
+// git branch -f to main's own commit changes nothing, but git refuses it for
+// a branch being rebased or bisected, which the worktree list doesn't show.
+// The move itself is update-ref, which fails if main moved since we looked.
+async function moveUnoccupiedMain(checkout: string, local: string, tip: string): Promise<Run> {
+  const free = await run(checkout, ['branch', '-f', 'main', local]);
+  return free.ok ? run(checkout, ['update-ref', LOCAL_MAIN, tip, local]) : free;
 }
 
 async function divergedProblem(checkout: string, tip: string): Promise<OriginProblem> {

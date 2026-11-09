@@ -442,6 +442,7 @@ export class RunnerUpdater {
   private syncFailingSince?: number;
   // What followOrigin itself said, kept for a check that fails after it.
   private originTrouble?: string;
+  private behindNote?: string;
   // When this runner was first seen missing something that runs, for a
   // release commit git can't count from.
   private behindSeenAt?: number;
@@ -557,7 +558,9 @@ export class RunnerUpdater {
       if (this.stopped) return undefined;
       // Before anything below can fail, so it's said even when the clone is stuck.
       this.originTrouble = origin ? this.originTroubleOf(origin) : undefined;
-      this.followProblem = this.originTrouble;
+      if (!origin) this.behindNote = undefined;
+      // The last word on being behind stands until a check gets that far.
+      this.followProblem = joined(this.originTrouble, this.behindNote);
       // Nothing from GitHub to build, and the checkout's own main may be a
       // commit made only here: stay on this release rather than build that.
       if (origin && !origin.ref) {
@@ -571,7 +574,10 @@ export class RunnerUpdater {
       this.subject = main.subject;
       this.launcherReason = launchAgentBehind(path.join(dir, release.prefix), home, this.deps.env ?? process.env, this.deps.findLauncherApp, this.deps.platform);
       this.launcherChanged = this.launcherReason !== undefined;
-      if (origin) this.followProblem = joined(this.originTrouble, await this.behindTrouble(origin, main, release));
+      if (origin) {
+        this.behindNote = await this.behindTrouble(origin, main, release);
+        this.followProblem = joined(this.originTrouble, this.behindNote);
+      }
       if (origin) this.deps.onChange?.();
       if (main.commit !== this.backendTried) {
         this.backendTried = main.commit;
@@ -657,7 +663,7 @@ export class RunnerUpdater {
         const now = this.deps.clock.now();
         this.syncFailingSince ??= now;
         if (now - this.syncFailingSince >= FETCH_WARN_MS) {
-          this.followProblem = joined(this.originTrouble, `Couldn't bring the runner's update clone to GitHub's main for ${hours(now - this.syncFailingSince)}: ${cleanGitError(String(e))}`);
+          this.followProblem = joined(this.originTrouble, this.behindNote, `Couldn't bring the runner's update clone to GitHub's main for ${hours(now - this.syncFailingSince)}: ${cleanGitError(String(e))}`);
         }
       }
       this.state = wasFailed ? 'failed' : 'idle';

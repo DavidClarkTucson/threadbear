@@ -751,3 +751,21 @@ test('followOrigin: a release built with local changes is still said to be behin
   await u.check();
   assert.match(u.status().followProblem ?? '', /30 hours behind.*deploy once by hand/);
 });
+
+test('followOrigin: a stuck clone does not clear an hours-behind warning', async () => {
+  let broken = false;
+  const { u, clock } = originRig({
+    fetchOrigin: async () => ({ ref: 'refs/remotes/origin/main' }),
+    oldestMissing: async () => clock.now() - 30 * 3600_000,
+    sync: async () => {
+      if (broken) throw new Error('index.lock');
+      return { commit: 'c2', short: 'c2', subject: 's', tree: 'newer' };
+    },
+    deploy: async () => ({ ok: false, error: 'boom', transient: true }),
+  });
+  await u.check();
+  assert.match(u.status().followProblem ?? '', /30 hours behind/);
+  broken = true;
+  await u.check();
+  assert.match(u.status().followProblem ?? '', /30 hours behind/);
+});
