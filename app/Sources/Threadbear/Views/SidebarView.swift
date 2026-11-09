@@ -723,6 +723,14 @@ struct ThreadRowView: View {
                                 .lineLimit(1)
                                 .tip(ProjectMark.lineTip(thread, under: heading))
                         }
+                        if let runner = app.runnerLabel(of: thread) {
+                            // Its own text, kept whole: a long project name
+                            // gets cut short rather than the runner.
+                            Text("• \(runner)")
+                                .font(.system(size: TypeScale.sidebarMeta + 1))
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
                     }
                     .foregroundStyle(.secondary)
                     Spacer(minLength: zoomed(6))
