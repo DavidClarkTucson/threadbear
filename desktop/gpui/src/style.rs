@@ -19,6 +19,7 @@ pub mod size {
     pub const SMALL: f32 = 11.;
     pub const SIDEBAR_TITLE: f32 = 14.;
     pub const SIDEBAR_PREVIEW: f32 = 13.;
+    pub const SIDEBAR_BUTTON: f32 = 14.;
     pub const SIDEBAR_META: f32 = 11.;
     pub const SIDEBAR_HEADING: f32 = 13.;
     pub const HEADER: f32 = 15.;
@@ -84,4 +85,37 @@ pub fn button_fill(cx: &App) -> Hsla {
 
 pub fn button_edge(cx: &App) -> Hsla {
     pick(cx, white(0.08), black(0.18))
+}
+
+// The sidebar's colours (SidebarMetrics, ThreadRowView, ProjectTiles).
+
+/// `Color.primary` at an opacity: white in dark mode, black in light.
+pub fn primary_opacity(cx: &App, alpha: f32) -> Hsla {
+    pick(cx, white(alpha), black(alpha))
+}
+
+/// A row under the pointer (SidebarMetrics.hover).
+pub fn sidebar_hover(cx: &App) -> Hsla {
+    primary_opacity(cx, 0.03)
+}
+
+/// The open thread's row, brighter than a hover so the two read apart.
+pub fn sidebar_selected(cx: &App) -> Hsla {
+    primary_opacity(cx, 0.08)
+}
+
+/// macOS's system accent (blue by default). Swift's `Color.accentColor` follows
+/// the user's setting; this stands in until there's a shim for it.
+pub fn accent(cx: &App) -> Hsla {
+    pick(cx, rgb(0x0a84ff).into(), rgb(0x007aff).into())
+}
+
+/// Theme.failed.
+pub fn failed(cx: &App) -> Hsla {
+    pick(cx, rgb(0xff453a).into(), hsla(0.0, 0.71, 0.46, 1.0))
+}
+
+/// `.secondary` text (secondaryLabelColor).
+pub fn secondary_text(cx: &App) -> Hsla {
+    pick(cx, white(0.55), black(0.5))
 }

@@ -26,6 +26,7 @@ pub struct Threadbear {
     pub(crate) search: Entity<InputState>,
     /// The sections folded away under their headings, by key.
     pub(crate) folded: HashSet<&'static str>,
+    pub(crate) sidebar: crate::sidebar::SidebarState,
     /// What's typed for each thread that isn't open.
     drafts: HashMap<String, String>,
     _events: Task<()>,
@@ -67,6 +68,7 @@ impl Threadbear {
             pane: None,
             search,
             folded: HashSet::from(["hibernating", "archived"]),
+            sidebar: crate::sidebar::SidebarState::new(cx),
             drafts: HashMap::new(),
             _events: events,
             _subs: vec![appearance, searching],
@@ -82,6 +84,8 @@ impl Threadbear {
                 // open thread read again: thread.updated only says what changed.
                 if connected {
                     self.load_list(cx);
+                    self.refresh_restart(cx);
+                    self.load_projects(cx);
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.load(cx));
                     }
@@ -99,6 +103,8 @@ impl Threadbear {
                 "thread.deleted" => {
                     self.threads.remove(params["threadId"].as_str().unwrap_or(""));
                 }
+                "runner.notice" => self.refresh_restart(cx),
+                "projects.updated" => self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]),
                 "thread.event" => {
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.event(&params, cx));
@@ -120,6 +126,7 @@ impl Threadbear {
                         let list: Vec<ThreadSummary> = serde_json::from_value(v["threads"].clone()).unwrap_or_default();
                         this.threads = list.into_iter().map(|t| (t.id.clone(), t)).collect();
                         this.list_error = None;
+                        this.sidebar.loaded = true;
                     }
                     Err(e) => this.list_error = Some(e.message),
                 }
@@ -231,23 +238,16 @@ impl Threadbear {
     /// The window as data, in the Swift app's shape (app/Sources/Threadbear/AppDump.swift).
     #[cfg(feature = "automation")]
     pub(crate) fn dump(&self, cx: &App) -> Value {
-        let row = |t: &ThreadSummary| json!({ "id": t.id, "title": t.title, "status": t.status, "needsYou": t.needs_you, "unread": t.unread() });
-        let now = now_ms();
-        let shown = self.shown_sections(cx, now);
-        let sections: Vec<Value> = shown.iter().map(|s| json!({ "name": s.title, "collapsed": self.folded.contains(s.key), "threads": s.rows.iter().map(row).collect::<Vec<_>>() })).collect();
-        let snoozed = shown.iter().find(|s| s.key == "hibernating").map_or(0, |s| s.rows.len());
-        let archived = shown.iter().find(|s| s.key == "archived").map_or(0, |s| s.rows.len());
         let connection = match self.status {
             Status::Connected { .. } => "connected",
             Status::Connecting { .. } => "connecting",
             Status::Disconnected { .. } => "lost",
         };
-        let selected = self.selected.as_ref().and_then(|id| self.threads.get(id));
         let pane = self.pane.as_ref().map(|p| p.read(cx));
         json!({
             "connection": connection,
-            "selection": selected.map(row),
-            "sidebar": { "mode": "inbox", "sections": sections, "snoozed": snoozed, "archived": archived },
+            "selection": self.selection_dump(),
+            "sidebar": self.sidebar_dump(cx),
             "composer": { "draft": self.selected.clone().unwrap_or_else(|| "new".into()), "text": pane.map(|p| p.draft(cx)).unwrap_or_default() },
             "transcript": pane.map(|p| p.dump()).unwrap_or_else(|| json!({ "rows": [] })),
             "banner": Value::Null,
@@ -257,7 +257,7 @@ impl Threadbear {
     /// The sections with the search applied, as they're drawn.
     pub(crate) fn shown_sections(&self, cx: &App, now: i64) -> Vec<inbox::Section> {
         let query = self.search.read(cx).value().trim().to_lowercase();
-        inbox::sections(self.threads.values().filter(|t| query.is_empty() || inbox::matches(t, &query)), now)
+        inbox::sections_ordered(self.threads.values().filter(|t| query.is_empty() || inbox::matches(t, &query)), now, self.sidebar.order)
     }
 
     pub(crate) fn connection_note(&self) -> Option<String> {
