@@ -477,10 +477,13 @@ test('land releases its lock when a CLI is killed during the check', async () =>
   // Acquire while the orphan check is still alive, so a pipe inherited
   // by that check cannot make a leaked lock look like a passing test.
   const next = land(t, capture().opts);
+  // The limit covers the whole landing (lockf, node, a rebase and a dozen
+  // git calls), not just the lock. A leaked lock waits for ever, so a long
+  // limit still catches it; 10s failed a release build on a busy Mac (9 Nov).
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     assert.equal(await Promise.race([next, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Killed CLI kept its landing lock')), 10_000);
+      timer = setTimeout(() => reject(new Error('Killed CLI kept its landing lock')), 90_000);
     })]), 0);
   } finally {
     clearTimeout(timer);
