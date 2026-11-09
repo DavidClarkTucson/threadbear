@@ -29,6 +29,12 @@ and ask the user what they use instead, rather than trying to reach them.
   the cloud box for a `--quick` run, `checkHosts` in runner.json), not on his Mac: three threads' suites
   at once took it to a load of 75, and a test window came up over his
   browser (6 Nov). A hook blocks `npm test` and `check.sh --local` here.
+- Builds on Mike's Mac go one at a time: `scripts/one-build.sh <command>`
+  holds a lock for the machine while it runs (three threads' app and iPhone
+  builds at once, 9 Nov). The build scripts (build-app.sh, dev-app.sh,
+  sim-shots.sh, install-phone.sh) take it themselves, and his hook puts a
+  bare `swift build`/`swift test`/`xcodebuild` through it; a build that says
+  it's waiting for another is that, so give it a longer timeout.
 - Changing a threadbear tool's arguments: keep taking the old ones. A resumed
   Claude session keeps a tool's definition from when it first loaded it, and
   ToolSearch shows that one too, so it goes on calling the old form
