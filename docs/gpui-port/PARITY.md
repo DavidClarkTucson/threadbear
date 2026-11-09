@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-54 of 325 features have a spec so far, across 94 scenarios.
+108 of 326 features have a spec so far, across 194 scenarios.
 
-Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 of 94.
+Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 24 of 194, Linux: 192 of 194.
 
 
 ### 0. Foundations everything else needs
@@ -21,6 +21,23 @@ Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `foundation.rpc` Runner RPC client | pass | pass | pass | pass |
+| `foundation.zoom` Zoom | partly | pass | pending | pass |
+
+### 1. Windows and panel dock
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `dock.layout` Layout tree | pass | pass | pending | pass |
+| `dock.frame` Window frame memory | pending | pending | pending | pending |
+| `dock.reset` Default layout and Reset | pass | pass | pending | pass |
+
+### 2. Rails
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `rail.activity` Activity bar | pass | pass | pending | pass |
+| `rail.dots` Rail dots | pass | pass | pending | pass |
+| `rail.right` Right rail | pass | pass | pending | pass |
 
 ### 3. Sidebar and inbox
 
@@ -34,6 +51,7 @@ Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 
 | `sidebar.row.marks` Row left marks | pass | pass | partly | pass |
 | `sidebar.row.origin` Origin mark | pass | pass | pending | pass |
 | `sidebar.row.status` Row right status | pass | pass | pending | pass |
+| `sidebar.row.remote` Other-Mac icon | pass | pass | pending | pass |
 | `sidebar.row.hoverbuttons` Hover buttons | pass | pass | partly | pass |
 | `sidebar.row.menu` Row context menu | pass | pass | pending | pass |
 | `sidebar.subagents` Sub-agent tree | pass | pass | pending | pass |
@@ -42,6 +60,21 @@ Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 
 | `sidebar.hibernate.presets` Hibernate presets | pass | pass | partly | pass |
 | `sidebar.hibernate.pick` Pick a time | pending | pending | pending | pending |
 | `sidebar.hibernate.wake` Wake when… | pass | pass | pending | pass |
+| `sidebar.move` Move to another runner | pass | pass | pending | pass |
+
+### 4. Thread header, banners, toasts
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `header.title` Title line | pass | pass | pending | pass |
+| `header.backforward` Back and forward | pass | pass | pending | pass |
+| `header.share` Share | pass | pass | pending | pass |
+| `header.more` ... menu | pass | pass | pending | pass |
+| `banner.connection` Connection banner | pass | pass | pending | pass |
+| `banner.error` Error banner | pass | pass | pending | pass |
+| `toast.archived` Archived toast | pass | pass | pending | pass |
+| `toast.inboxend` Inbox end toast | pass | pass | pending | pass |
+| `thread.newpage` New-thread page | pass | pass | pending | pass |
 
 ### 5. Transcript row kinds
 
@@ -54,7 +87,7 @@ Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 
 | `transcript.tool` Tool line | pass | pass | partly | pass |
 | `transcript.tooloutput` Tool output styling | pass | pass | pending | pass |
 | `transcript.diff` Diff row | pass | pass | pending | pass |
-| `transcript.images` Images row | pass | pass | pending | pass |
+| `transcript.images` Images row | partly | pass | pending | pass |
 | `transcript.approval` Approval card | pass | pass | pass | pass |
 | `transcript.approval.stacked` Stacked approval | pass | pass | pending | pass |
 | `transcript.approval.settled` Settled approval | pass | pass | pass | pass |
@@ -79,10 +112,14 @@ Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 
 | `composer.chiphover` Chip hover and × | pass | pass | pending | pass |
 | `composer.filedrop` File path drop | pass | pass | pending | pass |
 | `composer.dropanywhere` Drop anywhere on thread | pass | pass | pending | pass |
+| `composer.runner` Runner chip | pass | pass | pending | pass |
 | `composer.modelpicker` Model picker | pass | pass | pending | pass |
 | `composer.permission` Permission chip | pass | pass | pending | pass |
 | `composer.contextring` Context ring | pass | pass | pending | pass |
 | `composer.send` Send and Stop | pass | pass | pass | pass |
+| `composer.starting` Starting state | pass | pass | pending | pass |
+| `composer.slash` Slash palette | pass | pass | pending | pass |
+| `composer.slash.keys` Palette keys | pass | pass | pending | pass |
 
 ### 8. Cards in the composer
 
@@ -95,6 +132,58 @@ Scenarios passing: Swift: 93 of 94, Mac: 93 of 94, Windows: 24 of 94, Linux: 93 
 | `card.returnflow` Return flow | pass | pass | pending | pass |
 | `card.answers` Answer and follow-up state | pass | pass | partly | pass |
 
+### 9. Highlights
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `highlights.panel` Panel and folds | pass | pass | pending | pass |
+| `highlights.librarian` Librarian line | pass | pass | pending | pass |
+| `highlights.needsyou` Needs you list | pass | pass | pending | pass |
+| `highlights.projects` Project blocks | pass | pass | pending | pass |
+| `highlights.scheduled` Scheduled list | pass | pass | pending | pass |
+| `highlights.subagents` Sub-agents list | pass | pass | pending | pass |
+| `highlights.started` Threads it started | pass | pass | pending | pass |
+| `highlights.pinned` Pinned, Files, Links | pass | pass | pending | pass |
+| `highlights.changes` Changes | pass | pass | pending | pass |
+| `highlights.rowmenus` Row menus | pass | pass | pending | pass |
+
+### 10. Patches panels and web panels
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `patches.list` Patches list | pass | pass | pending | pass |
+| `patches.run` Patch chips run | pass | pass | pending | pass |
+| `panel.list` List panel | pass | pass | pending | pass |
+| `panel.image` Image panel | pass | pass | pending | pass |
+
+### 12. File previews and folders
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `file.host` Preview host | pass | pass | pending | pass |
+| `file.picture` Picture view | pass | pass | pending | pass |
+| `file.textview` Text viewer | pass | pass | pending | pass |
+| `file.markdown` Markdown preview | pass | pass | pending | pass |
+| `folder.list` Folder list | pass | pass | pending | pass |
+| `folder.pathbar` Path bar | pass | pass | pending | pass |
+| `folder.menu` Folder menu | pass | pass | pending | pass |
+| `folder.filespanel` Files panel | pass | pass | pending | pass |
+
+### 17. Navigation, shortcuts, main menu
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `nav.history` Back/forward history | partly | pass | pending | pass |
+| `nav.sidebuttons` Mouse side buttons | pass | pass | pending | pass |
+| `nav.nextinbox` Next Inbox Thread | pass | pass | pending | pass |
+| `menu.app` App menu | pass | pass | pending | pass |
+| `menu.file` File menu | pass | pass | pending | pass |
+| `menu.view` View menu | pass | pass | pending | pass |
+| `menu.go` Go menu | pass | pass | pending | pass |
+| `menu.thread` Thread menu | pass | pass | pending | pass |
+| `menu.help` Help menu | pass | pass | pending | pass |
+| `nav.shortcuts` Keyboard shortcuts | partly | pass | pending | pass |
+
 <!-- parity:end -->
 
 ## The log
@@ -103,6 +192,19 @@ One entry a slice, newest first. Every entry has a `Verification:` line: a spec
 run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
+
+### 2026-11-09 The first app that can be used all day
+
+- Merged: the sidebar, the transcript's real rows, the composer and its cards,
+  the window on BearDock with its rails, header, banners, menus and shortcuts,
+  Highlights, previews, Patches, the Files panel, the new-thread page, the slash
+  palette and other runners' threads.
+- Fixed in the merge: dropping a file on selectable text now works, as a drop
+  layer goes over the thread while a file's being dragged.
+- Remaining: Scheduled, Projects, Librarian, Usage, Updates and Settings pages,
+  the bears and flights, web panels, the terminal.
+- Verification: 192 scenarios pass on Linux and on a real Mac; the Swift app passes
+  the 188 of them that aren't marked GPUI-only.
 
 ### 2026-11-09 Against a real runner
 
