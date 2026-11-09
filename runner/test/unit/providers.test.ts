@@ -1,0 +1,56 @@
+// The table of what each provider is called and can do (providers.ts). The
+// runner's checks and the app read this rather than comparing provider names.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { cliName, PROVIDER_INFO, providerInfo, providerName, providersForHello } from '../../src/providers.ts';
+import { PROVIDERS } from '../../src/protocol.ts';
+import { FakeAccounts, makeHarness, withCodex } from '../helpers/fakes.ts';
+
+test('every provider has a row, under its own id', () => {
+  for (const p of PROVIDERS) assert.equal(PROVIDER_INFO[p].id, p);
+  assert.equal(Object.keys(PROVIDER_INFO).length, PROVIDERS.length);
+});
+
+test('names stay as they were before the table', () => {
+  assert.equal(providerName('claude'), 'Claude');
+  assert.equal(providerName('codex'), 'Codex');
+  assert.equal(cliName('claude'), 'Claude Code');
+  assert.equal(cliName('codex'), 'Codex');
+});
+
+test('what Claude and Codex can each do', () => {
+  assert.equal(PROVIDER_INFO.claude.sandbox, true, 'only Claude runs in the sandbox');
+  assert.equal(PROVIDER_INFO.codex.sandbox, false);
+  assert.equal(PROVIDER_INFO.claude.autoMode, 'classifier');
+  assert.equal(PROVIDER_INFO.codex.autoMode, 'asks');
+  assert.equal(PROVIDER_INFO.claude.smallJobs, true);
+  assert.equal(PROVIDER_INFO.codex.smallJobs, false);
+  assert.equal(PROVIDER_INFO.claude.loginCommand, 'claude auth login');
+  assert.equal(PROVIDER_INFO.codex.loginCommand, 'codex login');
+});
+
+test("a provider the table doesn't know can do nothing, and never reads as Claude", () => {
+  // A record or another runner's hello from a build that has one more.
+  const info = providerInfo('mystery');
+  assert.equal(info.name, 'mystery');
+  assert.equal(info.effort, 'none');
+  assert.equal(info.autoMode, 'asks');
+  for (const can of [info.sandbox, info.rewind, info.smallJobs, info.usageReadings]) assert.equal(can, false);
+});
+
+test("names from Object.prototype aren't providers", () => {
+  // A plain lookup would hand back the function and read its `sandbox`.
+  assert.equal(providerInfo('constructor').sandbox, false);
+  assert.equal(providerInfo('constructor').name, 'constructor');
+});
+
+test('a thread with no provider is a Claude one, as a record from before Codex', () => {
+  assert.equal(providerName(undefined), 'Claude');
+  assert.equal(providerName(''), 'Claude');
+});
+
+test('hello lists each provider, in PROVIDERS order', () => {
+  assert.deepEqual(providersForHello().map((p) => p.id), [...PROVIDERS]);
+  const h = makeHarness(undefined, {}, { accounts: new FakeAccounts(withCodex()) });
+  assert.deepEqual(h.runner.hello().providers.map((p) => p.name), ['Claude', 'Codex']);
+});

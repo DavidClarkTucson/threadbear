@@ -42,6 +42,7 @@ import type {
   PersistedEvent,
   Pool,
   Provider,
+  ProviderInfo,
   Question,
   RewoundFiles,
   RunnerDefaults,
@@ -52,6 +53,7 @@ import type {
   TurnOutcome,
 } from './protocol.ts';
 import { agentsStillWorking, ErrorCode, LIMITS, PROTOCOL_VERSION, RpcError, sentByAgent } from './protocol.ts';
+import { cliName, providerInfo, providerName, providersForHello } from './providers.ts';
 import type { ArchivedBy, ArchiveVerdict, LibrarianStatus, Project, Schedule } from './protocol.ts';
 import { Projects } from './projects.ts';
 import type { Settings } from './settings.ts';
@@ -1197,7 +1199,7 @@ export class Runner {
 
   // --------------------------------------------------------------- queries
 
-  hello(): { runnerVersion: string; protocol: number; accounts: Account[]; pools: Pool[]; defaults: RunnerDefaults; clis?: CliStatus[] } {
+  hello(): { runnerVersion: string; protocol: number; accounts: Account[]; providers: ProviderInfo[]; pools: Pool[]; defaults: RunnerDefaults; clis?: CliStatus[] } {
     const accounts = this.accounts.list();
     const pools = this.pools(accounts);
     const defaults: RunnerDefaults = { cwd: this.cfg.defaults.cwd, accountId: this.defaultAccountId(accounts) };
@@ -1210,7 +1212,7 @@ export class Runner {
     if (this.cfg.defaults.efforts) defaults.efforts = { ...this.cfg.defaults.efforts };
     // The app's composer starts a new thread on it.
     if (this.cfg.defaults.permissionMode) defaults.permissionMode = this.cfg.defaults.permissionMode;
-    const out: ReturnType<Runner['hello']> = { runnerVersion: RUNNER_VERSION, protocol: PROTOCOL_VERSION, accounts, pools, defaults };
+    const out: ReturnType<Runner['hello']> = { runnerVersion: RUNNER_VERSION, protocol: PROTOCOL_VERSION, accounts, providers: providersForHello(), pools, defaults };
     const clis = this.cliList();
     if (clis) out.clis = clis;
     return out;
@@ -1823,8 +1825,9 @@ export class Runner {
     // message may have brought hooks.
     // A thread shut in a sandbox starts in one or not at all (the adapters
     // check too); one that starts in one is shut in it from now on.
-    const inSandbox = rec.provider === 'claude' && this.sandboxed(rec.cwd);
-    if (rec.confined && !inSandbox) throw new Error(rec.provider === 'claude' ? CONFINED_NO_SANDBOX(rec.cwd) : "This thread runs in a sandbox, and Codex can't, so it wasn't started. Move it to a Claude login.");
+    const canSandbox = providerInfo(rec.provider).sandbox;
+    const inSandbox = canSandbox && this.sandboxed(rec.cwd);
+    if (rec.confined && !inSandbox) throw new Error(canSandbox ? CONFINED_NO_SANDBOX(rec.cwd) : `This thread runs in a sandbox, and ${providerName(rec.provider)} can't, so it wasn't started. Move it to a Claude login.`);
     if (inSandbox) rec.confined = true;
     const claude = rec.provider === 'claude' ? this.patchTrust.checkClaude(rec.cwd, claudeOptions(rec)) : undefined;
     rt.claudeSkipped = claude && !claude.trusted ? claude.hash : undefined;
@@ -2677,9 +2680,9 @@ export class Runner {
     }
     if (newAccount && toAccountId !== rec.accountId) this.checkProvider(newAccount);
     // Checked before anything changes: where it would run after this.
-    const stillIn = (newAccount?.provider ?? rec.provider) === 'claude' && this.sandboxed(newCwd ?? rec.cwd);
+    const stillIn = providerInfo(newAccount?.provider ?? rec.provider).sandbox && this.sandboxed(newCwd ?? rec.cwd);
     if (rec.confined && (newCwd !== undefined || toAccountId !== undefined) && !stillIn && !params.unconfine) {
-      throw new RpcError(ErrorCode.badParams, `"${rec.title}" runs in a sandbox, and this would take it out of it (a folder that isn't in one, or a Codex login). Only the user can do that.`);
+      throw new RpcError(ErrorCode.badParams, `"${rec.title}" runs in a sandbox, and this would take it out of it (a folder that isn't in one, or a login that can't run in one). Only the user can do that.`);
     }
     // Pinned (an account named, or poolId null), or into a pool.
     if (params.accountId !== undefined || params.poolId === null) {
@@ -3716,15 +3719,6 @@ export function oneLine(text: string, max: number): string {
   const s = text.replace(/\s+/g, ' ').trim();
   // Never through a secret: these lines go to Convex (safe-cut.ts).
   return cutSafely(s, max, '…');
-}
-
-// A provider's name in notes.
-export function providerName(p: Provider): string {
-  return p === 'codex' ? 'Codex' : 'Claude';
-}
-
-function cliName(p: Provider): string {
-  return p === 'codex' ? 'Codex' : 'Claude Code';
 }
 
 // Claude's own ids: its aliases, and anything starting claude- (with or

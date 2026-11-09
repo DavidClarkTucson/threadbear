@@ -5,6 +5,7 @@ import path from 'node:path';
 import { loadConfig, readToken, runnerUrl } from './config.ts';
 import { RunnerClient } from './client.ts';
 import { poolLine } from './pools.ts';
+import { providerName } from './providers.ts';
 import type { Account, ImageRef, Pool, LibrarianStatus, PersistedEvent, Project, RunnerDefaults, Schedule, ThreadSummary } from './protocol.ts';
 import type { Settings } from './settings.ts';
 import { backgroundFlag } from './protocol.ts';
@@ -575,7 +576,7 @@ async function run(client: RunnerClient, cmd: string, args: string[], f: Flags):
         const note = a.note ? `  (${a.note})` : '';
         // The provider has its own column, so not "Codex · " again.
         const who = a.email ?? a.title.replace(/^Codex · /, '');
-        console.log(`${a.id === r.defaults.accountId ? '*' : ' '} ${a.id.padEnd(12)} ${(a.provider === 'codex' ? 'Codex' : 'Claude').padEnd(7)}${who}${note}`);
+        console.log(`${a.id === r.defaults.accountId ? '*' : ' '} ${a.id.padEnd(12)} ${providerName(a.provider).padEnd(7)}${who}${note}`);
       }
       return 0;
     }

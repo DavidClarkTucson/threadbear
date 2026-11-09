@@ -7,6 +7,21 @@ export const PROTOCOL_VERSION = 1;
 export type Provider = 'claude' | 'codex';
 export const PROVIDERS: readonly Provider[] = ['claude', 'codex'];
 
+// What a provider is called and can do (providers.ts holds the table). `id`
+// is a plain string as a client can be sent one it has never heard of.
+export type ProviderInfo = {
+  id: string;
+  name: string;
+  cliName: string;
+  loginCommand: string;
+  effort: 'claude' | 'codex' | 'none';
+  autoMode: 'classifier' | 'asks';
+  sandbox: boolean;
+  rewind: boolean;
+  smallJobs: boolean;
+  usageReadings: boolean;
+};
+
 export function isProvider(v: unknown): v is Provider {
   return typeof v === 'string' && (PROVIDERS as readonly string[]).includes(v);
 }

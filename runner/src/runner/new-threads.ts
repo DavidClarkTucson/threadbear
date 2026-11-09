@@ -16,7 +16,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { ThreadState } from '../runner.ts';
-import { checkImages, effortTitle, isClaudeModel, modelRow, modelTitle, newRuntime, oneLine, providerName, titleFrom, userMessage } from '../runner.ts';
+import { checkImages, effortTitle, isClaudeModel, modelRow, modelTitle, newRuntime, oneLine, titleFrom, userMessage } from '../runner.ts';
+import { providerInfo, providerName } from '../providers.ts';
 import { cutSafely } from '../safe-cut.ts';
 
 export const newThreadsPart = {
@@ -191,9 +192,10 @@ export const newThreadsPart = {
     // In a sandbox folder a Claude thread is shut in it from the start. One
     // asked for that which can't be (a Codex login, a folder outside) is
     // refused rather than started outside (sandbox.ts).
-    const sandboxed = account.provider === 'claude' && this.sandboxed(cwd);
+    const canSandbox = providerInfo(account.provider).sandbox;
+    const sandboxed = canSandbox && this.sandboxed(cwd);
     if (params.confined && !sandboxed) {
-      throw new RpcError(ErrorCode.badParams, account.provider === 'claude' ? `${cwd} isn't in a sandbox folder, and a sandboxed thread can only start threads in one without asking.` : "A sandboxed thread can only start Claude threads, as Codex doesn't run in the sandbox.");
+      throw new RpcError(ErrorCode.badParams, canSandbox ? `${cwd} isn't in a sandbox folder, and a sandboxed thread can only start threads in one without asking.` : `A sandboxed thread can only start Claude threads, as ${providerName(account.provider)} doesn't run in the sandbox.`);
     }
     const now = this.isoNow();
     const id = crypto.randomUUID();
@@ -275,11 +277,12 @@ export const newThreadsPart = {
     }
     if (effort) {
       const row = modelRow(account, model ?? account.defaultModel);
-      const offered = (e: EffortLevel) => !(provider === 'claude' && e === 'ultra') && (!row?.effortLevels || row.effortLevels.includes(e));
+      const noUltra = providerInfo(provider).effort === 'claude';
+      const offered = (e: EffortLevel) => !(noUltra && e === 'ultra') && (!row?.effortLevels || row.effortLevels.includes(e));
       if (!offered(effort)) {
         const fallback = this.defaultEffortFor(provider);
         const next = fallback && fallback !== effort && offered(fallback) ? fallback : undefined;
-        const why = provider === 'claude' && effort === 'ultra' ? `${effortTitle(effort)} effort is Codex only` : `${row ? row.title : 'This model'} doesn't offer ${effortTitle(effort)} effort`;
+        const why = noUltra && effort === 'ultra' ? `${effortTitle(effort)} effort is Codex only` : `${row ? row.title : 'This model'} doesn't offer ${effortTitle(effort)} effort`;
         notes.push(`${why}, so this thread uses ${next ? `${effortTitle(next)} effort` : "the model's own level"}.`);
         effort = next;
       }

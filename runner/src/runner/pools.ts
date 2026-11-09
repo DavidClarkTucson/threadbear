@@ -12,7 +12,8 @@ import { DEFAULT_POOL_FOLDERS, readRunnerJson, writeRunnerJson } from '../config
 import { WAIT_SLACK_MS, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from '../pools.ts';
 import { historyItems, selectHistory } from '../handoff-history.ts';
 import type { ThreadState } from '../runner.ts';
-import { CARRY_ON_BACK, CARRY_ON_MOVED, isClaudeModel, modelRow, modelTitle, providerName } from '../runner.ts';
+import { CARRY_ON_BACK, CARRY_ON_MOVED, isClaudeModel, modelRow, modelTitle } from '../runner.ts';
+import { providerName } from '../providers.ts';
 
 export const poolsPart = {
   // The pools in force: runner.json's, else the built-in ones from the
