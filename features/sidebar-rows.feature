@@ -46,6 +46,14 @@ Feature: What a thread's row says in the sidebar
     When I open the thread "Tidy the imports in the uploader"
     Then the row "Tidy the imports in the uploader" has no mark
 
+  @sidebar.row.marks
+  Scenario: Opening a thread doesn't move it in the Inbox
+    Given the window is in front
+    And I note where "Tidy the imports in the uploader" is in the "Inbox" section
+    When I open the thread "Tidy the imports in the uploader"
+    Then the row "Tidy the imports in the uploader" has no mark
+    And "Tidy the imports in the uploader" is still in the same place in the "Inbox" section
+
   @sidebar.row.status
   Scenario: A turn under way shows how long it has been going
     Then the row "Why is the build slow on CI?" shows a running timer

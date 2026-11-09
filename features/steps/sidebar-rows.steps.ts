@@ -1,5 +1,6 @@
-import { Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
+import type { Dump } from '../support/driver.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 
 // A row's text, read from `dump`: the same fields on both apps (AppDump's
@@ -10,6 +11,17 @@ Then('the row {string} has the tile {string}', async function (this: ThreadbearW
 
 Then('the row {string} is in {string}', async function (this: ThreadbearWorld, title: string, place: string) {
   await this.until(`"${title}" in ${place}`, (d) => this.thread(d, title)?.place === place);
+});
+
+const indexIn = (d: Dump, name: string, title: string) => d.sidebar.sections.find((s) => s.name === name)?.threads.findIndex((t) => t.title === title) ?? -1;
+
+Given('I note where {string} is in the {string} section', async function (this: ThreadbearWorld, title: string, name: string) {
+  const d = await this.until(`"${title}" under ${name}`, (x) => indexIn(x, name, title) >= 0 && x);
+  this.notedIndex = indexIn(d, name, title);
+});
+
+Then('{string} is still in the same place in the {string} section', async function (this: ThreadbearWorld, title: string, name: string) {
+  await this.until(`"${title}" at ${this.notedIndex} in ${name}`, (d) => indexIn(d, name, title) === this.notedIndex);
 });
 
 Then('the row {string} has the origin mark {string}', async function (this: ThreadbearWorld, title: string, symbol: string) {

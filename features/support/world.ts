@@ -12,6 +12,8 @@ export class ThreadbearWorld extends World {
   app: Driver;
   /** What the last right-click on a sidebar row offered. */
   menuTitles?: string[];
+  /** A row's position a scenario wants to compare with later. */
+  notedIndex?: number;
 
   constructor(options: IWorldOptions) {
     super(options);

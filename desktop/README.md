@@ -89,5 +89,3 @@ each.
 - On Windows, path handling (`folderName` splits on `/`) and the runner's
   data dir are still Mac-shaped. The runner itself doesn't run on Windows
   yet.
-- Opening a thread marks it read, and the sidebar then re-sorts with the open
-  thread moving. The Mac app keeps it in place.
