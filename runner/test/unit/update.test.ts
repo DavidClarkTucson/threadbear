@@ -7,7 +7,7 @@ import { tmpDir } from '../helpers/fakes.ts';
 import { FakeClock } from '../../src/clock.ts';
 import type { UpdateFailure } from '../../src/fix-update.ts';
 import { nullLogger } from '../../src/log.ts';
-import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, SOON_MS, RunnerUpdater, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, type UpdateDeps } from '../../src/update.ts';
+import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, type UpdateDeps } from '../../src/update.ts';
 import type { ReleaseJson } from '../../src/release.ts';
 import { patiently } from '../helpers/patience.ts';
 
@@ -502,4 +502,20 @@ test('a failed backend deploy holds the runner back until main changes', async (
   await h.u.check();
   assert.deepEqual(h.backendDeploys, ['c2', 'c3']);
   assert.equal(h.deploys, 1);
+});
+
+// deploy-steps.mjs's own wording for a step the Mac slept through, so the two
+// can't drift apart: the build is tried again later, not marked failed.
+test('a build that failed while the Mac slept is tried again later', async () => {
+  const root = tmpDir();
+  fs.mkdirSync(path.join(root, 'scripts'));
+  const stepsUrl = new URL('../../scripts/deploy-steps.mjs', import.meta.url).href;
+  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import { checkSlept } from ${JSON.stringify(stepsUrl)};\ntry { checkSlept(1, 2, 'Unit tests (npm exited with 1; the output is in /tmp/x.log)'); } catch (e) { console.error(e.message); process.exit(1); }\n`);
+  const result = await runDeploy(root, root, path.join(root, 'build.log'), root);
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.transient, true);
+  // Any other failure still isn't.
+  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), "console.error('Unit tests failed (npm exited with 1)'); process.exit(1);\n");
+  const broken = await runDeploy(root, root, path.join(root, 'build.log'), root);
+  assert.equal(!broken.ok && broken.transient, false);
 });

@@ -122,7 +122,10 @@ File references are where to look.
   and redeploy your backend, so whatever reaches your `main` runs, with no
   signature check; only Mike's release tags are signed (below). Turn it
   off for both with `followMain: false` in `runner.json` (ask any thread
-  to; it left Settings on 2 Nov).
+  to; it left Settings on 2 Nov). Around each step of the runner's build
+  it reads macOS's sleep count (`pmset -g stats`, which changes nothing),
+  so a step that failed while the Mac slept is tried again later rather
+  than taken as a broken main.
 - **Schedule checks** (`runner/src/schedule-check.ts`, experiment
   `scheduleChecks`, off by default): a schedule's check command runs in
   `/bin/sh` before each run, as you, for at most a minute (or up to five,
