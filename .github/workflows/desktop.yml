@@ -1,6 +1,7 @@
 # The GPUI desktop app (desktop/: the runner connection and the app) on
 # Linux, Mac and Windows: every Rust test (including signing in to the mock
-# runner), and a build for each to download from the run's artifacts.
+# runner), the behaviour specs in features/ against a real window, and a build
+# for each to download from the run's artifacts.
 # Nothing is signed: the Mac app needs right-click Open the first time, and
 # Windows SmartScreen asks once.
 name: Desktop app
@@ -15,6 +16,7 @@ on:
       - web/src/sections.ts
       - web/src/format.ts
       - app/Tools/mock-runner/**
+      - features/**
       - .github/workflows/desktop.yml
   pull_request:
     paths:
@@ -24,6 +26,7 @@ on:
       - web/src/sections.ts
       - web/src/format.ts
       - app/Tools/mock-runner/**
+      - features/**
       - .github/workflows/desktop.yml
   workflow_dispatch:
 
@@ -60,11 +63,28 @@ jobs:
           workspaces: desktop
       - name: Linux libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev libvulkan-dev
-      - name: Install the mock runner
-        run: npm ci --prefix app/Tools/mock-runner
+        # xvfb, mesa and dbus are for the behaviour specs: a window with no screen.
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev libvulkan-dev xvfb mesa-vulkan-drivers dbus-x11
+      - name: Install the mock runner and the specs
+        run: |
+          npm ci --prefix app/Tools/mock-runner
+          npm ci --prefix features
+      - name: The specs line up with their steps
+        working-directory: features
+        run: node verify-pairing.mjs
       - name: Rust tests (with the mock runner)
         run: cargo test --manifest-path desktop/Cargo.toml
+      - name: Behaviour specs
+        run: |
+          cargo build --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation
+          cd features
+          TB_APP=gpui TB_RETRY=1 node_modules/.bin/cucumber-js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spec-reports-${{ matrix.name }}
+          path: features/reports/
+          if-no-files-found: ignore
       - name: Build the GPUI app
         run: cargo build --release --manifest-path desktop/Cargo.toml -p threadbear-gpui
       - uses: actions/upload-artifact@v4

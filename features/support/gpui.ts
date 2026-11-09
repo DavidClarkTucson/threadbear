@@ -43,7 +43,9 @@ export class GpuiDriver implements Driver {
     if (!fs.existsSync(binary)) throw new Error(`No GPUI app at ${binary}: cargo build -p threadbear-gpui --features automation`);
     this.home = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tb-spec-'));
     const ready = path.join(this.home, 'mock-ready');
-    this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready], { TB_MOCK_NO_REMOTE: '1' });
+    // TB_MOCK_FIXTURES swaps the demo threads for that folder's, for one-off checks.
+    const fixtures = process.env.TB_MOCK_FIXTURES ? ['--fixtures', process.env.TB_MOCK_FIXTURES] : [];
+    this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready, ...fixtures], { TB_MOCK_NO_REMOTE: '1' });
     await waitForFile(ready, 'The mock runner', 15_000);
 
     const file = path.join(this.home, 'automation.json');
@@ -98,7 +100,7 @@ export class GpuiDriver implements Driver {
   async do(cmd: Record<string, unknown>, timeoutSeconds = 30): Promise<string> {
     const r = await this.ask(cmd, timeoutSeconds);
     if (r.error) throw new Error(`${cmd.cmd}: ${r.error as string}`);
-    return String(r.result ?? '');
+    return typeof r.result === 'string' ? r.result : JSON.stringify(r.result ?? '');
   }
 
   async dump(): Promise<Dump> {

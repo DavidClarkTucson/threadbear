@@ -1,7 +1,7 @@
 // The sidebar's sections: a Rust port of the website's web/src/sections.ts
 // (the Mac's ThreadSections and the phone's InboxSections follow the same
-// rules). The TypeScript apps share that file; this one can't, so its tests
-// copy desktop/test/inbox.test.ts's cases and the two must change together.
+// rules). The TypeScript apps share that file; this one can't, so the two
+// must change together.
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -122,12 +122,11 @@ pub struct Section {
 }
 
 pub fn sections<'a>(threads: impl IntoIterator<Item = &'a ThreadSummary>, now_ms: i64) -> Vec<Section> {
-    let (mut starred, mut inbox, mut running, mut hibernating) = (vec![], vec![], vec![], vec![]);
+    let (mut starred, mut inbox, mut running, mut hibernating, mut archived) = (vec![], vec![], vec![], vec![], vec![]);
     for t in threads {
         if t.archived_at.is_some() {
-            continue;
-        }
-        if t.starred_at.is_some() {
+            archived.push(t.clone());
+        } else if t.starred_at.is_some() {
             starred.push(t.clone());
         } else if t.snoozed(now_ms) {
             hibernating.push(t.clone());
@@ -145,11 +144,18 @@ pub fn sections<'a>(threads: impl IntoIterator<Item = &'a ThreadSummary>, now_ms
     running.sort_by(newest_first);
     let wakes = |t: &ThreadSummary| t.snoozed_until.as_deref().and_then(parse_ms).unwrap_or(i64::MAX);
     hibernating.sort_by(|a, b| wakes(a).cmp(&wakes(b)).then_with(|| newest_first(a, b)));
-    [("starred", "Starred", starred), ("inbox", "Inbox", inbox), ("running", "Running", running), ("hibernating", "Hibernating", hibernating)]
+    archived.sort_by(|a, b| b.archived_at.cmp(&a.archived_at).then_with(|| a.id.cmp(&b.id)));
+    [("starred", "Starred", starred), ("inbox", "Inbox", inbox), ("running", "Running", running), ("hibernating", "Hibernating", hibernating), ("archived", "Archived", archived)]
         .into_iter()
         .filter(|(key, _, rows)| !rows.is_empty() || *key == "inbox")
         .map(|(key, title, rows)| Section { key, title, rows })
         .collect()
+}
+
+/// Whether a sidebar search finds this thread: its title or its last reply,
+/// as ThreadSections.matches has it. `query` is already lowercase.
+pub fn matches(t: &ThreadSummary, query: &str) -> bool {
+    t.title.to_lowercase().contains(query) || t.preview.to_lowercase().contains(query)
 }
 
 /// The last part of a folder's path, on any platform.
@@ -204,6 +210,24 @@ pub fn ago(ms: i64, now_ms: i64) -> String {
     }
 }
 
+/// Milliseconds since 1970 to ISO 8601 in UTC, as the protocol writes times.
+pub fn iso_time(ms: i64) -> String {
+    // Howard Hinnant's civil_from_days, the inverse of what parse_ms uses.
+    let (secs, millis) = (ms.div_euclid(1000), ms.rem_euclid(1000));
+    let days = secs.div_euclid(86400);
+    let rest = secs.rem_euclid(86400);
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{millis:03}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+}
+
 /// ISO 8601 in UTC (the protocol's times) to milliseconds since 1970.
 pub fn parse_ms(iso: &str) -> Option<i64> {
     let b = iso.as_bytes();
@@ -233,7 +257,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // The cases of desktop/test/inbox.test.ts.
     fn thread(n: u32, over: Value) -> ThreadSummary {
         let mut v = json!({
             "id": format!("t{n}"), "title": format!("Thread {n}"), "cwd": "/home/mike/dev/x",

@@ -1,7 +1,6 @@
-// A thread's events folded into what the transcript draws: a Rust port of
-// desktop/src/transcript.ts, with the same rules (docs/protocol.md,
-// "Events" and "Transient events") and the same test cases. Events stay
-// as JSON, so a type or field this app doesn't know is simply passed over.
+// A thread's events folded into what the transcript draws, by the rules in
+// docs/protocol.md ("Events" and "Transient events"). Events stay as JSON, so
+// a type or field this app doesn't know is simply passed over.
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
@@ -236,7 +235,6 @@ pub fn duration(ms: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    // The cases of desktop/test/transcript.test.ts.
     use super::*;
     use serde_json::json;
 

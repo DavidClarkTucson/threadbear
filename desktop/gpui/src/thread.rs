@@ -1,8 +1,8 @@
 // One thread: its transcript (transcript.rs folds the events), its cards
 // and the composer. Reads the newest 500 events, then subscribes from the
 // last of them, as the Mac app does.
-use crate::inbox::ThreadSummary;
-use crate::transcript::{duration, question_answers, Item, Step, ThreadEvents};
+use threadbear_core::inbox::ThreadSummary;
+use threadbear_core::transcript::{duration, question_answers, Item, Step, ThreadEvents};
 use crate::{call, RT};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
@@ -31,8 +31,8 @@ pub struct ThreadPane {
 }
 
 impl ThreadPane {
-    pub fn new(client: Arc<Client>, summary: ThreadSummary, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Message").auto_grow(2, 8).submit_on_enter(true));
+    pub fn new(client: Arc<Client>, summary: ThreadSummary, draft: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Message").auto_grow(2, 8).submit_on_enter(true).default_value(draft));
         let sub = cx.subscribe_in(&input, window, |this, input, ev: &InputEvent, window, cx| {
             if let InputEvent::PressEnter { shift: false, .. } = ev {
                 let text = input.read(cx).value().trim().to_string();
@@ -57,6 +57,25 @@ impl ThreadPane {
         };
         pane.load(cx);
         pane
+    }
+
+    pub fn thread_id(&self) -> &str {
+        &self.summary.id
+    }
+
+    /// What's typed and not yet sent.
+    pub fn draft(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
+
+    pub fn composer(&self) -> Entity<TextareaState> {
+        self.input.clone()
+    }
+
+    pub fn stop(&mut self, cx: &mut Context<Self>) {
+        if self.summary.busy() {
+            self.request("threads.interrupt", json!({ "threadId": self.summary.id }), cx);
+        }
     }
 
     pub fn load(&mut self, cx: &mut Context<Self>) {
@@ -168,7 +187,7 @@ impl ThreadPane {
         let column = |el: Div| h_flex().w_full().justify_center().child(el.w_full().max_w(px(760.)));
         let el: AnyElement = match item {
             Item::User { text, .. } => column(h_flex().justify_end().child(div().max_w(relative(0.8)).px_3p5().py_2().rounded_2xl().bg(muted_bg).text_color(fg).child(text))).into_any_element(),
-            Item::Text { item_id, text, streaming } => column(div().when(streaming, |s| s.opacity(0.85)).child(TextView::markdown(ElementId::Name(format!("md-{item_id}").into()), text))).into_any_element(),
+            Item::Text { item_id, text, streaming } => column(div().when(streaming, |s| s.opacity(0.85)).child(TextView::markdown(ElementId::Name(format!("md-{item_id}").into()), text).selectable(true))).into_any_element(),
             Item::Reasoning { text, .. } => column(div().text_sm().italic().text_color(muted).child(text)).into_any_element(),
             Item::Steps(steps) => column(self.render_steps(ix, steps, muted, danger, cx)).into_any_element(),
             Item::Note { text, error } => column(div().text_sm().text_center().text_color(if error { danger } else { muted }).child(text)).into_any_element(),
@@ -325,14 +344,69 @@ fn card(border: Hsla) -> Div {
     v_flex().gap_3().p_3p5().rounded_xl().border_1().border_color(border)
 }
 
+#[cfg(feature = "automation")]
+impl ThreadPane {
+    /// The rows as the Swift app's dump gives them.
+    pub fn dump(&self) -> Value {
+        let mut rows = vec![];
+        for item in &self.items {
+            let (id, kind, text) = match item {
+                Item::User { seq, text } => (format!("u:{seq}"), "user", text.clone()),
+                Item::Text { item_id, text, .. } => (format!("a:{item_id}"), "assistant", text.clone()),
+                Item::Reasoning { item_id, text, .. } => (format!("r:{item_id}"), "thinking", text.clone()),
+                Item::Steps(steps) => (format!("g:{}", steps.first().map(|s| s.item_id.as_str()).unwrap_or("")), "group", format!("{} steps", steps.len())),
+                Item::Approval { approval_id, title, decision, .. } => (format!("ap:{approval_id}"), "approval", match decision {
+                    Some(d) => format!("{title} ({d})"),
+                    None => title.clone(),
+                }),
+                Item::Question { approval_id, questions, .. } => (format!("q:{approval_id}"), "question", questions.first().map(|q| q.question.clone()).unwrap_or_default()),
+                Item::Note { text, error } => ("n:".to_string(), if *error { "error" } else { "note" }, text.clone()),
+                Item::TurnEnd { seq, duration_ms, .. } => (format!("f:{seq}"), "footer", duration(*duration_ms)),
+            };
+            rows.push(json!({ "id": id, "kind": kind, "text": text }));
+        }
+        json!({ "threadId": self.summary.id, "state": if self.loaded { "loaded" } else { "loading" }, "atBottom": true, "hasMoreAbove": false, "rows": rows })
+    }
+
+    /// Every event the thread has, for the long-thread check.
+    pub fn load_all_events(&mut self, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        let id = self.summary.id.clone();
+        cx.spawn(async move |this, cx| {
+            let page = call(client, "threads.events", json!({ "threadId": id, "limit": 1000000 })).await;
+            this.update(cx, |this, cx| {
+                if let Ok(page) = page {
+                    let mut events = ThreadEvents::default();
+                    events.add(page["events"].as_array().map(Vec::as_slice).unwrap_or(&[]), &[]);
+                    this.events = events;
+                    this.refold(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn set_row_open(&mut self, row: &str, open: bool, cx: &mut Context<Self>) -> Result<(), String> {
+        let Some(key) = row.strip_prefix("g:") else { return Err(format!("no row {row}")) };
+        if open {
+            self.open_steps.insert(key.to_string());
+        } else {
+            self.open_steps.remove(key);
+        }
+        self.scroller.update(cx, |s, cx| s.remeasure(cx));
+        cx.notify();
+        Ok(())
+    }
+}
+
 impl Render for ThreadPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let (border, muted, danger, bg) = (theme.border, theme.muted_foreground, theme.danger, theme.background);
         let busy = self.summary.busy();
-        let model = crate::inbox::model_label(&self.summary.provider, self.summary.model_in_use.as_deref().or(self.summary.model.as_deref()));
-        let meta = format!("{} · {} · {}", crate::inbox::folder_name(&self.summary.cwd), model, self.summary.status);
-        let thread = self.summary.id.clone();
+        let model = threadbear_core::inbox::model_label(&self.summary.provider, self.summary.model_in_use.as_deref().or(self.summary.model.as_deref()));
+        let meta = format!("{} · {} · {}", threadbear_core::inbox::folder_name(&self.summary.cwd), model, self.summary.status);
         v_flex()
             .size_full()
             .child(
@@ -367,9 +441,7 @@ impl Render for ThreadPane {
                                 .justify_end()
                                 .gap_2()
                                 .when(busy, |s| {
-                                    s.child(Button::new("stop").small().label("Stop").tooltip("Stop the turn").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        this.request("threads.interrupt", json!({ "threadId": thread }), cx)
-                                    })))
+                                    s.child(Button::new("stop").small().label("Stop").tooltip("Stop the turn").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx))))
                                 })
                                 .child(Button::new("send").small().primary().label("Send").tooltip("Send (Enter)").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                     let text = this.input.read(cx).value().trim().to_string();
