@@ -230,7 +230,7 @@ impl Threadbear {
                     .px_4()
                     .pt_3()
                     .pb_2()
-                    .child(div().font_semibold().text_color(fg).child("Threadbear"))
+                    .child(div().font_semibold().text_color(fg).child("Threadbear (GPUI)"))
                     .child(div().size(px(8.)).rounded_full().bg(conn)),
             )
             .when_some(self.connection_note(), |s, note| s.child(div().mx_3().mb_2().p_2().rounded_md().bg(theme_muted(cx)).text_sm().text_color(muted).child(note)))
@@ -265,7 +265,7 @@ fn main() {
         gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions { title: Some("Threadbear".into()), ..Default::default() }),
+                titlebar: Some(TitlebarOptions { title: Some("Threadbear (GPUI)".into()), ..Default::default() }),
                 window_min_size: Some(size(px(720.), px(480.))),
                 app_id: Some("threadbear".into()),
                 ..Default::default()

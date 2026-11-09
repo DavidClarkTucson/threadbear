@@ -8,7 +8,7 @@ export function Sidebar({ sections, selected, onSelect, status, error }: Props) 
   return (
     <nav className="side">
       <header className="side-head">
-        <span className="brand">Threadbear</span>
+        <span className="brand">Threadbear (Tauri)</span>
         <span className={`conn conn-${status?.state ?? 'connecting'}`} title={status?.state === 'connected' ? `Runner ${status.hello.runnerVersion}` : undefined} />
       </header>
       {status?.state !== 'connected' && (
