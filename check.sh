@@ -104,7 +104,10 @@ if [ "$LOCAL" = 0 ] && [ "$E2E" = 0 ]; then
     code=$?
     [ "$code" = 255 ] || exit "$code"
     echo "So the checks run on this Mac instead, at low priority."
-    exec taskpolicy -b "$0" --local ${ARGS[@]+"${ARGS[@]}"}
+    # taskpolicy is macOS's; a Linux runner's self-update (deploy.mjs) gets
+    # here too, and there nice does the same job (Codex, 9 Nov).
+    if command -v taskpolicy >/dev/null 2>&1; then exec taskpolicy -b "$0" --local ${ARGS[@]+"${ARGS[@]}"}; fi
+    exec nice -n 10 "$0" --local ${ARGS[@]+"${ARGS[@]}"}
   fi
 elif [ "$E2E" = 1 ] && [ "$LOCAL" = 0 ]; then
   echo "--e2e runs on this Mac, which has the claude login it needs."
