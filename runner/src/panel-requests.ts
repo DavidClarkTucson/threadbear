@@ -15,6 +15,7 @@ const THREAD_PANELS = [
   { id: 'highlights', title: 'Highlights' },
   { id: 'patches', title: 'Patches' },
   { id: 'browser', title: 'Browser' },
+  { id: 'terminal', title: 'Terminal' },
 ];
 const APP_PANELS = [
   { id: 'usage', title: 'Usage' },
@@ -26,11 +27,11 @@ const APP_PANELS = [
 // what the thread has when it's none of them, so the agent can pick again.
 export function resolvePanel(name: string, has: { panels: Panel[]; hasPatches: boolean }): { id: string; title: string } {
   const raw = name.trim().toLowerCase();
-  const wanted = raw === 'threadbear.browser' ? 'browser' : raw;
+  const wanted = raw === 'threadbear.browser' ? 'browser' : raw === 'threadbear.terminal' ? 'terminal' : raw;
   if (!wanted) throw new Error('Name a panel: highlights, patches, usage, updates, connectors, or one of the thread\'s own.');
   const own = THREAD_PANELS.filter((p) => p.id !== 'patches' || has.hasPatches);
   const builtIn = [...own, ...APP_PANELS].find((p) => p.id === wanted);
-  if (builtIn) return builtIn.id === 'browser' ? { id: 'threadbear.browser', title: 'Browser' } : builtIn;
+  if (builtIn) return builtIn.id === 'browser' || builtIn.id === 'terminal' ? { id: `threadbear.${builtIn.id}`, title: builtIn.title } : builtIn;
   // A patch's panel, by its id ("convex.dashboard") or its tab's title.
   const hit = has.panels.find((p) => p.id.toLowerCase() === wanted) ?? has.panels.find((p) => p.title.toLowerCase() === wanted);
   if (hit) return { id: hit.id, title: hit.title };

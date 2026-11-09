@@ -7,7 +7,10 @@ public extension RPCClient {
     /// (docs/protocol.md, "App restarts"). A dev build has none.
     func hello(client: String = "threadbear-mac", version: String, build: (commit: String, short: String, tree: String)? = nil) async throws -> HelloResult {
         var params: [String: JSONValue] = ["client": .string(client), "version": .string(version)]
-        if client == "threadbear-mac" { params["browserPanel"] = .bool(true) }
+        if client == "threadbear-mac" {
+            params["browserPanel"] = .bool(true)
+            params["terminalPanel"] = .bool(true)
+        }
         if let build {
             params["build"] = .object(["commit": .string(build.commit), "short": .string(build.short), "tree": .string(build.tree)])
         }
@@ -1021,5 +1024,44 @@ public enum SecretAnswer: Sendable, CustomStringConvertible, CustomDebugStringCo
     /// whitespace-only secret (-32602).
     public static func canSave(_ typed: String) -> Bool {
         !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+// MARK: - The Terminal panel (docs/protocol.md, "The Terminal panel")
+
+public extension RPCClient {
+    /// Starts the thread's shell, or attaches to the one that's running.
+    /// The first open on a runner may compile its helper, so it gets longer.
+    func terminalOpen(threadId: String, cols: Int, rows: Int) async throws -> TerminalSession {
+        try await call("terminal.open", Self.terminalSizeParams(threadId: threadId, cols: cols, rows: rows), as: TerminalSession.self, timeout: .seconds(60))
+    }
+
+    /// A new shell, ending the old one first.
+    func terminalRestart(threadId: String, cols: Int, rows: Int) async throws -> TerminalSession {
+        try await call("terminal.restart", Self.terminalSizeParams(threadId: threadId, cols: cols, rows: rows), as: TerminalSession.self, timeout: .seconds(60))
+    }
+
+    /// At most 64 KB a call (TerminalInputBuffer).
+    func terminalInput(terminalId: String, data: Data) async throws {
+        _ = try await call("terminal.input", .object(["terminalId": .string(terminalId), "data": .string(data.base64EncodedString())]), as: EmptyResult.self)
+    }
+
+    func terminalResize(terminalId: String, cols: Int, rows: Int) async throws {
+        let size = TerminalSize.clamped(cols: cols, rows: rows)
+        _ = try await call("terminal.resize", .object(["terminalId": .string(terminalId), "cols": .number(Double(size.cols)), "rows": .number(Double(size.rows))]), as: EmptyResult.self)
+    }
+
+    /// Stops this connection's output; the shell keeps running.
+    func terminalDetach(terminalId: String) async throws {
+        _ = try await call("terminal.detach", .object(["terminalId": .string(terminalId)]), as: EmptyResult.self)
+    }
+
+    func terminalKill(terminalId: String) async throws {
+        _ = try await call("terminal.kill", .object(["terminalId": .string(terminalId)]), as: EmptyResult.self)
+    }
+
+    private static func terminalSizeParams(threadId: String, cols: Int, rows: Int) -> JSONValue {
+        let size = TerminalSize.clamped(cols: cols, rows: rows)
+        return .object(["threadId": .string(threadId), "cols": .number(Double(size.cols)), "rows": .number(Double(size.rows))])
     }
 }

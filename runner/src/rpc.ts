@@ -12,6 +12,7 @@ import { MAX_BYLINE } from './needs.ts';
 import { isMoved, mergeSummaries, type Bucket } from './handover.ts';
 import { AUTH_VERSION, authProof, isNonce, newNonce, proofMatches, type AuthChannel } from './rpc-auth.ts';
 import { cutSafely } from './safe-cut.ts';
+import type { TerminalManager, TerminalSink } from './terminals.ts';
 
 type Conn = {
   id: number;
@@ -24,6 +25,9 @@ type Conn = {
   clientPid?: number;
   since: number;
   browserPanel?: boolean;
+  terminalPanel?: boolean;
+  // This connection's view of terminals (docs/protocol.md, "The Terminal panel").
+  terminalSink?: TerminalSink;
   authTimer?: AwakeTimer;
   // This connection's auth.challenge nonce (docs/protocol.md, "Auth").
   challenge?: string;
@@ -120,6 +124,8 @@ export type RpcServerOptions = {
   // just said hello beside the runner's.
   methods?: Record<string, (params: Record<string, unknown>) => unknown>;
   helloNotices?: () => { level: 'info' | 'warning' | 'error'; message: string }[];
+  // The Terminal panel's shells. Without it terminal.* answer -32601.
+  terminals?: TerminalManager;
   // E's CliUpdates, for clis.*. Without it they answer -32601, as an older
   // runner's would.
   clis?: CliControl;
@@ -229,8 +235,10 @@ export class RpcServer {
   }
 
   // Whether the Mac app itself is connected (hello's client), for presence.ts.
-  appConnected(browserPanel = false): boolean {
-    for (const c of this.conns) if (c.authed && c.client === 'threadbear-mac' && (!browserPanel || c.browserPanel) && c.ws.readyState === WebSocket.OPEN) return true;
+  appConnected(browserPanel = false, terminalPanel = false): boolean {
+    for (const c of this.conns) {
+      if (c.authed && c.client === 'threadbear-mac' && (!browserPanel || c.browserPanel) && (!terminalPanel || c.terminalPanel) && c.ws.readyState === WebSocket.OPEN) return true;
+    }
     return false;
   }
 
@@ -323,6 +331,7 @@ export class RpcServer {
     ws.on('close', () => {
       conn.authTimer?.clear();
       this.conns.delete(conn);
+      if (conn.terminalSink) this.opts.terminals?.dropSink(conn.terminalSink);
     });
     // A protocol error (a frame over the limit, bad UTF-8): ws closes with
     // 1009 or 1002 and waits up to 30 s for the other side to answer. Cut it
@@ -462,6 +471,11 @@ export class RpcServer {
     );
   }
 
+  private mustTerminals(method: string): TerminalManager {
+    if (!this.opts.terminals) throw new RpcError(ErrorCode.methodNotFound, `Unknown method ${method}`);
+    return this.opts.terminals;
+  }
+
   private mustClis(method: string): CliControl {
     if (!this.opts.clis) throw new RpcError(ErrorCode.methodNotFound, `Unknown method ${method}`);
     return this.opts.clis;
@@ -474,8 +488,10 @@ export class RpcServer {
     // A local tool needs to know whether its handoff can reach the Mac app.
     // Check on the primary, before forwarding to the runner owning the thread.
     if (method === 'threads.showPanel' && !this.opts.onlyOwn) {
-      const browser = ['browser', 'threadbear.browser'].includes(String(p.panel).trim().toLowerCase());
-      if (!this.appConnected(browser)) return { available: false };
+      const asked = String(p.panel).trim().toLowerCase();
+      const browser = ['browser', 'threadbear.browser'].includes(asked);
+      const terminal = ['terminal', 'threadbear.terminal'].includes(asked);
+      if (!this.appConnected(browser, terminal)) return { available: false };
     }
     const tid = typeof p.threadId === 'string' ? p.threadId : undefined;
     if (tid !== undefined && THREAD_METHODS.has(method) && !r.has(tid)) {
@@ -496,6 +512,7 @@ export class RpcServer {
         conn.clientVersion = typeof p.version === 'string' ? p.version : undefined;
         conn.clientPid = typeof p.pid === 'number' ? p.pid : undefined;
         conn.browserPanel = p.browserPanel === true;
+        conn.terminalPanel = p.terminalPanel === true;
         // Only the Mac app's own builds: a dev build has none.
         const build = p.build as Record<string, unknown> | undefined;
         if (conn.client === 'threadbear-mac' && build && typeof build === 'object'
@@ -751,6 +768,29 @@ export class RpcServer {
         });
         return r.trustPatches(reqString(p, 'threadId'), files);
       }
+      case 'terminal.open':
+      case 'terminal.restart': {
+        const terms = this.mustTerminals(method);
+        const threadId = reqString(p, 'threadId');
+        if (!r.has(threadId)) {
+          if (this.opts.remote?.owns(threadId) || this.opts.relay?.owns(threadId)) {
+            throw new RpcError(ErrorCode.other, 'This thread runs on another Mac or runner. Open its terminal there.');
+          }
+          throw new RpcError(ErrorCode.threadNotFound, `No thread ${threadId}`);
+        }
+        const cols = reqNumber(p, 'cols');
+        const rows = reqNumber(p, 'rows');
+        conn.terminalSink ??= { send: (n) => this.send(conn, { jsonrpc: '2.0', method: n.method, params: n.params }) };
+        return method === 'terminal.open' ? terms.open(threadId, cols, rows, conn.terminalSink) : terms.restart(threadId, cols, rows, conn.terminalSink);
+      }
+      case 'terminal.input':
+        return this.mustTerminals(method).input(reqString(p, 'terminalId'), reqString(p, 'data'));
+      case 'terminal.resize':
+        return this.mustTerminals(method).resize(reqString(p, 'terminalId'), reqNumber(p, 'cols'), reqNumber(p, 'rows'));
+      case 'terminal.detach':
+        return conn.terminalSink ? this.mustTerminals(method).detach(reqString(p, 'terminalId'), conn.terminalSink) : {};
+      case 'terminal.kill':
+        return this.mustTerminals(method).kill(reqString(p, 'terminalId'));
       case 'actions.run':
         return r.runAction(reqString(p, 'threadId'), reqString(p, 'actionId'));
       // Each starts its work and answers at once; progress comes through

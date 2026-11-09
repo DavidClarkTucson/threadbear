@@ -310,6 +310,16 @@ one on the website, which uploads that one for a day.
 `runner/scripts/scrub-stored.mjs` runs today's rules over what's already stored,
 and only when you run it. Convex backups and snapshot exports keep their copies.
 
+The Terminal panel (`runner/src/terminals.ts`) starts your login shell
+in a thread's folder when you open the panel, and only then. To do that it
+compiles a small C helper with the system's `cc` the first time
+(`runner/src/terminal/pty-helper.c`, into `<data>/tools/pty-helper/`). The
+shells run as you, with the environment threads get, and end with the
+thread, the runner, or 8 hours after you last had the panel open. What
+they print goes only to the app that opened them, over the runner's local
+connection, and the last 256 KB is kept in memory to redraw the panel. It
+isn't written to disk or sent to Convex.
+
 There's also a silent on-device check, off unless `runner.json` has
 `secretCheck: { enabled: true }`, on a Mac with Apple Intelligence
 (`runner/src/secret-check.ts`). It's an experiment: it builds a small helper the

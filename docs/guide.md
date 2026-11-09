@@ -247,6 +247,17 @@ permission, its window comes to the middle of your screen and the panel says so,
 with Show it to bring it to the front. Existing-profile pages use captured frames,
 so movement is less smooth than the separate Chrome's stream.
 
+The Terminal panel, the terminal icon on a thread's right-hand rail, is a
+shell in the thread's folder (its worktree, when it has one), on the Mac
+that runs the thread. Each thread has one. It keeps running when you close
+the panel or switch threads, and what it printed is still there when you
+come back. It ends when you archive or delete the thread, when the runner
+restarts, or after 8 hours with the panel closed; New shell starts
+another. The first one takes a few seconds to open, as it sets itself up,
+and that needs Xcode's command line tools. Agents can't see or type into
+it. A thread on another Mac reached through the website, or a sandboxed
+thread, has no terminal.
+
 A link to a folder opens it in the side pane, where it works like a Finder
 window. Double-click a folder to go in, or a file to see it there, and the
 back arrow takes you back to where you were. Press the space bar for Quick

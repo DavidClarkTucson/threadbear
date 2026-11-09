@@ -87,6 +87,8 @@ extension AppModel {
                     let session = subagentSession(for: ref)
                     if session.state == .loaded { session.refreshSubagent() } else { session.open(width: transcript.width > 0 ? transcript.width : transcript.currentTableWidth) }
                 }
+                // A Terminal panel showing attaches again on the new connection.
+                TerminalHub.shared.reconnected()
                 await pump(client)
                 client.close()
                 // reconnectNow() may already have started a new loop with a
@@ -170,6 +172,10 @@ extension AppModel {
                 notice(level: level, message)
             case .runnerUpdates(let updates):
                 runnerUpdates = updates
+            case .terminalOutput(let terminalId, let threadId, let data):
+                TerminalHub.shared.output(terminalId: terminalId, threadId: threadId, data: data)
+            case .terminalExited(let exit):
+                TerminalHub.shared.exited(exit)
             case .other:
                 break
             }

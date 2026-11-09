@@ -44,6 +44,9 @@ struct DockPane: View {
                     case .panel(AgentBrowser.panelId):
                         // One per thread, with its own tabs and picture.
                         AgentBrowserPanel(thread: thread).id(thread.id)
+                    case .panel(PaneSection.terminalId):
+                        // One per thread: its own shell, attached while it shows.
+                        TerminalPanel(thread: thread).id(thread.id)
                     case .panel(BuiltinPanels.files):
                         // The thread's folder, browsed as a folder link is:
                         // a file opens over it, Back comes back.
@@ -249,6 +252,12 @@ struct PanelRail: View {
                 }
                 .onAppear {
                     if tabs.contains(where: { $0.state == "yours" }) { app.showPane(.panel(AgentBrowser.panelId)) }
+                }
+            }
+            // A shell in the thread's folder, on the runner that has it.
+            if project == nil {
+                ActivityButton(symbol: "terminal", title: "Terminal", tip: "A shell in this thread's folder", active: app.dock.isShowing(PaneSection.terminalId)) {
+                    app.clickRail(.panel(PaneSection.terminalId), in: thread)
                 }
             }
             // The thread's folder, in the folder browser.

@@ -16,7 +16,7 @@ import { RELEASE_NOTES_SYSTEM, SETTLE_MS, Upstream } from './upstream.ts';
 import { BringIn } from './bring-in.ts';
 import { UpdateFixer } from './fix-update.ts';
 import { bringInSetting } from './settings.ts';
-import { Restarter, restartMethods } from './restart.ts';
+import { Restarter, restartMethods, threadEnv } from './restart.ts';
 import { AppRestarts } from './app-restarts.ts';
 import { Scheduler, scheduleMethods } from './schedules.ts';
 import { StuckJobs } from './stuck-jobs.ts';
@@ -45,6 +45,7 @@ import { TokenTally } from './token-tally.ts';
 import { usageStatsMethods } from './usage-stats.ts';
 import { Relay } from './relay.ts';
 import { RpcServer } from './rpc.ts';
+import { TerminalManager } from './terminals.ts';
 import { realClock } from './clock.ts';
 import { acquireLock } from './lock.ts';
 import { isDirectory, removeTempFiles } from './fsutil.ts';
@@ -706,12 +707,30 @@ async function main(): Promise<void> {
   };
   methods['requests.get'] = (p) => cross.get(String(p.threadId ?? ''), String(p.approvalId ?? ''));
   methods['requests.answer'] = (p) => cross.answer(String(p.threadId ?? ''), String(p.approvalId ?? ''), p.allow === true, typeof p.runnerId === 'string' ? p.runnerId : undefined, typeof p.fingerprint === 'string' ? p.fingerprint : undefined);
+  // The Terminal panel's shells (docs/protocol.md, "The Terminal panel").
+  const terminals = new TerminalManager({
+    home: cfg.home,
+    log,
+    thread: (threadId) => {
+      const t = runner.get(threadId);
+      if (runner.sandboxed(t.cwd) || runner.confinedOf(threadId)) {
+        throw new RpcError(ErrorCode.other, 'A sandboxed thread has no terminal yet.');
+      }
+      return { cwd: t.cwd, env: threadEnv(threadId, cfg.home) };
+    },
+  });
+  terminals.startSweeping();
+  runner.onNotification((n) => {
+    if (n.method === 'thread.deleted') terminals.threadGone(n.params.threadId, 'deleted');
+    else if (n.method === 'thread.updated' && n.params.thread.archivedAt) terminals.threadGone(n.params.thread.id, 'archived');
+  });
   const server = (rpcServer = new RpcServer({
     host: cfg.host,
     port: cfg.port,
     token,
     runner,
     log,
+    terminals,
     clis: updates,
     methods,
     remote: peers,
@@ -817,6 +836,7 @@ async function main(): Promise<void> {
     secretCheck.stop();
     await sync.stop({ bye: signal !== 'restart' && !draining });
     try {
+      terminals.stopAll();
       await runner.shutdown();
       await server.close().catch(() => {});
       await drainServer?.close().catch(() => {});
@@ -870,6 +890,8 @@ async function main(): Promise<void> {
       peers.close();
       elsewhere = undefined;
       // Every thread not kept lets go now; resolves once their CLIs exit.
+      // Shells aren't handed on (docs/protocol.md, "The Terminal panel").
+      terminals.stopAll();
       await runner.beginDrain(keeps, {
         // Only while a new runner is connected to hear it; otherwise it
         // would load the thread as after a crash.

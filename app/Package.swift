@@ -19,6 +19,10 @@ let package = Package(
         // Crash reports from the installed app (CrashReporting.swift):
         // Sentry's static framework alone (SentryBinary/Package.swift says why).
         .package(path: "SentryBinary"),
+        // The Terminal panel's screen (TerminalPanel.swift). MIT. Exact:
+        // 1.99.2 and 1.99.3 don't compile on Swift 6.2 (PowerlineRenderer's
+        // thinFlamePath, `+` on a DropFirstSequence); move on once one does.
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.99.1"),
     ],
     targets: [
         // Protocol models, the JSON-RPC client, the event reducer and other
@@ -35,6 +39,7 @@ let package = Package(
                 .product(name: "Highlightr", package: "Highlightr"),
                 .product(name: "BearDock", package: "dock"),
                 .product(name: "Sentry", package: "SentryBinary"),
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             path: "Sources/Threadbear",
             // Big pictures (the Librarian's page). Looked up through Art,

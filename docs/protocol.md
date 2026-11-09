@@ -4054,7 +4054,7 @@ panel rather than a file or a link (those are `pin` with `show`). It opens
 the panel, or brings it to the front wherever Mike put it. It never moves
 or resizes a panel that's open: Mike's layout is his.
 
-`panel` is `highlights`, `browser` (`threadbear.browser`) or `patches` (the thread's own; Patches only when
+`panel` is `highlights`, `browser` (`threadbear.browser`), `terminal` (`threadbear.terminal`) or `patches` (the thread's own; Patches only when
 it has patches), one of the thread's `panels` by id or title (any case),
 or `usage`, `updates` or `connectors` (the app's Usage, Updates and
 Connectors panels). `where`
@@ -4137,6 +4137,69 @@ browser is `agent-chrome`), as the same tab number can be in two. Replies use
 `{id,ok,result|error}`. No cookies, passwords, OAuth tokens or browser profile
 files are read or imported, and stills stay in memory on this Mac. Both sides
 ignore fields they don't know.
+
+### The Terminal panel
+
+Added 9 Nov 2026. A shell beside each thread, in the thread's folder (its
+worktree when it has one), that you type into in the panel. The shell
+runs on the runner that has the thread, so it works for another Mac's
+threads reached directly too, and its bytes go over this same
+authenticated connection. Agents can't read or type into it.
+
+- **The runner's side** is `runner/src/terminals.ts`. The pseudo-terminal
+  comes from a small C helper, `runner/src/terminal/pty-helper.c`, which
+  the runner compiles with the system's `cc` the first time a terminal
+  opens (into `tools/pty-helper/` in the data dir, named by the source's
+  hash, so a new release with a changed helper builds again). It needs
+  the Xcode command line tools; without them `terminal.open` fails with
+  a message saying so. The helper calls `forkpty`, starts Mike's login
+  shell (`$SHELL -l`, else `/bin/zsh`) in the thread's folder with the
+  environment threads get (`THREADBEAR_THREAD_ID` and the rest), passes
+  what the shell writes to its stdout, and reads frames from its stdin:
+  one type byte, a 4-byte big-endian length, then the payload. Type 0 is
+  input for the shell; type 1 is a resize, two big-endian 16-bit numbers
+  (cols, rows). When its stdin closes it hangs the shell up, so a runner
+  that dies takes its shells with it.
+- **One shell per thread.** `terminal.open` starts it, or attaches to the
+  one that's running. It keeps going when the panel closes or the app
+  quits. It ends when the shell exits, the thread is archived or
+  deleted, the runner stops (a restart or handover doesn't wait for it
+  or hand it on), or after 8 hours with nobody attached.
+- **Replay.** The runner keeps the last 256 KB the shell wrote, and
+  `terminal.open` returns it, so the panel can redraw the screen after a
+  thread switch or a reconnect.
+- **Output** is sent only to the connection that opened the terminal
+  (the latest one, if several did), batched at most every 16 ms and at
+  most 64 KB a message.
+- **Not for every thread.** Only a thread this runner has itself: a
+  draining runner's thread, or one reached through the backend, answers
+  `-32000` with a message saying to open it on the Mac that has it, as keystrokes through
+  Convex would be slow and would put shell traffic in the database. A
+  sandboxed thread (Sandboxed threads) gets the same answer, for now. Up to
+  16 shells run at once; past that the one that's been detached longest
+  is ended.
+
+| Method | Params | Result |
+|---|---|---|
+| `terminal.open` | `{ threadId, cols, rows }` | `{ terminalId, replay: string (base64), alive: boolean, startedAt, exitCode?, reason? }`. `alive` false with `exitCode` and `reason` (as in `terminal.exited`) when the thread's last shell has ended and nothing new was started: the panel shows it ended and offers New shell |
+| `terminal.restart` | `{ threadId, cols, rows }` | As `terminal.open`, with a new shell, ending the old one first |
+| `terminal.input` | `{ terminalId, data: string (base64) }` | `{}`. At most 64 KB a call |
+| `terminal.resize` | `{ terminalId, cols, rows }` | `{}`. 1 to 1000 each |
+| `terminal.detach` | `{ terminalId }` | `{}`. Stops this connection's output; the shell keeps running |
+| `terminal.kill` | `{ terminalId }` | `{}`. Ends the shell |
+
+An unknown or ended `terminalId` answers `-32004` (not found), except
+`detach`, which answers `{}`.
+
+Notifications, to the attached connection only:
+
+- `terminal.output { terminalId, threadId, data: string (base64) }`
+- `terminal.exited { terminalId, threadId, exitCode: number | null, reason: "exited" | "archived" | "deleted" | "idle" | "runner" | "evicted" | "killed" }`
+
+The Mac app says `terminalPanel: true` in `hello`; `show_panel terminal`
+answers unavailable when no app that does is connected, as for Browser.
+An older runner answers `-32601` to `terminal.open`, and the app then
+says the runner needs updating.
 
 ## Connectors
 

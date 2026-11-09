@@ -116,6 +116,7 @@ enum WindowDock {
         switch panel {
         case PaneSection.highlightsId: return "Highlights"
         case AgentBrowser.panelId: return "Browser"
+        case PaneSection.terminalId: return "Terminal"
         case BuiltinPanels.files: return "Files"
         case PaneSection.patchesId: return "Patches"
         default:
@@ -156,6 +157,7 @@ enum WindowDock {
         case runners: return runnersSymbol
         case PaneSection.highlightsId: return "pin"
         case AgentBrowser.panelId: return "globe"
+        case PaneSection.terminalId: return "terminal"
         case BuiltinPanels.files: return "folder"
         case PaneSection.patchesId: return "square.dashed"
         default:
@@ -347,6 +349,7 @@ struct RootView: View {
                 switch WindowDock.section(panel) {
                 case .highlights: return app.openProject == nil
                 case .panel(AgentBrowser.panelId): return true
+                case .panel(PaneSection.terminalId): return app.openProject == nil
                 case .panel(BuiltinPanels.files): return app.openProject == nil
                 case .panel(let id): return thread.panels.contains { $0.id == id }
                 case .patches: return !thread.patches.isEmpty

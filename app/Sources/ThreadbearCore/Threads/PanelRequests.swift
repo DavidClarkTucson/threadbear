@@ -36,6 +36,7 @@ public enum PanelRequests {
         case "updates": return .updates
         case "connectors": return .connectors
         case "threadbear.browser", "browser": return .section(.panel("threadbear.browser"))
+        case PaneSection.terminalId, "terminal": return .section(.panel(PaneSection.terminalId))
         default: return thread.panels.contains { $0.id == request.panel } ? .section(.panel(request.panel)) : nil
         }
     }

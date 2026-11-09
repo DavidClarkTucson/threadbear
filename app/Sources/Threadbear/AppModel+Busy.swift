@@ -22,6 +22,8 @@ enum BusyKey {
     static func tickAsk(_ threadId: String, asksSeq: Int, index: Int) -> String { "tickAsk/\(threadId)/\(asksSeq)/\(index)" }
     static func runLibrarian(_ threadId: String?) -> String { "runLibrarian/\(threadId ?? "")" }
     static func updateCli(_ provider: String) -> String { "updateCli/\(provider)" }
+    /// New shell in a thread's Terminal panel.
+    static func terminalRestart(_ threadId: String) -> String { "terminalRestart/\(threadId)" }
     static func cliPolicy(_ provider: String) -> String { "cliPolicy/\(provider)" }
     static let newProject = "newProject"
     static let pauseLibrarian = "pauseLibrarian"

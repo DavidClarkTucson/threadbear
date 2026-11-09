@@ -217,6 +217,12 @@ enum Automation {
         }
         let shown: String
         if let settings = app.runnerSettings {
+            // Out of the literal below: with SwiftTerm's operators in the
+            // target, the `+`s in it were too much for the type checker.
+            let pools: [String] = app.pools.map { pool in
+                let folders: String = pool.folders.isEmpty ? "" : " [" + pool.folders.joined(separator: ", ") + "]"
+                return "\(pool.id) \"\(pool.title)\": " + pool.accountIds.joined(separator: ", ") + folders
+            }
             shown = json([
                 "tab": app.settingsTab.rawValue,
                 "defaultCwd": settings.defaultCwd,
@@ -229,7 +235,7 @@ enum Automation {
                 "smallJobsPool": settings.models.pool ?? "",
                 "privateFolders": settings.models.privateFolders,
                 "error": app.settingsError ?? "",
-                "pools": app.pools.map { "\($0.id) \"\($0.title)\": " + $0.accountIds.joined(separator: ", ") + ($0.folders.isEmpty ? "" : " [" + $0.folders.joined(separator: ", ") + "]") },
+                "pools": pools,
                 "poolsError": app.poolsError ?? "",
                 // The Phone & browser tab: each paired device as one line,
                 // the website, and why nothing can pair when sync is off.
@@ -694,7 +700,7 @@ enum Automation {
             // {"cmd":"panel"} toggles. On a project's page, the project's.
             guard let thread = app.paneThread else { return "error no thread selected" }
             if let id = c["id"] as? String {
-                let ids = (app.openProject == nil ? [PaneSection.highlightsId, AgentBrowser.panelId, BuiltinPanels.files] : []) + thread.panels.map(\.id) + (thread.patches.isEmpty ? [] : [PaneSection.patchesId])
+                let ids = (app.openProject == nil ? [PaneSection.highlightsId, AgentBrowser.panelId, PaneSection.terminalId, BuiltinPanels.files] : []) + thread.panels.map(\.id) + (thread.patches.isEmpty ? [] : [PaneSection.patchesId])
                 guard ids.contains(id) else { return "error no panel \(id); this thread has \(ids.joined(separator: ", "))" }
                 app.choosePanel(id, in: thread.id)
             } else if let show = c["show"] as? Bool {

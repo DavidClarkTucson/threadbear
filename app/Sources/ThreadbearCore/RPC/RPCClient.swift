@@ -72,6 +72,9 @@ public enum RPCNotification: Sendable {
     case runnerNotice(level: String, message: String)
     /// The runner's own update, whole each time.
     case runnerUpdates(RunnerUpdates)
+    /// What a Terminal panel's shell wrote, decoded from base64.
+    case terminalOutput(terminalId: String, threadId: String, data: Data)
+    case terminalExited(TerminalExit)
     case other(method: String)
 }
 
@@ -300,6 +303,16 @@ public final class RPCClient: Sendable {
             guard let params = try? decoder.decode(RPCNotificationEnvelope<RunnerNoticeParams>.self, from: data).params
             else { return nil }
             return .runnerNotice(level: params.level ?? "info", message: params.message ?? "")
+        case "terminal.output":
+            // Decoded here, off the main thread. Not base64: dropped.
+            guard let params = try? decoder.decode(RPCNotificationEnvelope<TerminalOutputParams>.self, from: data).params,
+                  let bytes = Data(base64Encoded: params.data)
+            else { return nil }
+            return .terminalOutput(terminalId: params.terminalId, threadId: params.threadId, data: bytes)
+        case "terminal.exited":
+            guard let params = try? decoder.decode(RPCNotificationEnvelope<TerminalExitedParams>.self, from: data).params
+            else { return nil }
+            return .terminalExited(params.exit)
         default:
             return .other(method: method)
         }

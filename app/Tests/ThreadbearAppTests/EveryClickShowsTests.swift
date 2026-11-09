@@ -16,6 +16,8 @@ final class EveryClickShowsTests: XCTestCase {
         "events", "subscribe", "subagent", "unsubscribe", "markSeen", "startRequest", "importMedia", "usageStats",
         "listClis", "listSchedules", "listRunners", "remoteLogins", "remoteThreads", "previewSchedule",
         "listProjects", "getProject", "refreshProjectTasks", "librarianStatus", "connectorsStatus", "listPools",
+        // The Terminal panel's typing and size, and letting go of it when it closes.
+        "terminalInput", "terminalResize", "terminalDetach",
         // Not calls: helpers on the request types in the same file.
         "applied", "params",
     ]
@@ -27,6 +29,7 @@ final class EveryClickShowsTests: XCTestCase {
         "answerSecret", "checkClis", "updateCli", "setCliPolicy", "createSchedule", "updateSchedule",
         "deleteSchedule", "setRunnerOrder", "runSchedule", "createProject", "updateProject", "setProjectIcon",
         "mergeProject", "deleteProject", "deleteThread", "setThreadProjects", "runLibrarian", "updateLibrarian", "savePools", "continueFresh",
+        "terminalOpen", "terminalRestart", "terminalKill",
     ]
 
     /// Functions that show their click some other way, and how.
@@ -57,6 +60,7 @@ final class EveryClickShowsTests: XCTestCase {
         "Projects.swift confirmedMerge": "the project goes at once",
         "Projects.swift setProjects": "the chips change at once",
         "Projects.swift setLibrarianPaused": "the button and switch change at once",
+        "TerminalPanel.swift open": "phase .opening: the panel shows Starting the shell with a spinner",
     ]
 
     private var sources: URL {

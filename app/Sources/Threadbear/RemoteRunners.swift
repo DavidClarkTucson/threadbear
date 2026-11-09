@@ -504,6 +504,13 @@ extension AppModel {
             remoteLogins[runnerId]?.accounts = list
         case .poolsUpdated(let list):
             remoteLogins[runnerId]?.pools = list
+        // A Terminal panel's shell on that Mac, on the direct link.
+        case .terminalOutput(let terminalId, let threadId, let data):
+            guard threads[threadId]?.runnerId == runnerId else { return }
+            TerminalHub.shared.output(terminalId: terminalId, threadId: threadId, data: data)
+        case .terminalExited(let exit):
+            guard threads[exit.threadId]?.runnerId == runnerId else { return }
+            TerminalHub.shared.exited(exit)
         default:
             break
         }
@@ -512,6 +519,7 @@ extension AppModel {
     private func remoteConnected(_ runnerId: String, _ client: RPCClient) {
         AppLog.write("connection", "connected to \(remoteName(runnerId))")
         if newThreadRunnerId == runnerId { newThreadRunnerProblem = nil }
+        TerminalHub.shared.reconnected()
         Task {
             // Its logins (accounts with their models, pools, defaults) fill
             // the composer's pickers on its threads; its accounts.updated
