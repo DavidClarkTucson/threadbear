@@ -491,6 +491,13 @@ lines between its columns to size them. It keeps the sizes for next
 time. Right-click it for its default size or column widths, or
 double-click a line to put that column back.
 
+Type `/` partway through a message ("then use /td") and the palette
+lists the skills the agent can run when it reads one named there. Return
+or Tab puts the skill in your words, and nothing is sent until you send
+the message. Claude Code's own commands, and skills set to run only when
+you type them (`disable-model-invocation: true`), work only at the start
+of a message, so they aren't listed there.
+
 The iPhone app has it too: type `/` in a thread's reply box and a list of
 its commands opens above it, with the categories as buttons along the top.
 Tap one to put it in the box, then send it (add details first if it takes

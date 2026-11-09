@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import type { AgentAdapter, AgentSession, RewindRequest, RewindResult, SessionSink, StartSessionOptions, UserInput } from '../types.ts';
 import { RewindRefusedError } from '../types.ts';
 import type { SlashCommand } from '../../slash-commands.ts';
+import { frontmatter } from '../../claude-trust.ts';
 import { cutPointBefore, sessionTranscriptPath } from '../../transcripts.ts';
 import type { Logger } from '../../log.ts';
 import { ClaudeNormalizer, fileContext } from './normalize.ts';
@@ -1047,6 +1048,7 @@ export function claudeCommands(
     if (plugin) out.plugin = plugin;
     const file = where && (scope === 'user' || scope === 'project') ? commandFile(name, scope === 'user' ? where.configDir : path.join(where.cwd, '.claude')) : undefined;
     if (file) out.path = file;
+    if (file && userOnlyFile(file)) out.userOnly = true;
     byName.set(name, out);
   }
   return [...byName.values()];
@@ -1076,6 +1078,18 @@ export function askReason(reason: string | undefined, type: string | undefined):
   const text = typeof reason === 'string' ? reason.trim().slice(0, 1000) : '';
   if (!text || type === 'mode') return undefined;
   return type === 'classifier' ? `Auto mode's safety check couldn't clear this: ${text}` : text;
+}
+
+// A skill or command whose frontmatter says `disable-model-invocation:
+// true`: the agent can't run it, so it works only at the start of a
+// message, not named partway through one (claude -p, 9 Nov 2026).
+export function userOnlyFile(file: string): boolean {
+  try {
+    const yaml = frontmatter(fs.readFileSync(file, 'utf8'));
+    return yaml !== undefined && /^disable-model-invocation[ \t]*:[ \t]*["']?true["']?[ \t]*(#.*)?$/m.test(yaml);
+  } catch {
+    return false;
+  }
 }
 
 // A user or project command's file: its skill, else its command (a ":"
