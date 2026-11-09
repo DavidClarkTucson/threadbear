@@ -256,6 +256,83 @@ built parsers and gates with no launch of the app, which is the trap.)
   whole suite, 125 of 125 on Tinker Desk; `cargo test -p threadbear-core`
   (92 lib tests); side-by-side of the page at
   `/tmp/gpui-new-thread-side-by-side.png`.
+### 2026-11-09 Pictures in the transcript: an in-app viewer
+
+- A click on a picture tile opens an overlay on that picture, with arrows through
+  its message's other pictures and Escape to close, in place of the file's default
+  app. Only a real, decodable picture opens (named as one, not a code runner, then
+  decoded from its bytes): `viewer.rs`, `looks_like_picture` and `runs_code` in core,
+  the `quickLooks` rule carried over.
+- `tile` and `viewer` join the automation commands on both apps (Swift's `viewer`
+  says what Quick Look would have shown, as the real panel comes to the front of a
+  desktop); the arrows are GPUI's own, so that scenario is `@swift-pending`.
+- Files: `desktop/gpui/src/viewer.rs`, `rows/images.rs`, `features/picture-viewer.feature`.
+- Remaining: zoom and pan, video, PDFs, drag out (`file.quicklook`, `drag.fileout`).
+- Verification: `TB_APP=swift` 1 of 1 and `TB_APP=gpui` 2 of 2 on Tinker Desk (real Mac) and on Linux (`cloud`), the arrows scenario `@swift-pending`; picture of the overlay on the GPUI app. Whole suite with the pane's 19 new scenarios: `TB_APP=swift` 124 of 124 on Tinker Desk, `TB_APP=gpui` 125 of 125 on Tinker Desk and 124 of 125 on Linux (one streaming scenario was too slow on a loaded box and passed on its own).
+
+### 2026-11-09 Files panel and the folder browser
+
+- The Files panel and folder previews: a list with fold-out rows, sortable columns
+  (Date Modified and Size go when the pane is narrow, as the Finder's do), a path bar
+  under the list, double-click to go in with Back to come out, and the right-click menu
+  (Open, Open in its app, Reveal, Copy path, Sort by, Show hidden files). Rows come
+  from the runner's `files.list`, so a thread on another Mac browses the same.
+- Files: `desktop/core/src/folders.rs` (FolderSort, crumbs, sizes, `files.read`
+  decoding), `desktop/gpui/src/folders.rs`, `features/folders.feature`.
+- Remaining: the icon grid (`folder.icons`, the menu item is there, greyed), Finder keys
+  and Quick Look on Space (`folder.keys`), type-to-select, the folder watch.
+- Verification: `TB_APP=swift` 6 of 6 on Tinker Desk; `TB_APP=gpui` 6 of 6 on Tinker Desk (real Mac) and on Linux (`cloud`); side-by-side pictures against the Swift pane.
+
+### 2026-11-09 Patches: the list, chips and native panels
+
+- The Patches section (Trust, waiting lines, what each gives, grouped under its
+  project), chips over the composer (`actions.run`, spinner while it runs), list panels
+  (headings, tones, Show in pane rows), image panels (a refreshed picture through
+  `files.read`, so another Mac's works) and the web-panel placeholder with Open in Browser.
+- Files: `desktop/gpui/src/patches.rs`, `features/patches.feature`, core `Panel`,
+  `Action`, `PatchInfo`, `PanelRender`.
+- Remaining: chip look (the Swift app's grouped bar with its +N overflow; these are
+  simple pills), patch and `.app` picture icons (`patches.icons`), web panels
+  (`panel.web`).
+- Verification: `TB_APP=swift` 5 of 5 on Tinker Desk; `TB_APP=gpui` 5 of 5 on Tinker Desk (real Mac) and on Linux (`cloud`); side-by-side pictures against the Swift pane.
+
+### 2026-11-09 File previews in the pane
+
+- `PanePreview` and its Back stack, the preview host, a picture view with Copy Image
+  (the file's own bytes), code in a read-only editor coloured by the kit's syntect
+  highlighter (the `syntect` feature on `gpui-kit`; the transcript's code blocks stay
+  plain, as the Swift app's are), Markdown drawn as a page, and web pages and `.html`
+  files handed to the system browser for now.
+- Files come from the runner (`files.read`), with `runnerId` for another machine's
+  thread, so a preview never touches the Mac's own disk.
+- Files: `desktop/gpui/src/files.rs`, `features/file-previews.feature`.
+- Remaining: the in-app web view (`file.htmlpreview`, later work), video and PDF
+  (`file.video`, `file.quicklook`), editing and find (`file.editor`, `file.find`),
+  the Markdown Preview/Raw menu, drag out of a picture.
+- Verification: `TB_APP=swift` 5 of 5 on Tinker Desk and `TB_APP=gpui` 5 of 5 on Tinker Desk (real Mac); side-by-side pictures against the Swift pane.
+
+### 2026-11-09 The pane beside the thread: Highlights
+
+- `desktop/core/src/highlights.rs` ports the logic and protocol types of
+  HighlightSections, HighlightFold, HighlightProjects, PreviewRules, FileIcon,
+  HighlightText, PanelIcon, ScheduleRows, StartedThreadRows and PatchGroups,
+  with the Swift tests. `desktop/gpui/src/highlights.rs` is the pane: one
+  self-contained `SidePane` entity beside the thread in a simple split (`new`
+  and `render`; the shell will host it as a dock panel), drawing the brief,
+  Needs you ticks (the same `threads.tickAsk`, optimistic), project blocks with
+  the ⓘ popover (Keep, Take out), Scheduled, Sub-agents, Threads it started,
+  Pinned, Files, Links and Changes, with Show all, the folds remembered across
+  launches, and the row menus.
+- `dump`'s new `panels.pane` says what's drawn on both apps (AppDump.swift,
+  `highlights.rs` `dump`); `highlight` joins the automation commands
+  (app/README.md).
+- Files: `desktop/core/src/highlights.rs`, `desktop/gpui/src/highlights*.rs`,
+  `features/highlights.feature`, `features/support/pane.ts`,
+  `app/Sources/Threadbear/AppDump.swift`, `Automation+Commands.swift`.
+- Remaining: the Notion board (`highlights.board`), the project page link from
+  the ⓘ, middle truncation of file names, drag-out, Open in Panel's page view.
+- Verification: `TB_APP=swift` 14 of 14 and `TB_APP=gpui` 14 of 14 on Linux
+  (`cloud`) and on Tinker Desk; side-by-side picture of the pane against Swift's.
 
 ### 2026-11-09 BearDock for GPUI
 

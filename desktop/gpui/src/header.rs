@@ -155,7 +155,7 @@ impl Threadbear {
     /// add it to another (`ProjectIconButton`'s menu).
     fn project_chip_rows(&self, thread_id: &str, project: &threadbear_core::inbox::Project) -> Vec<MenuRow> {
         let mut rows = vec![MenuRow::item(format!("Open {}", project.title), "arrow.right.circle", MenuAction::OpenProject), MenuRow::separator()];
-        if !project.pinned.unwrap_or(false) {
+        if !project.pinned {
             rows.push(MenuRow::item(format!("Keep it in {}", project.title), "pin", MenuAction::ThreadProject { thread: thread_id.to_string(), add: Some(project.id.clone()), remove: None }));
         }
         rows.push(MenuRow::item(format!("Take it out of {}", project.title), "minus.circle", MenuAction::ThreadProject { thread: thread_id.to_string(), add: None, remove: Some(project.id.clone()) }));

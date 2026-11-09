@@ -13,6 +13,8 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// Shadows gpui's px, so sizes here follow the app's zoom (style.rs).
+use crate::style::px;
 use serde_json::json;
 #[cfg(feature = "automation")]
 use serde_json::Value;

@@ -789,6 +789,14 @@ enum Automation {
                 controller.saveNow()
                 return "ok \(controller.conflict != nil ? "changed on disk, so not saved; " : "")file ends \(((try? String(contentsOf: controller.url, encoding: .utf8)) ?? "").suffix(40).debugDescription)"
             }
+            if c["copyImage"] as? Bool == true {
+                // The picture's right-click Copy Image, onto a private
+                // pasteboard: says what it put there.
+                guard let view = FilePreviewView.current else { return "error no picture is showing" }
+                let board = NSPasteboard(name: NSPasteboard.Name("threadbear.automation.copy.\(ProcessInfo.processInfo.processIdentifier)"))
+                guard view.copyImage(to: board), let types = board.pasteboardItems?.first?.types else { return "error nothing copied" }
+                return "ok copied " + types.map(\.rawValue).joined(separator: ",")
+            }
             if c["close"] as? Bool == true {
                 app.closePreview(in: thread.id)
             } else if c["back"] as? Bool == true {
@@ -817,6 +825,12 @@ enum Automation {
             }
             try? await Task.sleep(for: .milliseconds(300))
             return "ok \(app.panePreview[thread.id].map { "showing \($0.title)" } ?? "no preview")"
+        case "highlight":
+            return await highlightCommand(c, app: app)
+        case "tile":
+            return tile(c, app: app)
+        case "viewer":
+            return viewer(c)
         case "folder":
             // {"cmd":"folder","open":"name"} is a double-click on that row of
             // the folder showing in the pane, "select" a click, "expand" its

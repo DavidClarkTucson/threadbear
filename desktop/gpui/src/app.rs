@@ -4,6 +4,7 @@
 use crate::composer::Composer;
 use crate::settings::Settings;
 use crate::shell::{self, ArchivedNote, InboxEndNote, NavPlace, SidebarMode};
+use crate::highlights::SidePane;
 use crate::thread::ThreadPane;
 use crate::{call, now_ms, ChannelSink, Seen, RT};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -101,6 +102,8 @@ pub struct Threadbear {
     pub(crate) slash: crate::slash_palette::SlashState,
     /// The Move sheet, while it's up (move_sheet.rs).
     pub(crate) move_sheet: Option<Entity<crate::move_sheet::MoveSheet>>,
+    /// The pane beside the thread: Highlights, previews, Patches, Files (highlights.rs).
+    pub(crate) side: Entity<SidePane>,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -124,6 +127,10 @@ impl Threadbear {
             }
         });
         let status = client.status();
+        let weak_app = cx.entity().downgrade();
+        let side_client = client.clone();
+        let side = cx.new(|cx| SidePane::new(weak_app, side_client, window, cx));
+        crate::viewer::viewer_handle_global(side.downgrade(), cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
         // The filter is worked out at render, so a change only needs a redraw.
         let searching = cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
@@ -219,6 +226,7 @@ impl Threadbear {
             remote: Default::default(),
             slash: Default::default(),
             move_sheet: None,
+            side,
             _events: events,
             _subs: vec![appearance, searching, frame],
         };
@@ -247,6 +255,7 @@ impl Threadbear {
                     self.load_projects(cx);
                     self.load_schedules(cx);
                     self.load_remote(cx);
+                    self.side.update(cx, |side, cx| side.connected(cx));
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.load(cx));
                     }
@@ -279,8 +288,12 @@ impl Threadbear {
                     self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]);
                     self.sidebar.projects = crate::sidebar::project_briefs(&params["projects"]);
                     self.all_projects = project_list(&params["projects"]);
+                    self.side.update(cx, |side, cx| side.projects_updated(&params["projects"], cx));
                 }
-                "schedules.updated" => self.load_schedules(cx),
+                "schedules.updated" => {
+                    self.load_schedules(cx);
+                    self.side.update(cx, |side, cx| side.schedules_updated(&params["schedules"], cx));
+                }
                 "remoteThreads.updated" => self.receive_remote(&params, cx),
                 "thread.event" => {
                     if let Some(pane) = &self.pane {
@@ -495,6 +508,8 @@ impl Threadbear {
             "inboxEndNote": self.inbox_end_note.as_ref().map(|n| if n.empty { "empty" } else { "end" }),
             "rails": self.rails_dump(cx),
             "header": self.header_dump(),
+            "panels": self.side.read(cx).dump(cx),
+            "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
         })
     }
 

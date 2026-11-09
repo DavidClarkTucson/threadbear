@@ -998,14 +998,17 @@ impl Threadbear {
     }
 
     /// What a panel shows (`RootView.content`'s `view`).
-    pub(crate) fn panel_view(&mut self, panel: &str, _ghost: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn panel_view(&mut self, panel: &str, ghost: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match panel {
             THREADS => match self.mode {
                 SidebarMode::Inbox => self.render_sidebar(cx).into_any_element(),
                 other => self.render_mode_sidebar(other, cx).into_any_element(),
             },
             MAIN => self.render_main_panel(window, cx).into_any_element(),
-            HIGHLIGHTS => self.render_highlights_panel(window, cx),
+            // Highlights, Files, Patches and a patch's own panels are sections of
+            // the one pane beside the thread (highlights.rs), each its own panel
+            // in the dock, as in the Swift app.
+            _ if !ghost && self.is_side_section(panel) => self.render_side_section(panel, cx),
             _ => self.render_pane_placeholder(panel, cx).into_any_element(),
         }
     }
@@ -1053,8 +1056,24 @@ impl Threadbear {
     /// The Highlights panel. Its content is being built in `highlights.rs`
     /// (another branch of the port); until that lands this is the empty panel
     /// it will replace, with the same title and id.
-    fn render_highlights_panel(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        self.render_pane_placeholder(HIGHLIGHTS, cx).into_any_element()
+    fn is_side_section(&self, panel: &str) -> bool {
+        matches!(panel, HIGHLIGHTS | FILES | PATCHES) || self.open_thread().is_some_and(|t| t.panels.iter().flatten().any(|p| p["id"].as_str() == Some(panel)))
+    }
+
+    /// The side pane, showing this panel's section. Its entity draws one section
+    /// at a time, so two of them shown side by side would show the same one
+    /// (the Swift app draws each separately): for later, it needs a split of
+    /// `SidePane` into sections.
+    fn render_side_section(&mut self, section: &str, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(thread) = self.open_thread().cloned() {
+            if self.side.read(cx).section_for(&thread) != section {
+                // Afterwards, as this runs while the app's own state is held and
+                // the pane reads that.
+                let (side, section) = (self.side.clone(), section.to_owned());
+                cx.defer(move |cx| side.update(cx, |side, cx| side.choose_section(&thread.id, &section, cx)));
+            }
+        }
+        div().size_full().child(self.side.clone()).into_any_element()
     }
 }
 

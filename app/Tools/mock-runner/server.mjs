@@ -2980,6 +2980,7 @@ The new hero is shorter, and every page now leads with what the app does.
 `);
     const before = file('screens/pricing-before.png', { copy: path.join(here, 'fixtures/demo-upload-resume/media/progress-before.png') });
     file('logs/docs-build.txt', 'Error: Could not resolve image /docs/hero.png\n  at src/pages/docs.astro:12\nBuild failed in 14.2s.\n');
+    file('src/hero.ts', '// The hero at the top of the home page.\nexport function hero(words: string): string {\n  return `<h1>${words}</h1>`;\n}\n');
     site.summary.cwd = root;
     const at = (seq) => site.events.find((e) => e.seq === seq)?.ts ?? iso();
     const h = (seq, fields) => ({ seq, lastSeq: seq, at: at(seq), ...fields });

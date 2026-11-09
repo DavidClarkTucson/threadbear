@@ -202,6 +202,12 @@ pub fn faint_icon(cx: &App) -> Hsla {
     pick(cx, white(0.25), black(0.36))
 }
 
+/// The pane's row icons (`Theme.faintIcon`): a notch brighter here, as
+/// Lucide's thin strokes read fainter than SF Symbols.
+pub fn pane_icon(cx: &App) -> Hsla {
+    pick(cx, white(0.4), black(0.42))
+}
+
 /// `Theme.answerRowsFill`.
 pub fn answer_rows_fill(cx: &App) -> Hsla {
     pick(cx, white(0.02), black(0.015))

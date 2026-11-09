@@ -15,6 +15,8 @@ and right rail, the thread's title line and menu, banners, notes, the menu bar
 and the keyboard shortcuts. It starts new threads (the new-thread page, on any
 runner) and offers the slash command palette. Other runners' threads are listed
 and open through this Mac's runner.
+The pane beside the thread has Highlights, file previews, Patches and the
+folder browser.
 
 ## How it's put together
 

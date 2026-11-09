@@ -124,7 +124,12 @@ fn text<'a>(cmd: &'a Value, key: &str) -> &'a str {
 /// is what's on screen now.
 fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App) -> Result<Value, String> {
     match text(cmd, "cmd") {
-        "dump" => Ok(app.read(cx).dump(cx)),
+        "dump" => {
+            // A window covered by another gets no frames from the system on a
+            // Mac, and a scroll only takes effect at a frame.
+            window.render_frame(cx);
+            Ok(app.read(cx).dump(cx))
+        }
         "status" => Ok(json!("ok")),
         // The sidebar's commands (sidebar.rs). Guarded ones only take the forms
         // that name a section, a row or a tip; the others fall through below.
@@ -134,6 +139,22 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "expand" | "collapse" if cmd.get("section").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "archive" | "snooze" if cmd.get("id").is_some() || cmd.get("said").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "click" if cmd.get("tip").is_some() || cmd.get("tipPrefix").is_some() => crate::sidebar::automation(app, cmd, window, cx),
+        // The pane beside the thread (highlights.rs): the Swift app's names.
+        "preview" | "folder" | "highlight" | "trust" | "action" | "project-why" => crate::highlights::automation(app, cmd, window, cx),
+        "expand" | "collapse" if cmd.get("highlightSection").is_some() => crate::highlights::automation(app, cmd, window, cx),
+        "viewer" => {
+            let side = app.read(cx).side.clone();
+            crate::viewer::viewer_command(&side, cmd, cx)
+        }
+        // A picture tile of the transcript, as a click on it (`viewer` says what opened).
+        "tile" => {
+            let index = cmd["index"].as_u64().unwrap_or(0) as usize;
+            let count = cmd["count"].as_u64().unwrap_or(1) as usize;
+            let images = app.update(cx, |t, cx| t.update_pane(cx, |p, _| p.last_row_images(count)))??;
+            crate::viewer::open_from_tile(&images, index, window, cx);
+            let side = app.read(cx).side.clone();
+            crate::viewer::viewer_command(&side, &json!({}), cx)
+        }
         "open" | "select" => {
             let id = app.read(cx).thread_id_from(text(cmd, "id"))?;
             app.update(cx, |t, cx| {
@@ -193,6 +214,11 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
                 window.dispatch_event(FileDropEvent::Exited.to_platform_input(), cx);
                 return Ok(json!("ok"));
             }
+            // Submit activates the app, and a window that wasn't active drops the
+            // first event (only a scripted window starts out that way).
+            cx.activate(true);
+            window.activate_window();
+            window.render_frame(cx);
             let paths = ExternalPaths(vec![std::path::PathBuf::from(text(cmd, "path"))].into());
             window.dispatch_event(FileDropEvent::Entered { position, paths }.to_platform_input(), cx);
             window.render_frame(cx);
@@ -419,6 +445,12 @@ fn shell_step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &m
                 }
                 Ok(())
             })?;
+            // What the pane shows, straight away rather than at the next frame, and
+            // only now that the app isn't held, because the pane reads it.
+            if let (Some(id), Some(thread)) = (cmd["id"].as_str(), app.read(cx).open_thread().cloned()) {
+                let side = app.read(cx).side.clone();
+                side.update(cx, |pane, cx| pane.choose_section(&thread.id, id, cx));
+            }
             let showing = app.read(cx).dock.read(cx).controller.is_showing(cmd["id"].as_str().unwrap_or(shell::HIGHLIGHTS));
             Ok(json!(if showing { "ok showing" } else { "ok hidden" }))
         }

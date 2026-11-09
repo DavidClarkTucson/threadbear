@@ -17,6 +17,8 @@ export class ThreadbearWorld extends World {
   app: Driver;
   /** What the last right-click on a sidebar row offered. */
   menuTitles?: string[];
+  /** What the last command answered, for a step to read back. */
+  lastAnswer?: string;
   /** A row's position a scenario wants to compare with later. */
   notedIndex?: number;
   /** A row and its height, a scenario wants to compare with later. */

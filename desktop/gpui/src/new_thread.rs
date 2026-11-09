@@ -15,6 +15,8 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// Shadows gpui's px, so sizes here follow the app's zoom (style.rs).
+use crate::style::px;
 use serde_json::{json, Value};
 use threadbear_client::runner::{RpcError, Status};
 use threadbear_core::inbox::ThreadSummary;

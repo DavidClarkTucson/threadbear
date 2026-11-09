@@ -35,19 +35,19 @@ export class GpuiDriver implements Driver {
   private display?: string;
 
   private child(cmd: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-    // dbus-run-session goes in a process group of its own: killing just it
-    // leaves its dbus-daemon running forever, and a day of scenarios left
-    // 1,200 of those on `cloud` (9 Nov) until nothing could start.
-    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: cmd === 'dbus-run-session' });
+    // A process group of its own: `dbus-run-session`'s bus and the portals it
+    // starts are grandchildren that outlive a plain kill, and the cloud box
+    // ended up with thousands of them (9 Nov, "can't spawn worker thread").
+    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     c.stdout?.on('data', (d) => (this.log += d));
     c.stderr?.on('data', (d) => (this.log += d));
     this.children.push(c);
     return c;
   }
 
-  /** Stops a child, with the whole process group for a dbus-run-session. */
+  /** Stops a child and everything it started: the whole process group it leads (see `child`). */
   private killChild(c: ChildProcess): void {
-    if (c.spawnargs[0] === 'dbus-run-session' && c.pid) {
+    if (c.pid && process.platform !== 'win32') {
       try {
         process.kill(-c.pid, 'SIGTERM');
         return;
@@ -152,7 +152,7 @@ export class GpuiDriver implements Driver {
 
   async dump(): Promise<Dump> {
     const r = await this.ask({ cmd: 'dump' }, 30);
-    if (r.error) throw new Error(`dump: ${r.error as string}`);
+    if (r.error) throw new Error(`dump: ${r.error as string}\n${this.log.slice(-3000)}`);
     return r.result as Dump;
   }
 

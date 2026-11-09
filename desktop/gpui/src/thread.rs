@@ -788,18 +788,29 @@ impl Render for ThreadPane {
         self.rows.list_width = f32::from(self.scroller.read(cx).viewport().size.width);
         let composer = self.composer.clone();
         // The thread's title and project line are in the panel's bar (header.rs).
+        // The whole thread is drop space for the box (ComposerDropView), outlined
+        // while a file is over it. It's a layer over the thread for as long as a
+        // file's being dragged, because selectable text under the pointer takes
+        // the hover for itself, and a drop on a reply then went nowhere.
+        let dragging_file = cx.has_active_drag();
+        let drop_layer = dragging_file.then(|| {
+            div()
+                .absolute()
+                .inset_0()
+                .on_drop(move |paths: &ExternalPaths, window, cx| {
+                    let paths = paths.paths().to_vec();
+                    composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
+                })
+                .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
+        });
         v_flex()
+            .relative()
             .size_full()
-            // The whole thread is drop space for the box (ComposerDropView),
-            // outlined while a file is over it.
-            .on_drop(move |paths: &ExternalPaths, window, cx| {
-                let paths = paths.paths().to_vec();
-                composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
-            })
-            .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
             .when_some(self.error.clone(), |s, e| s.child(div().px_7().py_1().text_sm().text_color(danger).child(e)))
             .when(!self.loaded && self.error.is_none(), |s| s.child(div().p_4().text_sm().text_center().text_color(muted).child("Loading…")))
             .child(div().flex_1().min_h_0().child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx)))
+            .when_some(crate::viewer::action_chips(&self.summary, cx), |s, chips| s.child(chips))
             .child(self.composer.clone())
+            .children(drop_layer)
     }
 }
