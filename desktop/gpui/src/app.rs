@@ -265,6 +265,7 @@ impl Threadbear {
             "sidebar": { "mode": "inbox", "sections": sections, "snoozed": snoozed, "archived": archived },
             "composer": self.dump_composer(cx),
             "transcript": pane.map(|p| p.dump()).unwrap_or_else(|| json!({ "rows": [] })),
+            "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": Value::Null,
         })
     }
@@ -286,6 +287,10 @@ impl Threadbear {
                 out["mode"] = json!(if t.permission_mode.is_empty() { "full" } else { t.permission_mode.as_str() });
             }
             out["chip"] = json!(crate::composer_chips::model_chip_text(&data));
+            let composer = pane.composer.read(cx);
+            if let Some(card) = composer.card_lines(cx) {
+                out["card"] = json!(card);
+            }
         }
         out
     }

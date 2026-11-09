@@ -59,11 +59,8 @@ impl ThreadPane {
         pane
     }
 
-    pub fn thread_id(&self) -> &str {
-        &self.summary.id
-    }
-
     /// What's typed and not yet sent, with pictures as their markers.
+    #[cfg(feature = "automation")]
     pub fn draft(&self, cx: &App) -> String {
         self.composer.read(cx).draft_text(cx)
     }
@@ -230,7 +227,7 @@ impl ThreadPane {
     /// Sends a message (AppModel.post): it shows dimmed at the end of the
     /// transcript straight away, and goes back into the box if the runner
     /// doesn't take it. `draft` is what to give back then.
-    pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<(String, Vec<ImageRef>)>, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
+    pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<crate::composer::RestoreDraft>, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
         // Shown straight away and put right when the runner echoes it back.
         self.next_pending += 1;
         let pending_id = format!("local-{}", self.next_pending);
@@ -265,8 +262,8 @@ impl ThreadPane {
             })
             .ok();
             if failed {
-                if let (Some(composer), Some((text, images))) = (composer.upgrade(), draft) {
-                    composer.update(cx, |c, cx| c.restore_draft(text, images, cx));
+                if let (Some(composer), Some(draft)) = (composer.upgrade(), draft) {
+                    composer.update(cx, |c, cx| c.restore_draft(draft, cx));
                 }
             }
         })
@@ -288,6 +285,18 @@ impl ThreadPane {
         let params = json!({ "threadId": self.summary.id, "approvalId": id, "decision": "allow" });
         self.request("approvals.respond", params, cx);
         true
+    }
+
+    /// The composer's picks on the open card, handed to the reducer so its
+    /// row reads them (ThreadSession.setAskPicks and friends).
+    pub(crate) fn set_card_picks(&mut self, seq: i64, picks: std::collections::BTreeMap<i64, i64>, notes: std::collections::BTreeMap<i64, threadbear_core::reducer::AskNote>, next: std::collections::BTreeSet<i64>, explain: std::collections::BTreeSet<i64>, cx: &mut Context<Self>) {
+        let change = self.feed.set_ask_picks(seq, picks);
+        self.apply(change, cx);
+        let change = self.feed.set_ask_notes(seq, notes);
+        self.apply(change, cx);
+        let change = self.feed.set_next_picks(seq, next, explain);
+        self.apply(change, cx);
+        cx.notify();
     }
 
     /// Something the composer tried that didn't work, for the error line.
@@ -409,7 +418,7 @@ impl Render for ThreadPane {
                 let paths = paths.paths().to_vec();
                 composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
             })
-            .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(cx.theme().accent.opacity(0.06)).border_2().border_color(cx.theme().accent))
+            .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
             .child(
                 v_flex()
                     .px_7()

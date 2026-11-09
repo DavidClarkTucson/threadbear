@@ -93,8 +93,15 @@ impl Composer {
                 return self.set_model(model, cx);
             }
             // Picks the pool, and in it the model.
-            let (column, model) = (column.to_owned(), model);
-            self.change_thread(|t| t.pool_id = None, json!({ "poolId": column, "model": model }), cx);
+            let (pool, guess_pool, guess_model) = (column.to_owned(), column.to_owned(), model.clone());
+            self.change_thread(
+                move |t| {
+                    t.pool_id = Some(guess_pool);
+                    t.model = guess_model;
+                },
+                json!({ "poolId": pool, "model": model }),
+                cx,
+            );
             return;
         }
         let provider = settings.provider.clone();
@@ -102,8 +109,16 @@ impl Composer {
             return self.set_model(model, cx);
         }
         if let Some(account) = data.logins.accounts.iter().find(|a| a.provider_id() == column) {
-            let (id, model2) = (account.id.clone(), model.clone());
-            self.change_thread(|t| t.account_id = String::new(), json!({ "accountId": id, "model": model2 }), cx);
+            let (id, guess_id, guess_provider, guess_model) = (account.id.clone(), account.id.clone(), column.to_owned(), model.clone());
+            self.change_thread(
+                move |t| {
+                    t.account_id = guess_id;
+                    t.provider = guess_provider;
+                    t.model = guess_model;
+                },
+                json!({ "accountId": id, "model": model }),
+                cx,
+            );
         }
     }
 
@@ -169,7 +184,7 @@ impl Composer {
         }
         row = row.child(div().flex_1());
         if let Some(meter) = data.summary.as_ref().and_then(|t| ContextMeter::new(t.context_tokens, t.context_window)) {
-            row = row.child(self.render_context_ring(meter, &data, cx));
+            row = row.child(self.render_context_ring(meter, &data));
         }
         row.child(send_button).into_any_element()
     }
@@ -183,11 +198,11 @@ impl Composer {
         Popover::new("composer-plus")
             .anchor(Anchor::BottomLeft)
             .trigger(ChipTrigger { id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images, change the folder or schedule the message".into(), selected: false })
-            .content(move |state, window, cx| {
+            .content(move |_, window, cx| {
                 let popover = cx.entity();
                 let c1 = composer.clone();
                 let (popover2, c2) = (popover.clone(), composer.clone());
-                let rows = v_flex()
+                v_flex()
                     .w(px(260.))
                     .p(px(4.))
                     .child(menu_row("attach", Some(IconName::Image), "Attach images…", None, false, window, cx, move |window, cx| {
@@ -215,9 +230,7 @@ impl Composer {
                                 c.update(cx, |c, cx| c.choose_folder(window, cx));
                             }
                         })
-                    });
-                let _ = state;
-                rows
+                    })
             })
     }
 
@@ -285,7 +298,7 @@ impl Composer {
             .into_any_element()
     }
 
-    fn render_context_ring(&self, meter: ContextMeter, data: &ChipData, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_context_ring(&self, meter: ContextMeter, data: &ChipData) -> impl IntoElement {
         let model_line = data.settings().map(|s| threadbear_core::logins::chip_title(s.effective_model().as_deref(), s.effective_effort().as_deref(), s.choices())).unwrap_or_default();
         let login_line = data.summary.as_ref().and_then(|t| data.logins.account(&t.account_id).map(|a| a.name())).unwrap_or_default();
         let provider = data.summary.as_ref().map(|t| t.provider.clone()).unwrap_or_default();
@@ -635,6 +648,7 @@ fn model_row(row: PickerRow, cx: &App, action: impl Fn(&mut Window, &mut App) + 
 /// The picker as text for the automation's `composer-menu` (ThreadSettings
 /// pickerLines): `[x]` on the chosen row, `*` on the default, the description
 /// after a dash, older rows indented, then the effort levels.
+#[cfg(feature = "automation")]
 pub(crate) fn picker_lines(data: &ChipData) -> Vec<String> {
     let Some(settings) = data.settings() else { return Vec::new() };
     let mut lines = Vec::new();

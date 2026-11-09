@@ -71,6 +71,26 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 Composer: the open card in the box
+
+- The open card (Needs you or Done) is drawn at the top of the composer from the
+  reducer's `open_card()`, and its row in the list is zero height, as the Swift
+  one is. Done has Archive and its follow-ups with tick and "?"; Needs you has its
+  asks with answer buttons or rows, Something else boxes, Return going on to the
+  next unanswered ask, collapse, and one ask at a time when it's tall. Picks stay
+  with the composer while another thread is open, and `decide` and `ask` match
+  the Swift automation (`dump` has `composer.card` and `decisions` on both apps,
+  the Swift one added to AppDump.swift).
+- Files: `desktop/gpui/src/composer_card.rs`, `desktop/gpui/src/rows.rs` (one
+  line), `features/composer-cards.feature`, `app/Sources/Threadbear/AppDump.swift`.
+- Remaining: pictures in the Something else boxes, the page slide, the card
+  keeping its tallest page's height, link buttons on asks, the beep when Return
+  can't go on, the picks' chips when collapsed, the new-thread page and the
+  slash palette.
+- Verification: whole suite 44 of 44 on `TB_APP=gpui` on Linux (`cloud`) and a
+  real Mac (Tinker Desk), and 44 of 44 on `TB_APP=swift` on Tinker Desk;
+  side-by-side screenshot of the paged card against Swift's.
+
 ### 2026-11-09 Composer: the chips under the box
 
 - The row under the words: "+" (Attach images…, folder), the model chip with its

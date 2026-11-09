@@ -31,7 +31,8 @@ export type Dump = {
     snoozed: number;
     archived: number;
   };
-  composer: { draft: string; text: string; images?: number };
+  composer: { draft: string; text: string; images?: number; chip?: string; mode?: string; card?: string[] | null };
+  decisions?: string[] | null;
   transcript: {
     threadId?: string;
     state?: string;

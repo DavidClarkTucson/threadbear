@@ -36,3 +36,8 @@ Then('the composer\'s permission mode is {string}', async function (this: Thread
 Then('the model chip says {string}', async function (this: ThreadbearWorld, chip: string) {
   await this.until(`the model chip saying "${chip}"`, (d) => (d.composer as { chip?: string }).chip === chip);
 });
+
+Then('the {string} menu says {string} and {string}', async function (this: ThreadbearWorld, menu: string, first: string, second: string) {
+  const lines = await menuLines(this, menu);
+  assert.deepEqual(lines.slice(0, 2), [first, second]);
+});

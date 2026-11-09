@@ -126,3 +126,28 @@ pub fn faint_icon(cx: &App) -> Hsla {
 pub fn chip_divider(cx: &App) -> Hsla {
     pick(cx, white(0.12), black(0.12))
 }
+
+/// The Needs you orange (Theme.needsYou).
+pub fn needs_you(cx: &App) -> Hsla {
+    pick(cx, hsla(0.09, 0.95, 0.56, 1.), hsla(0.09, 0.9, 0.45, 1.))
+}
+
+/// The answer box under an ask's Something else.
+pub fn answer_box_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.05), black(0.03))
+}
+
+/// The box behind an ask's answer rows (Theme.answerRowsFill).
+pub fn answer_rows_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.04), black(0.03))
+}
+
+/// The system's accent (NSColor.controlAccentColor): the outline of a box
+/// that needs Mike, ticks and the agent's own pick.
+pub fn accent(cx: &App) -> Hsla {
+    pick(cx, rgb_hsla(0x0a84ff), rgb_hsla(0x007aff))
+}
+
+fn rgb_hsla(hex: u32) -> Hsla {
+    rgb(hex).into()
+}

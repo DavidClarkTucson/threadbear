@@ -8,6 +8,7 @@
 // keeps them atomic through edits and undo. That mark is exactly what the
 // Swift draft holds (InlinePictures), so the two apps' drafts read the same.
 use crate::app::Threadbear;
+use crate::composer_card::CardState;
 use crate::composer_chips::ModelPickerView;
 use crate::style;
 use crate::thread::ThreadPane;
@@ -60,10 +61,30 @@ pub struct Composer {
     /// Stop was pressed and the turn hasn't ended yet: a spinner in its place.
     stopping: bool,
     /// A refused send's draft, to put back at the next render.
-    restore: Option<(String, Vec<ImageRef>)>,
+    restore: Option<RestoreDraft>,
     /// The model picker's search and column, kept while it's open.
     pub(crate) model_picker: Option<Entity<ModelPickerView>>,
+    /// What's picked on the open card, and how the card's showing.
+    pub(crate) card: CardState,
+    shown_placeholder: &'static str,
     _subs: Vec<Subscription>,
+}
+
+/// What a refused send gives back: the words and pictures, and the picks that
+/// went with them (AppModel.restoreDraft and the `failed` closure in `send`).
+pub struct RestoreDraft {
+    pub(crate) text: String,
+    pub(crate) images: Vec<ImageRef>,
+    pub(crate) card: Option<SavedPicks>,
+}
+
+#[derive(Clone)]
+pub struct SavedPicks {
+    pub(crate) seq: i64,
+    pub(crate) picks: std::collections::BTreeMap<i64, i64>,
+    pub(crate) notes: std::collections::BTreeMap<i64, threadbear_core::reducer::AskNote>,
+    pub(crate) next_picks: std::collections::BTreeSet<i64>,
+    pub(crate) explain: std::collections::BTreeSet<i64>,
 }
 
 impl Composer {
@@ -91,6 +112,8 @@ impl Composer {
             stopping: false,
             restore: None,
             model_picker: None,
+            card: CardState::default(),
+            shown_placeholder: "Message",
             _subs: vec![sub],
         }
     }
@@ -128,11 +151,13 @@ impl Composer {
 
     /// The box's text as the Swift dump gives it: chips as the markers they'll
     /// go out as (`InlinePictures.messageText`).
+    #[cfg(feature = "automation")]
     pub fn draft_text(&self, cx: &App) -> String {
         composer::message_text(&self.draft(cx).0, 1)
     }
 
     /// How many pictures are in the box (the dump's `composer.images`).
+    #[cfg(feature = "automation")]
     pub fn draft_images(&self, cx: &App) -> usize {
         self.draft(cx).1.len()
     }
@@ -146,7 +171,7 @@ impl Composer {
     /// Return in the box (ComposerTextView.keyDown): with nothing typed it
     /// goes to `return_when_empty`, otherwise it sends.
     fn return_pressed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.input.read(cx).value().is_empty() && self.return_when_empty(cx) {
+        if self.input.read(cx).value().is_empty() && self.return_when_empty(window, cx) {
             return;
         }
         self.send(window, cx);
@@ -154,7 +179,10 @@ impl Composer {
 
     /// ComposerView.returnWhenEmpty: Return with nothing typed allows the
     /// sole waiting approval (the ⏎ its Allow button shows).
-    fn return_when_empty(&mut self, cx: &mut Context<Self>) -> bool {
+    fn return_when_empty(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.return_with_picks(window, cx) {
+            return true;
+        }
         let Some(pane) = self.pane() else { return false };
         pane.update(cx, |p, cx| p.allow_sole_approval(cx))
     }
@@ -183,7 +211,7 @@ impl Composer {
     /// Whether there's anything to send (ComposerView.canSend).
     fn can_send(&self, cx: &App) -> bool {
         let (text, images) = self.draft(cx);
-        composer::can_send(&text, images.len())
+        composer::can_send(&text, images.len()) || !self.card.picks.is_empty() || !self.card.next_picks.is_empty() || !self.card.explain.is_empty()
     }
 
     /// AppModel.send: the box empties at once and the message shows dimmed
@@ -191,16 +219,37 @@ impl Composer {
     /// if the runner doesn't take it.
     pub(crate) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (draft_text, images) = self.draft(cx);
-        let text = composer::sent_text(&draft_text, 1);
-        if text.trim().is_empty() && images.is_empty() {
+        // Pictures from the asks' boxes come first, numbered as the answers
+        // say, then the box's own chips, whose markers go after them.
+        let boxes = self.note_images_len(cx);
+        let words = composer::sent_text(&draft_text, boxes + 1).trim().to_string();
+        let (text, images_to_send, answers) = match self.card_message(&words, cx) {
+            Some((message, mut note_images, answers)) => {
+                note_images.extend(images.clone());
+                (message, note_images, answers)
+            }
+            None => (words, images.clone(), Value::Null),
+        };
+        if text.trim().is_empty() && images_to_send.is_empty() {
             return;
         }
         let Some(pane) = self.pane() else { return };
+        let picks = self.saved_picks();
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.pictures.clear();
+        self.clear_picks(cx);
         let composer = cx.entity().downgrade();
-        pane.update(cx, |p, cx| p.send_message(text.trim().to_string(), images.clone(), Value::Null, Some((draft_text.clone(), images.clone())), composer, cx));
+        let restore = RestoreDraft { text: draft_text, images, card: picks };
+        pane.update(cx, |p, cx| p.send_message(text, images_to_send, answers, Some(restore), composer, cx));
         cx.notify();
+    }
+
+    fn saved_picks(&self) -> Option<SavedPicks> {
+        self.card.seq.map(|seq| SavedPicks { seq, picks: self.card.picks.clone(), notes: self.card.notes.clone(), next_picks: self.card.next_picks.clone(), explain: self.card.explain.clone() })
+    }
+
+    fn note_images_len(&self, cx: &App) -> usize {
+        self.open_card(cx).filter(|c| !c.is_done()).map_or(0, |c| composer::note_images(&c.asks, &self.card.picks, &self.card.notes).len())
     }
 
     /// The Stop button (⌘. goes through ThreadPane::stop too).
@@ -215,12 +264,22 @@ impl Composer {
     /// A send the runner refused: what was typed goes back in the box
     /// (AppModel.restoreDraft), unless something new has been typed since.
     /// At the next render, where there's a window to do it with.
-    pub fn restore_draft(&mut self, draft: String, images: Vec<ImageRef>, cx: &mut Context<Self>) {
-        self.restore = Some((draft, images));
+    pub fn restore_draft(&mut self, draft: RestoreDraft, cx: &mut Context<Self>) {
+        self.restore = Some(draft);
         cx.notify();
     }
 
-    fn apply_restore(&mut self, draft: String, images: Vec<ImageRef>, window: &mut Window, cx: &mut Context<Self>) {
+    fn apply_restore(&mut self, restore: RestoreDraft, window: &mut Window, cx: &mut Context<Self>) {
+        let RestoreDraft { text: draft, images, card } = restore;
+        if let Some(saved) = card {
+            if self.card.seq == Some(saved.seq) {
+                self.card.picks = saved.picks;
+                self.card.notes = saved.notes;
+                self.card.next_picks = saved.next_picks;
+                self.card.explain = saved.explain;
+                self.push_card_state(cx);
+            }
+        }
         if !self.input.read(cx).value().is_empty() {
             return;
         }
@@ -481,7 +540,7 @@ impl Composer {
         let path = self.picture_path(id);
         let selected = ctx.is_selected();
         let fill = style::chip_fill(cx);
-        let edge = if selected { cx.theme().accent } else { style::hairline(cx) };
+        let edge = if selected { style::accent(cx) } else { style::hairline(cx) };
         let label_color = if dimmed { style::faint_text(cx) } else { style::quiet_text(cx) };
         h_flex()
             .h_full()
@@ -636,10 +695,17 @@ impl Composer {
 
 impl Render for Composer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Some((draft, images)) = self.restore.take() {
-            self.apply_restore(draft, images, window, cx);
+        if let Some(restore) = self.restore.take() {
+            self.apply_restore(restore, window, cx);
         }
         self.renumber_chips(cx);
+        // With answers picked the box is for anything else; under asks with
+        // none picked it's the way to answer in other words.
+        let placeholder = self.card_placeholder(cx);
+        if self.shown_placeholder != placeholder {
+            self.shown_placeholder = placeholder;
+            self.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
+        }
         let running = self.pane().is_some_and(|p| p.read(cx).summary.busy());
         if !running {
             self.stopping = false;
@@ -647,6 +713,9 @@ impl Render for Composer {
         let strip = self.render_strip(cx);
         let send_button = self.render_send_button(running, cx);
         let controls = self.render_controls(send_button, window, cx);
+        // The box: the open card over a line, then the message.
+        let card = self.render_card(window, cx);
+        let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
         let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(cx)).child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.
@@ -663,10 +732,11 @@ impl Render for Composer {
                     .rounded(px(style::COMPOSER_RADIUS))
                     .bg(style::composer_fill(cx))
                     .border_1()
-                    .border_color(style::hairline(cx))
+                    .border_color(if needs_you { style::accent(cx) } else { style::hairline(cx) })
                     .when(!cx.theme().is_dark(), |s| s.shadow_md())
                     // Clicking the card's padding puts the cursor in the text.
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| this.focus(window, cx)))
+                    .children(card)
                     .child(body),
             )
             .children(self.render_peek(cx))

@@ -29,3 +29,8 @@ Feature: The chips under the message box
   Scenario: Picking an effort level changes the chip
     When I pick "High" from the "model" menu
     Then the model chip says "Claude · Fable 5.1 · High"
+
+  @composer.contextring
+  Scenario: The context ring says how full the thread is
+    When I open the thread "Make uploads resume after a crash"
+    Then the "context" menu says "642k of 1M tokens" and "64%"
