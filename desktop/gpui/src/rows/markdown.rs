@@ -80,6 +80,10 @@ pub(crate) fn reading_style(cx: &App) -> TextViewStyle {
 /// test)`. The arrow says the link goes up the thread, not out of it, and goes
 /// in the link's own words so it's coloured and selected with them.
 pub(crate) fn prepare(text: &str) -> String {
+    link_code_paths(&escape_work_links(text))
+}
+
+fn escape_work_links(text: &str) -> String {
     if !text.contains("](work:") && !text.contains("](thread:") {
         return text.to_owned();
     }
@@ -114,6 +118,154 @@ pub(crate) fn prepare(text: &str) -> String {
             rest = &after[end..];
         }
     }
+}
+
+/// `` `path` `` written in reply words: a code span that reads as a file path
+/// (`FilePathRefs.looksLikePath`) becomes a link to it, kept looking like code.
+/// Only single-backtick spans on one line outside fenced code count, as cmark
+/// would find them; the kit draws the pill and the link colour.
+fn link_code_paths(text: &str) -> String {
+    if !text.contains('`') {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len() + 32);
+    let mut in_fence = false;
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let trimmed = line.trim_start_matches(' ');
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            out.push_str(line);
+            continue;
+        }
+        if in_fence {
+            out.push_str(line);
+            continue;
+        }
+        link_spans_in_line(line, &mut out);
+    }
+    out
+}
+
+fn link_spans_in_line(line: &str, out: &mut String) {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'`' {
+            // Copy up to the next backtick.
+            let next = line[i..].find('`').map(|n| i + n).unwrap_or(line.len());
+            out.push_str(&line[i..next]);
+            i = next;
+            continue;
+        }
+        // A run of backticks opens a span closed by a run of the same length.
+        let run = bytes[i..].iter().take_while(|b| **b == b'`').count();
+        let search_from = i + run;
+        let close = line[search_from..].find(&"`".repeat(run)).map(|n| search_from + n);
+        let Some(close) = close.filter(|c| *c >= search_from) else {
+            out.push_str(&line[i..i + run]);
+            i += run;
+            continue;
+        };
+        let end = close + run;
+        let span = &line[i..end];
+        let code = &line[search_from..close];
+        // Already a link's words (`[` before it, `](` after it), or more than
+        // one backtick around it: left as it is.
+        let in_link = i > 0 && bytes[i - 1] == b'[' && line[end..].starts_with("](");
+        if run == 1 && !in_link && looks_like_path(code) {
+            out.push('[');
+            out.push_str(span);
+            out.push_str("](tbpath:?p=");
+            out.push_str(&encode_component(code));
+            out.push(')');
+        } else {
+            out.push_str(span);
+        }
+        i = end;
+    }
+}
+
+/// `FilePathRefs.looksLikePath`: no scheme, and either rooted (`/`, `~/`, `./`,
+/// `../`) or ending in a file name with an extension; folders need the leading
+/// root or a slash in them; single spaces only where they can't be a command.
+pub(crate) fn looks_like_path(text: &str) -> bool {
+    if text.is_empty() || text.chars().count() >= 400 || text.contains("://") || text.contains('*') || text.contains('<') || text.contains('`') {
+        return false;
+    }
+    let path = strip_line(split_query(text).0);
+    if text.chars().any(char::is_whitespace) && !spaced_path_ok(path) {
+        return false;
+    }
+    if path.starts_with('/') {
+        return path.chars().count() > 1;
+    }
+    if path.starts_with("~/") || path.starts_with("./") || path.starts_with("../") {
+        return true;
+    }
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+    let good_ext = !ext.is_empty() && ext.chars().count() <= 10 && ext.chars().all(char::is_alphanumeric) && ext.chars().any(char::is_alphabetic) && name.chars().count() > ext.chars().count() + 1;
+    if !good_ext {
+        // `runner/src/` and the like: a folder inside the project.
+        return path.ends_with('/') && path[..path.len() - 1].contains('/');
+    }
+    !(!path.contains('/') && DOMAIN_ENDINGS.contains(&ext.to_lowercase().as_str()))
+}
+
+/// Endings that are web addresses far more often than files.
+const DOMAIN_ENDINGS: [&str; 9] = ["com", "org", "net", "io", "dev", "co", "ai", "au", "uk"];
+
+/// `spacedPathOK`: single spaces only, after the first folder, no flags or
+/// shell punctuation, and a spaced last part needs an extension.
+fn spaced_path_ok(path: &str) -> bool {
+    if !path.contains(' ') || path.chars().any(|c| c.is_whitespace() && c != ' ') || path.starts_with(' ') || path.ends_with(' ') || path.contains("  ") {
+        return false;
+    }
+    if path.chars().any(|c| matches!(c, '|' | ';' | '$' | '>' | '"' | '\'')) || path.contains("&&") {
+        return false;
+    }
+    let (Some(slash), Some(space)) = (path.find('/'), path.find(' ')) else { return false };
+    if slash > space || path.split(' ').any(|w| w.starts_with('-')) {
+        return false;
+    }
+    let last = if path.ends_with('/') { "" } else { path.rsplit('/').next().unwrap_or("") };
+    !last.contains(' ') || last.rsplit_once('.').is_some()
+}
+
+/// `Foo.swift:12` or `Foo.swift:12:4` names the file, and a line in it.
+fn strip_line(text: &str) -> &str {
+    let mut path = text;
+    for _ in 0..2 {
+        match path.rsplit_once(':') {
+            Some((head, tail)) if !head.is_empty() && !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => path = head,
+            _ => break,
+        }
+    }
+    path
+}
+
+/// A file and any `?query` or `#fragment` for its page, split at the first.
+fn split_query(text: &str) -> (&str, Option<&str>) {
+    match text.find(['?', '#']) {
+        Some(mark) => (&text[..mark], Some(&text[mark..])),
+        None => (text, None),
+    }
+}
+
+/// Everything that isn't safe in a link's destination, percent-escaped.
+fn encode_component(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 8);
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// `%20` and friends back to what the link's words were.
@@ -186,8 +338,31 @@ impl ThreadPane {
             "thread" => self.open_thread_link(&percent_decode(rest), window, cx),
             "review" => {}
             "http" | "https" | "mailto" | "file" => cx.open_url(url),
+            "tbpath" => {
+                let text = percent_decode(rest.strip_prefix("?p=").unwrap_or(rest));
+                self.open_path_ref(&text, cx);
+            }
             _ => {}
         }
+    }
+
+    /// A path written in inline code: the thread's folder is where a
+    /// relative one is from (`FilePathRefs.resolve`, without its search of
+    /// the files the thread's tools touched, which comes with the file
+    /// links' menus).
+    fn open_path_ref(&mut self, text: &str, cx: &mut Context<Self>) {
+        let path = strip_line(split_query(text).0);
+        let home = threadbear_core::reducer::text::home_directory();
+        let absolute = if let Some(rest) = path.strip_prefix("~/") {
+            format!("{}/{rest}", home.trim_end_matches('/'))
+        } else if path.starts_with('/') {
+            path.to_owned()
+        } else if !self.summary.cwd.is_empty() {
+            format!("{}/{path}", self.summary.cwd.trim_end_matches('/'))
+        } else {
+            return;
+        };
+        cx.open_url(&format!("file://{}", encode_component(&absolute)));
     }
 
     fn open_file_url(&mut self, path: &str, _window: &mut Window, cx: &mut Context<Self>) {
@@ -206,3 +381,32 @@ impl ThreadPane {
 
 /// How many row documents a thread keeps parsed.
 const DOCUMENTS_KEPT: usize = 600;
+
+#[cfg(test)]
+mod tests {
+    use super::{looks_like_path, prepare};
+
+    #[test]
+    fn reads_paths_as_paths_and_commands_as_commands() {
+        for path in ["app/Sources/Foo.swift", "Foo.swift:12", "/tmp/a.txt:12:4", "~/.zshrc", "./check.sh", "runner/src/", "guide.md#links"] {
+            assert!(looks_like_path(path), "{path} should read as a path");
+        }
+        for not_path in ["npm test", "tb land", "example.com", "readme", "-rf", "a*b", "https://x.y/z", "open exports/a.mp4"] {
+            assert!(!looks_like_path(not_path), "{not_path} shouldn't read as a path");
+        }
+        // Spaces only where they can't be a command.
+        assert!(looks_like_path("exports/Threadbear Launch.mp4"));
+        assert!(!looks_like_path("./check.sh --app"));
+    }
+
+    #[test]
+    fn code_paths_become_links_outside_fences_and_links() {
+        assert_eq!(prepare("see `src/a.rs` here"), "see [`src/a.rs`](tbpath:?p=src/a.rs) here");
+        assert_eq!(prepare("`npm test` stays"), "`npm test` stays");
+        // Already a link's words, or in a code block: left as they are.
+        assert_eq!(prepare("[`src/a.rs`](https://x.y)"), "[`src/a.rs`](https://x.y)");
+        assert_eq!(prepare("```\n`src/a.rs`\n```"), "```\n`src/a.rs`\n```");
+        // Work links keep their words, gain the arrow and escape their spaces.
+        assert_eq!(prepare("[tests](work:npm test)"), "[tests\u{2009}↑](work:npm%20test)");
+    }
+}
