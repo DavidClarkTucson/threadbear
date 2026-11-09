@@ -1349,7 +1349,7 @@ export class ConvexSync {
             // And the card an answer from there is checked against, so an
             // allow sent anyway is refused (the respond command, below).
             const card = held.pendingApproval;
-            if (held !== t && card && this.pending.get(t.threadId)?.approvalId === card.approvalId) this.pending.set(t.threadId, card);
+            if (held !== t && card) this.replaceCard(t.threadId, card);
             return held;
           }),
         };
@@ -2160,6 +2160,14 @@ export class ConvexSync {
     const shown = this.pending.get(threadId);
     if (shown) this.cardsBehind.set(threadId, [...(this.cardsBehind.get(threadId) ?? []), shown]);
     this.pending.set(threadId, card);
+  }
+
+  // The thread's card with this one's approvalId, shown or waiting behind
+  // another, now as `card` says.
+  private replaceCard(threadId: string, card: PendingApproval): void {
+    if (this.pending.get(threadId)?.approvalId === card.approvalId) this.pending.set(threadId, card);
+    const behind = this.cardsBehind.get(threadId);
+    if (behind?.some((c) => c.approvalId === card.approvalId)) this.cardsBehind.set(threadId, behind.map((c) => (c.approvalId === card.approvalId ? card : c)));
   }
 
   private closeCard(threadId: string, approvalId: string): void {
@@ -3908,8 +3916,10 @@ export class ConvexSync {
         // Only what the card that went up offered, whoever sends it. A
         // request for a thread elsewhere (START_CARD) goes up with no options
         // and is answered by the main Mac's runner, which checks it itself.
-        const card = this.pending.get(needThread());
-        if (card?.kind === 'approval' && card.approvalId === String(a.approvalId) && card.name !== START_CARD && !card.options.includes(decision as ApprovalOption)) {
+        // The card it names, shown or waiting behind another (Codex review,
+        // 9 Nov 2026: one behind was never checked).
+        const card = [this.pending.get(needThread()), ...(this.cardsBehind.get(needThread()) ?? [])].find((c) => c?.approvalId === String(a.approvalId));
+        if (card?.kind === 'approval' && card.name !== START_CARD && !card.options.includes(decision as ApprovalOption)) {
           throw new Error(REMOTE_ALLOW_REFUSED);
         }
         await host.respondApproval({

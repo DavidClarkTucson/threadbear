@@ -3138,8 +3138,14 @@ test('approvals: a card whose line a value found since would change loses Allow 
   };
   const refused = await respond('r1', 'allow');
   assert.equal(refused.ok, false, 'an allow sent anyway is refused');
-  assert.equal((await respond('r2', 'deny')).ok, true);
+  // Still refused once another card is shown in front of it.
+  const second = s.sink.requestApproval({ toolUseId: undefined, name: 'Bash', title: 'Run', input: { command: 'npm test' }, canAlwaysAllow: true, signal: new AbortController().signal });
+  h.clock.advance(SYNC_COALESCE_MS);
+  await tick();
+  assert.equal((await respond('r2', 'allow')).ok, false, 'refused while it waits behind another card');
+  assert.equal((await respond('r3', 'deny')).ok, true);
   assert.equal((await answer).decision, 'deny');
+  void second;
 });
 
 test('approvals: a card the phone cannot show whole offers only Deny there, and an allow from there is refused', async () => {
