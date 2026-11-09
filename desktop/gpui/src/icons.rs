@@ -117,7 +117,6 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "arrow.down.circle" => IconName::CircleArrowDown,
         "checklist" => IconName::ListChecks,
         "powerplug" => IconName::Plug,
-        "server.rack" => IconName::Server,
         "terminal" => IconName::Terminal,
         "pin" => IconName::Pin,
         "square.dashed" => IconName::SquareDashed,
@@ -169,9 +168,7 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "checkmark.square.fill" => IconName::SquareCheck,
         "square" => IconName::Square,
         "exclamationmark.circle" => IconName::CircleAlert,
-        "laptopcomputer" => IconName::Laptop,
         "paperplane" => IconName::Send,
-        "cloud" => IconName::Cloud,
         _ => return None,
     };
     Some(Icon::new(lucide))

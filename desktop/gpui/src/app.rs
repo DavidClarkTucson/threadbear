@@ -400,7 +400,6 @@ impl Threadbear {
     /// `threads.update` for the open thread, with the summary changed here
     /// first: anything clicked shows at once, and the runner's answer (or its
     /// thread.updated) puts it right.
-    #[cfg(feature = "automation")]
     pub(crate) fn update_open(&mut self, change: impl FnOnce(&mut ThreadSummary), params: Value, cx: &mut Context<Self>) -> Result<(), String> {
         let Some(id) = self.selected.clone() else { return Err("no thread open".into()) };
         let before = self.threads.get(&id).cloned();
