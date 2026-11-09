@@ -114,7 +114,7 @@ struct ThreadView: View {
             }
         }
         .task(id: "\(threadId):\(model.hasMessagePages):\(model.connection)") { await followMessages() }
-        .task(id: "\(threadId):\(history.lateImagesFrom ?? -1):\(model.connection)") { await followLateImages() }
+        .task(id: "\(threadId):\(history.lateImagesFrom ?? -1):\(model.connection):\(model.apiVersion ?? 0)") { await followLateImages() }
         .task(id: "\(sent?.id ?? ""):\(model.connection)") { await followCommand() }
         .task(id: answeredCommand) {
             guard let id = answeredCommand, let status = await model.commandOutcome(id), status.state == .failed,
@@ -235,8 +235,10 @@ struct ThreadView: View {
             .onScrollPhaseChange { _, phase in
                 scrolling = phase.isScrolling
                 guard !scrolling else { return }
-                if let held = heldPage { putIn(held) }
+                // The chunk first: it was asked for before the rows shown now,
+                // and a page reaching further back would make it too late.
                 if let held = heldChunk { putIn(chunk: held.page, before: held.before) }
+                if let held = heldPage { putIn(held) }
             }
             // Older rows have gone in above: down by their height, so the rows
             // on screen stay put. By height rather than back to a row, as a
