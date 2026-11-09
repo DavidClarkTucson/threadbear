@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { readShareImage } from './share-images.ts';
-import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION } from './config.ts';
+import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError } from './config.ts';
 import { startHousekeeping } from './housekeeping.ts';
-import { RELEASE, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
+import { RELEASE, markConfigStop, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
 import { PatchTrust } from './patch-trust.ts';
 import type { RunnerUpdates } from './runner.ts';
 import { Peers, PrimaryLink, ThreadRouter, drainChildrenName, peersElsewhere, phoneCommands, primaryElsewhere, primaryRemote, projectRouter, removeDrainInfo, scheduleRouter, writeDrainInfo, type CrossRunnerHooks, type Elsewhere } from './handover.ts';
@@ -1160,6 +1160,14 @@ function missingCodex(start: string, cfg: ReturnType<typeof loadConfig>): string
 }
 
 main().catch(async (e) => {
+  if (e instanceof RunnerJsonError) {
+    // Mike's own setup to fix, not a bug: said plainly in the log (launchd
+    // sends stderr there; tb logs shows it), with no stack and nothing sent
+    // to Sentry, as the parse error can quote the file. EX_CONFIG.
+    process.stderr.write(`${new Date().toISOString()} ERROR runner failed to start: ${e.message}\n`);
+    if (supervised()) await markConfigStop(path.dirname(e.file));
+    process.exit(78);
+  }
   process.stderr.write(`runner failed to start: ${e?.stack ?? e}\n`);
   reportException(e, 'runner failed to start');
   await flushSentry();

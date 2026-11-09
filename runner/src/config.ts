@@ -214,16 +214,69 @@ export function expandHome(p: string): string {
   return p;
 }
 
+// A runner.json that's there but doesn't read as a JSON object: a hand edit
+// with a trailing comma, a stray character, an empty file. Every write to
+// runner.json reads it first and writes back what it read plus a change, so
+// reading this as {} rewrote the file with almost nothing in it (accounts,
+// pools, experiments gone) and a new runner id, which Convex then took for a
+// new runner (9 Nov review). Now nothing writes it until it reads again,
+// and the runner won't start (main.ts).
+export class RunnerJsonError extends Error {
+  readonly file: string;
+  readonly problem: string;
+  constructor(file: string, problem: string) {
+    super(`${file} isn't valid JSON, so the runner won't start or change it until it is: ${problem}. Fix it by hand, or move it aside to start afresh.`);
+    this.name = 'RunnerJsonError';
+    this.file = file;
+    this.problem = problem;
+  }
+}
+
+// The last runner.json each home read cleanly in this process, for the
+// read-only lookups below while the file is broken mid-run.
+const lastGoodRunnerJson = new Map<string, RunnerJson>();
+
+// runner.json, or {} when there's none yet. Throws RunnerJsonError when it's
+// there but broken, so a caller that writes it back can't wipe it.
 export function readRunnerJson(home: string): RunnerJson {
+  const file = path.join(home, 'runner.json');
+  let text: string;
   try {
-    return JSON.parse(fs.readFileSync(path.join(home, 'runner.json'), 'utf8')) as RunnerJson;
-  } catch {
-    return {};
+    text = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw new RunnerJsonError(file, `it can't be read (${(e as NodeJS.ErrnoException).code ?? String(e)})`);
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    throw new RunnerJsonError(file, text.trim() ? (e as Error).message : 'it is empty');
+  }
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new RunnerJsonError(file, 'it holds JSON, but not an object in { }');
+  lastGoodRunnerJson.set(home, structuredClone(json as RunnerJson));
+  return json as RunnerJson;
+}
+
+// For lookups that only read (an experiment's switch, a default), so a file
+// broken while the runner is up doesn't make each of them throw: the last
+// copy that read cleanly, or {} if none has. Never write back what this
+// returns; use readRunnerJson for that.
+export function peekRunnerJson(home: string): RunnerJson {
+  try {
+    return readRunnerJson(home);
+  } catch (e) {
+    if (e instanceof RunnerJsonError) return structuredClone(lastGoodRunnerJson.get(home) ?? {});
+    throw e;
   }
 }
 
 export function writeRunnerJson(home: string, data: RunnerJson): void {
+  // Throws on a broken file rather than writing over it, whatever the
+  // caller read (or didn't) first.
+  readRunnerJson(home);
   atomicWriteFileSync(path.join(home, 'runner.json'), JSON.stringify(data, null, 2) + '\n');
+  lastGoodRunnerJson.set(home, structuredClone(data));
 }
 
 // The app finds the runner through runner.json, so it always names the port

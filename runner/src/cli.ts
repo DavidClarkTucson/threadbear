@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 import { startedByFlags } from './started-by-flags.ts';
 import path from 'node:path';
-import { loadConfig, readToken, runnerUrl } from './config.ts';
+import { loadConfig, readToken, runnerUrl, RunnerJsonError } from './config.ts';
 import { RunnerClient } from './client.ts';
 import { poolLine } from './pools.ts';
 import { providerName } from './providers.ts';
@@ -256,7 +256,17 @@ async function main(argv: string[]): Promise<number> {
       return 2;
     }
   }
-  const cfg = loadConfig();
+  let cfg: ReturnType<typeof loadConfig>;
+  try {
+    cfg = loadConfig();
+  } catch (e) {
+    // A broken runner.json: say what's wrong with it, not a stack trace.
+    if (e instanceof RunnerJsonError) {
+      console.error(e.message);
+      return 1;
+    }
+    throw e;
+  }
   if (cmd === 'logs') return logsCommand(cfg, values);
   // The app's activity log is files on this Mac: no runner needed.
   if (cmd === 'activity') return activityCommand(cfg, values);

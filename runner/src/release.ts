@@ -163,6 +163,34 @@ export function markGoodLater(home: string, releaseId: string | undefined, log: 
   return () => clearTimeout(timer);
 }
 
+// A runner that won't start because runner.json is broken (config.ts,
+// RunnerJsonError) isn't a broken release. Left as an ordinary failed boot,
+// three of them make launch.mjs go back to the last good release, and one
+// from before 9 Nov reads a broken runner.json as {} and writes over it,
+// the loss the refusal is there to stop. So this boot is marked the way
+// launch.mjs marks a clean stop, which planBoot doesn't count. The file is
+// launch.mjs's to write, so only this process's own boot is touched, and
+// only once launch.mjs has written it (it does just after the spawn).
+export async function markConfigStop(home: string, pid = process.pid, waitMs = 3000, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<boolean> {
+  for (let waited = 0; ; waited += 100) {
+    let found = false;
+    try {
+      updateState(home, (s) => {
+        const boot = Array.isArray(s.boots) ? s.boots.findLast((b) => b && b.pid === pid) : undefined;
+        if (!boot) return false;
+        found = true;
+        if (boot.clean) return false;
+        boot.clean = true;
+        return true;
+      });
+    } catch {
+      return false;
+    }
+    if (found || waited >= waitMs) return found;
+    await sleep(100);
+  }
+}
+
 // Whether launch.mjs started this runner as a child it supervises (a
 // LaunchAgent installed since handovers): THREADBEAR_SUPERVISED and an IPC
 // channel to it. Then a handover is possible.

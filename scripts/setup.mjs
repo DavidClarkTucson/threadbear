@@ -138,6 +138,27 @@ function readJson(file) {
     return {};
   }
 }
+// runner.json, or {} when there's none yet. One that's there but broken
+// stops setup, which writes back what it reads: reading it as {} rewrote
+// it with almost nothing in it, as the runner did before 9 Nov
+// (runner/src/config.ts, RunnerJsonError).
+function readRunnerJson() {
+  let text;
+  try {
+    text = fs.readFileSync(runnerJsonPath, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return {};
+    throw new Fail(`Couldn't read ${runnerJsonPath} (${e.code ?? e}). Setup won't change it until it can.`);
+  }
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    throw new Fail(`${runnerJsonPath} isn't valid JSON: ${text.trim() ? e.message : 'it is empty'}. Fix it by hand (or move it aside), then run setup again; it won't change it until then.`);
+  }
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Fail(`${runnerJsonPath} holds JSON, but not an object in { }. Fix it by hand (or move it aside), then run setup again.`);
+  return json;
+}
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2) + '\n');
@@ -288,7 +309,7 @@ function convexLogin() {
 // The production deployment's URL. Read from runner.json when setup has
 // already run; otherwise made here.
 async function project() {
-  const json = readJson(runnerJsonPath);
+  const json = readRunnerJson();
   const key = deployKey();
   if (json.sync?.url && key) {
     ok(`using ${json.sync.url}`);
@@ -339,7 +360,7 @@ async function keys(urlFromProject) {
     }
   } else ok('deploy key');
   const key = selfHosted ? (dry ? undefined : admin()) : deployKey();
-  let url = urlFromProject ?? readJson(runnerJsonPath).sync?.url;
+  let url = urlFromProject ?? readRunnerJson().sync?.url;
   if (!url && key?.name) url = await findUrl(key.name);
   if (!dry && !url) throw new Fail("Couldn't work out the production deployment's URL. Put it in runner.json as sync.url and run setup again.");
   // The deployment's RUNNER_KEY is the main key, which can do everything:
@@ -613,7 +634,7 @@ async function runnerJson(url, site) {
   // before, whose threads have started on Full access all along (unset
   // means full), and it keeps that.
   const fresh = !fs.existsSync(runnerJsonPath);
-  const json = readJson(runnerJsonPath);
+  const json = readRunnerJson();
   const name = v.name ?? json.sync?.name ?? os.hostname().split('.')[0];
   // Not asked: it's in the Mac app's Settings, and each new thread can pick
   // its own folder anyway. --cwd sets it here. The default is a folder of its
@@ -696,7 +717,7 @@ try {
   say();
   packages();
   say();
-  let url = readJson(runnerJsonPath).sync?.url;
+  let url = readRunnerJson().sync?.url;
   let sh;
   if (joining) {
     say('4. Convex: skipped (this Mac joins a Threadbear another Mac set up)');

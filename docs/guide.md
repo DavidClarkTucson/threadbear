@@ -1414,7 +1414,9 @@ controls for only a few common things, and the ⓘ beside each section says
 what it is and what to ask your agent. Click it to read it, or hover for a
 quick look. Most settings live in `runner.json` in Threadbear's data folder,
 and an agent can change them or set up anything more involved, so ask one
-first.
+first. If you edit it by hand and leave it broken (a trailing comma, say),
+the runner won't start until it's fixed, and never writes over it: `tb logs`
+names the file and what's wrong.
 
 When something goes wrong, the app says so in an orange bar at the top of
 the thread. Investigate on that bar starts a thread in your Threadbear

@@ -9,7 +9,7 @@ import type { Account, EffortLevel, ImageRef, MessageOrigin, PermissionMode, Thr
 import { ErrorCode, LIMITS, RpcError } from '../protocol.ts';
 import type { Schedule } from '../protocol.ts';
 import type { ThreadRecord } from '../store.ts';
-import { expandHome, readRunnerJson } from '../config.ts';
+import { expandHome, peekRunnerJson } from '../config.ts';
 import { isDirectory } from '../fsutil.ts';
 import { ASK_CODEX_MODEL, HAIKU } from '../models/index.ts';
 import fs from 'node:fs';
@@ -180,7 +180,7 @@ export const newThreadsPart = {
     // keepAccount pins new threads to its own account.
     let poolId: string | undefined;
     let accountId = params.accountId;
-    if (accountId === undefined && (params.poolId !== undefined || !readRunnerJson(this.cfg.home).defaults?.keepAccount)) {
+    if (accountId === undefined && (params.poolId !== undefined || !peekRunnerJson(this.cfg.home).defaults?.keepAccount)) {
       const picked = this.pickForNew({ poolId: params.poolId, cwd, model: params.model });
       if (picked) ({ poolId, accountId } = picked);
     }

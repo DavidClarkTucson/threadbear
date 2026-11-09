@@ -81,7 +81,7 @@ import { BIN_DIR, threadEnv } from './restart.ts';
 import { cleanUpWorktree, makeWorktree, sameSubfolder, worktreeInstructions } from './worktrees.ts';
 import { stripModelSuffix, type AccountRegistry, type LearnedAccountInfo } from './accounts.ts';
 import { pickAccount as pickByRoom, resetTime, type UsageReading } from './usage.ts';
-import { DEFAULT_POOL_FOLDERS, RUNNER_VERSION, expandHome, paths, readRunnerJson, writeRunnerJson, type Config } from './config.ts';
+import { DEFAULT_POOL_FOLDERS, RUNNER_VERSION, expandHome, paths, peekRunnerJson, type Config } from './config.ts';
 import { WAIT_SLACK_MS, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from './pools.ts';
 import { copyImageInto, imageRefFor } from './media.ts';
 import { isDirectory } from './fsutil.ts';
@@ -1226,7 +1226,7 @@ export class Runner {
   defaultAccountId(all = this.accounts.list()): string {
     // Only accounts this runner can start a CLI for.
     const accounts = all.filter((a) => this.adapters[a.provider]);
-    const json = readRunnerJson(this.cfg.home).defaults;
+    const json = peekRunnerJson(this.cfg.home).defaults;
     const saved = json?.accountId ?? this.cfg.defaults.accountId;
     const last = saved && accounts.some((a) => a.id === saved) ? saved : (accounts.find((a) => a.id === 'claude-main')?.id ?? accounts[0]?.id);
     if (json?.keepAccount && last) return last;
