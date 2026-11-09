@@ -767,15 +767,19 @@ up at most every 20 minutes while the thread keeps going. A catch-up after
 only a quick reply is skipped without asking anything.
 
 Each look is one short call to Haiku, Claude's small, cheap model, rather
-than the model your threads run on. It runs on one of your own Claude
+than the model your threads run on. When it wants to file a thread in a
+project the thread hasn't touched the folders of, one more short call, to
+Opus, checks the thread is really working on that project and doesn't just
+share a subject with it. They run on one of your own Claude
 logins: the one the pool would pick next in the pool chosen under Runs on (the
-same pool that writes thread titles, also in Settings › Models), and it
-counts towards that login's usage like any other call. When every login in
+same pool that writes thread titles, also in Settings › Models), and they
+count towards that login's usage like any other call. When every login in
 the pool is out of room it waits, and with only Codex logins it doesn't
 run at all. Threads in a private folder (Settings › Models) are never sent
 to it.
 
-The Librarian view lists what it did and what it will look at next. Turn
+The Librarian view lists what it did and what it will look at next. Hover
+a row to see why it filed a thread where it did. Turn
 off Look at threads there to pause it; what's queued waits until you turn
 it back on. If it files a thread wrongly, take the thread out of the
 project and it won't put it back.

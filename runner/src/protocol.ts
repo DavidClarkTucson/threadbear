@@ -443,6 +443,10 @@ export type LibrarianEntry = {
   outcome: LibrarianOutcome;
   text: string;
   projectIds?: string[];
+  // Why it joined each project, by id, and the look's line overall. Only on
+  // a look that filed the thread somewhere.
+  reasons?: Record<string, string>;
+  why?: string;
   costUsd?: number;
 };
 

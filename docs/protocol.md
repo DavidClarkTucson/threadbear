@@ -580,6 +580,9 @@ type LibrarianEntry = {
   text: string          // "Put it in Threadbear", "Made Poddle and put it there",
                         // "Threadbear's state", "No key", the model's error
   projectIds?: string[]
+  reasons?: Record<string, string> // why it joined each project, by id; only
+                        // on a look that filed the thread somewhere
+  why?: string          // that look's line overall
   costUsd?: number
 }
 
