@@ -81,6 +81,21 @@ async function gitOut(cwd: string, args: string[]): Promise<string | undefined> 
   return r.ok ? r.stdout.trim() : undefined;
 }
 
+// Commits in `range` with a line starting `Important:` that git's trailer
+// parser doesn't read (one line each: short hash and subject), or undefined
+// when git couldn't say. Uses the same parser as the release's
+// `%(trailers:key=Important)`, so what passes here is what gets flagged.
+async function unreadImportant(cwd: string, range: string): Promise<string[] | undefined> {
+  const r = await gitOut(cwd, ['log', '--first-parent', '--no-merges', '-i', '--grep=^Important:', '--format=%h%x1f%s%x1f%(trailers:key=Important,valueonly,separator=%x20)', range]);
+  if (r === undefined) return undefined;
+  return r
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => l.split('\x1f'))
+    .filter(([, , why]) => !why?.trim())
+    .map(([hash, subject]) => `${hash} ${subject}`);
+}
+
 function firstLine(text: string): string {
   return (
     text
@@ -437,6 +452,22 @@ async function landLocked(t: LandTarget, opts: LandOptions): Promise<number> {
   if (!commits) {
     out(`Nothing to land: ${t.branch} has no commits that aren't on ${MAIN}.`);
     return 0;
+  }
+
+  // 2b. An `Important:` line git doesn't read as a trailer is refused: the
+  // release collects them with git's trailer parser (upstream.ts), which
+  // only looks in a message's last paragraph, so one set apart from the
+  // Co-Authored-By block flags nothing and forks never hear (9 Nov: seven
+  // security fixes went out that way). Merged-in commits (a fork bringing
+  // in Mike's release) aren't this branch's own, so first-parent only.
+  const unread = await unreadImportant(t.path, `${MAIN}..${t.branch}`);
+  if (unread === undefined) return fail(`Couldn't read ${t.branch}'s commit messages in ${t.path}, so nothing landed. Run tb land again.`);
+  if (unread.length) {
+    return fail(
+      `These commits have an Important: line that git doesn't read as a trailer, so a release wouldn't flag them and nothing landed:`,
+      ...unread.map((l) => `  ${l}`),
+      'Put the Important: line in the same last paragraph as Co-Authored-By (no blank line between them), or at the end of the message if there is none. Use git commit --amend or git rebase to reword, then run tb land again.',
+    );
   }
 
   // 3. The repo's check, in the worktree. Pin what passed, rather than

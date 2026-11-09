@@ -506,6 +506,36 @@ test('land refuses tracked edits made by the check, and releases the lock on fai
   assert.equal(await land(t, capture().opts), 0);
 });
 
+// A release collects Important: with git's trailer parser, which only reads
+// a message's last paragraph (9 Nov: seven security fixes went out unflagged).
+test('land refuses an Important: line git does not read as a trailer, and lands one it does', async () => {
+  const { main } = makeRepo();
+  const t = makeBranch(main);
+  write(t.path, { 'first.txt': 'first\n' });
+  sh(t.path, `git add -A && git commit -q -m "Fix one" -m "Body." -m "Important: something a fork should hear" -m "Co-Authored-By: A <a@example.com>"`);
+  const before = sh(main, 'git rev-parse main');
+  const c = capture();
+  assert.equal(await land(t, c.opts), 1);
+  assert.match(c.err.join('\n'), /Fix one/);
+  assert.match(c.err.join('\n'), /same last paragraph as Co-Authored-By/);
+  assert.equal(sh(main, 'git rev-parse main'), before);
+  // Fixed: Important: beside Co-Authored-By in the last paragraph.
+  sh(t.path, `git commit -q --amend -m "Fix one" -m "Body." -m "Important: something a fork should hear
+Co-Authored-By: A <a@example.com>"`);
+  assert.equal(sh(t.path, `git log -1 --format='%(trailers:key=Important,valueonly)'`), 'something a fork should hear');
+  const ok = capture();
+  assert.equal(await land(t, ok.opts), 0, ok.err.join('\n'));
+});
+
+test('land ignores commits with no Important: line and ones already on main', async () => {
+  const { main } = makeRepo();
+  sh(main, `git commit -q --allow-empty -m "Old" -m "Important: old and misplaced" -m "Co-Authored-By: A <a@example.com>"`);
+  const t = makeBranch(main);
+  commit(t.path, { 'first.txt': 'first\n' }, 'First');
+  const c = capture();
+  assert.equal(await land(t, c.opts), 0, c.err.join('\n'));
+});
+
 test('tb land refuses a check patch that cannot load after rebasing', async () => {
   const { root, main } = makeRepo(PATCH(`{ check: "true" }`));
   const t = makeBranch(main);

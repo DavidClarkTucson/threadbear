@@ -87,6 +87,9 @@ crash; the empty lock file stays. Separate repos do not block one another.
    docs/bringing-in-updates.md) is never rebased, since that would flatten
    the merge and rewrite Mike's commits: if main has moved, main is merged
    into it instead, with the same undo-and-name-the-files on a conflict.
+   Then it refuses a commit whose `Important:` line git doesn't read as a
+   trailer (not in the last paragraph with `Co-Authored-By`), as a release
+   would not flag it and forks wouldn't hear.
 3. Reads the patch's `check` after rebasing, and runs it in the worktree,
    if there is one. A patch load error or failing check stops here, with
    the last lines of its output. Changing the branch or leaving changed
