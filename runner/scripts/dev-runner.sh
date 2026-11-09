@@ -102,18 +102,18 @@ esac
 IN_WORK=""
 if [ ! -e "$DATA_HOME/runner.json" ]; then
   mkdir -p "$WORK"
-  # With CLI updates off, the runner takes the codex beside its Node, which
-  # isn't there when the Node found isn't the one Codex was installed with
-  # (Homebrew's, say): then the one on PATH, as codexPath (Codex's review,
-  # 9 Nov 2026).
+  # With CLI updates off, the runner takes the codex beside its Node's real
+  # file (process.execPath, past links: Homebrew's bin/node is in its
+  # Cellar), which isn't there when Codex was installed elsewhere: then the
+  # one on PATH, as codexPath (Codex's review, 9 Nov 2026).
   DEV_CODEX=""
-  if [ -z "${THREADBEAR_CODEX_PATH:-}" ] && [ ! -x "$(dirname "$NODE")/codex" ]; then
-    DEV_CODEX="$(command -v codex 2>/dev/null || true)"
-  fi
-  "$NODE" -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({
+  [ -n "${THREADBEAR_CODEX_PATH:-}" ] || DEV_CODEX="$(command -v codex 2>/dev/null || true)"
+  "$NODE" -e 'const fs = require("fs"), path = require("path");
+  const beside = fs.existsSync(path.join(path.dirname(process.execPath), "codex"));
+  fs.writeFileSync(process.argv[1], JSON.stringify({
     defaults: { cwd: process.argv[2], accountId: process.argv[3], keepAccount: true, model: "claude-haiku-5-5", models: { codex: "gpt-6-luna" }, efforts: { codex: "low" } },
     cliUpdates: { claude: "off", codex: "off" },
-    ...(process.argv[4] ? { codexPath: process.argv[4] } : {}),
+    ...(process.argv[4] && !beside ? { codexPath: process.argv[4] } : {}),
   }, null, 2) + "\n")' \
     "$DATA_HOME/runner.json" "$WORK" "${TB_E2E_ACCOUNT:-claude-main}" "$DEV_CODEX"
   IN_WORK="   (in $(printf '%q' "$WORK"), on claude-haiku-5-5)"

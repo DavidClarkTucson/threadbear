@@ -328,7 +328,7 @@ test('a second release goes live through runner.restart', { timeout: 60_000 }, a
 // with, not whichever it was started on (Codex's review, 9 Nov 2026): one
 // tested on Node 26 that the LaunchAgent starts on 24 could pass here and
 // crash there.
-test('a deploy moves over to the Node the installed runner starts releases with', { timeout: 120_000 }, () => {
+test('a deploy moves over to the Node the installed runner starts releases with', { timeout: 120_000 }, async () => {
   const plistFile = path.join(agents, `${LABEL}.plist`);
   const saved = fs.readFileSync(plistFile);
   // The whole array: plutil -replace at an index inserts rather than replaces.
@@ -372,6 +372,25 @@ test('a deploy moves over to the Node the installed runner starts releases with'
     r = deploy(['--skip-checks', '--dry-run']);
     assert.notEqual(r.status, 0, out(r));
     assert.match(r.stderr, /doesn't answer --version as Node does/);
+
+    // Stopping the deploy stops the one it runs on the other Node, and waits
+    // for it to clean up: here a stand-in that takes 300 ms over SIGTERM.
+    const slow = path.join(dir, 'slow-node');
+    const seen = path.join(dir, 'seen');
+    fs.writeFileSync(slow, `#!/bin/sh\nif [ "$1" = --version ]; then exec ${JSON.stringify(NODE)} --version; fi\nexec ${JSON.stringify(NODE)} -e 'process.on("SIGTERM", () => { require("fs").writeFileSync(${JSON.stringify(seen)}, "TERM"); setTimeout(() => process.exit(143), 300); }); console.log("child up"); setInterval(() => {}, 1000)'\n`, { mode: 0o755 });
+    setNode(slow);
+    const child = spawn('/bin/bash', [path.join(rdir, 'scripts', 'deploy-runner.sh'), '--home', home, '--label', LABEL, '--skip-checks', '--dry-run'], { env: env(), stdio: ['ignore', 'pipe', 'pipe'] });
+    let said = '';
+    child.stdout.on('data', (d) => (said += d));
+    child.stderr.on('data', (d) => (said += d));
+    const closed = new Promise<number | null>((resolve) => child.once('close', resolve));
+    for (let i = 0; i < 200 && !said.includes('child up'); i++) await new Promise((r) => setTimeout(r, 50));
+    assert.match(said, /child up/);
+    const at = Date.now();
+    child.kill('SIGTERM');
+    assert.equal(await closed, 143, said);
+    assert.equal(fs.readFileSync(seen, 'utf8'), 'TERM', 'it was told');
+    assert.ok(Date.now() - at >= 250, 'and waited for it');
   } finally {
     fs.writeFileSync(plistFile, saved);
   }

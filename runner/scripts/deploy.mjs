@@ -275,21 +275,49 @@ function installedNode(c) {
   return nodeBeforeLaunch(programArgs(c), path.join(c.dir, 'launch.mjs'), sameDir);
 }
 
-// deploy.mjs again on `node`, as a child this one waits for. Stopping this
-// one stops it too (the exit cleanups run on SIGINT and SIGTERM), and its
-// exit is this one's: a code as it is, a signal as 128 + its number.
+// deploy.mjs again on `node`, as a child this one waits for. A SIGINT or
+// SIGTERM here goes on to it and this one waits for it to finish its own
+// cleanup (the lock, a half-built release), killing it if it hasn't within
+// STOP_GRACE_MS; its exit is this one's, a signal as 128 + its number. This
+// one exiting any other way takes it too.
+const STOP_GRACE_MS = 20_000;
 function reRunOn(node, argv) {
   const env = { ...process.env, THREADBEAR_DEPLOY_NODE_GIVEN: '1' };
   return new Promise((resolve, reject) => {
     const child = spawn(node, [fileURLToPath(import.meta.url), ...argv], { stdio: 'inherit', env });
+    const running = () => child.exitCode === null && child.signalCode === null;
     const stop = () => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      if (running()) child.kill('SIGKILL');
     };
     cleanups.push(stop);
-    child.on('error', (e) => reject(new Fail(`Couldn't run ${node}: ${e.message}`)));
-    child.on('exit', (code, signal) => {
+    // While it runs, a signal is passed on rather than ending this one.
+    const own = { SIGINT: process.listeners('SIGINT'), SIGTERM: process.listeners('SIGTERM') };
+    let killer;
+    const pass = (sig) => () => {
+      if (!running()) return;
+      child.kill(sig);
+      killer ??= setTimeout(stop, STOP_GRACE_MS);
+    };
+    const passers = { SIGINT: pass('SIGINT'), SIGTERM: pass('SIGTERM') };
+    for (const sig of ['SIGINT', 'SIGTERM']) {
+      process.removeAllListeners(sig);
+      process.on(sig, passers[sig]);
+    }
+    const restore = () => {
+      clearTimeout(killer);
+      for (const sig of ['SIGINT', 'SIGTERM']) {
+        process.removeListener(sig, passers[sig]);
+        for (const fn of own[sig]) process.on(sig, fn);
+      }
       const at = cleanups.indexOf(stop);
       if (at >= 0) cleanups.splice(at, 1);
+    };
+    child.on('error', (e) => {
+      restore();
+      reject(new Fail(`Couldn't run ${node}: ${e.message}`));
+    });
+    child.on('exit', (code, signal) => {
+      restore();
       resolve(signal ? 128 + (os.constants.signals[signal] ?? 0) : (code ?? 1));
     });
   });
@@ -1506,7 +1534,8 @@ async function main(argv) {
       throw new Fail(`The runner at ${c.home} is installed to start on ${target}, which isn't there any more, so no release would start. Reinstall it on a Node 24 or newer: ${path.join(c.runnerDir, 'scripts', 'install-runner.sh')} --node <path>${c.isDefaultHome ? '' : ` --home ${c.home} --label ${c.label}`}`);
     }
     if (target && !sameFile(target, process.execPath)) {
-      const ver = spawnSync(target, ['--version'], { encoding: 'utf8', timeout: 30_000 });
+      // SIGKILL at the deadline: a shim that ignores SIGTERM can't hold it.
+      const ver = spawnSync(target, ['--version'], { encoding: 'utf8', timeout: 30_000, killSignal: 'SIGKILL' });
       const said = (ver.stdout ?? '').trim();
       if (ver.status !== 0 || !/^v\d+\.\d+\.\d+/.test(said)) {
         throw new Fail(`The runner at ${c.home} is installed to start on ${target}, which doesn't answer --version as Node does (${ver.error?.message ?? (said.slice(0, 80) || `exit ${ver.status}`)}). Reinstall it with install-runner.sh --node <path>.`);
