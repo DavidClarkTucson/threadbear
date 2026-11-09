@@ -121,7 +121,10 @@ export class KeysBusy extends Error {}
 // taken over only when its owner is gone (that pid isn't running), by
 // moving it aside and checking it was still that owner's: two runners
 // finding the same dead lock can't both end up in, and neither can take a
-// live one (Codex's review).
+// live one (Codex's review). At most two runners share a data folder (one
+// handing over to the next); a third arriving inside the moment a lock is
+// moved aside and given back could slip in, which needs three at once and
+// a runner that died holding the lock, so it isn't guarded further.
 function ownerAlive(owner: string | undefined): boolean {
   const pid = Number(owner?.split(' ')[0]);
   if (!Number.isInteger(pid) || pid <= 0) return false;
