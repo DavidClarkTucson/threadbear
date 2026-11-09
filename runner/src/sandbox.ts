@@ -60,7 +60,10 @@ export function sandboxFor(sb: SandboxConfig | undefined, cwd: string): SandboxC
 }
 
 // Variables the container gets its own of, rather than the runner's.
-const OWN_ENV = new Set(['PATH', 'HOME', 'PWD', 'OLDPWD', 'SHLVL', '_', 'TMPDIR', 'USER', 'LOGNAME', 'SHELL']);
+// THREADBEAR_NODE names the host's Node (threadEnv), which isn't in the
+// container: passed in, the repo's scripts would refuse it rather than use
+// the container's own node (Codex's review, 9 Nov 2026).
+const OWN_ENV = new Set(['PATH', 'HOME', 'PWD', 'OLDPWD', 'SHLVL', '_', 'TMPDIR', 'USER', 'LOGNAME', 'SHELL', 'THREADBEAR_NODE']);
 
 export type DockerRun = { command: string; args: string[]; name: string };
 

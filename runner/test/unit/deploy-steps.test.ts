@@ -236,3 +236,22 @@ test('remoteChecks leaves the checks here with no host, or no check.sh', () => {
   assert.equal(steps.remoteChecks(['tinker-desk'], tmpDir(), { env: {} }, io), false);
   assert.deepEqual(calls, []);
 });
+
+// A deploy run by hand moves over to the Node the installed runner runs on
+// (deploy.mjs, Codex's review, 9 Nov 2026), read from what the LaunchAgent
+// or systemd unit starts.
+test('nodeBeforeLaunch: the Node a LaunchAgent or unit starts launch.mjs with', () => {
+  const launch = '/Users/m/Library/Application Support/Threadbear/runner/launch.mjs';
+  const node = '/Users/m/.local/node-24/bin/node';
+  // A Mac: the Runner app, then the Node, then launch.mjs.
+  assert.equal(steps.nodeBeforeLaunch(['/Users/m/Applications/Threadbear Runner.app/Contents/MacOS/Threadbear Runner', node, launch], launch), node);
+  // Linux: the Node, then launch.mjs.
+  assert.equal(steps.nodeBeforeLaunch(['/usr/bin/node', launch], launch), '/usr/bin/node');
+  // Nothing before it, a relative name, or not launch.mjs at all (a checkout's main.ts).
+  assert.equal(steps.nodeBeforeLaunch([launch], launch), undefined);
+  assert.equal(steps.nodeBeforeLaunch(['node', launch], launch), undefined);
+  assert.equal(steps.nodeBeforeLaunch([node, '/Users/m/dev/threadbear/runner/src/main.ts'], launch), undefined);
+  assert.equal(steps.nodeBeforeLaunch([], launch), undefined);
+  // Compared as the caller says (deploy.mjs resolves links).
+  assert.equal(steps.nodeBeforeLaunch([node, '/private/x/launch.mjs'], '/x/launch.mjs', (a: string, b: string) => a.replace('/private', '') === b), node);
+});

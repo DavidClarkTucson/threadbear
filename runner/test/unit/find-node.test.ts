@@ -110,15 +110,28 @@ test('a script that fails to find one stops, and says what it needs', { skip: ho
 
 // Patch trust follows what a script runs (worktree-setup.sh runs by itself
 // when a thread starts). The finder must never be what it can't follow: no
-// command named by a variable, no node -e, no process substitution.
-test('patch trust follows find-node.sh all the way', () => {
+// command named by a variable, no node -e, no process substitution. The
+// scripts that source it each had a problem of their own before it (check.sh
+// runs "$NODE", worktree-setup.sh a package script after a cd), so what's
+// checked for them is that it's followed and hashed, and adds nothing.
+test('patch trust follows find-node.sh all the way, and it adds no problem to the scripts that source it', () => {
   const r = reachOf(FINDER, { ...followOptions(REPO), folder: REPO });
   assert.equal(r.problem, undefined, r.problem ?? "");
   for (const script of ['worktree-setup.sh', 'check.sh', 'runner/scripts/deploy-runner.sh']) {
     const reach = reachOf(path.join(REPO, script), { ...followOptions(REPO), folder: REPO });
     assert.ok(reach.files.includes(FINDER), `${script} sources it, and the hash covers it`);
-    assert.doesNotMatch(reach.problem ?? '', /find-node\.sh/, `${script}: ${reach.problem}`);
+    assert.doesNotMatch(reach.problem ?? '', /find-node\.sh/, `${script}: ${reach.problem ?? ''}`);
   }
+  // A script that only sources it and runs nothing else is followed with no
+  // problem, so nothing in it can be one.
+  const root = fs.realpathSync(tmpDir());
+  fs.mkdirSync(path.join(root, 'runner', 'scripts'), { recursive: true });
+  fs.copyFileSync(FINDER, path.join(root, 'runner', 'scripts', 'find-node.sh'));
+  fs.writeFileSync(path.join(root, 'setup.sh'), '#!/bin/bash\nset -euo pipefail\nROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n. "$ROOT/runner/scripts/find-node.sh"\nNODE="$(threadbear_find_node)" || exit 1\necho "$NODE"\n', { mode: 0o755 });
+  spawnSync('git', ['init', '-q', root]);
+  const only = reachOf(path.join(root, 'setup.sh'), { ...followOptions(root), folder: root });
+  assert.equal(only.problem, undefined, only.problem ?? '');
+  assert.ok(only.files.includes(path.join(root, 'runner', 'scripts', 'find-node.sh')));
 });
 
 // No script, test or doc pins a Node to one machine's nvm version again.

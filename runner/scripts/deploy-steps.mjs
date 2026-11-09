@@ -50,6 +50,16 @@ export function sleepCount() {
 // commit again later. An exit code rather than words in the log, as the log
 // has the tests' output too, and a failing test that printed the same words
 // would have made a broken main look like a sleep (Codex, 9 Nov).
+// The Node a LaunchAgent's ProgramArguments (or a systemd unit's ExecStart)
+// starts launch.mjs with: the argument just before it. ["Threadbear
+// Runner", node, launch.mjs] on a Mac, [node, launch.mjs] on Linux.
+// undefined when it doesn't start `launch` or names no Node first.
+export function nodeBeforeLaunch(args, launch, same = (a, b) => a === b) {
+  const at = args.findIndex((a) => typeof a === 'string' && same(a, launch));
+  const node = at > 0 ? args[at - 1] : undefined;
+  return typeof node === 'string' && path.isAbsolute(node) ? node : undefined;
+}
+
 export const SLEPT_EXIT = 75; // EX_TEMPFAIL
 export class SleptThrough extends Fail {}
 export function checkSlept(before, after, what) {

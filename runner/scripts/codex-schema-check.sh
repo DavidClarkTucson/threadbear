@@ -22,7 +22,14 @@ RUNNER="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Node 24 or newer, else Homebrew's (runner/scripts/find-node.sh).
 . "$RUNNER/scripts/find-node.sh"
 NODE="$(threadbear_find_node)" || exit 1
-CODEX="${1:-${THREADBEAR_CODEX_PATH:-$(dirname "$NODE")/codex}}"
+# Codex: as given, else the one beside the Node (npm's global install puts it
+# there), else the one on PATH. Beside the Node alone missed it whenever the
+# Node found wasn't the one Codex was installed with (Codex's review, 9 Nov).
+CODEX="${1:-${THREADBEAR_CODEX_PATH:-}}"
+if [ -z "$CODEX" ]; then
+  CODEX="$(dirname "$NODE")/codex"
+  [ -x "$CODEX" ] || CODEX="$(command -v codex 2>/dev/null || printf '%s' "$CODEX")"
+fi
 
 if [ ! -x "$CODEX" ]; then
   echo "No codex at $CODEX" >&2

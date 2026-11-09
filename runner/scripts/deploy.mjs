@@ -7,10 +7,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { pointCurrent, readCurrentLink, readState, releaseExists, runnerJsonBroken, writeState } from '../launch.mjs';
 import { connectRpc } from './rpc-client.mjs';
-import { ChecksUnavailable, Fail, SLEPT_EXIT, SleptThrough, UNAVAILABLE_EXIT, checkHostsFrom, checkSlept, remoteChecks, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
+import { ChecksUnavailable, Fail, SLEPT_EXIT, SleptThrough, UNAVAILABLE_EXIT, checkHostsFrom, checkSlept, nodeBeforeLaunch, remoteChecks, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
 // THREADBARE_* was the old name for these variables (config.ts, adoptOldNames).
 for (const [k, v] of Object.entries(process.env)) {
   const name = k.startsWith('THREADBARE_') ? 'THREADBEAR_' + k.slice(11) : undefined;
@@ -252,19 +253,36 @@ function runnerIsAncestor(home) {
 function installedAs(c) {
   if (!c.labelKnown) return fs.existsSync(path.join(c.dir, 'launch.mjs')) ? 'releases' : 'missing';
   if (!fs.existsSync(c.plist)) return 'missing';
-  let args = [];
-  if (c.linux) {
-    args = unitExecStart(fs.readFileSync(c.plist, 'utf8'));
-  } else {
-    const r = spawnSync('plutil', ['-convert', 'json', '-o', '-', c.plist], { encoding: 'utf8' });
-    try {
-      args = JSON.parse(r.stdout).ProgramArguments ?? [];
-    } catch {
-      // unreadable: treated as not running releases
-    }
-  }
   const launch = path.join(c.dir, 'launch.mjs');
-  return args.some((a) => typeof a === 'string' && sameDir(a, launch)) && fs.existsSync(launch) ? 'releases' : 'checkout';
+  return programArgs(c).some((a) => typeof a === 'string' && sameDir(a, launch)) && fs.existsSync(launch) ? 'releases' : 'checkout';
+}
+
+// What the LaunchAgent (or systemd unit) runs, as its arguments; [] when
+// there's none or it can't be read.
+function programArgs(c) {
+  if (!c.labelKnown || !fs.existsSync(c.plist)) return [];
+  if (c.linux) return unitExecStart(fs.readFileSync(c.plist, 'utf8'));
+  const r = spawnSync('plutil', ['-convert', 'json', '-o', '-', c.plist], { encoding: 'utf8' });
+  try {
+    return JSON.parse(r.stdout).ProgramArguments ?? [];
+  } catch {
+    return []; // unreadable: treated as not running releases
+  }
+}
+
+// The Node the installed runner runs on, if it names one that's there.
+function installedNode(c) {
+  const node = nodeBeforeLaunch(programArgs(c), path.join(c.dir, 'launch.mjs'), sameDir);
+  return node && fs.existsSync(node) ? node : undefined;
+}
+
+// Same file, through links (nvm's current, Homebrew's bin/node).
+function sameFile(a, b) {
+  try {
+    return fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    return a === b;
+  }
 }
 
 // Refuses a deploy or rollback the LaunchAgent wouldn't pick up. For the
@@ -1453,6 +1471,23 @@ async function main(argv) {
     if (!off) return 0;
     console.error(off);
     return 1;
+  }
+  // Run by hand, deploy-runner.sh found its Node by looking (find-node.sh:
+  // the node on PATH, else nvm's newest), which needn't be the one the
+  // runner runs on. A release tested on Node 26 that the LaunchAgent starts
+  // on Node 24 could pass here and crash there (Codex's review, 9 Nov 2026),
+  // so it runs again on the runner's. A thread passes the runner's own, and
+  // install-runner.sh the one it's installing, so neither is second-guessed.
+  if (process.env.THREADBEAR_NODE_LOOKED_UP === '1' && !v.rollback) {
+    const target = installedNode(c);
+    if (target && !sameFile(target, process.execPath)) {
+      say(`Using the Node the runner runs on, ${target}, not ${process.execPath}.`);
+      const env = { ...process.env, THREADBEAR_NODE: target };
+      delete env.THREADBEAR_NODE_LOOKED_UP;
+      const r = spawnSync(target, [fileURLToPath(import.meta.url), ...argv], { stdio: 'inherit', env });
+      if (r.error) throw new Fail(`Couldn't run ${target}: ${r.error.message}`);
+      return r.status ?? 1;
+    }
   }
   // Everything that can be refused is refused before anything is built.
   if (v.now && v['no-restart']) throw new Fail('--now and --no-restart contradict each other.');
