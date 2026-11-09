@@ -27,8 +27,13 @@ src="$base/src-$key"
 target="$base/target-$key"
 
 # A checkout that hasn't been run for a few days gives its folders back: a
-# target is many GB and the machines are short of disk.
-ssh "$host" "mkdir -p $src; touch $src; find $base -mindepth 1 -maxdepth 1 \\( -name 'src-*' -o -name 'target-*' \\) -mtime +3 ! -name 'src-$key' ! -name 'target-$key' -exec rm -rf {} + 2>/dev/null; true"
+# target is many GB and the machines are short of disk. The bare src and target
+# are from before each checkout had its own. The target is touched as well as
+# the src because cargo working inside it doesn't change its time, and a folder
+# in daily use would otherwise look a few days old.
+ssh "$host" "mkdir -p $src $target; touch $src $target; find $base -mindepth 1 -maxdepth 1 \\( -name 'src-*' -o -name 'target-*' -o -name src -o -name target \\) -mtime +3 ! -name 'src-$key' ! -name 'target-$key' -exec rm -rf {} + 2>/dev/null; true"
+# And a host short of disk gets room back sooner, or refuses the run.
+ssh "$host" "cd $base && bash -s -- $key" <"$root/desktop/scripts/trim-remote-cache.sh"
 # Named by hand, not read from .gitignore: rsync takes those rules from the
 # receiving side when it decides what to delete, which removed part of a
 # Swift build and a node_modules here on 9 Nov.
