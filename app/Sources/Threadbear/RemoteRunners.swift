@@ -395,14 +395,14 @@ extension AppModel {
                 }
                 var made = made0
                 if drafts["new"] == draft { drafts["new"] = nil }
-                // The runner, folder, "Ask before edits" and picks were for
+                // The runner, folder, a picked mode and picks were for
                 // this thread; the next starts on the defaults again,
                 // the default runner's included (applyDefaultRunner below).
                 newThreadRunnerId = nil
                 newThreadRunnerPicked = false
                 newThreadRunnerProblem = nil
                 newThreadCwd = nil
-                newThreadPermission = .full
+                newThreadPermissionPick = nil
                 newThreadAccount = nil
                 newThreadPool = nil
                 newThreadProvider = nil

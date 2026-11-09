@@ -371,7 +371,16 @@ final class AppModel {
     /// kept across launches: a Codex model is no use to a Claude thread.
     private(set) var lastModels: [String: String] = AppModel.loadMemory(AppModel.lastModelKey)
     private(set) var lastEfforts: [String: String] = AppModel.loadMemory(AppModel.lastEffortKey)
-    var newThreadPermission: PermissionMode = .full
+    /// The mode picked in the new-thread composer, for that draft only.
+    /// Nil: the runner's default (`newThreadPermission`).
+    var newThreadPermissionPick: PermissionMode?
+    /// The mode the next new thread starts on: the one picked, else its
+    /// runner's `defaults.permissionMode` (Auto on a new install), else Full
+    /// access, for a runner that has none, predates it, or hasn't said yet.
+    var newThreadPermission: PermissionMode {
+        get { newThreadPermissionPick ?? newThreadLogins?.defaults.permissionMode ?? .full }
+        set { newThreadPermissionPick = newValue }
+    }
     /// What the runner says about the Claude and Codex CLIs (`clis.list`,
     /// `clis.updated`). Empty until it's said anything.
     var clis: [CliStatus] = []

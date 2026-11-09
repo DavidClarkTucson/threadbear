@@ -161,6 +161,9 @@ export type RunnerDefaults = {
   model?: string;
   models?: Partial<Record<Provider, string>>;
   efforts?: Partial<Record<Provider, EffortLevel>>;
+  // The mode a threads.create with none starts on (runner.json's
+  // defaults.permissionMode). Absent: full.
+  permissionMode?: Exclude<PermissionMode, 'plan'>;
 };
 
 export type ThreadStatus = 'idle' | 'starting' | 'running' | 'waiting' | 'error' | 'stopped';

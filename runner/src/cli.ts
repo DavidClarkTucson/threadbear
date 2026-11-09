@@ -82,10 +82,11 @@ const OPTIONS = {
 
 const HELP = `tb: talk to the Threadbear runner
 
-  tb new "text" [--cwd DIR] [--pool ID | --account ID] [--model M] [--effort L] [--ask | --auto | --plan] [--image FILE]... [--wait]
+  tb new "text" [--cwd DIR] [--pool ID | --account ID] [--model M] [--effort L] [--ask | --auto | --plan | --full] [--image FILE]... [--wait]
                 [--from NAME] [--why WORDS] [--icon SYMBOL]
                                   --pool runs it on a pool (the login with room, moving when
-                                  one runs dry); --account pins it to one login. --from says a
+                                  one runs dry); --account pins it to one login. With no mode
+                                  it's runner.json's defaults.permissionMode, else full. --from says a
                                   tool started it, --why says why in a few words and --icon is
                                   an SF Symbol: the row shows them under the title
   tb send <threadId> "text" [--image FILE]... [--wait]
@@ -115,7 +116,7 @@ const HELP = `tb: talk to the Threadbear runner
   tb show-panel <threadId> <panel> [--json]  opens a panel when the user looks at that thread
   tb run <threadId> <actionId>    run one: a command's output is printed and goes into the thread
   tb schedule "text" (--at WHEN | --cron "0 9 * * 1-5") [--tz ZONE] [--title T]
-              [--thread ID | --cwd DIR [--account ID | --pool ID] [--model M] [--effort L] [--ask | --auto]]
+              [--thread ID | --cwd DIR [--account ID | --pool ID] [--model M] [--effort L] [--ask | --auto | --full]]
                                   sends the text later: once (--at 30m, 2h, 1d, tomorrow
                                   or an ISO time) or on a cron; to a thread with --thread,
                                   otherwise to a new thread each time
@@ -173,7 +174,7 @@ ${DEV_HELP}`;
 // The flags each command reads. Any other is refused rather than ignored:
 // `tb events <id> --from 3` used to print every event as if it had worked.
 const COMMAND_FLAGS: Record<string, string[]> = {
-  new: ['cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'plan', 'image', 'wait', 'json', 'from', 'why', 'icon'],
+  new: ['cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'plan', 'full', 'image', 'wait', 'json', 'from', 'why', 'icon'],
   send: ['image', 'wait', 'json'],
   list: ['snoozed', 'archived', 'all', 'json'],
   search: ['json'],
@@ -189,7 +190,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   delete: [],
   accounts: ['json'],
   pools: ['json'],
-  schedule: ['at', 'cron', 'tz', 'title', 'thread', 'cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'json'],
+  schedule: ['at', 'cron', 'tz', 'title', 'thread', 'cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'full', 'json'],
   schedules: ['json', 'text', 'title', 'at', 'cron', 'tz', 'cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'full'],
   projects: ['json', 'archived'],
   librarian: ['json'],
@@ -370,9 +371,12 @@ async function run(client: RunnerClient, cmd: string, args: string[], f: Flags):
       if (f.pool) params.poolId = f.pool;
       if (f.model) params.model = f.model;
       if (f.effort) params.effort = f.effort;
+      if ([f.ask, f.auto, f.plan, f.full].filter(Boolean).length > 1) throw new Error('Give one of --ask, --auto, --plan and --full.');
       if (f.ask) params.permissionMode = 'ask';
       else if (f.auto) params.permissionMode = 'auto';
       else if (f.plan) params.permissionMode = 'plan';
+      // With none the runner's default, which may not be full.
+      else if (f.full) params.permissionMode = 'full';
       const startedBy = startedByFlags(f, process.env.THREADBEAR_THREAD_ID);
       if (startedBy) params.startedBy = startedBy;
       const r = await client.call<{ thread: ThreadSummary; turnId: string }>('threads.create', params);
@@ -603,8 +607,10 @@ async function run(client: RunnerClient, cmd: string, args: string[], f: Flags):
         if (f.pool) params.poolId = f.pool;
         if (f.model) params.model = f.model;
         if (f.effort) params.effort = f.effort;
+        if ([f.ask, f.auto, f.full].filter(Boolean).length > 1) throw new Error('Give one of --ask, --auto and --full.');
         if (f.ask) params.permissionMode = 'ask';
         else if (f.auto) params.permissionMode = 'auto';
+        else if (f.full) params.permissionMode = 'full';
       }
       // A schedule an agent makes from a thread says which one.
       if (process.env.THREADBEAR_THREAD_ID) params.createdBy = process.env.THREADBEAR_THREAD_ID;

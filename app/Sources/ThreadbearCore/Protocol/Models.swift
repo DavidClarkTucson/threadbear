@@ -1647,14 +1647,19 @@ public struct RunnerDefaults: Sendable, Hashable, Codable {
     /// at folders: the app applies those itself (`Pools.forFolder`). Nil
     /// from a runner older than pools.
     public var poolId: String?
+    /// The mode a new thread starts on when it names none (runner.json's
+    /// `defaults.permissionMode`), which the composer starts on. Nil from a
+    /// runner that has none or predates it: Full access.
+    public var permissionMode: PermissionMode?
 
-    public init(cwd: String, accountId: String, model: String? = nil, models: [String: String] = [:], efforts: [String: String] = [:], poolId: String? = nil) {
+    public init(cwd: String, accountId: String, model: String? = nil, models: [String: String] = [:], efforts: [String: String] = [:], poolId: String? = nil, permissionMode: PermissionMode? = nil) {
         self.cwd = cwd
         self.accountId = accountId
         self.model = model
         self.models = models
         self.efforts = efforts
         self.poolId = poolId
+        self.permissionMode = permissionMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -1665,6 +1670,11 @@ public struct RunnerDefaults: Sendable, Hashable, Codable {
         models = Self.strings(c, .models)
         efforts = Self.strings(c, .efforts)
         poolId = ((try? c.decodeIfPresent(String.self, forKey: .poolId)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
+        // By its raw name: PermissionMode's own decoding turns a mode this
+        // app doesn't know into Full access, where none is right. Plan first
+        // is never a default (the runner ignores it too).
+        permissionMode = ((try? c.decodeIfPresent(String.self, forKey: .permissionMode)) ?? nil)
+            .flatMap(PermissionMode.init(rawValue:)).flatMap { $0 == .plan ? nil : $0 }
     }
 
     /// The model a new thread on `provider` gets when it names none.
@@ -1679,7 +1689,7 @@ public struct RunnerDefaults: Sendable, Hashable, Codable {
         return raw.compactMapValues(\.stringValue)
     }
 
-    enum CodingKeys: String, CodingKey { case cwd, accountId, model, models, efforts, poolId }
+    enum CodingKeys: String, CodingKey { case cwd, accountId, model, models, efforts, poolId, permissionMode }
 }
 
 public struct HelloResult: Sendable, Hashable, Decodable {
