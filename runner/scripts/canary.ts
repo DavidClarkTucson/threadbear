@@ -4,7 +4,7 @@
 // thread there, sends it a red square, checks the agent saw red, checks the
 // decision card it ends with keeps what each answer does on the way back,
 // and archives the thread. Then it checks the backend is on the version this
-// runner expects. One line per check; exits 1 if any failed.
+// runner expects and that no machine says it can't follow GitHub's main. One line per check; exits 1 if any failed.
 //
 // The unit tests (scenarios.test.ts, parity.test.ts) prove the code agrees
 // with itself; this proves the real machines do: a release that didn't
@@ -49,10 +49,13 @@ const cfg = loadConfig(process.env, { readOnly: true });
 const client = await RunnerClient.connect(runnerUrl(cfg), readToken(cfg.home));
 try {
   await client.call('hello', { client: 'tb-canary', version: '1' });
-  const status = (await read('runner.status', {})) as { sync?: { backend?: { apiVersion: number; expected: number } } };
+  const status = (await read('runner.status', {})) as { sync?: { backend?: { apiVersion: number; expected: number } }; behindRunners?: { name: string; problem: string }[] };
   const backend = status.sync?.backend;
   if (backend) say(backend.apiVersion >= backend.expected, `the backend is on API ${backend.apiVersion}, this runner expects ${backend.expected}`);
   else say(false, "this runner hasn't heard the backend's version (is the Convex mirror on?)");
+  // A machine that can't follow GitHub's main (follow-origin.ts): what sat
+  // unnoticed on bruce and the Pixel for days before this canary found it.
+  for (const r of status.behindRunners ?? []) say(false, `${r.name} isn't following GitHub's main properly: ${r.problem}`);
 
   const remote = (await read('remoteThreads.list', {})) as { runners: Runner[] };
   const runners = remote.runners.filter((r) => !values.runner || r.name === values.runner || r.id === values.runner);
