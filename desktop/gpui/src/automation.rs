@@ -158,6 +158,11 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let paths = ExternalPaths(vec![std::path::PathBuf::from(text(cmd, "path"))].into());
             window.dispatch_event(FileDropEvent::Entered { position, paths }.to_platform_input(), cx);
             window.render_frame(cx);
+            // A real drag moves over the window before it drops. The first frame
+            // after Entered still has the old hover state, and the drop's target
+            // wants this one.
+            window.dispatch_event(FileDropEvent::Pending { position }.to_platform_input(), cx);
+            window.render_frame(cx);
             if !cmd["hover"].as_bool().unwrap_or(false) {
                 window.dispatch_event(FileDropEvent::Submit { position }.to_platform_input(), cx);
             }
