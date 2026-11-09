@@ -35,8 +35,10 @@ struct ThreadView: View {
     @State private var loadingChunk = false
     /// A finger's on the list, or it's still gliding from a flick.
     @State private var scrolling = false
-    /// A chunk of older rows that came while `scrolling` (with the seq it
-    /// comes before), put in once it stops.
+    /// Older rows that came while `scrolling`, put in once it stops: a live
+    /// page reaching further back than the rows shown, or a chunk (with the
+    /// seq it comes before).
+    @State private var heldPage: MessagePage?
     @State private var heldChunk: (page: MessagePage, before: Int)?
     /// Older rows have just gone in above: until then, the list's next growth
     /// is theirs, and the view moves down by it to stay on the same rows.
@@ -112,6 +114,7 @@ struct ThreadView: View {
             }
         }
         .task(id: "\(threadId):\(model.hasMessagePages):\(model.connection)") { await followMessages() }
+        .task(id: "\(threadId):\(history.lateImagesFrom ?? -1):\(model.connection)") { await followLateImages() }
         .task(id: "\(sent?.id ?? ""):\(model.connection)") { await followCommand() }
         .task(id: answeredCommand) {
             guard let id = answeredCommand, let status = await model.commandOutcome(id), status.state == .failed,
@@ -135,7 +138,7 @@ struct ThreadView: View {
         let canLoadMore = paged ? history.hasMore : thread.hasEarlier(than: detail.messages.first?.seq)
         // Paged: a chunk has been asked for, or is waiting for the list to
         // stop, and isn't shown yet.
-        let loadingMore = paged ? (loadingChunk || heldChunk != nil) : loadingBefore == detail.messages.first?.seq
+        let loadingMore = paged ? (loadingChunk || heldPage != nil || heldChunk != nil) : loadingBefore == detail.messages.first?.seq
         return ScrollViewReader { proxy in
             ScrollView {
                 // Not a LazyVStack. Opening a long thread left the screen blank
@@ -232,6 +235,7 @@ struct ThreadView: View {
             .onScrollPhaseChange { _, phase in
                 scrolling = phase.isScrolling
                 guard !scrolling else { return }
+                if let held = heldPage { putIn(held) }
                 if let held = heldChunk { putIn(chunk: held.page, before: held.before) }
             }
             // Older rows have gone in above: down by their height, so the rows
@@ -492,11 +496,41 @@ struct ThreadView: View {
         }
     }
 
+    /// The page reaching further back than the rows shown (big rows above
+    /// its byte cap that got smaller) puts rows in above. Those wait while
+    /// the list is moving, as a chunk does: a scroll made mid-flick to keep
+    /// the place is ignored. The rows already shown keep up meanwhile.
     private func receive(_ value: MessagePage) {
-        // The page reaching further back than the rows shown (big rows above
-        // its byte cap that got smaller) puts rows in above: keep the place.
-        if let shown = history.firstSeq, let first = value.messages.first?.seq, first < shown { prependedUntil = .now + 5 }
+        guard let shown = history.firstSeq, let first = value.messages.first?.seq, first < shown else {
+            heldPage = nil
+            history.takeLive(value)
+            return
+        }
+        if scrolling {
+            heldPage = value
+            history.takeLive(MessagePage(messages: value.messages.filter { $0.seq >= shown }, hasMore: true, images: value.images.filter { $0.seq >= shown }))
+        } else {
+            putIn(value)
+        }
+    }
+
+    private func putIn(_ value: MessagePage) {
+        heldPage = nil
+        prependedUntil = .now + 5
         history.takeLive(value)
+    }
+
+    /// API 37: pictures of rows read once. A picture can finish uploading
+    /// after its row went into a chunk or slid off the live page, and neither
+    /// is read again. This re-runs only when a picture row changes.
+    private func followLateImages() async {
+        guard let from = history.lateImagesFrom, let backend = model.backend,
+              model.isFake || (model.apiVersion ?? 0) >= BackendCompatibility.imagesAPIVersion else { return }
+        do {
+            for try await images in backend.images(threadId, from: from) { history.takeLateImages(images) }
+        } catch {
+            model.report(error)
+        }
     }
 
     /// Older rows than the live page holds, read once (MessageHistory).
@@ -523,7 +557,7 @@ struct ThreadView: View {
     /// asleep); before that, the runner pages them in.
     private func loadMore(_ thread: PhoneThread, detail: ThreadDetail, paged: Bool) {
         if paged {
-            guard heldChunk == nil, !loadingChunk, let before = history.nextBefore else { return }
+            guard heldPage == nil, heldChunk == nil, !loadingChunk, let before = history.nextBefore else { return }
             loadChunk(before: before)
         } else {
             loadEarlier(thread, before: detail.messages.first?.seq)

@@ -91,4 +91,17 @@ import Testing
         #expect(h.messages.map(\.seq) == Array(910...1010))
         #expect(h.images.map(\.seq) == [925])
     }
+
+    /// A picture that finishes uploading after its row slid off the live
+    /// page (or came in a chunk) arrives only from phone:images: it shows, and
+    /// pictures for rows not shown don't.
+    @Test func latePicturesOfRowsReadOnceShow() {
+        var h = MessageHistory()
+        #expect(h.lateImagesFrom == nil)
+        h.takeLive(page(921...1000, hasMore: true))
+        h.takeLive(page(925...1004, hasMore: true))
+        #expect(h.lateImagesFrom == 921)
+        h.takeLateImages([MessageImage(seq: 922, url: "https://x/922.png"), MessageImage(seq: 900, url: "https://x/900.png"), MessageImage(seq: 1001, url: "https://x/1001.png")])
+        #expect(h.images.map(\.seq).sorted() == [922, 1001])
+    }
 }

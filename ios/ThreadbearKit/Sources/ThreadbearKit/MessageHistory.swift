@@ -21,6 +21,10 @@ public struct MessageHistory: Sendable, Equatable {
     public private(set) var olderImages: [MessageImage] = []
     /// Whether there's more before `older`; nil until a chunk has come.
     public private(set) var olderHasMore: Bool?
+    /// Pictures from phone:images (API 37) from `older`'s first row on: one
+    /// that finishes uploading after its row was read (into a chunk, or off
+    /// the live page's top) comes only from there.
+    public private(set) var lateImages: [MessageImage] = []
 
     public init() {}
 
@@ -29,7 +33,8 @@ public struct MessageHistory: Sendable, Equatable {
     /// The pictures of every row shown, each once.
     public var images: [MessageImage] {
         var seen = Set<String>()
-        return (olderImages + (live?.images ?? [])).filter { seen.insert($0.url).inserted }
+        let shown = Set(messages.map(\.seq))
+        return (olderImages + (live?.images ?? []) + lateImages.filter { shown.contains($0.seq) }).filter { seen.insert($0.url).inserted }
     }
 
     public var hasMore: Bool { olderHasMore ?? (live?.hasMore ?? false) }
@@ -58,6 +63,12 @@ public struct MessageHistory: Sendable, Equatable {
         }
         live = page
     }
+
+    /// Where phone:images should watch from: the first row read once, or
+    /// nil while the live page is all there is.
+    public var lateImagesFrom: Int? { older.first?.seq }
+
+    public mutating func takeLateImages(_ images: [MessageImage]) { lateImages = images }
 
     /// The seq to ask for an older chunk before, or nil when there's no more.
     public var nextBefore: Int? { hasMore ? firstSeq : nil }

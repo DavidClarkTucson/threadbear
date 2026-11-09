@@ -890,6 +890,10 @@ public enum BackendCompatibility {
     /// commands, for the palette over the reply box. Older backends get no
     /// palette; what's typed still runs as a command.
     public static let slashCommandsAPIVersion = 62
+    /// From 37 phone:images watches a thread's pictures from a seq on, so a
+    /// picture that finishes uploading after its row has left the live page
+    /// still turns up.
+    public static let imagesAPIVersion = 37
 
     /// The line to show, or nil when the backend is fine.
     public static func problem(_ identity: PhoneIdentity) -> String? {
