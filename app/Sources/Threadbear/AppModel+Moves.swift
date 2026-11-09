@@ -30,10 +30,15 @@ extension AppModel {
     }
 
     /// The sheet's guess, or what's in the way. Read-only: nothing starts.
-    func movePreview(_ request: MoveRequest, cwd: String? = nil, accountId: String? = nil) async -> MovePreview {
-        guard let client else { return MovePreview(problems: ["This Mac's runner isn't connected."]) }
+    /// nil when this Mac's runner can't be reached just now. That's no
+    /// answer about the move: the runner drops the app for a few seconds at
+    /// every update, so the sheet waits and asks again once it's back.
+    func movePreview(_ request: MoveRequest, cwd: String? = nil, accountId: String? = nil) async -> MovePreview? {
+        guard let client, connection == .connected else { return nil }
         do {
             return try await client.movePreview(threadId: request.threadId, runnerId: request.runnerId, cwd: cwd, accountId: accountId)
+        } catch RPCError.disconnected {
+            return nil
         } catch {
             return MovePreview(problems: [error.localizedDescription])
         }
