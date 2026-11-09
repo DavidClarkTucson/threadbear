@@ -24,11 +24,22 @@ pub mod size {
     pub const HEADER: f32 = 15.;
     pub const COMPOSER: f32 = 15.;
     pub const CHIP: f32 = 13.;
+    /// The send button, and the height of the controls row it sits in.
+    pub const SEND_BUTTON: f32 = 28.;
+    /// A picture's chip among the words (PictureChip.Metrics at 15 pt).
+    pub const CHIP_HEIGHT: f32 = 20.;
+    /// A picture in the strip over the words (AttachmentThumbnail.size).
+    pub const THUMBNAIL: f32 = 56.;
 }
 
 /// Widest the reading column gets; wider windows centre it.
 pub const MAX_CONTENT_WIDTH: f32 = 780.;
 pub const SIDE_INSET: f32 = 28.;
+
+/// The composer's card (ComposerView).
+pub const COMPOSER_RADIUS: f32 = 20.;
+pub const COMPOSER_PADDING: f32 = 14.;
+pub const COMPOSER_GAP: f32 = 10.;
 
 fn pick(cx: &App, dark: Hsla, light: Hsla) -> Hsla {
     if cx.theme().is_dark() {
@@ -84,4 +95,59 @@ pub fn button_fill(cx: &App) -> Hsla {
 
 pub fn button_edge(cx: &App) -> Hsla {
     pick(cx, white(0.08), black(0.18))
+}
+
+/// The composer's card: a lighter fill on dark, white on light (ComposerView.card).
+pub fn composer_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.085), white(1.))
+}
+
+/// The empty look of the send button (CircleButtonStyle, not filled).
+pub fn send_faint_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.1), black(0.1))
+}
+
+/// A picture chip's fill (PictureChip.fill).
+pub fn chip_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.1), black(0.06))
+}
+
+/// A composer chip's hover fill (ComposerChip).
+pub fn chip_hover_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.07), black(0.05))
+}
+
+/// Faint icons on the chips (Theme.faintIcon).
+pub fn faint_icon(cx: &App) -> Hsla {
+    pick(cx, white(0.45), black(0.45))
+}
+
+/// The hairline between chips (ChipDivider).
+pub fn chip_divider(cx: &App) -> Hsla {
+    pick(cx, white(0.12), black(0.12))
+}
+
+/// The Needs you orange (Theme.needsYou).
+pub fn needs_you(cx: &App) -> Hsla {
+    pick(cx, hsla(0.09, 0.95, 0.56, 1.), hsla(0.09, 0.9, 0.45, 1.))
+}
+
+/// The answer box under an ask's Something else.
+pub fn answer_box_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.05), black(0.03))
+}
+
+/// The box behind an ask's answer rows (Theme.answerRowsFill).
+pub fn answer_rows_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.04), black(0.03))
+}
+
+/// The system's accent (NSColor.controlAccentColor): the outline of a box
+/// that needs Mike, ticks and the agent's own pick.
+pub fn accent(cx: &App) -> Hsla {
+    pick(cx, rgb_hsla(0x0a84ff), rgb_hsla(0x007aff))
+}
+
+fn rgb_hsla(hex: u32) -> Hsla {
+    rgb(hex).into()
 }

@@ -1,11 +1,10 @@
 // One thread: its transcript (rows come from the reducer in threadbear-core),
 // its cards and the composer. Reads the newest page of events, then subscribes
 // from the last of them, as the Mac app's ThreadSession does.
+use crate::composer::Composer;
 use crate::{call, RT};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Sizable as _, StyledExt as _};
+use gpui_kit::component::{v_flex, ActiveTheme as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use serde_json::{json, Value};
@@ -14,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use threadbear_client::runner::Client;
 use threadbear_core::inbox::ThreadSummary;
-use threadbear_core::reducer::{BackgroundTask, Event, EventsPage, FeedAction, PendingMessage, Row, RowContent, ThreadFeed, TranscriptChange, TranscriptModel};
+use threadbear_core::reducer::{BackgroundTask, Event, EventsPage, FeedAction, ImageRef, PendingMessage, Row, RowContent, ThreadFeed, TranscriptChange, TranscriptModel};
 
 /// Events asked for when a thread opens, as ThreadSession.eventsPage.
 const EVENTS_PAGE: u64 = 500;
@@ -29,7 +28,7 @@ pub struct ThreadPane {
     loaded: bool,
     error: Option<String>,
     scroller: Entity<MessageScrollerState>,
-    input: Entity<TextareaState>,
+    pub(crate) composer: Entity<Composer>,
     /// Tool and thinking rows opened, by row id. Groups keep theirs in the model.
     open_rows: HashSet<String>,
     pub(crate) chosen: HashMap<String, HashMap<usize, Vec<String>>>,
@@ -40,17 +39,7 @@ pub struct ThreadPane {
 }
 
 impl ThreadPane {
-    pub fn new(client: Arc<Client>, summary: ThreadSummary, draft: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Message").auto_grow(2, 8).submit_on_enter(true).default_value(draft));
-        let sub = cx.subscribe_in(&input, window, |this, input, ev: &InputEvent, window, cx| {
-            if let InputEvent::PressEnter { shift: false, .. } = ev {
-                let text = input.read(cx).value().trim().to_string();
-                if !text.is_empty() {
-                    input.update(cx, |s, cx| s.set_value("", window, cx));
-                    this.send(text, None, cx);
-                }
-            }
-        });
+    pub fn new(client: Arc<Client>, summary: ThreadSummary, composer: Entity<Composer>, cx: &mut Context<Self>) -> Self {
         let mut pane = ThreadPane {
             client,
             summary,
@@ -58,30 +47,22 @@ impl ThreadPane {
             loaded: false,
             error: None,
             scroller: cx.new(|cx| MessageScrollerState::new(0, cx)),
-            input,
+            composer,
             open_rows: HashSet::new(),
             chosen: HashMap::new(),
             pending: vec![],
             next_pending: 0,
             flush_queued: false,
-            _subs: vec![sub],
+            _subs: vec![],
         };
         pane.load(cx);
         pane
     }
 
-    pub fn thread_id(&self) -> &str {
-        &self.summary.id
-    }
-
-    /// What's typed and not yet sent.
-    pub fn draft(&self, cx: &App) -> String {
-        self.input.read(cx).value().to_string()
-    }
-
+    /// What's typed and not yet sent, with pictures as their markers.
     #[cfg(feature = "automation")]
-    pub fn composer(&self) -> Entity<TextareaState> {
-        self.input.clone()
+    pub fn draft(&self, cx: &App) -> String {
+        self.composer.read(cx).draft_text(cx)
     }
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
@@ -240,19 +221,88 @@ impl ThreadPane {
     }
 
     pub(crate) fn send(&mut self, text: String, answers: Option<Value>, cx: &mut Context<Self>) {
+        self.send_message(text, Vec::new(), answers.unwrap_or(Value::Null), None, WeakEntity::new_invalid(), cx);
+    }
+
+    /// Sends a message (AppModel.post): it shows dimmed at the end of the
+    /// transcript straight away, and goes back into the box if the runner
+    /// doesn't take it. `draft` is what to give back then.
+    pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<crate::composer::RestoreDraft>, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
         // Shown straight away and put right when the runner echoes it back.
         self.next_pending += 1;
-        let message = PendingMessage::new(&format!("local-{}", self.next_pending), &text, self.feed.accepted_seq());
+        let pending_id = format!("local-{}", self.next_pending);
+        let mut message = PendingMessage::new(&pending_id, &text, self.feed.accepted_seq());
+        message.images = images.clone();
         self.pending.push(message);
         let change = self.feed.set_pending(self.pending.clone());
         self.apply(change, cx);
         self.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
 
         let mut params = json!({ "threadId": self.summary.id, "text": text });
-        if let Some(a) = answers {
-            params["answers"] = a;
+        if !images.is_empty() {
+            params["images"] = json!(images.iter().map(crate::composer::image_ref_json).collect::<Vec<_>>());
         }
-        self.request("threads.send", params, cx);
+        if !answers.is_null() {
+            params["answers"] = answers;
+        }
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "threads.send", params).await;
+            let failed = res.is_err();
+            this.update(cx, |this, cx| {
+                this.error = res.err().map(|e| e.message);
+                if failed {
+                    // Off the end of the transcript and back in the box.
+                    this.pending.retain(|m| m.id != pending_id);
+                    let change = this.feed.set_pending(this.pending.clone());
+                    this.apply(change, cx);
+                }
+                this.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
+                cx.notify();
+            })
+            .ok();
+            if failed {
+                if let (Some(composer), Some(draft)) = (composer.upgrade(), draft) {
+                    composer.update(cx, |c, cx| c.restore_draft(draft, cx));
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Return in an empty box allows the sole waiting approval, the ⏎ its
+    /// Allow button shows (ComposerView.allowSoleApproval); with two, Return
+    /// can't know which, and another runner asking for a thread is started
+    /// only by a click on its card.
+    pub(crate) fn allow_sole_approval(&mut self, cx: &mut Context<Self>) -> bool {
+        let pending = self.feed.model().pending_approval_ids();
+        let [id] = pending.as_slice() else { return false };
+        if let Some(Row { content: RowContent::Approval(item), .. }) = self.feed.model().item(&format!("ap:{id}")) {
+            if item.is_start_request() {
+                return false;
+            }
+        }
+        let params = json!({ "threadId": self.summary.id, "approvalId": id, "decision": "allow" });
+        self.request("approvals.respond", params, cx);
+        true
+    }
+
+    /// The composer's picks on the open card, handed to the reducer so its
+    /// row reads them (ThreadSession.setAskPicks and friends).
+    pub(crate) fn set_card_picks(&mut self, seq: i64, picks: std::collections::BTreeMap<i64, i64>, notes: std::collections::BTreeMap<i64, threadbear_core::reducer::AskNote>, next: std::collections::BTreeSet<i64>, explain: std::collections::BTreeSet<i64>, cx: &mut Context<Self>) {
+        let change = self.feed.set_ask_picks(seq, picks);
+        self.apply(change, cx);
+        let change = self.feed.set_ask_notes(seq, notes);
+        self.apply(change, cx);
+        let change = self.feed.set_next_picks(seq, next, explain);
+        self.apply(change, cx);
+        cx.notify();
+    }
+
+    /// Something the composer tried that didn't work, for the error line.
+    pub(crate) fn show_error(&mut self, message: String, cx: &mut Context<Self>) {
+        self.error = Some(message);
+        cx.notify();
     }
 
     pub(crate) fn request(&mut self, method: &'static str, params: Value, cx: &mut Context<Self>) {
@@ -357,11 +407,18 @@ impl Render for ThreadPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let (border, muted, danger, bg) = (theme.border, theme.muted_foreground, theme.danger, theme.background);
-        let busy = self.summary.busy();
         let model = threadbear_core::inbox::model_label(&self.summary.provider, self.summary.model_in_use.as_deref().or(self.summary.model.as_deref()));
         let meta = format!("{} · {} · {}", threadbear_core::inbox::folder_name(&self.summary.cwd), model, self.summary.status);
+        let composer = self.composer.clone();
         v_flex()
             .size_full()
+            // The whole thread is drop space for the box (ComposerDropView),
+            // outlined while a file is over it.
+            .on_drop(move |paths: &ExternalPaths, window, cx| {
+                let paths = paths.paths().to_vec();
+                composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
+            })
+            .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
             .child(
                 v_flex()
                     .px_7()
@@ -381,27 +438,6 @@ impl Render for ThreadPane {
                         .size_full(),
                 ),
             )
-            .child(
-                h_flex().justify_center().px_7().pt_3().pb_4().border_t_1().border_color(border).child(
-                    v_flex()
-                        .w_full()
-                        .max_w(px(760.))
-                        .gap_2()
-                        .child(Textarea::new(&self.input).w_full())
-                        .child(
-                            h_flex()
-                                .justify_end()
-                                .gap_2()
-                                .when(busy, |s| s.child(Button::new("stop").small().label("Stop").tooltip("Stop the turn").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)))))
-                                .child(Button::new("send").small().primary().label("Send").tooltip("Send (Enter)").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    let text = this.input.read(cx).value().trim().to_string();
-                                    if !text.is_empty() {
-                                        this.input.update(cx, |s, cx| s.set_value("", window, cx));
-                                        this.send(text, None, cx);
-                                    }
-                                }))),
-                        ),
-                ),
-            )
+            .child(self.composer.clone())
     }
 }

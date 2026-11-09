@@ -134,6 +134,9 @@ impl ThreadPane {
                 let color = if done.outcome == TurnOutcome::Completed { muted } else { danger };
                 column(div().text_xs().text_color(color).child(RowDebug::text(&row))).into_any_element()
             }
+            // The open card is drawn in the composer (ComposerCard), joined to the
+            // box it's answered in. Height nothing here, as the Swift row is.
+            RowContent::Asks(asks) if asks.is_open => div().into_any_element(),
             RowContent::Asks(asks) if asks.is_done() => {
                 let mut col = v_flex().gap_1().child(div().font_semibold().child("Done"));
                 for next in &asks.next {

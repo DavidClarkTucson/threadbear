@@ -1,11 +1,14 @@
 // A picture of one thread in whichever app TB_APP says, for comparing them.
 //
-//   TB_APP=gpui node features/tools/shot.ts <thread title> <out.png>
+//   TB_APP=gpui node features/tools/shot.ts <thread title> <out.png> ['<json command>' ...]
+//
+// Any commands after the output file run in order before the picture is taken,
+// as for a composer with something in it: '{"cmd":"type","text":"hello"}'.
 import { GpuiDriver } from '../support/gpui.ts';
 import { SwiftDriver } from '../support/swift.ts';
 import { sleep, type Driver } from '../support/driver.ts';
 
-const [title, out] = process.argv.slice(2);
+const [title, out, ...commands] = process.argv.slice(2);
 const app: Driver = (process.env.TB_APP ?? 'gpui') === 'swift' ? new SwiftDriver() : new GpuiDriver();
 await app.start();
 try {
@@ -22,6 +25,11 @@ try {
     await sleep(50);
   }
   await sleep(1200);
+  for (const command of commands) {
+    await app.do(JSON.parse(command) as Record<string, unknown>);
+    await sleep(200);
+  }
+  await sleep(800);
   await app.shot(out);
   console.log(`saved ${out}`);
 } finally {

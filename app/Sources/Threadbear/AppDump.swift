@@ -86,6 +86,9 @@ struct AppDump: Encodable {
         var chip: String = ""
         /// The other runner it runs on ("bruce"); nil for this Mac.
         var runner: String? = nil
+        /// The open card in the box, for the behaviour specs: "Done" with
+        /// its follow-ups, or "Needs you" with each ask.
+        var card: [String]? = nil
     }
 
     struct Settings {
@@ -501,7 +504,26 @@ struct AppDump: Encodable {
                         editing: app.editing[key]?.seq,
                         cwd: settings.cwd, account: settings.account, model: settings.model, ask: settings.ask, mode: settings.mode, effort: settings.effort,
                         pool: settings.pool, chip: ThreadSettings(app: app, thread: app.selectedThread).modelChipTitle,
-                        runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil))
+                        runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil),
+                        card: cardLines(app, key: key))
+    }
+
+    /// The open card as lines (`composer.card`): "Done" with a "[x]" or
+    /// "[ ]" line per follow-up, "(?)" on one asked about; or "Needs you"
+    /// ("(collapsed)" when folded) with a line per ask.
+    @MainActor
+    private static func cardLines(_ app: AppModel, key: String) -> [String]? {
+        guard let row = app.sessions[key]?.openCard, case .asks(let card) = row.content else { return nil }
+        if card.isDone {
+            return ["Done"] + card.next.enumerated().map { i, text in
+                (card.pickedNext.contains(i) ? "[x] " : "[ ] ") + text + (card.explainNext.contains(i) ? " (?)" : "")
+            }
+        }
+        var lines = [app.collapsedCards[key] == row.seq ? "Needs you (collapsed)" : "Needs you"]
+        for (i, ask) in card.asks.enumerated() {
+            lines.append((card.picks[i] != nil ? "[x] " : "[ ] ") + "\(i + 1). \(ask.action)")
+        }
+        return lines
     }
 
     /// Rows a click opens: work lines, groups and settled approvals that

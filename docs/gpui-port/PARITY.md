@@ -83,6 +83,76 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: `cargo test -p threadbear-dock-layout`, 32 tests; `press` tests
   headless, 4; real CGEvent drags on Tinker Desk through `pointer-test.sh`.
 
+### 2026-11-09 Composer: the open card in the box
+
+- The open card (Needs you or Done) is drawn at the top of the composer from the
+  reducer's `open_card()`, and its row in the list is zero height, as the Swift
+  one is. Done has Archive and its follow-ups with tick and "?"; Needs you has its
+  asks with answer buttons or rows, Something else boxes, Return going on to the
+  next unanswered ask, collapse, and one ask at a time when it's tall. Picks stay
+  with the composer while another thread is open, and `decide` and `ask` match
+  the Swift automation (`dump` has `composer.card` and `decisions` on both apps,
+  the Swift one added to AppDump.swift).
+- Files: `desktop/gpui/src/composer_card.rs`, `desktop/gpui/src/rows.rs` (one
+  line), `features/composer-cards.feature`, `app/Sources/Threadbear/AppDump.swift`.
+- Remaining: pictures in the Something else boxes, the page slide, the card
+  keeping its tallest page's height, link buttons on asks, the beep when Return
+  can't go on, the picks' chips when collapsed, the new-thread page and the
+  slash palette.
+- Verification: whole suite 44 of 44 on `TB_APP=gpui` on Linux (`cloud`) and a
+  real Mac (Tinker Desk), and 44 of 44 on `TB_APP=swift` on Tinker Desk;
+  side-by-side screenshot of the paged card against Swift's.
+
+### 2026-11-09 Composer: the chips under the box
+
+- The row under the words: "+" (Attach images…, folder), the model chip with its
+  picker (search, rail of pools or providers, rows with default and selection,
+  effort), the permission chip, the account chip when there are no pools, and the
+  context ring with its popover. Each click updates at once through the
+  `update_open` guess. `composer-menu` (permission, model, context) matches the
+  Swift text; `desktop/core/src/logins.rs` ports the picker logic with tests.
+- Files: `desktop/gpui/src/composer_chips.rs`, `desktop/core/src/logins.rs`,
+  `features/composer-chips.feature`.
+- Remaining: provider logos on the model rows and chip, usage badges on the
+  account and model chips, Older rail details, Schedule… in "+".
+- Verification: `TB_APP=swift` on Tinker Desk 4 of 4 for
+  `@composer.permission @composer.modelpicker`; `TB_APP=gpui` on Linux (`cloud`)
+  4 of 4 and on Tinker Desk 10 of 10 together with the composer's text scenarios;
+  screenshot of the chip row against Swift's.
+
+### 2026-11-09 Composer: pictures as inline chips
+
+- Paste, drop or the automation's `paste-image` puts a chip with a thumbnail in the
+  words at the cursor, each picture copied in through `media.import`, dimmed
+  until it's in; the strip of thumbnails over the words has × on hover; a chip's
+  hover shows the picture after a beat; `[Picture N]` markers go with the words.
+  These are real gpui-kit inline tokens (`InlineToken` on `TextareaState`, 0.9.0),
+  so no fork: atomic in the editing, in undo, with the Swift draft's U+FFFC mark.
+  The whole thread is a drop target (`on_drop` and `drag_over` on the pane).
+- Files: `desktop/gpui/src/composer.rs`, `features/sending.feature`,
+  `features/support/sample.png`, `features/tools/shot.ts` (optional commands).
+- Remaining: `composer.chipcopy`, a whole-insert undo step (each chip and its
+  spaces are separate undo steps today).
+- Verification: `TB_APP=gpui` on Linux (`cloud`) and a real Mac (Tinker Desk), 4 of
+  4 for `@composer.picturechips @composer.filedrop @composer.chiphover`;
+  `TB_APP=swift` on Tinker Desk 4 of 4; screenshot of two chips against Swift's.
+
+### 2026-11-09 Composer: its own file, the rounded box, list continuation, paste
+
+- The composer is out of `thread.rs` into `desktop/gpui/src/composer.rs`, one
+  `Composer` entity per thread on the app (`Threadbear.composers`) so what's typed
+  and its undo stay with the thread. Rounded card, 15/23 text, two to ten lines,
+  Return sends, Shift-Return makes a new line and carries markdown lists on
+  through one edit (`ListContinuation` is in `desktop/core/src/composer.rs` with
+  its tests), the send circle and Stop. `paste` joins the automation commands.
+- Files: `desktop/gpui/src/composer.rs`, `desktop/core/src/composer.rs`,
+  `features/sending.feature`.
+- Remaining: pictures, the chips under the box, the cards, the new-thread page.
+- Verification: `TB_APP=gpui` on Linux (`cloud`) and a real Mac (Tinker Desk) 7 of
+  7 for `@composer.textbox @composer.return @composer.send @composer.listcontinue`;
+  `TB_APP=swift` on Tinker Desk 4 of 4 for the new ones; side-by-side screenshot of
+  the box against the Swift one.
+
 ### 2026-11-09 Risk checks: Chromium in a slot, accessibility, Windows
 
 - Spike (`gpui-web-spike` branch): CEF 156 in a GPUI layout slot on macOS, with a

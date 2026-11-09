@@ -5,6 +5,9 @@
 mod app;
 #[cfg(feature = "automation")]
 mod automation;
+mod composer;
+mod composer_card;
+mod composer_chips;
 mod rows;
 mod sidebar;
 mod style;
@@ -49,7 +52,7 @@ pub fn now_ms() -> i64 {
 }
 
 fn main() {
-    gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(|cx| {
+    gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(|cx| {
         gpui_kit::init(cx);
         // ⌘ on the Mac, Control elsewhere. KeyBinding::new doesn't take GPUI's
         // "secondary-", which needs to know the platform.
