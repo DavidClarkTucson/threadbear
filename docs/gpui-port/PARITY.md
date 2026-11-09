@@ -183,9 +183,9 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Remaining: the page doesn't clamp the heading and note for very short windows
   as ComposerPlacement does; the bear over the heading.
 - Verification: `TB_APP=gpui` whole suite, 125 of 125 on Tinker Desk (real Mac
-  desktop) at the final commit; on Linux (`cloud`), see the run recorded below this
-  list; `TB_APP=swift` whole suite, 125 of 125 on Tinker Desk; `cargo test -p
-  threadbear-core` (92 lib tests); side-by-side of the page at
+  desktop) and 125 of 125 on Linux (`cloud`) at the final commit; `TB_APP=swift`
+  whole suite, 125 of 125 on Tinker Desk; `cargo test -p threadbear-core`
+  (92 lib tests); side-by-side of the page at
   `/tmp/gpui-new-thread-side-by-side.png`.
 
 ### 2026-11-09 BearDock for GPUI
