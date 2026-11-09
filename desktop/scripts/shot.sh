@@ -43,13 +43,13 @@ display=":$((90 + RANDOM % 100))"
 Xvfb "$display" -screen 0 1400x900x24 > "$tmp/xvfb.log" 2>&1 &
 pids+=($!)
 sleep 1
-# GPUI's window system code waits on a session bus a server doesn't have, so
-# it gets its own.
+# The app asks a session bus for desktop settings and portals, and a server
+# doesn't have one, so it gets its own.
 DISPLAY="$display" THREADBEAR_HOME="$home" NO_AT_BRIDGE=1 LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- \
   "${THREADBEAR_DESKTOP_BIN:-$here/target/debug/threadbear-gpui}" > "$tmp/app.log" 2>&1 &
 pids+=($!)
 sleep "$wait"
-wid="$(DISPLAY="$display" xdotool search --onlyvisible --name '^Threadbear$' | head -1 || true)"
+wid="$(DISPLAY="$display" xdotool search --onlyvisible --name '^Threadbear' | head -1 || true)"
 [ -n "$wid" ] || { echo "no window; the app said:" >&2; cat "$tmp/app.log" >&2; exit 1; }
 DISPLAY="$display" import -window "$wid" "$out/0.png"
 n=0
