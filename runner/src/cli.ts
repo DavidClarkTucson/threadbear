@@ -835,7 +835,9 @@ async function resolveApproval(client: RunnerClient, threadId: string, prefix: s
 async function moveToRunner(client: RunnerClient, threadId: string, f: Flags): Promise<number> {
   const want = String(f.to).toLowerCase();
   const { runners } = await client.call<{ runners: { id: string; name: string; online: boolean; isSelf?: boolean }[] }>('runners.list', {});
-  const runner = runners.find((r) => r.id === f.to) ?? runners.find((r) => r.name.toLowerCase() === want);
+  // Its id, its name, or a word of its name only it has ("cloud" for "Hetzner Cloud").
+  const partly = runners.filter((r) => r.name.toLowerCase().includes(want));
+  const runner = runners.find((r) => r.id === f.to) ?? runners.find((r) => r.name.toLowerCase() === want) ?? (partly.length === 1 ? partly[0] : undefined);
   if (!runner) throw new Error(`No runner called ${String(f.to)}. There are: ${runners.map((r) => r.name).join(', ')}.`);
   const params: Record<string, unknown> = { threadId, runnerId: runner.id };
   if (typeof f.cwd === 'string') params.cwd = f.cwd;
