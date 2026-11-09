@@ -2,8 +2,12 @@
 // runner's checks and the app read this rather than comparing provider names.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cliName, PROVIDER_INFO, providerInfo, providerName, providersForHello } from '../../src/providers.ts';
-import { PROVIDERS } from '../../src/protocol.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { discoverAccounts } from '../../src/accounts.ts';
+import { activeProviders, cliName, PROVIDER_INFO, providerInfo, providerName, providersForHello } from '../../src/providers.ts';
+import { PROVIDERS, type Account } from '../../src/protocol.ts';
 import { FakeAccounts, makeHarness, withCodex } from '../helpers/fakes.ts';
 
 test('every provider has a row, under its own id', () => {
@@ -49,7 +53,38 @@ test('a thread with no provider is a Claude one, as a record from before Codex',
   assert.equal(providerName(''), 'Claude');
 });
 
-test('hello lists each provider, in PROVIDERS order', () => {
+function home(on: boolean): string {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-prov-'));
+  if (on) fs.writeFileSync(path.join(d, 'runner.json'), JSON.stringify({ experiments: { acpAgents: true } }));
+  return d;
+}
+
+test('the ACP agents are only offered with the experiment on', () => {
+  assert.deepEqual(activeProviders(home(false)), ['claude', 'codex']);
+  assert.deepEqual(activeProviders(home(true)), ['claude', 'codex', 'cursor', 'opencode']);
+});
+
+test('with the experiment off, an installed agent adds no account', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-disc-'));
+  const bin = path.join(d, 'oc');
+  fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+  const cfg = { claudeMainDir: path.join(d, 'none'), claudeMainJson: path.join(d, 'none.json'), tokenStatsAccountsDir: path.join(d, 'none2'), opencodePath: bin };
+  assert.deepEqual(discoverAccounts({ ...cfg, home: home(false) }), []);
+  assert.deepEqual(discoverAccounts({ ...cfg, home: home(true) }).map((a) => a.id), ['opencode-main']);
+});
+
+test('an ACP model is only ever the one its account lists', () => {
+  const oc: Account = { id: 'opencode-main', provider: 'opencode', title: 'OpenCode', configDir: '/x', models: [{ id: 'fake/one', model: 'fake/one', title: 'One' }, { id: 'gpt-9', model: 'gpt-9', title: 'G' }] };
+  const h = makeHarness(undefined, {}, { accounts: new FakeAccounts([...withCodex(), oc]) });
+  const claude = h.runner.hello().accounts.find((a) => a.provider === 'claude')!;
+  assert.equal(h.runner.modelFits(oc, 'fake/one'), true);
+  assert.equal(h.runner.modelFits(oc, 'claude-opus-5-5'), false, 'not by its name');
+  assert.equal(h.runner.modelFits(claude, 'fake/one'), false);
+  assert.equal(h.runner.modelProvider('fake/one'), 'opencode');
+  assert.equal(h.runner.modelProvider('gpt-9'), 'codex', 'another provider keeps what it has always claimed');
+});
+
+test('hello lists each provider this runner offers', () => {
   assert.deepEqual(providersForHello().map((p) => p.id), [...PROVIDERS]);
   const h = makeHarness(undefined, {}, { accounts: new FakeAccounts(withCodex()) });
   assert.deepEqual(h.runner.hello().providers.map((p) => p.name), ['Claude', 'Codex']);

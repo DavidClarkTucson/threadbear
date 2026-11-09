@@ -37,6 +37,8 @@ import { ProcessRegistry } from './proc.ts';
 import { Runner } from './runner.ts';
 import { startOwnThread } from './own-threads.ts';
 import { CodexAdapter } from './adapters/codex/adapter.ts';
+import { AcpAdapter } from './adapters/acp/adapter.ts';
+import { ACP_AGENTS, ACP_PROVIDERS } from './adapters/acp/agents.ts';
 import { resolveCodexBinary } from './adapters/codex/appserver.ts';
 import { checkSurface, testedVersion } from './adapters/codex/surface.ts';
 import { CliUpdates } from './updates/manager.ts';
@@ -231,6 +233,8 @@ async function main(): Promise<void> {
     alwaysAsk: ALWAYS_ASK_TOOLS,
     neverAsk: NEVER_ASK_TOOLS,
   });
+  // The threadbear tools for an agent that isn't given them in-process.
+  const codexStyleTools = (threadId: string) => buildThreadbearTools(router(), threadId, Date.now, scheduleControl(), projectControl(), appRestarts, { provider: 'codex', bulletReplies: () => cfg.bulletReplies, oneReply: () => cfg.oneReply, pocket: pocketControl, gateway: () => cfg.connectorsUrl, gatewayHealth, scheduleChecks: () => experimentOn(cfg.home, 'scheduleChecks'), remote: remoteControl, replyButtons: () => experimentOn(cfg.home, 'replyButtons') });
   // One app-server per live Codex thread, each starting what E says is
   // current, with the same threadbear tools as dynamic tools.
   const codex = new CodexAdapter({
@@ -238,10 +242,26 @@ async function main(): Promise<void> {
     codexArgs: cfg.codexArgs,
     registry,
     log,
-    toolsFor: (threadId) => buildThreadbearTools(router(), threadId, Date.now, scheduleControl(), projectControl(), appRestarts, { provider: 'codex', bulletReplies: () => cfg.bulletReplies, oneReply: () => cfg.oneReply, pocket: pocketControl, gateway: () => cfg.connectorsUrl, gatewayHealth, scheduleChecks: () => experimentOn(cfg.home, 'scheduleChecks'), remote: remoteControl, replyButtons: () => experimentOn(cfg.home, 'replyButtons') }),
+    toolsFor: codexStyleTools,
     onNotice: (text) => runner.notice('warning', text),
     extraGuidance: () => (experimentOn(cfg.home, 'richBlocks') ? RICH_BLOCKS_LINE : ''),
   });
+  // One process per live thread on an agent that speaks ACP, off unless the
+  // experiment is on (they find no account, and refuse to start without it).
+  const acpAdapters = Object.fromEntries(
+    ACP_PROVIDERS.map((p) => [
+      p,
+      new AcpAdapter({
+        agent: ACP_AGENTS[p],
+        binary: () => ACP_AGENTS[p].findBinary({ explicit: p === 'cursor' ? cfg.cursorPath : cfg.opencodePath, home: os.homedir(), pathEnv: process.env.PATH ?? '' }),
+        on: () => experimentOn(cfg.home, 'acpAgents'),
+        registry,
+        log,
+        toolsFor: codexStyleTools,
+        extraGuidance: () => (experimentOn(cfg.home, 'richBlocks') ? RICH_BLOCKS_LINE : ''),
+      }),
+    ]),
+  );
   // The runner's own small-model calls, on the settings' Claude pool.
   const models = new Models({
     home: cfg.home,
@@ -264,7 +284,7 @@ async function main(): Promise<void> {
     atMac: () => atMac,
     config: cfg,
     store,
-    adapters: { claude, codex },
+    adapters: { claude, codex, ...acpAdapters },
     accounts,
     // A draining runner's readings go to the primary, which owns
     // usage.json (docs/protocol.md, "Handovers").

@@ -5,6 +5,7 @@
 //
 // What's left comparing names is really about one CLI's own files or
 // behaviour (copying Claude's transcripts, Codex's model list).
+import { experimentOn } from './experiments.ts';
 import { PROVIDERS, type Provider, type ProviderInfo } from './protocol.ts';
 
 export const PROVIDER_INFO: Record<Provider, ProviderInfo> = {
@@ -32,7 +33,42 @@ export const PROVIDER_INFO: Record<Provider, ProviderInfo> = {
     smallJobs: false,
     usageReadings: true,
   },
+  // Over ACP (adapters/acp/): Auto behaves like Ask, and neither sandbox,
+  // rewind nor usage readings exist for them.
+  cursor: {
+    id: 'cursor',
+    name: 'Cursor',
+    cliName: 'Cursor Agent',
+    loginCommand: 'agent login',
+    effort: 'none',
+    autoMode: 'asks',
+    sandbox: false,
+    rewind: false,
+    smallJobs: false,
+    usageReadings: false,
+  },
+  opencode: {
+    id: 'opencode',
+    name: 'OpenCode',
+    cliName: 'OpenCode',
+    loginCommand: 'opencode auth login',
+    effort: 'none',
+    autoMode: 'asks',
+    sandbox: false,
+    rewind: false,
+    smallJobs: false,
+    usageReadings: false,
+  },
 };
+
+const ACP: readonly Provider[] = ['cursor', 'opencode'];
+
+// The providers this runner offers: the ACP agents only with the experiment
+// on, so with it off nothing of theirs turns up anywhere.
+export function activeProviders(home: string): Provider[] {
+  const acp = experimentOn(home, 'acpAgents');
+  return PROVIDERS.filter((p) => acp || !ACP.includes(p));
+}
 
 // One this build has no row for (a record or another runner's hello from a
 // build that has more): it can do nothing, so no check takes it for Claude
@@ -59,6 +95,6 @@ export function cliName(provider: string | undefined): string {
   return providerInfo(provider).cliName;
 }
 
-export function providersForHello(): ProviderInfo[] {
-  return PROVIDERS.map((p) => PROVIDER_INFO[p]);
+export function providersForHello(providers: readonly Provider[] = PROVIDERS): ProviderInfo[] {
+  return providers.map((p) => PROVIDER_INFO[p]);
 }

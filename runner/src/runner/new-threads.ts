@@ -275,6 +275,8 @@ export const newThreadsPart = {
       notes.push(`${model} isn't a ${providerName(provider)} model, so this thread uses ${uses}.`);
       model = fallback;
     }
+    // No effort levels of ours on this provider (providers.ts).
+    if (effort && providerInfo(provider).effort === 'none') effort = undefined;
     if (effort) {
       const row = modelRow(account, model ?? account.defaultModel);
       const noUltra = providerInfo(provider).effort === 'claude';
@@ -292,13 +294,16 @@ export const newThreadsPart = {
 
   // Whether a thread on this account can run this model id. Codex: one the
   // account lists, or before the list is known anything starting gpt-.
-  // Claude: anything but a Codex id, unless the account itself lists it.
+  // Claude: anything but another provider's id, unless the account itself
+  // lists it.
   modelFits(this: Runner, account: Account, model: string): boolean {
     if (modelRow(account, model)) return true;
     if (account.provider === 'codex') return !account.models?.length && model.startsWith('gpt-');
+    // An ACP agent runs what it lists, and nothing can be told from the name.
+    if (account.provider !== 'claude') return false;
     if (isClaudeModel(model)) return true;
-    const codexIds = this.safeAccounts().filter((a) => a.provider === 'codex').some((a) => modelRow(a, model));
-    return !model.startsWith('gpt-') && !codexIds;
+    const elsewhere = this.safeAccounts().filter((a) => a.provider !== 'claude').some((a) => modelRow(a, model));
+    return !model.startsWith('gpt-') && !elsewhere;
   },
 };
 

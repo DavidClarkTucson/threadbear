@@ -88,7 +88,9 @@ upgrade with an `Authorization` header that's wrong is turned away with HTTP
 ## Types
 
 ```ts
-type Provider = "claude" | "codex"
+// cursor and opencode: ACP agents, only from a runner with the acpAgents
+// experiment on (see "ACP agents")
+type Provider = "claude" | "codex" | "cursor" | "opencode"
 
 // What a provider is called and can do, from `hello`. A client asks this
 // rather than comparing provider names, so a provider it has never heard of
@@ -1078,6 +1080,42 @@ still `-32602`.)
   GPT-6.1-Sol").
 - An effort the model doesn't list in `effortLevels` (when known) is dropped
   with a note. `ultra` on a Claude thread always is.
+- An ACP agent's model counts only if that account's `models` lists it, never
+  by its name, and a Claude or Codex id goes to them first. These have no
+  effort levels (`ProviderInfo.effort` is `"none"`): an `effort` is dropped.
+
+## ACP agents
+
+An experiment (`acpAgents`, runner/src/adapters/acp/), off by default. Agents
+that speak the [Agent Client Protocol](https://agentclientprotocol.com) run as
+one process per live thread, over stdio. With it off no account, pool or
+`hello.providers` row of theirs appears. `runner.json`'s `cursorPath` and
+`opencodePath` set a binary by hand; otherwise each is found where it installs.
+
+- **One login each**, per machine, ids `opencode-main` and `cursor-main`. No
+  usage readings, so a pool can't move a thread by room.
+- **Which program.** The process must say it's that agent in `initialize`, or
+  the thread doesn't start. `agent` is a generic name: a file only counts as
+  Cursor's by where it really lives (`~/.local/share/cursor-agent/...`).
+- **Asking.** Every tool comes to the runner first. OpenCode gets `*: ask` as
+  inline config, with `OPENCODE_DISABLE_PROJECT_CONFIG=1` and `--pure`: a
+  folder's `opencode.json` outranks inline config, and its plugins run when a
+  session opens. Each request is answered from the thread's mode when it comes
+  (Full: allow; otherwise the card). Only the once options are ever chosen, as
+  an agent remembers "always" past the thread; "Always allow" is the runner's
+  rule (`acp:edit`, or the exact plain command). An edit of a file that runs as
+  code asks every time. Auto acts like Ask.
+- **Cursor** can't be told to always ask (its allow-list and a folder's
+  `.cursor/cli.json` can approve things), so Ask, Auto and Plan first run in its
+  read-only `ask` and `plan` modes; a thread that can't be put in one doesn't start.
+- **Plan first** uses the agent's plan mode, and the last reply of a turn is
+  proposed as the plan.
+- **The threadbear tools** reach the agent as an MCP server over HTTP on
+  `127.0.0.1` (a port per live session), with a random bearer token in a
+  header; loopback `Host` and no `Origin` required. They go through the same
+  gate as a Codex thread's, so `delete_thread` always asks.
+- **Not offered:** the sandbox (a confined thread is refused), rewind, steering
+  (a message sent during a turn runs next).
 
 ## Notifications (runner to app)
 
@@ -6064,6 +6102,8 @@ is the `tb` that matches the runner.
 
 Either side may be upgraded first, so each tolerates the other:
 
+- An app that doesn't know an ACP agent reads `provider: "opencode"` as a
+  plain string and shows it under its fallback heading.
 - An app older than `hello.providers` ignores it. A newer app talking to a
   runner older than it falls back to what it knows of Claude and Codex, and
   gives a provider it doesn't know no capabilities.

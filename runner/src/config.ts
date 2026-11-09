@@ -35,6 +35,9 @@ export const DEFAULT_POOL_FOLDERS: Record<string, string[]> = {};
 export type CliUpdatesConfig = {
   claude: CliPolicy;
   codex: CliPolicy;
+  // The ACP agents: absent is off, as they have no version feed to notify from.
+  cursor?: CliPolicy;
+  opencode?: CliPolicy;
   checkMinutes: number;
   keepCodexVersions: number; // Codex copies kept under <home>/tools/codex
   // Other CLIs' update commands, run daily (updates/extra.ts). None by default.
@@ -85,6 +88,10 @@ export type Config = {
   // Threadbear's own copy (<home>/tools/codex/current), or until there is
   // one the codex next to the runner's Node; never ~/.local/bin/codex.
   codexPath?: string;
+  // Used as is by the ACP agents (adapters/acp/agents.ts), else wherever
+  // each is installed. Only with the acpAgents experiment on.
+  cursorPath?: string;
+  opencodePath?: string;
   codexArgs: string[]; // extra `codex app-server` arguments
   codexMainDir: string; // codex-main's CODEX_HOME
   tokenStatsLimitsFile: string; // Token Stats' limits.json, read only
@@ -159,6 +166,8 @@ export type RunnerJson = {
   idleMinutes?: number;
   maxLiveCLIs?: number;
   codexPath?: string;
+  cursorPath?: string;
+  opencodePath?: string;
   codexArgs?: string[];
   cliUpdates?: Partial<CliUpdatesConfig>;
   accountNotes?: Record<string, string>;
@@ -389,6 +398,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     ...(json.releases?.publish === true ? { releases: { publish: true, ...(typeof json.releases.signingKey === 'string' ? { signingKey: expandHome(json.releases.signingKey) } : {}) } } : {}),
     models: modelSettingsFrom(json),
     ...(codexPath ? { codexPath: expandHome(codexPath) } : {}),
+    ...(nonEmpty(json.cursorPath) ? { cursorPath: expandHome(nonEmpty(json.cursorPath)!) } : {}),
+    ...(nonEmpty(json.opencodePath) ? { opencodePath: expandHome(nonEmpty(json.opencodePath)!) } : {}),
     codexArgs: Array.isArray(json.codexArgs) ? json.codexArgs.filter((a): a is string => typeof a === 'string') : [],
     codexMainDir: expandHome(env.THREADBEAR_CODEX_MAIN_DIR || '~/.codex'),
     tokenStatsLimitsFile: expandHome(

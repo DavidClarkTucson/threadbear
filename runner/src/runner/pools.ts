@@ -120,7 +120,9 @@ export const poolsPart = {
     const accounts = this.safeAccounts();
     if (model.startsWith('gpt-') || accounts.some((a) => a.provider === 'codex' && modelRow(a, model))) return 'codex';
     if (accounts.some((a) => a.provider === 'claude' && modelRow(a, model))) return 'claude';
-    return undefined;
+    // Last, as an ACP agent's list can name Claude's and Codex's models too:
+    // only an id nothing else claims means that agent.
+    return accounts.find((a) => modelRow(a, model))?.provider;
   },
 
   // The pool and login for a new thread with no accountId: the pool named,
