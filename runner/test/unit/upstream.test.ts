@@ -1141,3 +1141,31 @@ test('a release that revokes its own signing key is not offered', async () => {
   assert.ok(!offered.includes('release/2026-11-01'));
   assert.deepEqual(pinnedKeys(w.home), [pubOf(w.mikeKey)]);
 });
+
+// Codex's second look: another runner's check (a handover) revoking the key
+// while this check reads the release must stop it being offered too.
+test('a key another runner revokes during a check stops that check offering its release', async () => {
+  const w = world();
+  const next = key(w.root, 'next-key');
+  fs.writeFileSync(signersPath(w.home), `${keyLine(w.mikeKey)}\n${keyLine(next)}\n`);
+  release(w, 'release/2026-10-30', w.mikeKey.priv);
+  release(w, 'release/2026-11-01', next.priv);
+  let done = false;
+  const offered: (string | undefined)[] = [];
+  const up = upstreamFor(w.theirs, w.home, new FakeClock(LATER), {
+    onChecked: (st: { release?: { tag: string } }) => offered.push(st.release?.tag),
+    git: async (cwd: string, args: string[], opts?: GitOptions) => {
+      // As this check reads the release's key files, the other runner
+      // revokes `next` (it holds a newer release that does).
+      if (!done && args[0] === 'show' && String(args[1]).endsWith(':scripts/release-signers')) {
+        done = true;
+        fs.writeFileSync(signersPath(w.home), `${keyLine(w.mikeKey)}\n`);
+        fs.writeFileSync(path.join(w.home, 'upstream-revoked'), `${pubOf(next)}\n`);
+      }
+      return gitAsync(cwd, args, opts);
+    },
+  });
+  const s = await up.check();
+  assert.equal(s.release?.tag, 'release/2026-10-30');
+  assert.ok(!offered.includes('release/2026-11-01'));
+});

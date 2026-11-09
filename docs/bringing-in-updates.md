@@ -49,21 +49,19 @@ as it's on disk, so merging into the worktree would already run the
 release's own code. Work out the merge in git's objects instead:
 
 ```sh
-empty=$(git hash-object -t tree /dev/null)
-git --attr-source="$empty" -c core.attributesFile=/dev/null \
-  merge-tree --write-tree --name-only --messages main <commit>
+scripts/merge-preview.sh <commit>
 ```
 
-`--attr-source` with the empty tree, and no attributes file, mean no file
-gets a merge driver, so no program this repo's git config names for one
-runs on the release's files while git works the merge out. Its first line
-is the merged tree; then the files that clash, if any, and what git said
-about them (it needs git 2.40 or later; with an older one, use the diff
-below and leave the clashes to section 4). Read Mike's changes against
-main the same careful way, with no external diff or textconv program:
+It works the merge out in a throwaway repo with none of anyone's git
+config, so no merge driver, diff or textconv program this repo or this
+Mac names can run on the release's files. It prints the merged tree, the
+files that clash, if any, and what git said about them, then what the
+release changes (it needs git 2.40 or later; with an older one, read the
+changes with the commands below and leave the clashes to section 4). Read
+Mike's changes against main with no external diff or textconv program:
 
 ```sh
-git diff --no-ext-diff --no-textconv main <tree>
+git diff --no-ext-diff --no-textconv main...<commit>
 git log --no-merges --no-ext-diff --no-textconv main..<commit>
 ```
 

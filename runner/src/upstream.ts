@@ -515,12 +515,16 @@ export class Upstream {
         const staged = await this.stageReleases(checkout, signers, path.join(work, 'git'));
         await this.promote(checkout, signers, staged);
         this.newestVerified = undefined;
+        const keysBefore = this.signersHash(signers);
         release = await this.newestSigned(checkout, signers, staged);
-        // A release can change which keys count (keyChanges): then what
-        // it found is worked out again with the keys as they are now, so a
-        // release whose own key it revoked isn't offered (Codex's review).
-        if (release && (await this.keyChanges(checkout, signers))) {
+        // A release can change which keys count (keyChanges), and so can
+        // another runner's check meanwhile (a handover): then what it found
+        // is worked out again with the keys as they are now, so a release
+        // whose own key was revoked isn't offered (Codex's review).
+        if (release && ((await this.keyChanges(checkout, signers)) || this.signersHash(signers) !== keysBefore)) {
           await this.sweep(checkout, signers);
+          // An older release that still counts takes its place.
+          await this.promote(checkout, signers, staged);
           this.newestVerified = undefined;
           release = await this.newestSigned(checkout, signers, staged);
         }

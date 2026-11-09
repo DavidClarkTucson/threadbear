@@ -116,26 +116,75 @@ export type KeyChange = { added: string[]; revoked: string[]; waiting: string[];
 const LOCK_STALE_MS = 60_000;
 export class KeysBusy extends Error {}
 
+// The lock is a folder holding its owner ("pid random"). It's taken over
+// only when its owner is gone (that pid isn't running, or it has no owner
+// after LOCK_STALE_MS), by moving it aside and checking it was still that
+// owner's: two runners finding the same dead lock can't both end up in, and
+// neither can take a live one (Codex's review).
+function ownerAlive(owner: string | undefined): boolean {
+  const pid = Number(owner?.split(' ')[0]);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function readOwner(dir: string): string | undefined {
+  try {
+    return fs.readFileSync(path.join(dir, 'owner'), 'utf8').trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function withKeyLock<T>(home: string, fn: () => T): T {
   const lock = path.join(home, 'upstream-keys.lock');
-  try {
+  const me = `${process.pid} ${Math.random().toString(36).slice(2)}`;
+  const take = () => {
     fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'owner'), me);
+  };
+  try {
+    take();
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-    let stale = false;
+    const owner = readOwner(lock);
+    let old = false;
     try {
-      stale = Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS;
+      old = Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS;
     } catch {
-      stale = true;
+      old = true;
     }
-    if (!stale) throw new KeysBusy('another runner is changing the release keys');
-    fs.rmSync(lock, { recursive: true, force: true });
-    fs.mkdirSync(lock);
+    if (owner ? ownerAlive(owner) : !old) throw new KeysBusy('another runner is changing the release keys');
+    const aside = `${lock}.dead-${me.replace(' ', '-')}`;
+    try {
+      fs.renameSync(lock, aside);
+    } catch {
+      throw new KeysBusy('another runner is changing the release keys');
+    }
+    if (readOwner(aside) !== owner) {
+      // Someone took it between the look and the move: give it back.
+      try {
+        fs.renameSync(aside, lock);
+      } catch {
+        // they'll find theirs gone and stop at their own check
+      }
+      throw new KeysBusy('another runner is changing the release keys');
+    }
+    fs.rmSync(aside, { recursive: true, force: true });
+    try {
+      take();
+    } catch {
+      throw new KeysBusy('another runner is changing the release keys');
+    }
   }
   try {
     return fn();
   } finally {
-    fs.rmSync(lock, { recursive: true, force: true });
+    if (readOwner(lock) === me) fs.rmSync(lock, { recursive: true, force: true });
   }
 }
 

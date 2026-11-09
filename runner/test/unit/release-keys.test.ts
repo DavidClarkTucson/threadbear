@@ -65,3 +65,21 @@ test("one runner at a time changes the keys: another's lock makes it wait for th
   assert.ok(!fs.existsSync(lock));
   assert.ok(fs.existsSync(keyStatePath(home)));
 });
+
+test("a lock is taken over only from a runner that's gone, never from a live one", () => {
+  const { home, keys, signers } = setup(2);
+  const lock = path.join(home, 'upstream-keys.lock');
+  const go = () => applyKeyChanges({ home, signers, signer: keys[1]!.key, announced: [], revoke: [keys[0]!.key], tag: 't', now: 0 });
+  // Held by a live process (this one's parent stands in for another runner),
+  // however old: left alone.
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'owner'), `${process.ppid} other`);
+  const old = new Date(Date.now() - 10 * 60_000);
+  fs.utimesSync(lock, old, old);
+  assert.throws(go, KeysBusy);
+  assert.equal(fs.readFileSync(path.join(lock, 'owner'), 'utf8'), `${process.ppid} other`, 'still theirs');
+  // Held by a pid that isn't running: taken over.
+  fs.writeFileSync(path.join(lock, 'owner'), '999999 gone');
+  assert.deepEqual(go().revoked, [keys[0]!.key]);
+  assert.ok(!fs.existsSync(lock));
+});

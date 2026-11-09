@@ -183,12 +183,14 @@ File references are where to look.
   `refs/threadbear/upstream/`. A release's `scripts/release-signers` and
   `scripts/release-keys-revoked` can change the pinned keys
   (`<home>/upstream-signers`, `<home>/upstream-revoked`, and what's waiting
-  in `<home>/upstream-keys.json`): a new key after a week, a revoked one at
+  in `<home>/upstream-keys.json`, changed by one runner at a time under
+  `<home>/upstream-keys.lock`): a new key after a week, a revoked one at
   once (`runner/src/release-keys.ts`). It never changes your code by
   itself. Every 5 days, when there's one your copy doesn't have, it starts
   one thread (on your own Claude or Codex login, on your default mode) that
-  works out the merge without checking it out, tells you what it brings and
-  asks; it runs nothing from the release (no checks, installs or builds)
+  works out the merge without checking it out (`scripts/merge-preview.sh`,
+  in a throwaway repo under `$TMPDIR` it deletes), tells you what it brings
+  and asks; it runs nothing from the release (no checks, installs or builds)
   until you say go, then merges, checks and lands
   (`runner/src/bring-in.ts`). A release Mike marks important starts one
   straight away. Settings › General › Updates from Mike, or

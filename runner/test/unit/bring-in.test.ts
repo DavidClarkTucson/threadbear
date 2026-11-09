@@ -50,7 +50,7 @@ test('waits out the timer from the first look, then starts one thread', () => {
   // Security review finding 3 (a), 9 Nov 2026: nothing from the release
   // runs before the owner says go. It's worked out in git's objects, not
   // checked out, and its checks and installs wait.
-  assert.match(started[0].text, /git merge-tree/);
+  assert.match(started[0].text, /scripts\/merge-preview\.sh/);
   assert.match(started[0].text, /without checking anything out/);
   assert.match(started[0].text, /Run nothing from it until I say go/);
   assert.match(started[0].text, /no \.\/check\.sh, no npm ci/);
