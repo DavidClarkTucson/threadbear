@@ -906,7 +906,7 @@ Persisted event types (stored in `events.ndjson`, returned by `threads.events`):
 | `asks.ticked` | `asksSeq`, `ticked: number[]` (indexes into that turn's `asks`, the whole set now ticked). Outside any turn. The latest one for an `asksSeq` is that card's ticks |
 | `system.note` | `text` (e.g. "Resumed session", "Compacted the conversation", "Patch reseed added: action Reseed dev DB."), `wake?: true` on a background task's notification that went into the running turn, which the agent reads at its next step (see "Once a turn, or once a message") |
 | `error` | `message` |
-| `action.run` | `actionId`, `patch`, `title`, `command`, `ok`, `exitCode?`, `text` (what it printed, truncated to 64 KB), `truncated`, `durationMs`, `trigger?` (`"turn.end"` when a hook ran it, `"worktree.setup"` for a new worktree's `setup` (see Worktrees); absent for a chip or `tb run`). A command that `actions.run` or a hook ran; outside any turn unless one was running, in which case it carries that `turnId` |
+| `action.run` | `actionId`, `patch`, `title`, `command`, `ok`, `exitCode?`, `text` (what it printed, truncated to 64 KB), `truncated`, `durationMs`, `trigger?` (`"turn.end"` when a hook ran it, `"worktree.setup"` for a new worktree's `setup`, `"worktree.teardown"` for an archived thread's worktree `teardown` (see Worktrees); absent for a chip or `tb run`). A command that `actions.run` or a hook ran; outside any turn unless one was running, in which case it carries that `turnId` |
 | `thread.rewound` | `fromSeq`, `toSeq`, `files: { undone: string[], failed: { path, reason }[], how: "checkpoint" \| "diffs" \| "none" }`. Mike edited the message at `fromSeq` (see Editing a message): every event from `fromSeq` to `toSeq` (inclusive, always this event's `seq` - 1) is gone from the conversation, and clients hide them. Outside any turn. The edited message comes next, as a `user.message` with `editOf: fromSeq` |
 
 Transient events are only sent to subscribers, never persisted, and carry
@@ -3359,10 +3359,14 @@ the patch, with the files it names as they are there, is a trusted
 version, and it's that copy's `setup` that runs: the worktree is main's
 commit, which can differ from the main checkout that was trusted.
 Otherwise the setup is skipped with a `system.note` saying why, and the
-thread starts in the worktree anyway.
+thread starts in the worktree anyway. A worktree's `teardown` is read the
+same way, from the worktree's copy as the thread's branch has it when the
+thread is archived or deleted: a teardown changed on the branch (a commit,
+a pull) is a version nobody trusted, so it doesn't run, and a
+`system.note` (a notice, for a deleted thread) says so.
 
 **Commands that run by themselves.** A project patch's worktree `setup`
-and its hooks run without anyone pressing anything, so the hash has to
+and `teardown` and its hooks run without anyone pressing anything, so the hash has to
 cover what they run, and it can only see a path written in the patch.
 So each must be one script and plain words: a `./` or `../` path from
 the folder holding `.threadbear/`, to an existing file inside the repo
@@ -3826,7 +3830,8 @@ found only in place in the patch file's own `export default { ... }`, as its
 web address with nothing a shell would split or expand. Neither does a
 patch's `worktree` setup or check: setup runs what's committed, in a new
 worktree, and the check when a land is asked for, so neither runs what an agent
-just wrote until it has got past a step that's asked about. A repo's setup has to
+just wrote until it has got past a step that's asked about. Its `teardown`
+does count, as it runs in the worktree as the agent left it. A repo's setup has to
 keep that true: `worktree-setup.sh` won't `npm install` in the main checkout while
 it has uncommitted changes. A patch using `this` or a getter gets none of this. A settings hook that can't be followed all
 the way doesn't: those are the user's own hooks, so what they load by a
@@ -3992,6 +3997,8 @@ export default {
     setup: "./scripts/setup.sh",    // run in the new worktree before the first turn; optional
                                     // (one script and plain words: see "Trusting a folder's patches")
     check: "./check.sh --quick",    // run by `tb land` before main moves; optional
+    teardown: "./scripts/teardown.sh", // run in the worktree's root when the thread is archived
+                                    // or deleted, before the cleanup; optional (as setup)
   },
 }
 ```
@@ -4000,7 +4007,7 @@ The first patch in the thread's own folder chain with a `worktree` wins;
 `~/.threadbear/patches/` and project folders never count. The repo is the
 git toplevel of the folder holding `.threadbear/`, and its main checkout
 is the one with `main` checked out. A malformed `worktree` (not an object,
-or a `setup` or `check` that isn't a command) is the file's `error`.
+or a `setup`, `check` or `teardown` that isn't a command) is the file's `error`.
 
 A new thread in such a repo (from `threads.create`, `create_thread` or a
 schedule, unless `worktree: false`) gets, before its first turn starts:
@@ -4036,10 +4043,18 @@ main (a conflict aborts and names the files), runs `check`, then
 if main's own uncommitted changes are in the way) and prints what landed.
 It never pushes. `--dry-run` stops before main moves.
 
-When the thread is archived or deleted, a worktree whose branch is on main
+When the thread is archived or deleted, `teardown` runs first in the
+worktree's root, whether or not the branch landed (an `action.run` with
+`trigger: "worktree.teardown"`, outside any turn; for a deleted thread only
+a notice if it didn't run or failed). It has the action timeout, and a
+failure is shown but doesn't stop the cleanup. It runs once per archive,
+and only while the folder is still a checkout of the thread's branch. Then a
+worktree whose branch is on main
 (or has nothing of its own) is removed with its branch; otherwise both stay,
 with a `system.note` saying how to land or drop them. A thread whose
-worktree was removed carries on in the main checkout, with a note.
+worktree was removed carries on in the main checkout, with a note. One whose
+worktree stayed carries on in it, and its next turn says (to Mike and the
+agent) that the teardown ran, so what setup made may be gone.
 
 ## Showing panels
 
