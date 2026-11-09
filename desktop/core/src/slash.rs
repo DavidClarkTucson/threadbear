@@ -148,6 +148,41 @@ pub fn origin(command: &SlashCommand, provider: &str) -> String {
     }
 }
 
+/// A command's description as it should read, on the one paragraph it came
+/// as: skills write theirs with inline markdown (`SlashPalette.description`),
+/// so its marks come off. Links keep their words and stop being links, as a
+/// description comes from whoever wrote the skill (a `file:` link in a
+/// palette once ran a script); anything that isn't markdown stays as written.
+pub fn plain_description(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '`' | '*' => {}
+            // Emphasis, but not the middle of a word (snake_case).
+            '_' if text[..i].chars().next_back().is_none_or(|p| !p.is_alphanumeric()) || text[i + 1..].chars().next().is_none_or(|n| !n.is_alphanumeric()) => {}
+            '[' => {
+                // [words](url): keep the words if the brackets close and a
+                // link follows.
+                let rest = &text[i + 1..];
+                if let Some(close) = rest.find(']') {
+                    if rest[close + 1..].starts_with('(') && rest[close + 1..].contains(')') {
+                        out.push_str(&rest[..close]);
+                        let after = close + 1 + rest[close + 1..].find(')').unwrap_or(0);
+                        for _ in 0..rest[..=after].chars().count() {
+                            chars.next();
+                        }
+                        continue;
+                    }
+                }
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// A path to show: the home folder as ~.
 pub fn short_path(path: &str, home: &str) -> String {
     if !home.is_empty() && (path == home || path.starts_with(&format!("{home}/"))) {
@@ -402,6 +437,16 @@ mod tests {
         assert_eq!(origin(&all[5], "claude"), "Your skill");
         assert_eq!(origin(&all[6], "claude"), "This folder's skill");
         assert_eq!(origin(&all[7], "claude"), "A skill");
+    }
+
+    #[test]
+    fn descriptions_lose_their_marks_and_links() {
+        assert_eq!(plain_description("Drive Mac apps with the `computercub` command."), "Drive Mac apps with the computercub command.");
+        assert_eq!(plain_description("**Bold** and *italic* and _emphasis_."), "Bold and italic and emphasis.");
+        assert_eq!(plain_description("See [the docs](https://example.com/x) for more."), "See the docs for more.");
+        assert_eq!(plain_description("A [link](file:///bin/sh) and snake_case stays"), "A link and snake_case stays");
+        // Not links, as written.
+        assert_eq!(plain_description("[not a link] and a stray ] bracket"), "[not a link] and a stray ] bracket");
     }
 
     #[test]

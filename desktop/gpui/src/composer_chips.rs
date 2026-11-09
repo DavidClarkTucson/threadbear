@@ -4,6 +4,7 @@
 use crate::composer::Composer;
 use crate::style::{self, size};
 use gpui_kit::assets::IconName;
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::popover::{Popover, PopoverState};
 use gpui_kit::component::progress::Progress;
@@ -436,6 +437,8 @@ impl Composer {
             .child(
                 div()
                     .id("composer-runner-chip")
+                    .test_support()
+                    .aria_label(tip.clone())
                     .flex()
                     .items_center()
                     .h(px(26.))

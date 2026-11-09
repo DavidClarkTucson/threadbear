@@ -10,6 +10,7 @@ use crate::prefs::{self, Prefs};
 use crate::style::{self, size};
 use crate::{call, now_ms};
 use gpui_kit::assets::IconName;
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
@@ -472,6 +473,8 @@ impl Threadbear {
         let (hover, background, edge) = (style::primary_opacity(cx, 0.05), style::primary_opacity(cx, if selected { 0.07 } else { 0.025 }), if selected { style::accent(cx).opacity(0.7) } else { style::primary_opacity(cx, 0.06) });
         v_flex()
             .id(ElementId::Name(format!("room-card-{id}").into()))
+            .test_support()
+            .aria_label(tip.clone())
             .flex_1()
             .flex_basis(px(140.))
             .max_w(px(200.))
@@ -540,6 +543,12 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
             if !unknown.is_empty() {
                 return Err(format!("options takes cwd, account, pool, provider, model, effort and ask, not {}", unknown.join(", ")));
             }
+            if let Some(account) = cmd["account"].as_str() {
+                let known = app.read(cx).logins.accounts.iter().any(|a| a.id == account);
+                if !app.read(cx).logins.accounts.is_empty() && !known {
+                    return Err(format!("no account {account}"));
+                }
+            }
             app.update(cx, |t, cx| {
                 if let Some(cwd) = cmd["cwd"].as_str() {
                     t.new_thread.picks.cwd = Some(cwd.to_owned());
@@ -547,11 +556,12 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
                 if let Some(account) = cmd["account"].as_str() {
                     t.new_thread.picks.account = Some(account.to_owned());
                 }
-                if cmd["pool"].is_string() || cmd["pool"].is_null() {
-                    if cmd.get("pool").is_some() {
-                        t.new_thread.picks.pool = cmd["pool"].as_str().map(str::to_owned);
-                        t.new_thread.picks.account = None;
-                    }
+                // A pool picked for the draft (null: back to the folder's or
+                // the last one), and which of a mixed pool's providers. Both
+                // unpin it, as the Swift `options` does.
+                if let Some(pool) = cmd.get("pool") {
+                    t.new_thread.picks.pool = pool.as_str().map(str::to_owned);
+                    t.new_thread.picks.account = None;
                 }
                 if let Some(provider) = cmd.get("provider") {
                     t.new_thread.picks.provider = provider.as_str().map(str::to_owned);

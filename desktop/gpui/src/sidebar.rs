@@ -624,7 +624,7 @@ impl Threadbear {
         // Move to ▸ another runner (`ThreadMoveMenu`), behind the experiment;
         // while a move's going, Cancel Move instead.
         if self.can_move_threads() {
-            let moving = t.moving.as_ref().filter(|m| !matches!(m["state"].as_str(), Some("cancelled") | Some("failed") | Some("done")));
+            let moving = t.moving.as_ref().filter(|m| !matches!(m["state"].as_str(), Some("cancelled") | Some("failed")));
             if moving.is_some() {
                 rows.push(MenuRow::item("Cancel Move", "xmark.circle", MenuAction::CancelMove));
             } else {

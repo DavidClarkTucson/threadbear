@@ -186,7 +186,7 @@ impl Composer {
         let picked = slash::picked(&matches, &self.palette).cloned();
         let categories = self.render_palette_categories(&view, cx);
         let list = self.render_palette_list(&view, &matches, picked.as_ref(), cx);
-        let detail = self.render_palette_detail(&view, picked.as_ref(), window, cx);
+        let detail = self.render_palette_detail(&view, picked.as_ref(), cx);
         // Each column as wide as its longest entry needs, the description the
         // rest; measured over every command, not just the matches, so the
         // columns hold still while typing (SlashPalette.columnWidths).
@@ -311,13 +311,12 @@ impl Composer {
     }
 
     /// The picked command in full; the words scroll, the buttons stay.
-    fn render_palette_detail(&mut self, view: &PaletteView, picked: Option<&SlashCommand>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_palette_detail(&mut self, view: &PaletteView, picked: Option<&SlashCommand>, cx: &mut Context<Self>) -> AnyElement {
         let Some(command) = picked else { return div().into_any_element() };
-        let _ = window;
         let name = command.name.clone();
         let mut words = v_flex().gap(px(10.)).p(px(16.)).child(div().text_size(px(size::CARD_TITLE + 3.)).font_weight(FontWeight::SEMIBOLD).child(format!("/{name}")));
         if let Some(text) = command.description.as_deref().filter(|d| !d.is_empty()) {
-            words = words.child(div().text_size(px(size::LABEL + 1.)).text_color(style::secondary_text(cx)).child(plain_description(text)));
+            words = words.child(div().text_size(px(size::LABEL + 1.)).text_color(style::secondary_text(cx)).child(slash::plain_description(text)));
         }
         words = words.child(div().text_size(px(size::CODE)).font_family(cx.theme().mono_font_family.clone()).px(px(10.)).py(px(8.)).w_full().rounded(px(7.)).bg(style::primary_opacity(cx, 0.06)).child(command.usage()));
         if let Some(now) = view.current.get(&name) {
@@ -352,7 +351,7 @@ impl Composer {
     /// Open file: until the file previews land, the system's own app for
     /// that file; a thread's file on another runner has no button at all.
     fn palette_open_file(&mut self, path: String, cx: &mut Context<Self>) {
-        cx.open_url(&format!("file://{path}"));
+        cx.open_url(&format!("file://{}", path.replace(' ', "%20")));
         self.palette.closed_at = Some(self.input.read(cx).value().to_string());
         cx.notify();
     }
@@ -393,38 +392,6 @@ impl Composer {
             "note": note,
         })
     }
-}
-
-/// A command's description as it should read: skills write theirs with inline
-/// markdown, so its marks come off (`SlashPalette.description`). Links keep
-/// their words and stop being links; anything that isn't markdown stays.
-fn plain_description(text: &str) -> String {
-    // `code` and **bold** and *italic*, and [words](url) becomes words.
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
-        match c {
-            '`' | '*' | '_' => {}
-            '[' => {
-                // [words](url): keep the words if the brackets close and a
-                // link follows.
-                let rest = &text[i + 1..];
-                if let Some(close) = rest.find(']') {
-                    if rest[close + 1..].starts_with('(') && rest[close + 1..].contains(')') {
-                        out.push_str(&rest[..close]);
-                        let after = close + 1 + rest[close + 1..].find(')').unwrap_or(0);
-                        for _ in 0..rest[..=after].chars().count() {
-                            chars.next();
-                        }
-                        continue;
-                    }
-                }
-                out.push(c);
-            }
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 fn palette_placeholder(text: String, cx: &App) -> impl IntoElement {
