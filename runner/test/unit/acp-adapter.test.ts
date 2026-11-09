@@ -725,6 +725,16 @@ test('a code file an earlier update named still counts', async () => {
   assert.match(r.cards[0].title, /runs this file as code/);
 });
 
+test("a path only in an earlier update's arguments still counts", async () => {
+  const r = rig({ mode: 'ask', opts: { allowRules: [EDIT_RULE] }, deny: true });
+  const s = r.start();
+  await ready(r, s);
+  (s as unknown as { notification(m: string, p: unknown): void }).notification('session/update', { update: { sessionUpdate: 'tool_call', toolCallId: 'x', title: 'write', kind: 'edit', status: 'in_progress', rawInput: { filePath: path.join(r.cwd, '.mcp.json'), content: 'x' } } });
+  fakeRequest(r, s, { kind: 'edit', locations: [{ path: 'notes.txt' }] });
+  await until(() => r.cards.length === 1);
+  assert.match(r.cards[0].title, /runs this file as code/);
+});
+
 test("a tool of no known kind can't be allowed from the phone, as its arguments may not all show", async () => {
   const r = rig({ mode: 'ask', deny: true });
   const s = r.start();

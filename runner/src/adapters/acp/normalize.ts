@@ -219,13 +219,9 @@ export class AcpNormalizer {
     if (typeof u.name === 'string' && u.name) t.name = u.name;
     if (typeof u.title === 'string' && u.title) t.title = u.title;
     if (isPlainObject(u.rawInput) && Object.keys(u.rawInput).length) t.input = u.rawInput;
-    if (Array.isArray(u.locations)) {
-      for (const l of u.locations) if (typeof l?.path === 'string' && l.path && !t.paths.includes(l.path)) t.paths.push(l.path);
-    }
-    if (Array.isArray(u.content)) {
-      t.output = u.content;
-      for (const c of u.content) if (c?.type === 'diff' && typeof c.path === 'string' && c.path && !t.paths.includes(c.path)) t.paths.push(c.path);
-    }
+    // Everything this call has ever named, however it was named.
+    for (const p of requestPaths(u)) if (!t.paths.includes(p)) t.paths.push(p);
+    if (Array.isArray(u.content)) t.output = u.content;
     if (u.rawOutput !== undefined) t.rawOutput = u.rawOutput;
   }
 

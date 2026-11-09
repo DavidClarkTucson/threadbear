@@ -1157,7 +1157,8 @@ one process per live thread, over stdio. With it off no account, pool or
   (Full: allow; otherwise the card). Only the once options are ever chosen, as
   an agent remembers "always" past the thread; "Always allow" is the runner's
   rule (`acp:edit`, or the exact plain command). An edit of a file that runs as
-  code asks every time. Auto acts like Ask.
+  code asks every time, and so does an edit whose arguments aren't the plain file
+  tools' (nothing can say where else it writes). Auto acts like Ask.
 - **Cursor** can't be told to always ask (its allow-list and a folder's
   `.cursor/cli.json` can approve things), so Ask, Auto and Plan first run in its
   read-only `ask` and `plan` modes; a thread that can't be put in one doesn't start.
