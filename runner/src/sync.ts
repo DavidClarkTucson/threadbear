@@ -11,7 +11,7 @@
 // key the deployment's RUNNER_KEY was set to (`npx convex env set`).
 // THREADBEAR_SYNC=off turns it off whatever runner.json says, which
 // check.sh sets so no test runner ever writes to the real project.
-import type { MoveRow, MovesBackend } from './moves.ts';
+import { moveInfoFrom, type MoveInfo, type MovePreview, type MoveRow, type MovesBackend } from './moves.ts';
 import { START_CARD } from './cross-runner.ts';
 import { asPushFailing, pushFailingText, type PushFailing } from './push-failing.ts';
 import { wakeNote } from './wake-note.ts';
@@ -130,7 +130,7 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 64;
+export const BACKEND_API_VERSION = 65;
 // From this one sync:sharedThreads lists a runner's rows shared by link, which
 // it checks against its own threads on every start and every
 // SHARE_RECONCILE_MS (reconcileShares).
@@ -549,6 +549,9 @@ export type CommandHost = {
   pressButton?: (threadId: string, buttonId: string) => unknown;
   // The phone's slash command palette (API 62): threads.commands.
   threadCommands?: (threadId: string) => unknown;
+  // The Mac's Move sheet (`moves.describe` and `moves.preview` calls).
+  moveDescribe?: (threadId: string) => Promise<MoveInfo>;
+  movePreview?: (p: { info: MoveInfo; cwd?: string; accountId?: string }) => Promise<MovePreview>;
 };
 
 export type SyncDeps = {
@@ -3958,8 +3961,20 @@ export class ConvexSync {
         // Only what relay.ts CALLS allows, checked again here: the backend
         // isn't trusted to have checked, and nothing here may answer with
         // file contents or tool output (step 4 brings those, scrubbed).
-        if (a.method !== 'files.list') throw new Error(`${String(a.method)} can't be asked of this runner`);
         const params = a.params && typeof a.params === 'object' ? (a.params as Record<string, unknown>) : {};
+        // The Mac's Move sheet (threads.movePreview): this runner's thread
+        // described, or, as the target, where it would go. Both only plan.
+        if (a.method === 'moves.describe') {
+          if (!host.moveDescribe) throw new Error("This runner can't move threads.");
+          return { result: await host.moveDescribe(needThread()) };
+        }
+        if (a.method === 'moves.preview') {
+          if (!host.movePreview) throw new Error("This runner can't move threads.");
+          const info = moveInfoFrom(params.info);
+          if (!info) throw new Error("The move preview didn't say what thread it's for.");
+          return { result: await host.movePreview({ info, ...(typeof params.cwd === 'string' && params.cwd ? { cwd: params.cwd } : {}), ...(typeof params.accountId === 'string' && params.accountId ? { accountId: params.accountId } : {}) }) };
+        }
+        if (a.method !== 'files.list') throw new Error(`${String(a.method)} can't be asked of this runner`);
         const list = listFolderFor({ path: params.path });
         return { result: { ...list, entries: list.entries.slice(0, CALL_ENTRIES), truncated: list.truncated || list.entries.length > CALL_ENTRIES } };
       }

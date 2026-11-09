@@ -68,7 +68,8 @@ import { devicesMethods } from './devices.ts';
 import { flushSentry, reportException, reportLoggedError, reportLoggedWarning, startSentry } from './sentry.ts';
 import { ALWAYS_ASK_TOOLS, NEVER_ASK_TOOLS, RICH_BLOCKS_LINE, SERVER_NAME, buildThreadbearTools, threadbearMcpServer, type RemoteControl } from './threadbear-mcp.ts';
 import { CrossRunner } from './cross-runner.ts';
-import { Moves } from './moves.ts';
+import { FAILED_SHOWN_MS, Moves, moveInfoFrom, type ThreadMoving } from './moves.ts';
+import type { RemoteThreads } from './thread-index.ts';
 import { EFFORT_LEVELS, ErrorCode, RpcError, isPermissionMode, type EffortLevel, type PermissionMode } from './protocol.ts';
 
 // Tells launch.mjs this runner calls its listening() hook (release.ts), so
@@ -410,8 +411,31 @@ async function main(): Promise<void> {
   runner.secrets.onWritten = (value) => scrubber.known.add(value);
   // Set once the relay is made, further down; sync's list goes through it.
   let relayRef: Relay | undefined;
+  // Other runners' threads that are moving, as this (the main Mac's) runner
+  // knows: one it started between two other runners, or one coming here
+  // (docs/protocol.md, "Moving a thread to another runner"). The backend's
+  // sidebar rows don't carry it, so it's put on them for the app.
+  // How long such a row shows a move this runner can't follow to its end
+  // (one between two other runners): the backend fails a frozen move after
+  // 30 minutes.
+  const REMOTE_MOVING_MS = 35 * 60_000;
+  const remoteMoving = new Map<string, { moving: ThreadMoving; from: string; until: number }>();
+  const dressRemote = (r: RemoteThreads): RemoteThreads => {
+    const o = relayRef?.overlay(r) ?? r;
+    if (!remoteMoving.size) return o;
+    const now = Date.now();
+    for (const [id, m] of remoteMoving) {
+      // Over once the thread is listed on the runner it went to, or here.
+      const t = o.threads.find((x) => x.threadId === id);
+      if (m.until < now || (t && t.runnerId !== m.from) || runner.threads.has(id)) remoteMoving.delete(id);
+    }
+    return { ...o, threads: o.threads.map((t) => (remoteMoving.has(t.threadId) ? { ...t, moving: remoteMoving.get(t.threadId)!.moving } : t)) };
+  };
+  const republishRemote = () => runner.publish({ method: 'remoteThreads.updated', params: dressRemote(sync.remoteThreads()) });
   // Set once moves are made, further down; sync leaves out what's moved away.
   let movesRef: Moves | undefined;
+  // A thread here, as a move's other runner needs to know it (moves.ts).
+  const describeMove = (id: string) => runner.describeForMove(id, scheduler.list(id).filter((sc) => sc.threadId === id && !sc.finishedAt).length);
   const sync = new ConvexSync({
     config: { ...cfg.sync, runnerId: syncRunnerId, icon: runnerIcon },
     key: syncKey,
@@ -443,6 +467,17 @@ async function main(): Promise<void> {
       ...phoneCommands(runner, peers),
       // A schedule's own runner gets its command, so the scheduler here is its.
       schedule: ({ scheduleId, action }) => (action === 'run' ? scheduler.runNow(scheduleId) : scheduler.update({ scheduleId, paused: action === 'pause' })),
+      // The Mac's Move sheet asking, through the relay (threads.movePreview).
+      moveDescribe: async (id) => {
+        if (!experimentOn(cfg.home, 'moveToRunner')) throw new Error(`Moving threads is off on ${cfg.sync.name ?? defaultRunnerName()}: turn on the moveToRunner experiment there.`);
+        const info = await describeMove(id);
+        if (!info) throw new Error("That thread isn't on this runner.");
+        return info;
+      },
+      movePreview: async (p) => {
+        if (!experimentOn(cfg.home, 'moveToRunner')) throw new Error(`Moving threads is off on ${cfg.sync.name ?? defaultRunnerName()}: turn on the moveToRunner experiment there.`);
+        return runner.previewMove({ ...p, self: syncRunnerId });
+      },
     },
     sample: machineSampler(cfg.home),
     secretBox: runner.secrets,
@@ -451,7 +486,7 @@ async function main(): Promise<void> {
     sharedUsage: usage,
     // The sidebar's list carries what the relay has changed that the
     // backend's rows don't show yet (relay.ts overlay); made below.
-    publish: (n) => runner.publish(n.method === 'remoteThreads.updated' && relayRef ? { ...n, params: relayRef.overlay(n.params) } : n),
+    publish: (n) => runner.publish(n.method === 'remoteThreads.updated' ? { ...n, params: dressRemote(n.params) } : n),
     home: cfg.home,
     // A key the backend turns down (sync.ts KEY_REJECTED): said in the app,
     // and once tb runner add has written a new one, a restart onto it.
@@ -625,7 +660,7 @@ async function main(): Promise<void> {
   methods['remoteThreads.list'] = (p) => {
     const tools = p.forTools === true ? remoteControl() : undefined;
     if (tools) return tools.list();
-    return relayRef?.overlay(sync.remoteThreads()) ?? sync.remoteThreads();
+    return dressRemote(sync.remoteThreads());
   };
   // Every runner's machine figures, for the Mac app's Runners panel.
   methods['runners.stats'] = async () => ({ stats: await sync.runnerStats() });
@@ -713,8 +748,20 @@ async function main(): Promise<void> {
     on: () => experimentOn(cfg.home, 'moveToRunner'),
     backend: () => sync.movesBackend(),
     log,
+    // A move coming here of a thread still on its old runner: its row in
+    // the sidebar shows it, as S's own row shows a move going.
+    seen: (row) => {
+      if (row.to !== syncRunnerId || row.from === syncRunnerId || runner.threads.has(row.threadId)) return;
+      const ended = row.state === 'done' || row.state === 'claimed' || ((row.state === 'failed' || row.state === 'cancelled') && Date.now() - row.updatedAt > FAILED_SHOWN_MS);
+      if (ended) remoteMoving.delete(row.threadId);
+      else {
+        const moving: ThreadMoving = { moveId: row.moveId, to: row.to, toName: cfg.sync.name ?? defaultRunnerName(), state: row.state, ...(row.note && (row.state === 'failed' || row.state === 'cancelled') ? { note: row.note } : {}) };
+        remoteMoving.set(row.threadId, { moving, from: row.from, until: row.state === 'failed' || row.state === 'cancelled' ? row.updatedAt + FAILED_SHOWN_MS : Date.now() + REMOTE_MOVING_MS });
+      }
+      republishRemote();
+    },
     host: {
-      describe: (id) => runner.describeForMove(id, scheduler.list(id).filter((sc) => sc.threadId === id && !sc.finishedAt).length),
+      describe: (id) => describeMove(id),
       idle: (id) => runner.moveIdle(id),
       setMoving: (id, m) => runner.setMoving(id, m),
       has: (id) => runner.threads.has(id),
@@ -766,9 +813,49 @@ async function main(): Promise<void> {
     try {
       const moveId = await sync.startMove({ threadId, to, ...(typeof p.cwd === 'string' && p.cwd ? { cwd: p.cwd } : {}), ...(typeof p.accountId === 'string' && p.accountId ? { accountId: p.accountId } : {}) });
       startedMoves.set(threadId, moveId);
+      // Another runner's thread: its row says so at once, before either
+      // runner has taken a step (cleared once it's listed elsewhere).
+      const listed = runner.threads.has(threadId) ? undefined : sync.remoteThreads().threads.find((t) => t.threadId === threadId);
+      if (listed) {
+        const toName = to === syncRunnerId ? (cfg.sync.name ?? defaultRunnerName()) : (runnerNames.get(to) ?? to);
+        remoteMoving.set(threadId, { moving: { moveId, to, toName, state: 'asking' }, from: listed.runnerId, until: Date.now() + REMOTE_MOVING_MS });
+        republishRemote();
+      }
       return { moveId };
     } catch (e) {
       throw new RpcError(ErrorCode.badParams, e instanceof Error ? e.message : String(e));
+    }
+  };
+  // The Move sheet's guess (docs/protocol.md, "Moving a thread to another
+  // runner"): the thread described by the runner that has it, then planned
+  // by the one it would go to, each here or through a relay `call`.
+  methods['threads.movePreview'] = async (p) => {
+    moveOn();
+    const threadId = String(p.threadId ?? '');
+    const to = String(p.runnerId ?? '');
+    if (!threadId || !to) throw new RpcError(ErrorCode.badParams, 'threadId and runnerId are needed');
+    const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+    const here = runner.threads.has(threadId);
+    if (here && to === syncRunnerId) throw new RpcError(ErrorCode.badParams, 'The thread is on that runner already.');
+    let info: unknown;
+    try {
+      if (here) info = await describeMove(threadId);
+      else if (relay.owns(threadId)) info = await relay.describeForMove(threadId);
+      else throw new Error('No such thread.');
+    } catch (e) {
+      return { accounts: [], leftBehind: [], problems: [said(e)] };
+    }
+    const cwd = typeof p.cwd === 'string' && p.cwd ? p.cwd : undefined;
+    const accountId = typeof p.accountId === 'string' && p.accountId ? p.accountId : undefined;
+    try {
+      if (to === syncRunnerId) {
+        const parsed = moveInfoFrom(info);
+        if (!parsed) throw new Error("The thread's runner didn't say enough about it.");
+        return await runner.previewMove({ info: parsed, self: syncRunnerId, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) });
+      }
+      return await relay.previewMove(to, { info, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) });
+    } catch (e) {
+      return { accounts: [], leftBehind: [], problems: [said(e)] };
     }
   };
   methods['threads.moveCancel'] = async (p) => {
@@ -782,6 +869,7 @@ async function main(): Promise<void> {
     } catch (e) {
       throw new RpcError(ErrorCode.badParams, e instanceof Error ? e.message : String(e));
     }
+    if (remoteMoving.delete(threadId)) republishRemote();
     return {};
   };
   methods['requests.get'] = (p) => cross.get(String(p.threadId ?? ''), String(p.approvalId ?? ''));

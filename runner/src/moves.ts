@@ -39,6 +39,29 @@ export type MoveInfo = {
   schedules: number;
 };
 
+// A MoveInfo from what came over the relay (a `moves.preview` call), with
+// only its own fields and each of the right type; undefined if a needed one
+// is missing. The backend is owner-only for calls, but isn't trusted to
+// have checked the shape.
+export function moveInfoFrom(raw: unknown): MoveInfo | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const s = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : undefined);
+  const title = s('title') ?? '';
+  const cwd = s('cwd');
+  const home = s('home');
+  const provider = s('provider');
+  const accountId = s('accountId');
+  const permissionMode = s('permissionMode');
+  if (!cwd || !home || !provider || !accountId || !permissionMode) return undefined;
+  const info: MoveInfo = { title, cwd, home, provider, accountId, permissionMode, worktree: o.worktree === true, schedules: typeof o.schedules === 'number' && Number.isFinite(o.schedules) ? o.schedules : 0 };
+  for (const k of ['email', 'model', 'effort', 'origin', 'repoTop', 'subdir', 'sessionId'] as const) {
+    const v = s(k);
+    if (v !== undefined) info[k] = v;
+  }
+  return info;
+}
+
 // Where T will run it (moves:moveReady).
 export type MovePlan = {
   cwd: string; // the folder, or for a worktree the repo it's made from (+ subdir)
@@ -66,6 +89,21 @@ export type MoveRow = {
   createdAt: number;
   updatedAt: number;
   frozenAt?: number;
+};
+
+// T's answer for the Mac's Move sheet (threads.movePreview): the folder
+// and login it would use, its logins to pick from, what won't come, and
+// what stops the move (empty when it can go). `worktree`: the thread gets
+// a new worktree of its own in `cwd`'s repo; `clone`: that repo is cloned
+// there first.
+export type MovePreview = {
+  cwd?: string;
+  accountId?: string;
+  accounts: { id: string; provider: string; title: string; email?: string }[];
+  leftBehind: string[];
+  problems: string[];
+  worktree?: boolean;
+  clone?: string;
 };
 
 // What ThreadSummary.moving says on S while it goes.
@@ -112,11 +150,14 @@ export type MovesDeps = {
   // How often S looks again while a thread finishes its turn.
   idleCheckMs?: number;
   setTimer?: (fn: () => void, ms: number) => { cancel(): void };
+  // Every row as it's heard, for the main Mac to show a move coming to it of
+  // a thread its sidebar lists as another runner's (main.ts remoteMoving).
+  seen?: (row: MoveRow) => void;
 };
 
 const ENDED: MoveState[] = ['done', 'failed', 'cancelled'];
 // A failed move's note stays on the thread this long.
-const FAILED_SHOWN_MS = 60_000;
+export const FAILED_SHOWN_MS = 60_000;
 
 export class Moves {
   private d: MovesDeps;
@@ -164,6 +205,7 @@ export class Moves {
 
   update(rows: MoveRow[]): void {
     for (const r of rows) this.rows.set(r.moveId, r);
+    for (const r of rows) this.d.seen?.(r);
     for (const r of rows) void this.step(r);
   }
 

@@ -19,7 +19,7 @@ import { paths } from '../config.ts';
 import { isDirectory } from '../fsutil.ts';
 import { readTree, writeTree, type PackEntry } from '../move-pack.ts';
 import { changedFiles, originUrl, packGit, repoKey, repoTop, unpackGit, type GitMeta } from '../move-git.ts';
-import type { MoveInfo, MovePlan, MoveRow, ThreadMoving } from '../moves.ts';
+import type { MoveInfo, MovePlan, MovePreview, MoveRow, ThreadMoving } from '../moves.ts';
 import { projectDirName, sessionTranscriptPath } from '../transcripts.ts';
 import { findWorktreePatch } from '../patches.ts';
 import { cleanUpWorktree, makeWorktree, mainCheckoutOf, realpath, type WorktreeRecord } from '../worktrees.ts';
@@ -350,6 +350,39 @@ export const movesPart = {
       if (placed.worktree) await cleanUpWorktree(placed.worktree).catch(() => undefined);
     }
     fs.rmSync(stage, { recursive: true, force: true });
+  },
+
+  // T, for the Mac's Move sheet (threads.movePreview, a `moves.preview`
+  // call): planMove's guess for a thread S described, with nothing made or
+  // cloned, and this runner's logins of the thread's provider to pick from.
+  // What would stop the move goes in `problems` rather than throwing, so the
+  // sheet can say it and still offer the pickers.
+  async previewMove(this: Runner, p: { info: MoveInfo; self: string; cwd?: string; accountId?: string }): Promise<MovePreview> {
+    const accounts = this.accounts
+      .list()
+      .filter((a) => a.provider === p.info.provider)
+      .map((a) => ({ id: a.id, provider: a.provider, title: a.title, ...(a.email ? { email: a.email } : {}) }));
+    const now = Date.now();
+    const row: MoveRow = { moveId: 'preview', threadId: '', from: '', to: p.self, state: 'asking', info: p.info, ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.accountId ? { accountId: p.accountId } : {}), createdAt: now, updatedAt: now };
+    const plan = await this.planMove(row);
+    if ('problem' in plan) return { accounts, leftBehind: [], problems: [plan.problem] };
+    const problems: string[] = [];
+    // placeMove's own check, seen before Mike presses Move rather than
+    // after the thread has frozen and packed. A repo still to be cloned
+    // can't be looked at yet.
+    if (plan.worktree && !plan.clone) {
+      const patch = await findWorktreePatch(plan.worktree.repo, this.panelsRoot, this.patchCache, undefined, this.patchTrust).catch(() => undefined);
+      if (!patch) problems.push(`${plan.worktree.repo} on ${this.moveRunnerName(p.self)} has no worktree patch, so the thread's worktree has nowhere to go.`);
+    }
+    return {
+      cwd: plan.cwd,
+      accountId: plan.accountId,
+      accounts,
+      leftBehind: plan.leftBehind,
+      problems,
+      ...(plan.worktree ? { worktree: true } : {}),
+      ...(plan.clone ? { clone: plan.clone.to } : {}),
+    };
   },
 
   moveRunnerName(this: Runner, runnerId: string): string {

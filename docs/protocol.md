@@ -5004,12 +5004,17 @@ again and carries on from the state.
   again (a thread new to it), which overwrites the same seqs.
 
 `ThreadSummary.moving?: { moveId, to, toName, state, note? }` while a move
-is going on S, and for a minute after one fails there (with the note).
-Methods on the main Mac's runner:
+is going on S, and for a minute after one fails there (with the note). The
+main Mac's runner puts the same `moving` on another runner's row in
+`remoteThreads` for the moves it knows of: one coming to it (from its own
+watch, with a failure's note), and one it started between two other
+runners (shown as `asking` until the thread is listed on its new runner, or
+35 minutes, as it can't see that move's steps). Methods on the main Mac's
+runner:
 
 | method | params | result |
 |---|---|---|
-| `threads.movePreview` | `{ threadId, runnerId }` | `{ cwd?, accountId?, accounts, leftBehind, problems }`: T's guess for the folder and login, its logins to pick from, what won't come, and what stops it (empty when it can move). A `call` to T (`moves.preview` on the relay's allow-list) |
+| `threads.movePreview` | `{ threadId, runnerId, cwd?, accountId? }` | `{ cwd?, accountId?, accounts: { id, provider, title, email? }[], leftBehind, problems, worktree?: true, clone?: string }`: T's guess for the folder and login (or for Mike's `cwd` and `accountId`, to check them), its logins of the thread's provider to pick from, what won't come, and what stops it (empty when it can move: no folder or login for it, the experiment off on T, a worktree thread's repo there with no worktree patch, T not answering). `worktree`: a new worktree of its own in `cwd`'s repo; `clone`: that repo is cloned there first. Nothing is made or started. The thread is described by the runner that has it (here, or a `moves.describe` call to it), then planned by T (here, or a `moves.preview` call with that description). Both calls are on the relay's allow-list from backend API 65, owner only, and checked again on the runner. Failures come back in `problems`, not as an error |
 | `threads.move` | `{ threadId, runnerId, cwd?, accountId? }` | `{ moveId }`. `-32602` with the reason when it can't start (the runner offline, a move already going, the experiment off) |
 | `threads.moveCancel` | `{ threadId }` | `{}`. `-32602` once the move is past `packing` |
 

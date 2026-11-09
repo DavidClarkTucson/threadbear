@@ -295,4 +295,8 @@
 //    own runners, and move chunks through /runner/upload outside a runner
 //    key's picture allowances. An older runner never starts one or watches
 //    its moves, so a move to or from it fails when nobody answers.
-export const API_VERSION = 64;
+// 65: relay:queueCommand's `call` takes moves.describe (to the runner that
+//    has the thread) and moves.preview (to a move's target, with the
+//    thread's description), for the Mac's Move sheet (threads.movePreview).
+//    Both only plan. An older backend refuses them, and the sheet says so.
+export const API_VERSION = 65;
