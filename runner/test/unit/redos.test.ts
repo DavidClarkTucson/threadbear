@@ -493,16 +493,18 @@ test('linear-text helpers give what the regexes they replaced gave', async () =>
 
 // CPU time, not the clock, so a loaded machine's waits don't count; the
 // best of up to five, as in `fast`.
+// The old regexes took seconds; a loaded Mac turned 100 ms into 119 (9 Nov).
+const LIMIT_MS = 400;
 function cheap<T>(what: string, fn: () => T): T {
   let best = Infinity;
   let out!: T;
-  for (let i = 0; i < 5 && best >= 100; i++) {
+  for (let i = 0; i < 5 && best >= LIMIT_MS; i++) {
     const cpu = process.cpuUsage();
     out = fn();
     const { user, system } = process.cpuUsage(cpu);
     best = Math.min(best, (user + system) / 1000);
   }
-  assert.ok(best < 100, `${what} took ${Math.round(best)} ms of CPU`);
+  assert.ok(best < LIMIT_MS, `${what} took ${Math.round(best)} ms of CPU`);
   return out;
 }
 
