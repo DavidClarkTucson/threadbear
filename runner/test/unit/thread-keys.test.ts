@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { makeHarness } from '../helpers/fakes.ts';
 import { RpcServer } from '../../src/rpc.ts';
@@ -325,6 +326,10 @@ test('reading the runner token file: Claude tools are denied it outside Full acc
     assert.equal(deny('Read', { file_path: path.join(home, 'threads', 'a.txt') }), undefined);
     assert.equal(deny('Bash', { command: 'ls secrets' }), undefined, "someone else's secrets folder isn't this");
     assert.equal(deny('Bash', { command: 'tb status' }), undefined);
+    assert.ok(deny('Bash', { command: 'cat "$THREADBEAR_HOME"/secr*/*token*' }), 'a wildcard after the data dir');
+    assert.ok(deny('Grep', { path: home, pattern: '^[a-z]{40}$' }), 'from the data dir, whatever the pattern');
+    assert.equal(deny('Grep', { path: os.homedir(), pattern: 'hello' }), undefined, 'from higher up, a pattern that does not name it');
+    assert.ok(denySecrets('Read', { file_path: 'runner-token' }, home, path.join(home, 'secrets')), 'a relative path, against the call\'s cwd');
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -344,6 +349,9 @@ test('the process lookup walks parents to a CLI, and only a real thread counts',
   assert.equal(await look([500], () => false), undefined, 'not a thread this runner has');
   assert.equal(await look([700]), undefined, "a job's label isn't a thread");
   assert.equal(await look([]), undefined);
+  const orphan = { pid: 900, ppid: 1, pgid: 77 };
+  const grouped = await threadOfPort(1234, { registry: { ...registry, threadOfGroup: (g: number) => (g === 77 ? 'th1' : undefined) }, known: (id) => id === 'th1', log: nullLogger, lsof: async () => [900], table: async () => [orphan] });
+  assert.equal(grouped, 'th1', 'lost its parents, still in the tool command\'s group');
   const failing = await threadOfPort(1234, { registry, known: () => true, log: nullLogger, lsof: async () => { throw new Error('no lsof'); }, table });
   assert.equal(failing, undefined, 'a failed lookup falls back to the credential');
 });
@@ -412,7 +420,7 @@ test('tb runner and tb pair refuse in a limited thread, whatever its environment
     for (const cmd of ['pair', 'runner']) {
       const r = await tb(h, url, me.id, key, [cmd]);
       assert.equal(r.code, 1, r.out);
-      assert.match(r.out, /Auto|auto/);
+      assert.match(r.out, /Auto|Full access/);
     }
     from = me.id;
     const wiped = await tb(h, url, '', '', ['pair']);
@@ -442,10 +450,11 @@ test('Always allow on tb saves the exact command, never a prefix', async () => {
   // A Bash card with no suggestion never becomes all of Bash.
   assert.deepEqual(alwaysAllow('Bash', undefined, { command: 'rm x' }).rules, ['Bash(rm x)']);
   assert.deepEqual(alwaysAllow('Read', undefined).rules, ['Read']);
-  for (const c of ['tb new x', '"tb" new', './bin/tb new', 'cd a && tb send b c', 'tb']) assert.equal(mentionsTb(c), true, c);
+  for (const c of ['tb new x', '"tb" new', './bin/tb new', 'cd a && tb send b c', 'tb', '\\tb new', "t'b' new"]) assert.equal(mentionsTb(c), true, c);
   for (const c of ['grep tb x.txt -l', 'ntb new', 'tbx new']) assert.equal(mentionsTb(c) && !c.startsWith('grep'), false, c);
   assert.equal(isTbPrefixRule('Bash(tb new:*)'), true);
   assert.equal(isTbPrefixRule('Bash(tb new --ask x)'), false);
+  assert.equal(isTbPrefixRule('Bash(*tb new*)'), true);
   assert.equal(isTbPrefixRule('Bash(npm test:*)'), false);
 });
 
@@ -472,6 +481,8 @@ test("tb runner can't be talked past its check by pointing at no runner", async 
   const cfg = { home: h.home, host: '127.0.0.1', port: 1 } as Parameters<typeof ownerOnly>[0];
   // The key's still in the environment, the runner's unreachable.
   assert.match((await ownerOnly(cfg, { THREADBEAR_THREAD_KEY: 'a'.repeat(64) })) ?? '', /Full access/);
+  // A stand-in server on THREADBEAR_URL can't say it's fine.
+  assert.match((await ownerOnly(cfg, { THREADBEAR_THREAD_KEY: 'a'.repeat(64), THREADBEAR_URL: 'ws://127.0.0.1:1/rpc' })) ?? '', /Full access/);
   // Wiped from this process, but a parent still has it.
   const table = async () => [{ pid: process.ppid, ppid: 300 }, { pid: 300, ppid: 1 }];
   assert.equal(await underThread(table, (p) => (p === 300 ? `claude THREADBEAR_THREAD_KEY=${'b'.repeat(64)} X=1` : 'zsh')), true);

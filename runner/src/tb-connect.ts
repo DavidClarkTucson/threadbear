@@ -2,6 +2,7 @@
 // (docs/protocol.md, "A thread's own key"), never the token. Outside one, or
 // pointed at another runner's data dir (a dev runner, whose token it reads and
 // whose threads it doesn't belong to), it's that data dir's token.
+import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { psTable } from './proc.ts';
@@ -9,7 +10,15 @@ import { readToken, runnerUrl, type Config } from './config.ts';
 import { RunnerClient, type RunnerClientOptions } from './client.ts';
 import { isThreadKey } from './rpc-auth.ts';
 
-const sameDir = (a: string, b: string) => path.resolve(a) === path.resolve(b);
+// Links followed: THREADBEAR_HOME through a link is still this runner.
+const real = (p: string) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
+const sameDir = (a: string, b: string) => real(a) === real(b);
 
 export type TbCredential = { token: string; threadId?: string };
 
@@ -59,26 +68,26 @@ export function newTbClient(cfg: Config, url: string = runnerUrl(cfg), opts: Run
 
 // Why tb's commands that use this Mac's keys straight from disk (tb runner,
 // tb pair) shouldn't run here, or undefined if they may: they don't go through
-// the RPC, so the runner can't refuse them itself. Asked of the runner, so a
-// wiped environment doesn't count. If the runner can't be reached, only a
-// command with no thread key in its environment goes ahead.
+// the RPC, so the runner can't refuse them itself. A thread's shell (by its key
+// or by what started it, so a wiped environment doesn't count) needs the real
+// runner to say it isn't limited, and THREADBEAR_URL can point at a stand-in.
+// Anywhere else a refusal only comes from the runner saying so.
 export async function ownerOnly(cfg: Config, env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  const inThread = isThreadKey(env.THREADBEAR_THREAD_KEY) || (await underThread());
+  const cant = "This needs Full access and the runner can't be asked whether this thread has it.";
+  if (inThread && env.THREADBEAR_URL) return cant;
   let client: RunnerClient;
   try {
     client = await connectTb(cfg);
   } catch {
-    // No runner to ask (or tb was pointed somewhere that isn't one). A wiped
-    // environment doesn't count here either: look at what started this.
-    return isThreadKey(env.THREADBEAR_THREAD_KEY) || (await underThread())
-      ? "This needs Full access and the runner can't be reached to say whether this thread has it."
-      : undefined;
+    return inThread ? cant : undefined;
   }
   try {
     const who = await client.call<{ limited?: boolean; mode?: string }>('auth.whoami');
     return who.limited ? `This thread is on ${who.mode}, and this command uses the runner's own keys. Ask the user to run it from a terminal.` : undefined;
   } catch {
-    // An older runner, which has no auth.whoami.
-    return undefined;
+    // An older runner has no auth.whoami: fine from a terminal, not from a thread.
+    return inThread ? cant : undefined;
   } finally {
     client.close();
   }

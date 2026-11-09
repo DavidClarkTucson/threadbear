@@ -108,10 +108,17 @@ in a thread's shell, or a key lifted from another thread's environment with
 `ps eww`, is worth no more than the thread's own mode. A client that isn't under
 a CLI (the app, a terminal, a patch's action, the runner's own jobs) is what it
 says it is. If the lookup fails (no `lsof`), the runner goes by the credential.
-A process that deliberately detaches from its thread's tree and reads the token
-can still pass as the owner, which is why outside Full access Claude's file and
-shell tools are denied the runner's `secrets` folder as well; that deny is
-defence in depth (`SECURITY.md` says what's out of scope).
+A process that has lost its parents (a `nohup`, a backgrounded subshell) still
+counts if it's in a process group a thread's tool command ran in, as the
+registry has noted them. One that deliberately starts a new session and reads
+the token can still pass as the owner, which is why outside Full access
+Claude's file and shell tools are denied the runner's `secrets` folder as well;
+that deny is defence in depth (`SECURITY.md` says what's out of scope). A
+draining runner's own server applies all of this too. `tb runner` and `tb pair`
+use this Mac's keys from disk, so the runner never sees them: from a thread they
+need the real runner to say it isn't limited. A CLI started by a runner older
+than this has no key and isn't recorded with its thread, so it keeps the old
+`tb` until its next start.
 
 **Limits before auth.** Until a connection has authenticated, a frame is at
 most 64 KiB (more closes it with 1009), there are 3 seconds to finish, and

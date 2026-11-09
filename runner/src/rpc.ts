@@ -48,6 +48,9 @@ type Conn = {
 const AUTH_TIMEOUT_MS = 3000;
 const PREAUTH_MAX_PAYLOAD = 64 * 1024;
 const MAX_PENDING_AUTH = 16;
+// Frames that may wait for the process lookup (a few, in practice; the client
+// has only just proved itself).
+const MAX_QUEUED_FRAMES = 256;
 // What an authenticated client may send in one frame.
 const MAX_PAYLOAD = 64 * 1024 * 1024;
 // Backpressure for a client that stops reading (a hung app, a debugger):
@@ -350,6 +353,7 @@ export class RpcServer {
     });
     ws.on('close', () => {
       conn.authTimer?.clear();
+      conn.queue.length = 0;
       this.conns.delete(conn);
     });
     // A protocol error (a frame over the limit, bad UTF-8): ws closes with
@@ -427,6 +431,10 @@ export class RpcServer {
   private onMessage(conn: Conn, raw: string): void {
     if (!conn.authed) return this.onAuthMessage(conn, raw);
     if (conn.identifying) {
+      if (conn.queue.length >= MAX_QUEUED_FRAMES) {
+        conn.ws.close(4408, 'too many frames before identification');
+        return;
+      }
       conn.queue.push(raw);
       return;
     }

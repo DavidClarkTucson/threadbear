@@ -86,9 +86,18 @@ export class ProcessRegistry {
     return [...this.entries.keys()];
   }
 
-  // The thread a live CLI was started for: this runner's own, or one a
-  // draining runner still has (its list is kept beside this one). A pid
-  // that's been recycled since doesn't count: its start time won't match.
+  // The thread whose CLI ran a tool command in this process group (noted by
+  // scan), or whose CLI leads it. For a process that's lost its parents.
+  threadOfGroup(pgid: number): string | undefined {
+    for (const e of this.entries.values()) {
+      if (e.threadId && (e.pid === pgid || e.groups?.some((g) => g.pgid === pgid))) return e.threadId;
+    }
+    return undefined;
+  }
+
+  // The thread a live CLI was started for: this runner's own (gone from the
+  // map when it exits), or one a draining runner still has (its list is kept
+  // beside this one, where a recycled pid wouldn't have the same start time).
   threadOfPid(pid: number): string | undefined {
     const own = this.entries.get(pid);
     if (own) return own.threadId;

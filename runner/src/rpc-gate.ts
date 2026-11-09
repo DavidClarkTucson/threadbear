@@ -51,7 +51,7 @@ export const GATED_READS: ReadonlySet<string> = new Set([
   'media.import',
 ]);
 
-type ThreadLike = { permissionMode?: PermissionMode; title: string };
+type ThreadLike = { permissionMode?: PermissionMode; title: string; status?: string };
 
 export type CallerGateDeps = {
   runner: {
@@ -95,7 +95,10 @@ export class CallerGate {
     const { runner, remote } = this.deps;
     if (runner.has(threadId)) return { mode: runner.accessOf(threadId), confined: runner.confinedOf(threadId) };
     const t = remote?.owns(threadId) ? remote.summaries([...ALL]).find((x) => x.id === threadId) : undefined;
-    return { mode: t?.permissionMode ?? 'full', confined: false };
+    // A busy thread on a draining runner may be running a turn that started
+    // with more than its saved mode; a summary doesn't say, so assume it did.
+    const busy = t?.status === 'running' || t?.status === 'starting' || t?.status === 'waiting';
+    return { mode: busy ? 'full' : (t?.permissionMode ?? 'full'), confined: false };
   }
 
   private title(threadId: string): string {
@@ -149,7 +152,7 @@ export class CallerGate {
       case 'threads.setProjects': {
         const id = str(p, 'threadId');
         if (id && id !== threadId && above(this.targetAccess(id), caller)) throw needs(`changing the projects of ${this.title(id)}`, 'join_project');
-        return p;
+        return { ...p, by: 'agent' };
       }
       case 'threads.showPanel': {
         if (str(p, 'threadId') !== threadId) throw needs("opening another thread's panel", 'show_panel');

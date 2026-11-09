@@ -19,8 +19,8 @@ function expand(p: string): string {
 // The deepest part of a path that exists, with links followed, and the rest
 // on the end: a Read of secrets/runner-token through a link in the path is
 // that file.
-function resolved(p: string): string {
-  let head = path.resolve(expand(p));
+function resolved(p: string, cwd?: string): string {
+  let head = path.resolve(cwd ?? process.cwd(), expand(p));
   const tail: string[] = [];
   for (;;) {
     try {
@@ -38,7 +38,7 @@ const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.
 
 // The reason a call is denied, or undefined if it's fine. `home` is the
 // runner's data dir.
-export function denySecrets(tool: string, input: Record<string, unknown>, home: string): string | undefined {
+export function denySecrets(tool: string, input: Record<string, unknown>, home: string, cwd?: string): string | undefined {
   const secrets = path.join(home, 'secrets');
   if (tool === 'Bash') {
     const command = typeof input.command === 'string' ? input.command : '';
@@ -57,19 +57,24 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
       'Threadbear/secrets',
     ];
     if (/\brunner-token\b/.test(flat) || forms.some((f) => flat.includes(f))) return REASON;
+    // The data dir named with a wildcard after it reaches the same files
+    // without those words (secr*/*).
+    const dataDir = [home, home.replace(home2, '~'), home.replace(home2, '$HOME'), '$THREADBEAR_HOME', '${THREADBEAR_HOME}', '$THREADBARE_HOME', '${THREADBARE_HOME}', 'Application Support/Threadbear'];
+    if (dataDir.some((d) => flat.includes(d)) && /[*?[]/.test(flat)) return REASON;
     return undefined;
   }
   const target = resolved(secrets);
   for (const k of PATH_KEYS) {
     const v = input[k];
-    if (typeof v === 'string' && v && (inside(resolved(v), target) || inside(path.resolve(expand(v)), secrets))) return REASON;
+    if (typeof v === 'string' && v && (inside(resolved(v, cwd), target) || inside(path.resolve(cwd ?? process.cwd(), expand(v)), secrets))) return REASON;
   }
-  // A Glob or Grep run from above the folder, with a pattern that goes in.
-  const pattern = input.pattern;
-  if ((tool === 'Glob' || tool === 'Grep') && typeof pattern === 'string' && /\bsecrets\b|runner-token/.test(pattern)) {
-    const base = typeof input.path === 'string' && input.path ? input.path : '.';
-    const dir = resolved(base);
-    if (inside(target, dir) || inside(resolved(path.join(base, pattern.split('*')[0] || '.')), target)) return REASON;
+  // A Glob or Grep from the data dir itself reaches the folder whatever its
+  // pattern says; from further up, only one that names it.
+  if (tool === 'Glob' || tool === 'Grep') {
+    const base = typeof input.path === 'string' && input.path ? input.path : (cwd ?? '.');
+    const dir = resolved(base, cwd);
+    const pattern = typeof input.pattern === 'string' ? input.pattern : '';
+    if (dir === resolved(home) || (inside(target, dir) && /\bsecrets\b|runner-token/.test(pattern))) return REASON;
   }
   return undefined;
 }

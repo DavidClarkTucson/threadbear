@@ -338,10 +338,9 @@ const ASKS_IN_ASK = new Set([...EDIT_TOOLS, 'NotebookEdit', 'Bash', 'WebFetch'])
 // The PreToolUse hook's tools: edits (onEditCall) and anything that can
 // queue (wouldAsk). A regex, as the CLI reads it.
 const QUEUE_HOOK_MATCHER = [...ASKS_IN_ASK, 'mcp__.*'].join('|');
-// Tools that only read, added for a session started below Full: every Read
-// would otherwise cost a round trip to the hook, in Full too. A session
-// lowered from Full keeps the matcher it started with until its next CLI
-// start; its Bash is still checked (secrets-guard.ts).
+// Tools that only read, checked for the secrets folder (secrets-guard.ts) on
+// every session: one on Full can be lowered mid-session, and the matcher is
+// fixed when it starts. The hook returns at once on Full.
 const SECRETS_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead'];
 
 // A queued call as a card listed it: its tool, its whole input and
@@ -476,7 +475,7 @@ class ClaudeSession implements AgentSession {
           // make a round trip per call.
           // ...and keeps the runner's token from a thread that isn't on Full
           // access (secrets-guard.ts).
-          { matcher: opts.permissionMode === 'full' ? QUEUE_HOOK_MATCHER : [QUEUE_HOOK_MATCHER, ...SECRETS_ONLY_TOOLS].join('|'), hooks: [async (input) => this.onSecretsCall(input) ?? this.onQueuedCall(input) ?? this.onEditCall(input)] },
+          { matcher: [QUEUE_HOOK_MATCHER, ...SECRETS_ONLY_TOOLS].join('|'), hooks: [async (input) => this.onSecretsCall(input) ?? this.onQueuedCall(input) ?? this.onEditCall(input)] },
           // A hook's ask comes before allow rules, so it's how a folder's
           // untrusted ones stop applying once the thread leaves Full
           // (askBeforeEveryTool). Only on a session that may need it.
@@ -588,10 +587,10 @@ class ClaudeSession implements AgentSession {
 
   private onSecretsCall(input: HookInput): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } | undefined {
     if (this.mode === 'full') return undefined;
-    const call = input as { tool_name?: string; tool_input?: unknown };
+    const call = input as { tool_name?: string; tool_input?: unknown; cwd?: string };
     const home = this.opts.env?.THREADBEAR_HOME;
     if (!home || typeof call.tool_name !== 'string' || !call.tool_input || typeof call.tool_input !== 'object') return undefined;
-    const why = denySecrets(call.tool_name, call.tool_input as Record<string, unknown>, home);
+    const why = denySecrets(call.tool_name, call.tool_input as Record<string, unknown>, home, typeof call.cwd === 'string' ? call.cwd : undefined);
     return why ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: why } } : undefined;
   }
 
@@ -1132,13 +1131,14 @@ export function alwaysAllow(name: string, suggestions: PermissionUpdate[] | unde
 // Whether a shell command runs tb anywhere in it: alone, by path, quoted, or
 // behind && or a pipe.
 export function mentionsTb(command: string): boolean {
-  return /(^|[\s;&|()`$=/'"])tb(['"]?)(\s|$|[;&|)`])/.test(command);
+  // Quotes and backslashes don't change what runs: t'b', \\tb, t\\<newline>b.
+  return /(^|[\s;&|()`$=/])tb(\s|$|[;&|)`])/.test(command.replace(/\\\n/g, '').replace(/[\\'"]/g, ''));
 }
 
 // A saved "Always allow" prefix rule for tb, from before they were exact.
 export function isTbPrefixRule(rule: string): boolean {
   const m = /^Bash\((.*)\)$/s.exec(rule);
-  return Boolean(m && mentionsTb(m[1].replace(/[:\s]*\*.*$/s, ' ')) && /\*/.test(m[1]));
+  return Boolean(m && /\*/.test(m[1]) && mentionsTb(m[1].replace(/\*/g, ' ').replace(/:/g, ' ')));
 }
 
 function ruleString(r: { toolName: string; ruleContent?: string }): string {
