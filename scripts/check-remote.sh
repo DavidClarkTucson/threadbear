@@ -54,8 +54,10 @@ if [ "${1:-}" = "--on-host" ]; then
   shift 2
   base="$HOME/$BASE_REL"
   src="$base/src"
-  NODE="$HOME/.nvm/versions/node/v24.22.1/bin/node"
-  export PATH="$(dirname "$NODE"):/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+  # An ssh session's PATH has no nvm, so find-node.sh looks there too.
+  . "${BASH_SOURCE[0]%/*}/../runner/scripts/find-node.sh"
+  NODE="$(threadbear_find_node)" || exit 1
+  export PATH="${NODE%/*}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
   # Everything the tests make in a temp folder goes here and is deleted
   # with the run, so nothing piles up in /var/folders.
   export TMPDIR="$base/tmp-$id"

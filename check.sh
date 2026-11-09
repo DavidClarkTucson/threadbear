@@ -57,7 +57,10 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NODE="${THREADBEAR_NODE:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+# Node: THREADBEAR_NODE, else the node on PATH, else nvm's newest
+# Node 24 or newer, else Homebrew's (runner/scripts/find-node.sh).
+. "$ROOT/runner/scripts/find-node.sh"
+NODE="$(threadbear_find_node)" || exit 1
 QUICK=0
 RUNNER_ONLY=0
 APP_ONLY=0
@@ -114,10 +117,6 @@ elif [ "$E2E" = 1 ] && [ "$LOCAL" = 0 ]; then
   echo "--e2e runs on this Mac, which has the claude login it needs."
 fi
 
-if [ ! -x "$NODE" ]; then
-  echo "No Node binary at $NODE. Set THREADBEAR_NODE to a Node 24 binary." >&2
-  exit 1
-fi
 export PATH="$(dirname "$NODE"):$PATH"
 export THREADBEAR_NODE="$NODE"
 # Inside a Threadbear thread these name the live runner and the thread.

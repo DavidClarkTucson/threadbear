@@ -648,7 +648,8 @@ test('a failure is judged by the disk as it failed, not after its temp files wen
 
 // The host's side for real: a scratch copy whose check.sh fails, with temp
 // files that are gone by the end, and a df that sits in the folder --on-host
-// puts first on PATH (the pinned Node's).
+// puts first on PATH (the Node's). As over ssh, nothing on PATH and no
+// THREADBEAR_NODE: find-node.sh finds the Node nvm installed in its home.
 function onHost(checkExit: number, df: string, opts: { hang?: boolean; env?: Record<string, string> } = {}) {
   const home = shortHome();
   const base = path.join(home, '.cache', 'threadbear-check');
@@ -656,12 +657,19 @@ function onHost(checkExit: number, df: string, opts: { hang?: boolean; env?: Rec
   fs.mkdirSync(path.join(copy, 'scripts'), { recursive: true });
   fs.copyFileSync(SCRIPT, path.join(copy, 'scripts', 'check-remote.sh'));
   fs.copyFileSync(path.join(path.dirname(SCRIPT), 'limit-step.mjs'), path.join(copy, 'scripts', 'limit-step.mjs'));
+  fs.mkdirSync(path.join(copy, 'runner', 'scripts'), { recursive: true });
+  fs.copyFileSync(path.join(path.dirname(SCRIPT), '..', 'runner', 'scripts', 'find-node.sh'), path.join(copy, 'runner', 'scripts', 'find-node.sh'));
   fs.writeFileSync(path.join(copy, 'check.sh'), `#!/bin/bash\necho made >"$TMPDIR/big"\n${opts.hang ? 'sleep 60\n' : ''}exit ${checkExit}\n`, { mode: 0o755 });
-  const nodeBin = path.join(home, '.nvm', 'versions', 'node', 'v24.22.1', 'bin');
+  const nodeBin = path.join(home, '.nvm', 'versions', 'node', 'v24.0.0', 'bin');
   fs.mkdirSync(nodeBin, { recursive: true });
   fs.symlinkSync(process.execPath, path.join(nodeBin, 'node'));
   fs.writeFileSync(path.join(nodeBin, 'df'), `#!/bin/bash\n[ "$*" = "-Pk ." ] || exit 9\ncat <<'END'\n${df}END\n`, { mode: 0o755 });
-  const r = spawnSync('bash', [path.join(copy, 'scripts', 'check-remote.sh'), '--on-host', '1-1-0'], { encoding: 'utf8', env: { ...process.env, HOME: home, ...opts.env } });
+  const empty = path.join(home, 'empty-bin');
+  fs.mkdirSync(empty, { recursive: true });
+  const env: Record<string, string | undefined> = { ...process.env, HOME: home, PATH: empty, ...opts.env };
+  delete env.THREADBEAR_NODE;
+  delete env.NVM_DIR;
+  const r = spawnSync('/bin/bash', [path.join(copy, 'scripts', 'check-remote.sh'), '--on-host', '1-1-0'], { encoding: 'utf8', env });
   return { r, base, kept: path.join(base, 'kept-1-1-0', 'free-kb') };
 }
 

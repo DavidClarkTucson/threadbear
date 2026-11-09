@@ -32,7 +32,10 @@ set -euo pipefail
 # THREADBARE_* was the old name for these variables: each stands in for its new name.
 for v in $(compgen -e | grep '^THREADBARE_' || true); do n="THREADBEAR_${v#THREADBARE_}"; [ -n "${!n+x}" ] || export "$n=${!v}"; done
 RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NODE="${THREADBEAR_NODE:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+# Node: THREADBEAR_NODE, else the node on PATH, else nvm's newest
+# Node 24 or newer, else Homebrew's (runner/scripts/find-node.sh).
+. "$RUNNER_DIR/scripts/find-node.sh"
+NODE="$(threadbear_find_node)" || exit 1
 DEFAULT_HOME="$HOME/Library/Application Support/Threadbear"
 DATA_HOME=""
 PORT=0
@@ -49,10 +52,6 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-if [ ! -x "$NODE" ]; then
-  echo "No Node binary at $NODE. Set THREADBEAR_NODE to a Node 24 binary." >&2
-  exit 1
-fi
 
 # The folder with symlinks resolved, or as given if it doesn't exist yet.
 real_dir() {

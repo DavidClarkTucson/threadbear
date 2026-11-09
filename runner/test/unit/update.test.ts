@@ -453,7 +453,7 @@ test('launchAgentBehind: launch.mjs, a plist that runs node, and an app built fr
 
 test('appOfExecutable: only the launcher app\'s executable', () => {
   assert.equal(appOfExecutable('/Users/m/Applications/Threadbear Runner.app/Contents/MacOS/Threadbear Runner'), '/Users/m/Applications/Threadbear Runner.app');
-  assert.equal(appOfExecutable('/Users/m/.nvm/versions/node/v24.22.1/bin/node'), undefined);
+  assert.equal(appOfExecutable('/Users/m/.nvm/versions/node/v24.0.0/bin/node'), undefined);
   assert.equal(appOfExecutable('/Applications/Threadbear.app/Contents/MacOS/Threadbear'), undefined);
   assert.equal(appOfExecutable(''), undefined);
 });

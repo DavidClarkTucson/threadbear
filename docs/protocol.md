@@ -6054,6 +6054,7 @@ runner's threads only.
 | `THREADBEAR_RUNNER_HOME` | the runner's data dir too, which agents never change: the scripts' guards against restarting the runner a thread runs on go by it |
 | `THREADBEAR_RUNNER_VERSION` | the runner's version, as in `hello` |
 | `THREADBEAR_MEDIA_DIR` | the thread's media folder (`<data dir>/threads/<id>/media`): the only place a shared page's pictures come from (see "Sharing") |
+| `THREADBEAR_NODE` | the Node binary the runner runs on, so the repo's scripts a thread runs (`check.sh`, `tb land`, `deploy-runner.sh`, a worktree's setup) use the same one (`runner/scripts/find-node.sh`) |
 
 The runner also puts its own `bin/` (the release's, or the checkout's for a
 runner run from source) at the front of `PATH`, so a bare `tb` in a thread

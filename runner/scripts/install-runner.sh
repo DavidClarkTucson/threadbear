@@ -43,7 +43,8 @@
 #                  8797). A sandbox next to the real runner needs its own
 #                  --home and --label; its port defaults to 0, a free one.
 #   --node PATH    Node 24 binary to pin in the plist
-#                  (default: $THREADBEAR_NODE, else ~/.nvm/versions/node/v24.22.1/bin/node)
+#                  (default: $THREADBEAR_NODE, else the node on PATH, else
+#                  nvm's newest Node 24 or newer, or Homebrew's)
 #   --runner-app DIR  where Threadbear Runner.app goes (default:
 #                  $THREADBEAR_RUNNER_APP_DIR, else ~/Applications/Threadbear
 #                  Runner.app, or <home>/runner/Threadbear Runner.app for a
@@ -62,7 +63,7 @@ for v in $(compgen -e | grep '^THREADBARE_' || true); do n="THREADBEAR_${v#THREA
 DEFAULT_LABEL="com.mikerosoft.threadbear.runner"
 DEFAULT_HOME="$HOME/Library/Application Support/Threadbear"
 RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NODE="${THREADBEAR_NODE:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+NODE="${THREADBEAR_NODE:-}"
 LAUNCHCTL="${THREADBEAR_LAUNCHCTL:-launchctl}"
 AGENTS_DIR="${THREADBEAR_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 # A runner on Linux (INSTALL.md, "A runner on Linux"): systemd keeps it up.
@@ -100,6 +101,13 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Only once the arguments are read, so --node wins. Uninstalling needs no
+# Node, so a missing one is said where installing needs it, below.
+if [ -z "$NODE" ]; then
+  . "$RUNNER_DIR/scripts/find-node.sh"
+  NODE="$(threadbear_find_node 2>/dev/null)" || NODE=""
+fi
 
 case "$DATA_HOME" in /*) ;; *) DATA_HOME="$PWD/$DATA_HOME" ;; esac
 DATA_HOME="${DATA_HOME%/}"
@@ -251,6 +259,10 @@ if [ "$MODE" = "uninstall" ]; then
   exit 0
 fi
 
+if [ -z "$NODE" ]; then
+  echo "No Node 24 or newer on PATH, in nvm or in Homebrew. Install it, or pass --node /path/to/node." >&2
+  exit 1
+fi
 if [ ! -x "$NODE" ]; then
   echo "No Node binary at $NODE. Pass --node /path/to/node (Node 24 or newer)." >&2
   exit 1
