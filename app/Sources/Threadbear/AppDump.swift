@@ -224,6 +224,72 @@ struct AppDump: Encodable {
     var pools: [PoolInfo] = []
     /// The window's panels and where they are (WindowDock), in one line.
     var dock: String = ""
+    /// The window's zoom, in percent (TextZoom).
+    var zoom: Int = 100
+    /// "end" or "empty" while the end-of-inbox note is up (InboxEndToast).
+    var inboxEndNote: String? = nil
+    /// The activity bar and the right rail, as drawn (ActivityBar, PanelRail).
+    var rails: Rails = Rails()
+    /// The panel bar's title line and its buttons' tips (ThreadHeader).
+    var header: Header? = nil
+
+    struct RailButton: Encodable {
+        var title: String
+        var badge: Int? = nil
+        var dot: Bool = false
+        var active: Bool
+    }
+
+    struct Rails: Encodable {
+        var activity: [RailButton] = []
+        var right: [RailButton] = []
+    }
+
+    struct Header: Encodable {
+        var title: String
+        var renaming: Bool
+        var backTip: String
+        var forwardTip: String
+        var shared: Bool
+    }
+
+    /// The activity bar's and right rail's buttons, as those views draw them.
+    @MainActor
+    static func rails(_ app: AppModel) -> Rails {
+        var activity = [RailButton(title: "Threads", badge: app.sections.inbox.count, active: app.sidebarMode == .inbox)]
+        if app.schedulesSupported {
+            activity.append(RailButton(title: "Scheduled", badge: app.activeScheduleCount, active: app.sidebarMode == .scheduled))
+        }
+        if app.projectsSupported {
+            activity.append(RailButton(title: "Projects", active: app.sidebarMode == .projects))
+            activity.append(RailButton(title: "Librarian", badge: app.librarian?.pendingCount, active: app.sidebarMode == .librarian))
+        }
+        var right: [RailButton] = []
+        if let thread = app.paneThread {
+            if app.openProject == nil {
+                right.append(RailButton(title: "Highlights", dot: thread.firstOpenAsk != nil, active: app.dock.isShowing(PaneSection.highlightsId)))
+            }
+            for panel in thread.panels {
+                right.append(RailButton(title: panel.title, badge: panel.badge, active: app.dock.isShowing(panel.id)))
+            }
+            if app.openProject == nil {
+                right.append(RailButton(title: "Files", active: app.dock.isShowing(BuiltinPanels.files)))
+            }
+            if !thread.patches.isEmpty {
+                right.append(RailButton(title: "Patches", badge: thread.patches.count, active: app.dock.isShowing(PaneSection.patchesId)))
+            }
+        }
+        return Rails(activity: activity, right: right)
+    }
+
+    @MainActor
+    static func header(_ app: AppModel) -> Header? {
+        guard let thread = app.selectedThread, !app.showsHomePage, app.openProject == nil else { return nil }
+        return Header(title: thread.title.isEmpty ? "Untitled" : thread.title, renaming: app.renamingThread == thread.id,
+                      backTip: HistoryText.tip(back: true, to: app.canGoBack ? app.destination(back: true) : nil, shortcut: AppShortcuts.shared.display(.back)),
+                      forwardTip: HistoryText.tip(back: false, to: app.canGoForward ? app.destination(back: false) : nil, shortcut: AppShortcuts.shared.display(.forward)),
+                      shared: thread.share?.isOn == true)
+    }
 
     struct ProjectInfo: Encodable {
         var id: String
@@ -390,7 +456,11 @@ struct AppDump: Encodable {
                 PoolInfo(id: pool.id, title: pool.title, logins: pool.accountIds, folders: pool.folders,
                          rail: Pools.railSubtitle(pool, accounts: app.accounts), status: Pools.statusLine(pool, accounts: app.accounts, now: app.now))
             } : [],
-            dock: app.dock.layout.summary.replacingOccurrences(of: "threadbear.", with: "")
+            dock: app.dock.layout.summary.replacingOccurrences(of: "threadbear.", with: ""),
+            zoom: TextZoom.shared.percent,
+            inboxEndNote: app.inboxEndNote.map { $0.empty ? "empty" : "end" },
+            rails: rails(app),
+            header: header(app)
         )
     }
 

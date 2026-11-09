@@ -31,6 +31,9 @@ export class GpuiDriver implements Driver {
   private waiting: ((line: string) => void)[] = [];
   private log = '';
 
+  private appProcess?: ChildProcess;
+  private display?: string;
+
   private child(cmd: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
     const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     c.stdout?.on('data', (d) => (this.log += d));
@@ -39,16 +42,10 @@ export class GpuiDriver implements Driver {
     return c;
   }
 
-  async start(): Promise<void> {
-    if (!fs.existsSync(binary)) throw new Error(`No GPUI app at ${binary}: cargo build -p threadbear-gpui --features automation`);
-    this.home = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tb-spec-'));
-    const ready = path.join(this.home, 'mock-ready');
-    // TB_MOCK_FIXTURES swaps the demo threads for that folder's, for one-off checks.
-    const fixtures = process.env.TB_MOCK_FIXTURES ? ['--fixtures', process.env.TB_MOCK_FIXTURES] : [];
-    this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready, ...fixtures], { TB_MOCK_NO_REMOTE: '1' });
-    await waitForFile(ready, 'The mock runner', 15_000);
-
+  /** Starts the app itself and connects to its automation socket. */
+  private async launchApp(): Promise<void> {
     const file = path.join(this.home, 'automation.json');
+    fs.rmSync(file, { force: true });
     const env: NodeJS.ProcessEnv = {
       THREADBEAR_HOME: this.home,
       THREADBEAR_AUTOMATION: file,
@@ -56,12 +53,14 @@ export class GpuiDriver implements Driver {
     if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
       // A server: a virtual screen, and a session bus of its own for the
       // desktop settings and portals the app asks for.
-      const display = `:${100 + (process.pid % 400)}`;
-      this.child('Xvfb', [display, '-screen', '0', '1400x900x24'], {});
-      await sleep(400);
-      this.child('dbus-run-session', ['--', binary], { ...env, DISPLAY: display, NO_AT_BRIDGE: '1', LIBGL_ALWAYS_SOFTWARE: '1' });
+      this.display ??= `:${100 + (process.pid % 400)}`;
+      if (!this.children.some((c) => c.spawnargs[0] === 'Xvfb')) {
+        this.child('Xvfb', [this.display, '-screen', '0', '1400x900x24'], {});
+        await sleep(400);
+      }
+      this.appProcess = this.child('dbus-run-session', ['--', binary], { ...env, DISPLAY: this.display, NO_AT_BRIDGE: '1', LIBGL_ALWAYS_SOFTWARE: '1' });
     } else {
-      this.child(binary, [], env);
+      this.appProcess = this.child(binary, [], env);
     }
     try {
       await waitForFile(file, 'The app', 30_000);
@@ -70,6 +69,9 @@ export class GpuiDriver implements Driver {
     }
     const { port, token } = JSON.parse(fs.readFileSync(file, 'utf8')) as { port: number; token: string };
     this.token = token;
+    this.socket?.destroy();
+    this.waiting = [];
+    this.buffer = '';
     this.socket = await new Promise<net.Socket>((resolve, reject) => {
       const s = net.connect(port, '127.0.0.1', () => resolve(s));
       s.once('error', reject);
@@ -84,6 +86,30 @@ export class GpuiDriver implements Driver {
         this.waiting.shift()?.(line);
       }
     });
+  }
+
+  async relaunch(): Promise<void> {
+    this.socket?.destroy();
+    this.socket = undefined;
+    const old = this.appProcess;
+    if (old) {
+      const gone = new Promise<void>((done) => old.once('exit', () => done()));
+      old.kill();
+      await Promise.race([gone, sleep(4000)]);
+      this.children = this.children.filter((c) => c !== old);
+    }
+    await this.launchApp();
+  }
+
+  async start(): Promise<void> {
+    if (!fs.existsSync(binary)) throw new Error(`No GPUI app at ${binary}: cargo build -p threadbear-gpui --features automation`);
+    this.home = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tb-spec-'));
+    const ready = path.join(this.home, 'mock-ready');
+    // TB_MOCK_FIXTURES swaps the demo threads for that folder's, for one-off checks.
+    const fixtures = process.env.TB_MOCK_FIXTURES ? ['--fixtures', process.env.TB_MOCK_FIXTURES] : [];
+    this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready, ...fixtures], { TB_MOCK_NO_REMOTE: '1' });
+    await waitForFile(ready, 'The mock runner', 15_000);
+    await this.launchApp();
   }
 
   private ask(body: Record<string, unknown>, timeoutSeconds: number): Promise<Record<string, unknown>> {

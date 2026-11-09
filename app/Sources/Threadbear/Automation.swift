@@ -442,6 +442,9 @@ enum Automation {
             guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
                                                windowNumber: window?.windowNumber ?? 0, context: nil, characters: chars,
                                                charactersIgnoringModifiers: chars, isARepeat: false, keyCode: 0) else { return "error no event" }
+            // A real key press has the menus updated first (a greyed-out
+            // item like Actual Size at 100%), as a scripted one doesn't.
+            NSApp.mainMenu?.items.forEach { $0.submenu?.update() }
             let taken = NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
             try? await Task.sleep(for: .milliseconds(150))
             let note = app.inboxEndNote.map { $0.empty ? " note=empty" : " note=end" } ?? ""
@@ -1576,6 +1579,22 @@ enum Automation {
             guard let id = displayedRow(c["row"] as? String, app)?.id, let text = app.transcript.debugInfo(rowId: id) else { return "error no such row" }
             app.copyToPasteboard(text)
             return "ok " + json(text)
+        case "data-dir":
+            // The folder the app's files are in (shortcuts.json), so a test
+            // can edit one as Mike or an agent would.
+            return "ok \(app.dataDir.path)"
+        case "menus":
+            // Every menu in the menu bar and its items as they read: titles,
+            // keys ("⌘N"), submenus by name. For the specs on the menus.
+            return "ok " + json(mainMenus())
+        case "menu-item":
+            // An item in the menu bar by its title, as choosing it does.
+            guard let title = c["title"] as? String else { return "error title missing" }
+            guard let found = findMenuItem(title, in: NSApp.mainMenu) else { return "error no menu item \(title)" }
+            found.menu.update()
+            found.menu.performActionForItem(at: found.index)
+            try? await Task.sleep(for: .milliseconds(250))
+            return "ok"
         case "copy-thread-id":
             // What the ... menu's "Copy thread id" does.
             let target = target(c, app)
@@ -1596,6 +1615,40 @@ enum Automation {
 }
 
 extension Automation {
+    /// The menu bar's menus and their items, updated first as a menu is
+    /// when it opens (SwiftUI builds them lazily).
+    @MainActor
+    private static func mainMenus() -> [[String: Any]] {
+        guard let menu = NSApp.mainMenu else { return [] }
+        return menu.items.compactMap { top in
+            guard let submenu = top.submenu else { return nil }
+            submenu.update()
+            let items: [[String: Any]] = submenu.items.compactMap { item in
+                if item.isSeparatorItem { return nil }
+                var out: [String: Any] = ["title": item.title, "enabled": item.isEnabled]
+                if let key = ShortcutKey(menuItem: item) { out["key"] = key.display }
+                if let sub = item.submenu {
+                    sub.update()
+                    out["items"] = sub.items.filter { !$0.isSeparatorItem }.map(\.title)
+                }
+                return out
+            }
+            return ["title": top.title, "items": items]
+        }
+    }
+
+    /// The item with that title anywhere in the menu bar: its menu and index.
+    @MainActor
+    private static func findMenuItem(_ title: String, in menu: NSMenu?) -> (menu: NSMenu, index: Int)? {
+        guard let menu else { return nil }
+        menu.update()
+        for (index, item) in menu.items.enumerated() {
+            if item.title == title, !item.isSeparatorItem { return (menu, index) }
+            if let found = findMenuItem(title, in: item.submenu) { return found }
+        }
+        return nil
+    }
+
     /// The open thread's card of asks, picked as its buttons pick:
     /// `pick` is "ask:option", both 1-based ("2:1" picks the second ask's
     /// first choice, or unpicks it if it was), `clear` drops every pick,
