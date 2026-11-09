@@ -23,6 +23,8 @@ pub struct Threadbear {
     pub(crate) list_error: Option<String>,
     pub(crate) selected: Option<String>,
     pub(crate) pane: Option<Entity<ThreadPane>>,
+    /// The open pane's requests to the app (a thread: link was clicked).
+    pane_events: Option<Subscription>,
     pub(crate) search: Entity<InputState>,
     /// The sections folded away under their headings, by key.
     pub(crate) folded: HashSet<&'static str>,
@@ -65,6 +67,7 @@ impl Threadbear {
             list_error: None,
             selected: None,
             pane: None,
+            pane_events: None,
             search,
             folded: HashSet::from(["hibernating", "archived"]),
             drafts: HashMap::new(),
@@ -147,7 +150,15 @@ impl Threadbear {
         let client = self.client.clone();
         let draft = self.drafts.get(&id).cloned().unwrap_or_default();
         self.selected = Some(id);
-        self.pane = Some(cx.new(|cx| ThreadPane::new(client, summary, draft, window, cx)));
+        let pane = cx.new(|cx| ThreadPane::new(client, summary, draft, window, cx));
+        // A thread: link in the transcript opens that thread.
+        self.pane_events = Some(cx.subscribe_in(&pane, window, |this, _, event: &crate::rows::OpenThreadRequest, window, cx| {
+            let matches: Vec<String> = this.threads.keys().filter(|k| **k == event.0 || k.starts_with(&event.0)).cloned().collect();
+            if let [only] = matches.as_slice() {
+                this.open(only.clone(), window, cx);
+            }
+        }));
+        self.pane = Some(pane);
         cx.notify();
     }
 
@@ -217,6 +228,13 @@ impl Threadbear {
         }
     }
 
+    /// Runs `f` on the open pane, for the automation commands.
+    #[cfg(feature = "automation")]
+    pub(crate) fn update_pane<R>(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut ThreadPane, &mut Context<ThreadPane>) -> R) -> Result<R, String> {
+        let Some(pane) = &self.pane else { return Err("no thread open".into()) };
+        Ok(pane.update(cx, f))
+    }
+
     /// A thread named by the start of its id, as the Swift app's automation has it.
     #[cfg(feature = "automation")]
     pub(crate) fn thread_id_from(&self, start: &str) -> Result<String, String> {
@@ -249,7 +267,7 @@ impl Threadbear {
             "selection": selected.map(row),
             "sidebar": { "mode": "inbox", "sections": sections, "snoozed": snoozed, "archived": archived },
             "composer": { "draft": self.selected.clone().unwrap_or_else(|| "new".into()), "text": pane.map(|p| p.draft(cx)).unwrap_or_default() },
-            "transcript": pane.map(|p| p.dump()).unwrap_or_else(|| json!({ "rows": [] })),
+            "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "banner": Value::Null,
         })
     }

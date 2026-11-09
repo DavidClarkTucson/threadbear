@@ -156,7 +156,27 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "expand" | "collapse" => {
             let open = text(cmd, "cmd") == "expand";
             let row = text(cmd, "row").to_string();
-            app.update(cx, |t, cx| t.set_row_open(&row, open, cx))?;
+            let file = (!cmd["file"].is_null()).then(|| cmd["file"].clone());
+            let all = cmd["all"].as_bool().unwrap_or(false);
+            if file.is_some() || all {
+                app.update(cx, |t, cx| t.update_pane(cx, |p, cx| p.expand_detail(&row, file.as_ref(), all, open, cx)))??;
+            } else {
+                app.update(cx, |t, cx| t.set_row_open(&row, open, cx))?;
+            }
+            Ok(json!("ok"))
+        }
+        "scroll" | "scroll-to" => {
+            let (to, row, offset) = (cmd["to"].as_str().map(str::to_owned), cmd["row"].as_str().map(str::to_owned), cmd["offset"].as_f64().unwrap_or(0.) as f32);
+            app.update(cx, |t, cx| t.update_pane(cx, |p, cx| p.scroll_command(to.as_deref(), row.as_deref(), offset, cx)))??;
+            Ok(json!("ok"))
+        }
+        "bottom" => {
+            app.update(cx, |t, cx| t.update_pane(cx, |p, cx| p.scroll_command(Some("bottom"), None, 0., cx)))??;
+            Ok(json!("ok"))
+        }
+        "link" => {
+            let (row, url) = (text(cmd, "row").to_string(), text(cmd, "url").to_string());
+            app.update(cx, |t, cx| t.update_pane(cx, |p, cx| p.follow_link_command(&row, &url, window, cx)))??;
             Ok(json!("ok"))
         }
         "archive" => {
@@ -167,6 +187,15 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let seconds = cmd["seconds"].as_i64().unwrap_or(3600);
             app.update(cx, |t, cx| t.snooze_open(seconds, cx))?;
             Ok(json!("ok"))
+        }
+        "menu" => {
+            let (row, click) = (text(cmd, "row").to_string(), cmd["click"].as_str().map(str::to_owned));
+            let result = app.update(cx, |t, cx| t.update_pane(cx, |p, cx| p.menu_command(&row, click.as_deref(), cx)))??;
+            Ok(json!(result))
+        }
+        "clipboard" => {
+            let words = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
+            Ok(json!(format!("ok {}", serde_json::to_string(&words).unwrap_or_default())))
         }
         // Nothing to do: this app marks a thread read when it's open, and the
         // Swift app only does when it's in front, which a scripted one never is.
