@@ -309,4 +309,9 @@
 //    follow GitHub's main (runner/src/follow-origin.ts), and otherRunnersList
 //    and otherRunnersThreads (main key only) give it back. An older
 //    backend's validator refuses the field, so a runner sends it only from 67.
-export const API_VERSION = 67;
+// 68: relay:queueCommand takes `press` ({ buttonId }) and `slashCommands`
+//    for another runner's thread, as the phone sends them, and
+//    relay:remoteTail and remoteMessages rows carry their `buttons`, so the
+//    main Mac presses reply buttons and lists slash commands on another
+//    runner's thread (docs/parity.md). A runner asks only from 68.
+export const API_VERSION = 68;

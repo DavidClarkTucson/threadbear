@@ -4988,6 +4988,18 @@ default).
   with the runner), and an offline runner is said before anything uploads.
   The direct link sends no pictures yet: the app says to turn it off to send
   them through Convex.
+- **Reply buttons and slash commands** (backend API 68, 9 Nov 2026).
+  `buttons.list` answers from the thread's rows' `buttons` (Sync, "Reply
+  buttons"), newest state of each, oldest first, as a `ReplyButton` with
+  `start: { text: "", cwd: target }` or `send: { threadId: "", threadTitle:
+  target, text: "" }`: the brief and the message stay on that runner.
+  `buttons.press` queues a `press` command `{ buttonId }` and waits for it to
+  be done (30 seconds), answering `{ button }` with `pressed.threadId` the
+  command's `resultThreadId`; a press that failed there is `-32000` with its
+  note. `threads.commands` queues `slashCommands` and answers `{ commands }`
+  from the command's `result`. Both commands are what the phone sends, so a
+  runner from before this does them; a backend before 68 refuses them, so
+  this runner says it needs updating instead.
 - **Answers from another runner.** `files.list` with `runnerId` and `path`
   is a `call` command, `{ method: "files.list", params: { path } }`, which
   that runner answers in the command's `result` (at most 500 entries; JSON
