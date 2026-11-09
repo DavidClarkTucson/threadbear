@@ -107,16 +107,24 @@ function WriteUp({ slug, token, data, loading, onMore }: { slug: string; token: 
   const after = useMemo(() => picturesByRow(messages, data.images), [messages, data.images]);
   const active = useActiveTurn(turns.length);
 
-  // After loading earlier messages, stay where you were rather than jumping.
-  // Only once rows older than the first one shown have come: a live update
-  // (a new message, the status) can change the rows while they load, and
-  // mustn't spend the place kept for them.
-  const keep = useRef<{ fromBottom: number; first: number } | null>(null);
+  // After loading earlier messages, stay where you were rather than jumping:
+  // the turns on screen when it was asked for go back to where they sat.
+  // By a turn on screen rather than the distance from the bottom, as a new
+  // reply can grow the page below while they load (Codex, 9 Nov). Several,
+  // as the first one shown may be cut off by the page's edge and get a new
+  // first row once the rest of it comes. And only once rows older than the
+  // first one shown have come: a live update can change the rows meanwhile.
+  const keep = useRef<{ turns: { seq: string; top: number }[]; first: number } | null>(null);
   useEffect(() => {
     const k = keep.current;
     if (!k || (messages[0]?.seq ?? Infinity) >= k.first) return;
-    window.scrollTo(0, document.documentElement.scrollHeight - k.fromBottom);
     keep.current = null;
+    for (const t of k.turns) {
+      const el = document.querySelector(`section.turn[data-turn="${t.seq}"]`);
+      if (!el) continue;
+      window.scrollBy(0, el.getBoundingClientRect().top - t.top);
+      return;
+    }
   }, [messages]);
 
   const started = data.createdAt ?? messages[0]?.at;
@@ -172,7 +180,11 @@ function WriteUp({ slug, token, data, loading, onMore }: { slug: string; token: 
               className="btn earlier"
               disabled={loading}
               onClick={() => {
-                keep.current = { fromBottom: document.documentElement.scrollHeight - window.scrollY, first: messages[0]?.seq ?? Infinity };
+                const turns = [...document.querySelectorAll<HTMLElement>('section.turn[data-turn]')]
+                  .filter((el) => el.getBoundingClientRect().bottom > 0)
+                  .slice(0, 5)
+                  .map((el) => ({ seq: el.dataset.turn!, top: el.getBoundingClientRect().top }));
+                keep.current = { turns, first: messages[0]?.seq ?? Infinity };
                 onMore();
               }}
             >
@@ -205,7 +217,7 @@ function TurnSection({ id, turn, busy, after, inText, rows }: { id: string; turn
 
   const text = (m: PageMessage) => <MessageText text={m.text} pictures={inText} seq={m.seq} rows={rows} />;
   return (
-    <section className="turn" id={id}>
+    <section className="turn" id={id} data-turn={turn.messages[0]!.seq}>
       {items.map((item) => {
         if (item.kind === 'worked') {
           return (
