@@ -1,6 +1,6 @@
 // One thread: its transcript (transcript.rs folds the events), its cards
 // and the composer. Reads the newest 500 events, then subscribes from the
-// last of them, as the Tauri app and the Mac app do.
+// last of them, as the Mac app does.
 use crate::inbox::ThreadSummary;
 use crate::transcript::{duration, question_answers, Item, Step, ThreadEvents};
 use crate::{call, RT};

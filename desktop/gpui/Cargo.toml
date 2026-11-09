@@ -1,7 +1,7 @@
 [package]
 name = "threadbear-gpui"
 version = "0.1.0"
-description = "Threadbear as a native GPUI app (a spike, beside the Tauri one)"
+description = "Threadbear as a native GPUI app"
 edition = "2021"
 publish = false
 

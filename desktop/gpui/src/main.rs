@@ -1,6 +1,5 @@
-// Threadbear as a native GPUI app (a spike beside the Tauri one in
-// ../src-tauri): the same runner connection (../client), drawn with GPUI and
-// gpui-kit's components instead of a web view. GPUI has no tokio, so the
+// Threadbear as a native GPUI app: the runner connection (../client), drawn
+// with GPUI and gpui-kit's components. GPUI has no tokio, so the
 // connection runs on a runtime of its own and hands its events across on a
 // channel; requests run there too and their results come back as tasks.
 mod inbox;

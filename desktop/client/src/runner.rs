@@ -43,7 +43,7 @@ impl RpcError {
     }
 }
 
-/// Where status changes and notifications go: Tauri events in the app, a
+/// Where status changes and notifications go: the app's event channel, or a
 /// channel in tests.
 pub trait Sink: Send + Sync + 'static {
     fn status(&self, status: &Status);

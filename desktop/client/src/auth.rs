@@ -53,7 +53,7 @@ mod tests {
     use super::*;
 
     // Worked out with runner/src/rpc-auth.ts's authProof (see
-    // desktop/test/auth-vector.test.ts, which checks the same numbers), so
+    // runner/test/unit/desktop-auth-vector.test.ts, which checks the same numbers), so
     // the two sides can't drift apart.
     const TOKEN: &str = "test-token";
     const RUNNER_NONCE: &str = "1111111111111111111111111111111111111111111111111111111111111111";

@@ -9,7 +9,8 @@
 # dir. Each step (--click at window coordinates, --type some text, --key
 # a key such as Return) runs in order and takes another shot
 # (OUT_DIR/1.png, 2.png ...; 0.png is before any). Build first:
-# `npx tauri build --debug --no-bundle`. Needs Xvfb, xdotool, imagemagick and dbus-run-session.
+# `cargo build -p threadbear-gpui`. Needs Xvfb, xdotool, imagemagick, Mesa's
+# software Vulkan (llvmpipe) and dbus-run-session.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$1"; shift
@@ -42,10 +43,10 @@ display=":$((90 + RANDOM % 100))"
 Xvfb "$display" -screen 0 1400x900x24 > "$tmp/xvfb.log" 2>&1 &
 pids+=($!)
 sleep 1
-# WebKitGTK draws nothing on Xvfb with its GPU paths on, and GTK waits 25
-# seconds for a desktop session bus a server doesn't have, so it gets its own.
-DISPLAY="$display" THREADBEAR_HOME="$home" NO_AT_BRIDGE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- \
-  "${THREADBEAR_DESKTOP_BIN:-$here/target/debug/threadbear-desktop}" > "$tmp/app.log" 2>&1 &
+# GPUI's window system code waits on a session bus a server doesn't have, so
+# it gets its own.
+DISPLAY="$display" THREADBEAR_HOME="$home" NO_AT_BRIDGE=1 LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- \
+  "${THREADBEAR_DESKTOP_BIN:-$here/target/debug/threadbear-gpui}" > "$tmp/app.log" 2>&1 &
 pids+=($!)
 sleep "$wait"
 wid="$(DISPLAY="$display" xdotool search --onlyvisible --name '^Threadbear$' | head -1 || true)"
