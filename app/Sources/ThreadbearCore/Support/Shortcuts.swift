@@ -142,6 +142,8 @@ public enum ShortcutCommand: String, CaseIterable, Sendable {
     // ⌘/ folds the Threads panel away and back, keeping its place and width.
     case collapseThreads
     case settings
+    // The app menu's Quit Threadbear, which asks first (QuitPrompt).
+    case quit
 
     public var group: ShortcutGroup {
         switch self {
@@ -149,7 +151,7 @@ public enum ShortcutCommand: String, CaseIterable, Sendable {
         case .back, .forward, .nextInboxThread, .showInbox, .showScheduled, .showProjects, .showLibrarian, .showHibernating, .showArchived: .go
         case .zoomIn, .zoomOut, .actualSize, .toggleThreads, .togglePanels, .toggleTerminal, .resetPanelLayout, .collapseThreads: .view
         // The app menu's Settings…, which opens the Settings window.
-        case .settings: .go
+        case .settings, .quit: .go
         }
     }
 
@@ -178,6 +180,7 @@ public enum ShortcutCommand: String, CaseIterable, Sendable {
         case .toggleTerminal: "Show Terminal"
         case .resetPanelLayout: "Reset Panel Layout"
         case .collapseThreads: "Collapse Threads"
+        case .quit: "Quit Threadbear"
         }
     }
 
@@ -219,6 +222,7 @@ public enum ShortcutCommand: String, CaseIterable, Sendable {
         // VS Code's and T3 Code's key for their terminal.
         case .toggleTerminal: ShortcutKey("j")
         case .collapseThreads: ShortcutKey("/")
+        case .quit: ShortcutKey("q")
         case .hibernate, .showHibernating, .showArchived, .resetPanelLayout: nil
         }
     }
