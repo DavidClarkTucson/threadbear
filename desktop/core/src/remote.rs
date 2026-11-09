@@ -87,10 +87,6 @@ impl RemoteThreads {
     }
 }
 
-/// `RunnerIcon.symbol`: a runner's icon, or the plain desktop for one this
-/// app hasn't a drawing of (`icons::try_symbol` decides at the draw).
-pub const FALLBACK_ICON: &str = "desktopcomputer";
-
 #[cfg(test)]
 mod tests {
     use super::*;

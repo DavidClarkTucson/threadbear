@@ -9,8 +9,12 @@ mod composer;
 mod composer_card;
 mod composer_chips;
 mod icons;
+mod new_thread;
+mod prefs;
+mod remote;
 mod rows;
 mod sidebar;
+mod slash_palette;
 mod style;
 mod thread;
 
@@ -59,8 +63,8 @@ fn main() {
         gpui_kit::init(cx);
         // ⌘ on the Mac, Control elsewhere. KeyBinding::new doesn't take GPUI's
         // "secondary-", which needs to know the platform.
-        let (stop, archive) = if cfg!(target_os = "macos") { ("cmd-.", "cmd-e") } else { ("ctrl-.", "ctrl-e") };
-        cx.bind_keys([KeyBinding::new(stop, app::StopTurn, Some("Threadbear")), KeyBinding::new(archive, app::ArchiveThread, Some("Threadbear"))]);
+        let (stop, archive, new_thread) = if cfg!(target_os = "macos") { ("cmd-.", "cmd-e", "cmd-n") } else { ("ctrl-.", "ctrl-e", "ctrl-n") };
+        cx.bind_keys([KeyBinding::new(stop, app::StopTurn, Some("Threadbear")), KeyBinding::new(archive, app::ArchiveThread, Some("Threadbear")), KeyBinding::new(new_thread, app::NewThread, Some("Threadbear"))]);
         let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
         gpui_kit::open_window(
             WindowOptions {

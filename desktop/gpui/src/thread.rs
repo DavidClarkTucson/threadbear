@@ -80,12 +80,6 @@ impl ThreadPane {
         self.client.clone()
     }
 
-    /// What's typed and not yet sent, with pictures as their markers.
-    #[cfg(feature = "automation")]
-    pub fn draft(&self, cx: &App) -> String {
-        self.composer.read(cx).draft_text(cx)
-    }
-
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         if self.summary.busy() {
             self.request("threads.interrupt", json!({ "threadId": self.summary.id }), cx);
@@ -122,6 +116,9 @@ impl ThreadPane {
                     model.known_start = page.at_start;
                     let _ = model.set_background(background);
                     this.feed = ThreadFeed::new(model);
+                    // Another runner's thread through this Mac's runner has
+                    // gaps in its seqs (`feed.sparse = viaRelay`).
+                    this.feed.set_sparse(this.summary.runner_id.is_some());
                     this.feed.begin_subscribe();
                     this.loaded = true;
                     this.loading_older = false;
