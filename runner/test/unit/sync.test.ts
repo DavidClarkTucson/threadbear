@@ -2634,6 +2634,40 @@ test("a runner key doesn't ask for the list of runners, which only the main key 
   assert.equal(main.calls.filter((c) => c.fn === 'sync:runnersList').length, 1);
 });
 
+test("an approval card loses Allow off the Mac when a value found after it was made would change its line", async () => {
+  const { h } = setup();
+  const calls: Call[] = [];
+  const scrubber = new Scrubber({ env: {}, folders: false });
+  const sync = new ConvexSync({
+    config: { enabled: true, url: 'https://x.convex.cloud', name: 'TestMac', runnerId: 'r1' },
+    key: 'k',
+    runner: h.runner,
+    version: '0.1.0+test',
+    startedAt: '2026-10-27T00:00:00.000Z',
+    clock: h.clock,
+    log: nullLogger,
+    scrubber,
+    post: async (kind, fn, args) => {
+      calls.push({ kind, fn, args });
+      return fn === 'sync:heartbeat' ? { apiVersion: BACKEND_API_VERSION } : null;
+    },
+  });
+  sync.start();
+  await sync.flushNow();
+  const t = h.runner.create({ text: 'go', cwd: h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  h.runner.publish({ method: 'thread.event', params: { threadId: t.id, event: { seq: 902, ts: '2026-11-09T00:00:00.000Z', threadId: t.id, type: 'approval.requested', approvalId: 'a', name: 'Bash', title: 'Run a command', options: ['allow', 'deny'], input: { command: 'echo lateword | login' } } } } as never);
+  await tick();
+  // A .env read late turns up a value the card's line holds (Codex's
+  // review, 9 Nov 2026): what goes up can't keep Allow.
+  const before = scrubber.safeText;
+  scrubber.safeText = (text: string) => before(text).replaceAll('lateword', '[REDACTED]');
+  await sync.flushNow();
+  const rows = calls.filter((c) => c.fn === 'sync:upsertThreads').flatMap((c) => c.args.threads as ThreadDoc[]).filter((d) => d.threadId === t.id && d.pendingApproval);
+  const card = rows.at(-1)!.pendingApproval as { options: string[]; title: string };
+  assert.deepEqual(card.options, ['deny']);
+  assert.equal(card.title, `Run a command. ${REMOTE_ALLOW_REFUSED}`);
+});
+
 test('text waits rather than go up while .env files are still being read', async () => {
   const { h } = setup();
   const calls: Call[] = [];
@@ -3144,7 +3178,7 @@ test('approvals: a card the phone cannot show whole offers only Deny there, and 
   assert.deepEqual(p.options, ['deny']);
   const refused = await respond('r2', p.approvalId, 'allow');
   assert.equal(refused.ok, false);
-  assert.match(String(refused.note), /too long to show in full here/);
+  assert.match(String(refused.note), /can.t be shown in full here/);
   assert.equal((await respond('r3', p.approvalId, 'allowAlways')).ok, false);
   assert.equal((await respond('r4', p.approvalId, 'deny')).ok, true, 'Deny still works');
   assert.equal((await hidden).decision, 'deny');

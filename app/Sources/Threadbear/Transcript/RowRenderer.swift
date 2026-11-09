@@ -1093,13 +1093,13 @@ enum RowRenderer {
                 // smaller run sits on its baseline.
                 attributes[.font] = Theme.detailFont
                 attributes[.foregroundColor] = Theme.faintText
-                output.append(NSAttributedString(string: "  " + folder, attributes: attributes))
+                output.append(NSAttributedString(string: "  " + ApprovalText.shown(folder), attributes: attributes))
             }
         }
         // Codex says why it's asking, in the model's own words ("Allow
         // creating b.txt in the current directory?").
         if let reason = item.request.input["reason"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
-            output.append(NSAttributedString(string: "\n" + reason, attributes: Theme.text(Theme.detailFont, color: Theme.quietText, line: TypeScale.scaled(19))))
+            output.append(NSAttributedString(string: "\n" + ApprovalText.shown(reason), attributes: Theme.text(Theme.detailFont, color: Theme.quietText, line: TypeScale.scaled(19))))
         }
         return output
     }
@@ -1130,7 +1130,14 @@ enum RowRenderer {
         if !request.name.hasPrefix("mcp__"), ApprovalText.filePath(request) != nil {
             let call = ToolCall(itemId: request.approvalId, name: request.name, kind: request.name == "Write" ? .write : .edit,
                                 title: request.title, input: input)
-            if let diff = DiffBuilder.diff(forTool: call), !diff.hunks.isEmpty {
+            if var diff = DiffBuilder.diff(forTool: call), !diff.hunks.isEmpty {
+                // What it writes, with any character that hides, breaks or
+                // reorders a line named, as for a command.
+                diff.hunks = diff.hunks.map { hunk in
+                    var hunk = hunk
+                    hunk.lines = hunk.lines.map(ApprovalText.shown)
+                    return hunk
+                }
                 // A file Threadbear runs as code, or can't rule out, shows
                 // every line it writes: a hook past the eighth line is still a hook.
                 let code = request.title.contains("Threadbear runs this file as code")

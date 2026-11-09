@@ -5172,11 +5172,15 @@ the mirror back as state. The Mac app doesn't use it.
   (`inputSummary` is one line: the command, the path, or the first string
   in the input, at most 200 characters, never the whole input). A card that
   line can't show all of (a command over 160 characters or on more than one
-  line, a command, path or address with a character that breaks a line,
-  hides or reorders text (controls, bidi and zero-width characters, U+2028
-  and U+2029: `HIDES_OR_REORDERS` in runner/src/tools.ts; the Mac's own card
-  shows each by name, as `⟨U+2028⟩`), in another folder or asking for the
-  network, one scrubbing changed,
+  line, a command, path or address with anything but printable ASCII in
+  it, as anything else can draw differently from how a shell reads it
+  (U+2028, bidi and zero-width characters, Hebrew or Arabic letters, a
+  no-break space, wide characters: `REMOTE_LINE` in runner/src/tools.ts;
+  the Mac's own card writes controls and format characters out by name, as
+  `⟨U+2028⟩`), a path or address over 160 characters or with spaces at its
+  ends, a Codex patch to more than one file or asking to write under a
+  folder, in another folder or asking for the network, one scrubbing
+  changed (checked again as the row goes up, after any value found since),
   an MCP tool with more than one short thing to read, an edit of a file that
   runs as code, a threadbear tool's own card, Codex asking for more access) has
   only its non-allow options there, and its title says it can only be

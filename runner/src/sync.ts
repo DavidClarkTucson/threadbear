@@ -803,6 +803,16 @@ function threadView(t: Pick<ThreadSummary, 'archivedAt' | 'snoozedUntil' | 'star
 
 // `scrub`: the sync's scrubber, for what's made here from longer text and cut
 // (the wake note), which is scrubbed whole before it's cut.
+// A thread row whose approval card offers Allow off the Mac, with that
+// option taken away when scrubbing would change the card's line: what the
+// phone shows then isn't all of what Allow allows.
+export function holdAllowIfScrubbed(doc: ThreadDoc, scrub: (text: string) => string): ThreadDoc {
+  const p = doc.pendingApproval;
+  if (!p || p.kind !== 'approval' || p.inputSummary === undefined || !p.options.some((o) => o === 'allow' || o === 'allowAlways')) return doc;
+  if (scrub(p.inputSummary) === p.inputSummary) return doc;
+  return { ...doc, pendingApproval: { ...p, title: `${p.title}. ${REMOTE_ALLOW_REFUSED}`, options: p.options.filter((o) => o !== 'allow' && o !== 'allowAlways') } };
+}
+
 export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pending?: PendingApproval, earliestSeq?: number, next?: string[], scrub?: (text: string) => string): ThreadDoc {
   const doc: ThreadDoc = {
     threadId: t.id,
@@ -1327,6 +1337,12 @@ export class ConvexSync {
           safe = undefined;
         }
         return send(kind, fn, { ...this.scrubber.doc(rest), ...(safe !== undefined ? { result: safe } : {}) });
+      }
+      // A card whose line was whole when it was made can lose words to a
+      // value found since (a .env read late): then it can't be allowed
+      // from there any more (Codex review, 9 Nov 2026).
+      if (fn === 'sync:upsertThreads' && Array.isArray(args.threads)) {
+        args = { ...args, threads: (args.threads as ThreadDoc[]).map((t) => holdAllowIfScrubbed(t, this.scrubber.safeText)) };
       }
       return send(kind, fn, this.scrubber.doc(args));
     };

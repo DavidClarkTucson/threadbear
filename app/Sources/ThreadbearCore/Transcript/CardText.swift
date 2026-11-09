@@ -5,7 +5,7 @@ import Foundation
 public enum ApprovalText {
     /// The card's question: "Run this command?", "Write release.sh?".
     public static func title(_ request: ApprovalRequest) -> String {
-        let file = filePath(request).map { ($0 as NSString).lastPathComponent }
+        let file = filePath(request).map { shown(($0 as NSString).lastPathComponent) }
         switch request.name {
         case "Bash": return "Run this command?"
         case "Edit", "MultiEdit", "NotebookEdit": return file.map { "Edit \($0)?" } ?? "Edit this file?"
@@ -22,11 +22,13 @@ public enum ApprovalText {
         let input = request.input
         switch request.name {
         case "Bash":
-            if let command = input["command"]?.stringValue, let line = firstLine(command) { return line }
+            // Named before it's split, so a U+2028 can't make `ls` alone
+            // look like the line that was allowed.
+            if let command = input["command"]?.stringValue, let line = firstLine(shown(command)) { return line }
         case "WebFetch":
-            if let url = input["url"]?.stringValue, !url.isEmpty { return "Fetch " + url }
+            if let url = input["url"]?.stringValue, !url.isEmpty { return "Fetch " + shown(url) }
         case "WebSearch":
-            if let query = input["query"]?.stringValue, !query.isEmpty { return "Search for " + query }
+            if let query = input["query"]?.stringValue, !query.isEmpty { return "Search for " + shown(query) }
         default:
             break
         }
