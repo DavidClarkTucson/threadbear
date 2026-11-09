@@ -38,7 +38,8 @@ test('the prompt never goes in the arguments or the environment', async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-argv-')));
   const seen = path.join(root, 'seen');
   const wrap = path.join(root, 'wrap');
-  fs.writeFileSync(wrap, `#!/bin/sh\necho "$@" > ${seen}\nenv >> ${seen}\nexec ${FAKE} "$@"\n`, { mode: 0o755 });
+  // Quoted: the runner's release builds run from under "Application Support".
+  fs.writeFileSync(wrap, `#!/bin/sh\necho "$@" > "${seen}"\nenv >> "${seen}"\nexec "${FAKE}" "$@"\n`, { mode: 0o755 });
   const r = rig(ACP_AGENTS.opencode, {}, wrap);
   const res = await r.ask({ account, user: 'SECRET-THREAD-TEXT', system: 'SECRET-SYSTEM', cwd: r.root, timeoutMs: 8000 });
   assert.equal(res.ok, true);

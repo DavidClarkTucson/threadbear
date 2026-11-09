@@ -126,7 +126,9 @@ function target(plan: MovePlan | { problem: string }) {
 }
 
 async function until(what: () => boolean, label: string) {
-  for (let i = 0; i < 500; i++) {
+  // By the clock, not a count of turns of the event loop: 500 turns is 30ms,
+  // which a busy machine's file and crypto work can easily outlast.
+  for (const deadline = Date.now() + 15_000; Date.now() < deadline; ) {
     if (what()) return;
     await new Promise((r) => setImmediate(r));
   }
