@@ -26,7 +26,7 @@ import { SessionNotFoundError } from '../types.ts';
 import type { AcpAgent } from './agents.ts';
 import { AcpExitedError, AcpProcess, AcpRpcError, AUTH_REQUIRED, type AcpTimings, type InitializeResult, type RequestId } from './connection.ts';
 import { AcpMcpServer } from './mcp-http.ts';
-import { AcpNormalizer, absolutePath, isPlainObject, requestPaths, writesFiles, type AcpToolCall } from './normalize.ts';
+import { AcpNormalizer, absolutePath, isPlainEdit, isPlainObject, requestPaths, writesFiles, type AcpToolCall } from './normalize.ts';
 
 export type AcpAdapterDeps = {
   agent: AcpAgent;
@@ -283,9 +283,23 @@ export class AcpSession implements AgentSession {
   // Puts the agent in the session mode this thread's mode calls for. If it
   // can't be done, a thread that has to ask doesn't run: Cursor's read-only
   // mode is all that stands between it and its own allow-list.
-  private async applyMode(): Promise<void> {
-    const want = this.deps.agent.modeFor(this.mode);
-    if (!want || want === this.currentMode) return;
+  // One at a time, and until the agent is where the thread's mode is now:
+  // a quick Full then Ask must not end on whichever answer came last.
+  private applyMode(): Promise<void> {
+    const run = this.modeChain.then(() => this.settleMode());
+    this.modeChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async settleMode(): Promise<void> {
+    for (let i = 0; i < 8; i++) {
+      const want = this.deps.agent.modeFor(this.mode);
+      if (!want || want === this.currentMode) return;
+      await this.setAgentMode(want);
+    }
+  }
+
+  private async setAgentMode(want: string): Promise<void> {
     try {
       const option = this.configOptions.find((o) => o.category === 'mode');
       if (option?.id) {
@@ -302,6 +316,8 @@ export class AcpSession implements AgentSession {
     }
     if (this.currentMode !== want && this.mode !== 'full') throw new Error(`Couldn't put ${providerName(this.deps.agent.provider)} in its ${want} mode, so this thread wasn't started.`);
   }
+
+  private modeChain: Promise<unknown> = Promise.resolve();
 
   private async applyModel(model: string): Promise<void> {
     const option = this.configOptions.find((o) => o.category === 'model');
@@ -375,8 +391,9 @@ export class AcpSession implements AgentSession {
     if (this.mode === 'full') return this.answer(id, options, true);
 
     const { kind } = seen;
-    // This request's own names, not what earlier updates to the call said.
-    const paths = requestPaths(p.toolCall ?? {}).map((f) => absolutePath(f, this.opts.cwd));
+    // What this request names and what earlier updates to the call said:
+    // more names only makes the check stricter.
+    const paths = [...new Set([...seen.paths, ...requestPaths(p.toolCall ?? {})].map((f) => absolutePath(f, this.opts.cwd)))];
     const input = isPlainObject(p.toolCall?.rawInput) && Object.keys(p.toolCall.rawInput).length ? p.toolCall.rawInput : seen.input;
     const command = kind === 'execute' && typeof input.command === 'string' ? input.command : '';
     const argv = command ? shellWords(command) : null;
@@ -390,6 +407,7 @@ export class AcpSession implements AgentSession {
     if (writesFiles(kind)) {
       // An edit with no named files can't be checked: it asks every time.
       code = paths.length ? this.runsAsCode(paths) : 'unsure';
+      if (!code && !isPlainEdit(input)) code = 'unsure';
       if (!code && this.rules.has(EDIT_RULE)) return this.answer(id, options, true);
     } else if (paths.length && kind !== 'read' && kind !== 'search' && kind !== 'fetch' && kind !== 'think') {
       // A kind that doesn't say what it does, naming a file that runs.
@@ -416,7 +434,9 @@ export class AcpSession implements AgentSession {
     try {
       a = await this.sink.requestApproval({
         toolUseId: typeof p.toolCall?.toolCallId === 'string' ? p.toolCall.toolCallId : undefined,
-        name: command ? 'shell' : writesFiles(kind) ? 'apply_patch' : (kind ?? 'tool'),
+        // As an MCP tool's, for anything else: a card whose arguments say
+        // what it does can only be allowed where all of them are shown.
+        name: command ? 'shell' : writesFiles(kind) ? 'apply_patch' : `mcp__acp__${kind ?? 'tool'}`,
         title: code ? `${title} (${codeWriteNote(code)})` : title,
         input: card.input,
         wholeInput: input,

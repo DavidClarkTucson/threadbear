@@ -148,8 +148,8 @@ export class AcpProcess {
         clientInfo: { name: 'threadbear', title: 'Threadbear', version: RUNNER_VERSION },
       })
         .then((init) => {
-          if (typeof init?.protocolVersion === 'number' && init.protocolVersion !== ACP_VERSION) {
-            throw new Error(`This agent speaks ACP version ${init.protocolVersion}, and Threadbear speaks ${ACP_VERSION}.`);
+          if (init?.protocolVersion !== ACP_VERSION) {
+            throw new Error(`This agent speaks ACP version ${String(init?.protocolVersion)}, and Threadbear speaks ${ACP_VERSION}.`);
           }
           if (typeof init?.agentInfo?.version === 'string') this.version = init.agentInfo.version;
           settled = true;

@@ -16,6 +16,7 @@ import type { Logger } from '../log.ts';
 import { paths } from '../config.ts';
 import type { CliPolicy, CliStatus, Provider } from '../protocol.ts';
 import type { Provider as AnyProvider } from '../protocol.ts';
+import { PROVIDERS } from '../protocol.ts';
 import { cliName } from '../providers.ts';
 
 // What this updates. An ACP agent's CLI isn't touched by Threadbear.
@@ -109,7 +110,7 @@ export class CliUpdates {
     });
     // A previous update that was running when the runner stopped didn't
     // finish; say so rather than show it running forever.
-    for (const p of MANAGED) {
+    for (const p of PROVIDERS) {
       const u = this.st[p]?.update;
       if (u && (u.state === 'running' || u.state === 'waiting')) this.st[p]!.update = { ...u, state: 'failed', message: 'The runner stopped before this finished.' };
     }
@@ -321,7 +322,7 @@ export class CliUpdates {
     const bin = this.codexBinary();
     const codex = bin === this.copies.currentLink ? this.copies.currentVersion() : codexPackageVersion(bin);
     const changed = claude !== this.installed.claude || codex !== this.installed.codex;
-    this.installed = { claude, codex };
+    this.installed = { ...this.installed, claude, codex };
     if (claude) this.lastClaude ??= claude;
     if (changed) this.changed();
   }

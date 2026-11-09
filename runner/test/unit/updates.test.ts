@@ -563,3 +563,19 @@ test('THREADBEAR_CLI_UPDATES=off covers them too', async () => {
   await c.u.settled();
   assert.ok(!c.calls.some((a) => a[0] === 'upgrade'));
 });
+
+test('an update left running across a restart is marked failed, so it can be tried again', async () => {
+  const c = acpSetup();
+  (c.u as unknown as { setUpdate(p: string, u: unknown): void }).setUpdate('opencode', { state: 'running', message: 'Updating' });
+  const after = c.make();
+  (after as unknown as { d: Record<string, unknown> }).d.acp = { on: () => true, providers: ['opencode'], binary: () => '/bin/opencode', updateArgs: () => ['upgrade'] };
+  assert.equal(after.list().find((r) => r.provider === 'opencode')!.update?.state, 'failed');
+});
+
+test('a routine check keeps an ACP agent\'s version', async () => {
+  const c = acpSetup();
+  c.u.check('opencode');
+  await c.u.settled();
+  await (c.u as unknown as { refreshInstalled(): Promise<void> }).refreshInstalled();
+  assert.equal(c.u.list().find((r) => r.provider === 'opencode')!.installedVersion, '1.0.0');
+});

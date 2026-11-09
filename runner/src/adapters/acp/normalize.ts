@@ -61,19 +61,42 @@ function toolKind(acp: string | undefined): ToolKind {
 // Every file a permission request names, from what the agent says it touches
 // and from the tool's own arguments, as one could say less than the other.
 // A check takes all of them: more names only makes it stricter.
-const PATH_KEY = /path|file|dest|target|^to$|^from$/i;
+const PATH_KEY = /path|file|dest|target|document|^to$|^from$/i;
+// The files a patch body names: unified diffs and the `*** Update File:` kind.
+const PATCH_HEADER = /^(?:\*\*\* (?:Add|Update|Delete) File: |\*\*\* Move to: |\+\+\+ |--- |Index: )(.+)$/gm;
+
+function pathsIn(v: unknown, key: string, out: Set<string>, depth: number): void {
+  if (depth > 8) return;
+  if (typeof v === 'string') {
+    if (v && PATH_KEY.test(key)) out.add(v);
+    if (v.includes('\n')) {
+      for (const m of v.matchAll(PATCH_HEADER)) {
+        const p = m[1].trim().replace(/^[ab]\//, '').split('\t')[0];
+        if (p && p !== '/dev/null') out.add(p);
+      }
+    }
+  } else if (Array.isArray(v)) {
+    for (const x of v) pathsIn(x, key, out, depth + 1);
+  } else if (isPlainObject(v)) {
+    for (const [k, x] of Object.entries(v)) pathsIn(x, k, out, depth + 1);
+  }
+}
 
 export function requestPaths(call: AcpToolCall): string[] {
   const out = new Set<string>();
   for (const l of Array.isArray(call.locations) ? call.locations : []) if (typeof l?.path === 'string' && l.path) out.add(l.path);
   for (const c of Array.isArray(call.content) ? call.content : []) if (c?.type === 'diff' && typeof c.path === 'string' && c.path) out.add(c.path);
-  if (isPlainObject(call.rawInput)) {
-    for (const [k, v] of Object.entries(call.rawInput)) {
-      if (!PATH_KEY.test(k)) continue;
-      for (const s of Array.isArray(v) ? v : [v]) if (typeof s === 'string' && s) out.add(s);
-    }
-  }
+  pathsIn(call.rawInput, '', out, 0);
   return [...out];
+}
+
+// The arguments of the plain file tools the agents have, where what's named
+// is all there is. Any other shape might write somewhere nobody has found:
+// such a call can't be covered by "Always allow".
+const PLAIN_EDIT_KEYS = new Set(['filepath', 'file_path', 'path', 'content', 'oldstring', 'newstring', 'old_string', 'new_string', 'diff', 'replaceall', 'replace_all', 'description']);
+
+export function isPlainEdit(input: Record<string, unknown>): boolean {
+  return Object.entries(input).every(([k, v]) => PLAIN_EDIT_KEYS.has(k.toLowerCase()) && (typeof v === 'string' || typeof v === 'boolean'));
 }
 
 // Kinds whose paths say what a call will change.

@@ -11,6 +11,7 @@ import { ACP_AGENTS, acpAccounts, isCursorBinary, opencodeEnv } from '../../src/
 import type { AcpAgent } from '../../src/adapters/acp/agents.ts';
 import { AcpMcpServer } from '../../src/adapters/acp/mcp-http.ts';
 import { commandRule } from '../../src/adapters/codex/approvals.ts';
+import { remoteCardShowsAll } from '../../src/tools.ts';
 import type { AdapterOutput, SessionSink, StartSessionOptions, ToolApprovalAnswer, ToolApprovalRequest } from '../../src/adapters/types.ts';
 import type { Account, PermissionMode } from '../../src/protocol.ts';
 import { nullLogger } from '../../src/log.ts';
@@ -685,4 +686,77 @@ test('MCP: a card can never approve less than the call runs', async () => {
   assert.equal(cards, 0, 'no card that would have been cut short');
   assert.deepEqual(calls, []);
   assert.equal(r.json.result.isError, true);
+});
+
+for (const [what, rawInput] of [
+  ['a nested list of changes', { changes: [{ path: '.mcp.json', newText: 'x' }] }],
+  ['a patch body', { patchText: '*** Begin Patch\n*** Update File: .mcp.json\n@@\n-a\n+b\n*** End Patch' }],
+  ['a unified diff', { patch: '--- a/.mcp.json\n+++ b/.mcp.json\n@@ -1 +1 @@\n-a\n+b\n' }],
+  ['a document key', { document: '.mcp.json', old_string: 'a', new_string: 'b' }],
+] as const) {
+  test(`a code file inside ${what} still asks, past an earlier Always allow`, async () => {
+    const r = rig({ mode: 'ask', opts: { allowRules: [EDIT_RULE] }, deny: true });
+    const s = r.start();
+    await ready(r, s);
+    fakeRequest(r, s, { kind: 'edit', locations: [{ path: 'notes.txt' }], rawInput });
+    await until(() => r.cards.length === 1);
+    assert.match(r.cards[0].title, /runs this file as code/);
+    assert.equal(r.cards[0].canAlwaysAllow, false);
+  });
+}
+
+test('an edit of a shape nobody has checked asks every time, and offers no Always allow', async () => {
+  const r = rig({ mode: 'ask', opts: { allowRules: [EDIT_RULE] }, deny: true });
+  const s = r.start();
+  await ready(r, s);
+  fakeRequest(r, s, { kind: 'edit', locations: [{ path: 'notes.txt' }], rawInput: { filePath: 'notes.txt', extra: { nested: 1 } } });
+  await until(() => r.cards.length === 1);
+  assert.equal(r.cards[0].canAlwaysAllow, false);
+});
+
+test('a code file an earlier update named still counts', async () => {
+  const r = rig({ mode: 'ask', opts: { allowRules: [EDIT_RULE] }, deny: true });
+  const s = r.start();
+  await ready(r, s);
+  r.outputs.length = 0;
+  (s as unknown as { notification(m: string, p: unknown): void }).notification('session/update', { update: { sessionUpdate: 'tool_call', toolCallId: 'x', title: 'write', kind: 'edit', status: 'in_progress', locations: [{ path: path.join(r.cwd, '.mcp.json') }], rawInput: { filePath: path.join(r.cwd, '.mcp.json') } } });
+  fakeRequest(r, s, { kind: 'edit', locations: [{ path: 'notes.txt' }], rawInput: { filePath: 'notes.txt' } });
+  await until(() => r.cards.length === 1);
+  assert.match(r.cards[0].title, /runs this file as code/);
+});
+
+test("a tool of no known kind can't be allowed from the phone, as its arguments may not all show", async () => {
+  const r = rig({ mode: 'ask', deny: true });
+  const s = r.start();
+  await ready(r, s);
+  fakeRequest(r, s, { kind: 'other', title: 'Send email', rawInput: { to: 'a@example.com', body: 'not shown' } });
+  await until(() => r.cards.length === 1);
+  assert.ok(r.cards[0].name.startsWith('mcp__'));
+  assert.equal(remoteCardShowsAll(r.cards[0].name, r.cards[0].input, r.cwd, r.cards[0].title), false);
+});
+
+test('a quick Full then Ask ends on Ask', async () => {
+  const r = rig({ mode: 'ask', env: { FAKE_ACP_NAME: 'Cursor', FAKE_ACP_SLOW_SET: '60' }, agent: ACP_AGENTS.cursor });
+  const s = r.start();
+  await ready(r, s);
+  await Promise.all([s.setPermissionMode('full'), s.setPermissionMode('ask')]);
+  const modes = r.log().flatMap((l) => ((l.set as { mode?: string } | undefined)?.mode ? [(l.set as { mode: string }).mode] : []));
+  assert.equal(modes.at(-1), 'ask');
+});
+
+test('a whole path is needed: a relative one could be a repo\'s own program', () => {
+  const d = tmp();
+  made.push(d);
+  const bin = path.join(d, 'x');
+  fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+  assert.equal(ACP_AGENTS.opencode.findBinary({ explicit: bin, home: d, pathEnv: '' }), bin);
+  assert.equal(ACP_AGENTS.opencode.findBinary({ explicit: './x', home: d, pathEnv: '' }), undefined);
+  assert.equal(ACP_AGENTS.cursor.findBinary({ explicit: './x', home: d, pathEnv: '' }), undefined);
+});
+
+test('no protocol version in initialize is refused', async () => {
+  const r = rig({ env: { FAKE_ACP_VERSION: 'none' } });
+  r.start();
+  await r.exited();
+  assert.match(String(r.exitError()), /ACP version/);
 });

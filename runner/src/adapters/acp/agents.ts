@@ -98,7 +98,9 @@ export const ACP_AGENTS: Record<AcpProvider, AcpAgent> = {
     // Free models work with no login, so being installed is enough.
     loggedIn: () => true,
     findBinary({ explicit, home, pathEnv }) {
-      if (explicit) return isExecutableFile(explicit) ? explicit : undefined;
+      // Whole paths only: a relative one would resolve against the thread's
+      // folder when it's run, and that can be anyone's repo.
+      if (explicit) return path.isAbsolute(explicit) && isExecutableFile(explicit) ? explicit : undefined;
       const own = path.join(home, '.opencode', 'bin', 'opencode');
       return isExecutableFile(own) ? own : onPath('opencode', pathEnv);
     },
@@ -117,7 +119,7 @@ export const ACP_AGENTS: Record<AcpProvider, AcpAgent> = {
     // Written once the CLI has been used; only whether it exists is read.
     loggedIn: (home) => fs.existsSync(path.join(home, '.cursor', 'cli-config.json')),
     findBinary({ explicit, home, pathEnv }) {
-      if (explicit) return isExecutableFile(explicit) ? explicit : undefined;
+      if (explicit) return path.isAbsolute(explicit) && isExecutableFile(explicit) ? explicit : undefined;
       const candidates = [path.join(home, '.local', 'bin', 'cursor-agent'), onPath('cursor-agent', pathEnv), path.join(home, '.local', 'bin', 'agent'), onPath('agent', pathEnv)];
       return candidates.find((f): f is string => Boolean(f) && isExecutableFile(f!) && isCursorBinary(f!));
     },
