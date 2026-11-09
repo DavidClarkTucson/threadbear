@@ -171,6 +171,11 @@ final class ReviewWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    static func stopVideos(in view: NSView) {
+        (view as? AVPlayerView)?.player?.pause()
+        view.subviews.forEach(stopVideos)
+    }
+
     func present() {
         #if DEBUG
         if Automation.instanceId != nil {
@@ -183,6 +188,9 @@ final class ReviewWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A clip has its sound on, and nothing else stops it when the
+        // window goes: it would loop on, heard but not seen.
+        window?.contentView.map(Self.stopVideos)
         // Keystrokes are already cached locally. Try to flush the final
         // debounce too; a failed connection still leaves that local copy.
         Task { [session] in await session.saveNow() }
@@ -416,8 +424,8 @@ struct ReviewWindow: View {
             Group {
                 if session.mode == .single, let shot = session.shownShot {
                     if let video = shot.video {
-                        // Plays on its own, quietly, round and round, as
-                        // X does: the controls turn the sound up.
+                        // Plays on its own, round and round, with its
+                        // sound on: some clips are there to be heard.
                         ReviewVideo(url: video, controls: true)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .accessibilityLabel("\(session.shownOption?.label ?? ""), video")
@@ -789,9 +797,10 @@ struct ReviewWindow: View {
 
 /// A small picture of a shot, cropped from its top left, where a mockup's
 /// title and controls are, rather than squashed.
-/// A shot that's a video: muted and looping from the start. On the stage
-/// it has the player's controls, for sound and scrubbing; in a cell among
-/// them all it has none, and a click on it enlarges it.
+/// A shot that's a video, looping from the start. On the stage it has the
+/// player's controls and its sound on (Mike, 9 Nov); in a cell among them
+/// all it's muted, as they all play at once, with no controls, and a click
+/// on it enlarges it.
 struct ReviewVideo: NSViewRepresentable {
     let url: URL
     let controls: Bool
@@ -822,8 +831,11 @@ struct ReviewVideo: NSViewRepresentable {
         guard context.coordinator.url != url else { return }
         view.player?.pause()
         let player = AVQueuePlayer()
-        player.isMuted = true
-        // Looping and quiet: it mustn't keep the Mac awake on its own.
+        // Stepping to the next option keeps the mute and volume just set,
+        // so clips being compared by ear play at the same level.
+        player.isMuted = view.player?.isMuted ?? !controls
+        player.volume = view.player?.volume ?? 1
+        // Looping: it mustn't keep the Mac awake on its own.
         player.preventsDisplaySleepDuringVideoPlayback = false
         context.coordinator.looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
         context.coordinator.url = url

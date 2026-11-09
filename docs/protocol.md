@@ -745,8 +745,8 @@ page comes in a folder of its own with the files it names (`src`, `href`,
 50 MB; never anything above its folder, nor other pages it links to. The
 Mac window shows the page the way the side pane does: scripts off, nothing
 loaded from outside, and Open in Browser for a page with scripts. A video
-plays muted and looping, with controls on the stage and side by side with
-the others in the grid. Paths can be absolute, home-relative or
+loops. On the stage it has controls and plays with sound; side by side
+with the others in the grid it's muted. Paths can be absolute, home-relative or
 relative to the thread's folder. An option's shots are `path` then
 `shots`, or `shots` alone; it needs at least one. Limit: 12 options, 8
 shots each and 40 in all, each image at most 25 MB, video 200 MB and page
