@@ -4507,7 +4507,15 @@ kept in `schedules.json` in the data dir.
   (`createdAt`), or nothing is sent and the claim is let go. The main Mac
   reads every runner's rows, so a row another runner's key saved under a
   deleted id must never be sent in place of the one it claimed. Then
-  `sync:scheduleRan` records it and the next time. Making, changing and
+  `sync:scheduleRan` records it and the next time. Until the backend has
+  that, the row still says the run is due, and once the claim lapses it
+  would be sent again (THREADBEAR-15: a daily schedule sent twice when the
+  network dropped as it was recorded and a self-update's new runner read
+  the row). So the run is written to `schedule-runs.json` first and tried
+  again every tick until `scheduleRan` lands, by the next runner process
+  if need be, and meanwhile laid over the row the subscription brings, so
+  it isn't due again here. `scheduleRan` counts a run it already has
+  (same `lastRun.at` and outcome) once. Making, changing and
   deleting go straight to the backend and answer once it has them; with
   no backend reachable they fail with `-32000` saying so. Nothing fires
   without the backend. The first time a runner meets a backend of API 9

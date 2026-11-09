@@ -2129,6 +2129,15 @@ export const scheduleRan = mutation({
     // refusal to say it's there or whose it is.
     const row = visibleTo(caller, await scheduleRow(ctx, scheduleId));
     if (!row) return null;
+    // Already recorded: the runner tries a run again until it hears back
+    // (THREADBEAR-15), so one whose answer got lost comes again. Counted once.
+    if (row.lastRun && row.lastRun.at === lastRun.at && row.lastRun.outcome === lastRun.outcome) {
+      const again: Record<string, unknown> = {};
+      if (row.claim?.holder === holder) again.claim = undefined;
+      if (request !== undefined && row.runRequestedAt === request) again.runRequestedAt = undefined;
+      if (Object.keys(again).length) await ctx.db.patch(row._id, { ...again, updatedMs: Date.now() });
+      return null;
+    }
     // A runner key's run record is cut to fit: the row it's recorded on is
     // read whole with every other schedule (CAP).
     const run = caller.owner ? lastRun : { ...lastRun, at: cutBytes(lastRun.at, 64), outcome: cutBytes(lastRun.outcome, 64), ...(lastRun.threadId !== undefined ? { threadId: cutBytes(lastRun.threadId, 100) } : {}), ...(lastRun.note !== undefined ? { note: cutBytes(lastRun.note, CAP.note) } : {}) };

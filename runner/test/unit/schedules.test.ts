@@ -416,6 +416,7 @@ function fakeBackend(clock: { now(): number }, runners: { id: string; name: stri
       check(`ran ${p.lastRun.outcome}`);
       const r = rows.get(p.scheduleId);
       if (!r) return;
+      if (r.lastRun?.at === p.lastRun.at && r.lastRun.outcome === p.lastRun.outcome) return;
       r.lastRun = p.lastRun;
       r.runs += p.sent ? 1 : 0;
       if (r.claim?.holder === holder) delete r.claim;
@@ -532,6 +533,7 @@ test('a due run is claimed, so two runner processes under one id send it once', 
   h.clock.advance(10 * MIN);
   for (let i = 0; i < 5; i++) await tick();
   const sent = h.events(thread.id).filter((e) => e.type === 'user.message' && e.scheduleId === sc.id);
+  console.log(JSON.stringify(h.events(thread.id).map((e) => [e.type, e.scheduleId, e.text?.slice(0, 40)]))); console.log(JSON.stringify([...b.rows.values()]));
   assert.equal(sent.length, 1, 'sent once');
   const row = b.rows.get(sc.id)!;
   assert.equal(row.runs, 1);
@@ -877,3 +879,102 @@ for (const how of ['secondary', 'owner'] as const) {
     s.stop();
   });
 }
+
+// THREADBEAR-15 (9 Nov 2026): a daily schedule ran, the M5's network
+// dropped as it told the backend, so the backend kept today's nextRunAt.
+// Five minutes later a self-update's new runner loaded the backend's copy,
+// the old claim had lapsed, and it ran the same day's run again. A run that
+// was sent stays this runner's to record until the backend has it.
+// Sends to the thread, counted as they're made (a busy thread queues them,
+// so its events don't show a second one yet).
+function countSends(h: ReturnType<typeof makeHarness>, threadId: string) {
+  const out = { n: 0 };
+  const send = h.runner.send.bind(h.runner);
+  h.runner.send = ((id: string, ...rest: unknown[]) => {
+    if (id === threadId) out.n++;
+    return (send as (...a: unknown[]) => ReturnType<typeof send>)(id, ...rest);
+  }) as typeof h.runner.send;
+  return out;
+}
+
+function flakyRan(be: ScheduleBackend) {
+  const state = { down: false, tries: 0 };
+  const backend: ScheduleBackend = {
+    ...be,
+    ran: async (p) => {
+      state.tries++;
+      if (state.down) throw new TypeError('fetch failed');
+      return be.ran(p);
+    },
+  };
+  return { backend, state };
+}
+
+test('a run the backend missed hearing of is not sent again in the same process, and is recorded once it can be', async () => {
+  const h = makeHarness();
+  const { thread } = idleThread(h);
+  const sends = countSends(h, thread.id);
+  const b = fakeBackend(h.clock, [M5]);
+  const s = backendScheduler(h);
+  const f = flakyRan(b.for('m5-a', M5.id));
+  await s.attach(f.backend);
+  const sc = await s.create({ text: 'Daily digest', title: 'Digest', cron: '0 13 * * *', threadId: thread.id });
+  await tick();
+  f.state.down = true;
+  h.clock.advance(60 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  const sent = () => sends.n;
+  assert.equal(sent(), 1);
+  assert.equal(b.rows.get(sc.id)?.nextRunAt, '2026-10-26T13:00:00.000Z', "the backend didn't hear");
+  // Something else changes, so the subscription brings the backend's stale
+  // row; the claim lapses.
+  await s.create({ text: 'Other', cron: '@weekly', threadId: thread.id });
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(s.list().find((x) => x.id === sc.id)?.nextRunAt, '2026-10-27T13:00:00.000Z', 'its own next time, not the stale one');
+  h.clock.advance(5 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sent(), 1, 'not sent again');
+  // The network's back: the run is recorded on the next look.
+  f.state.down = false;
+  h.clock.advance(MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  const row = b.rows.get(sc.id)!;
+  assert.equal(row.nextRunAt, '2026-10-27T13:00:00.000Z');
+  assert.equal(row.runs, 1);
+  assert.equal(row.lastRun?.outcome, 'sent');
+  assert.equal(sent(), 1);
+  const tries = f.state.tries;
+  h.clock.advance(5 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(f.state.tries, tries, 'not recorded again');
+  s.stop();
+});
+
+test('a run the backend missed hearing of is not sent again by the next runner after a restart', async () => {
+  const h = makeHarness();
+  const { thread } = idleThread(h);
+  const sends = countSends(h, thread.id);
+  const b = fakeBackend(h.clock, [M5]);
+  const old = backendScheduler(h);
+  const f = flakyRan(b.for('m5-old', M5.id));
+  await old.attach(f.backend);
+  const sc = await old.create({ text: 'Daily digest', title: 'Digest', cron: '0 13 * * *', threadId: thread.id });
+  await tick();
+  f.state.down = true;
+  h.clock.advance(60 * MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  old.stop();
+  h.clock.advance(5 * MIN);
+
+  // The new release, on the same data dir, with the network back.
+  const next = backendScheduler(h);
+  await next.attach(b.for('m5-new', M5.id));
+  for (let i = 0; i < 5; i++) await tick();
+  h.clock.advance(MIN);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sends.n, 1, 'sent once');
+  const row = b.rows.get(sc.id)!;
+  assert.equal(row.nextRunAt, '2026-10-27T13:00:00.000Z', 'the next runner recorded it');
+  assert.equal(row.runs, 1);
+  next.stop();
+});
