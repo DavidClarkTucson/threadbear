@@ -299,13 +299,19 @@ function yourCopy() {
   const keysOf = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').map(keyOf).filter(Boolean) : []);
   const revoked = new Set([...keysOf(revokedHome), ...keysOf(shippedRevoked)]);
   const without = (text) => text.split('\n').filter((l) => l.trim() && !revoked.has(keyOf(l))).join('\n') + '\n';
+  // Kept whenever the repo lists one this install hadn't, pinned or not:
+  // one still waiting its week (runner/src/release-keys.ts) must never
+  // count either (Codex's review, 9 Nov 2026).
+  const keepRevoked = () => {
+    if (revoked.size > keysOf(revokedHome).length && !dry) fs.writeFileSync(revokedHome, [...revoked].join('\n') + '\n');
+  };
   if (fs.existsSync(pinned)) {
     const was = fs.readFileSync(pinned, 'utf8');
     const now = without(was);
+    keepRevoked();
     if (now !== was.split('\n').filter((l) => l.trim()).join('\n') + '\n') {
       if (dry) return todo(`take revoked release keys out of ${pinned}`);
       fs.writeFileSync(pinned, now);
-      fs.writeFileSync(revokedHome, [...revoked].join('\n') + '\n');
       note(`took a revoked release key out of ${pinned} (scripts/release-keys-revoked)`);
     }
     if (now !== without(fs.readFileSync(shipped, 'utf8'))) note(`the release keys in scripts/release-signers differ from the ones pinned at ${pinned}; keeping the pinned ones (a new key comes through a signed release)`);
@@ -314,7 +320,7 @@ function yourCopy() {
   if (dry) return todo(`pin Mike's release key at ${pinned}`);
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(pinned, without(fs.readFileSync(shipped, 'utf8')));
-  if (revoked.size) fs.writeFileSync(revokedHome, [...revoked].join('\n') + '\n');
+  keepRevoked();
   ok(`Mike's release key pinned at ${pinned}`);
 }
 

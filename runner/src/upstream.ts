@@ -41,7 +41,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
-import { applyKeyChanges, keysIn, revokedPath, REVOKED_FILE, signerKey, SIGNERS_FILE } from './release-keys.ts';
+import { applyKeyChanges, KeysBusy, keysIn, revokedPath, REVOKED_FILE, signerKey, SIGNERS_FILE } from './release-keys.ts';
 
 export const FETCH_INTERVAL_MS = 6 * 60 * 60_000;
 export const PUBLISH_INTERVAL_MS = 60 * 60_000;
@@ -516,11 +516,18 @@ export class Upstream {
         await this.promote(checkout, signers, staged);
         this.newestVerified = undefined;
         release = await this.newestSigned(checkout, signers, staged);
+        // A release can change which keys count (keyChanges): then what
+        // it found is worked out again with the keys as they are now, so a
+        // release whose own key it revoked isn't offered (Codex's review).
+        if (release && (await this.keyChanges(checkout, signers))) {
+          await this.sweep(checkout, signers);
+          this.newestVerified = undefined;
+          release = await this.newestSigned(checkout, signers, staged);
+        }
       } finally {
         fs.rmSync(work, { recursive: true, force: true });
       }
       if (!release) return this.set({ state: 'idle', checkedAt, reason: 'no signed releases yet' });
-      await this.keyChanges(checkout, signers);
       const state = release.changes > 0 ? 'available' : 'idle';
       if (state === 'available' && this.st.release?.tag !== release.tag) this.deps.log.info('a newer release from upstream', { tag: release.tag, changes: release.changes });
       const status = this.set({ state, checkedAt, release });
@@ -581,6 +588,22 @@ export class Upstream {
       else if (RELEASE_NAME.test(name)) listedOids.set(name, oid);
     }
     const offered = new Map([...listedOids].filter(([name]) => peeled.has(name)));
+    // Upstream's main first, into the folder, so a release kept here whose
+    // commit isn't on it goes before the newest kept one sets where the
+    // candidates start: a signed side-branch tag an older runner kept, dated
+    // after every real release, held them all out (Codex's review).
+    const objects = path.resolve(checkout, await this.git(checkout, ['rev-parse', '--git-path', 'objects']));
+    const format = await this.git(checkout, ['rev-parse', '--show-object-format']).catch(() => 'sha1');
+    await this.git(path.dirname(work), ['init', '-q', '--bare', `--object-format=${format}`, work]);
+    fs.writeFileSync(path.join(work, 'objects', 'info', 'alternates'), `${objects}\n`);
+    await this.fetchStaged(checkout, work, objects, ['refs/heads/main']);
+    if (!(await this.git(work, ['cat-file', '-e', `${mainOid}^{commit}`]).then(() => true, () => false))) return undefined;
+    await this.git(work, ['update-ref', STAGED_MAIN, mainOid]);
+    for (const [name, ref] of await this.refs(checkout, REF_NS)) {
+      if (await this.onUpstreamMain(work, `${ref.oid}^{commit}`)) continue;
+      this.deps.log.warn("removed a kept upstream release whose commit isn't on upstream's main", { tag: TAG_PREFIX + name });
+      await this.git(checkout, ['update-ref', '-d', REF_NS + name, ref.oid]).catch(() => undefined);
+    }
     const kept = await this.refs(checkout, REF_NS);
     const newest = [...kept.keys()].filter((n) => RELEASE_NAME.test(n)).sort().at(-1) ?? '';
     const latest = new Date(this.deps.clock.now() + FUTURE_SLACK_MS).toISOString().slice(0, 10);
@@ -588,11 +611,21 @@ export class Upstream {
     const unsigned = (name: string) => this.answers.get(`${pinned} ${offered.get(name)} ${TAG_PREFIX}${name}`) === null;
     const names = [...offered.keys()].filter((n) => n <= latest && !unsigned(n)).sort().reverse();
     const candidates = [...names.filter((n) => n >= newest).slice(0, MAX_READS), ...names.filter((n) => n < newest).slice(0, MAX_OLDER)];
+    if (candidates.length) await this.fetchStaged(checkout, work, objects, candidates.map((n) => `refs/tags/${TAG_PREFIX}${n}`));
+    // The ids ls-remote named, where they came (a tag moved in between
+    // isn't there, and waits for the next check).
+    const updates: string[] = [];
+    for (const name of candidates) {
+      const oid = offered.get(name)!;
+      if (await this.git(work, ['cat-file', '-e', oid]).then(() => true, () => false)) updates.push(`create ${STAGED_NS}${name} ${oid}`);
+    }
+    if (updates.length) await this.git(work, ['update-ref', '--stdin'], { input: updates.join('\n') + '\n' });
+    return work;
+  }
 
-    const objects = path.resolve(checkout, await this.git(checkout, ['rev-parse', '--git-path', 'objects']));
-    const format = await this.git(checkout, ['rev-parse', '--show-object-format']).catch(() => 'sha1');
-    await this.git(path.dirname(work), ['init', '-q', '--bare', `--object-format=${format}`, work]);
-    fs.writeFileSync(path.join(work, 'objects', 'info', 'alternates'), `${objects}\n`);
+  // Fetches `refs` from upstream into the staging folder's objects, with
+  // no ref of the checkout's changed, bounded in size and time.
+  private async fetchStaged(checkout: string, work: string, objects: string, refs: string[]): Promise<void> {
     await this.git(
       checkout,
       // One pack, never loose objects (unpackLimit), so its size is what's
@@ -602,7 +635,7 @@ export class Upstream {
       // (Codex's review).
       ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'fetch.writeCommitGraph=false', '-c', 'fetch.unpackLimit=1', '-c', 'transfer.unpackLimit=1',
         'fetch', '-q', '--no-tags', '--no-prune', '--no-prune-tags', '--no-write-fetch-head', '--no-recurse-submodules', '--refmap=', 'upstream',
-        'refs/heads/main', ...candidates.map((n) => `refs/tags/${TAG_PREFIX}${n}`)],
+        ...refs],
       {
         timeoutMs: this.fetchTimeoutMs,
         env: { GIT_OBJECT_DIRECTORY: path.join(work, 'objects'), GIT_ALTERNATE_OBJECT_DIRECTORIES: objects },
@@ -610,16 +643,6 @@ export class Upstream {
       },
     );
     if (folderBytes(path.join(work, 'objects')) > this.stageMaxBytes) throw new Error(`git fetch from upstream fetched more than ${Math.round(this.stageMaxBytes / 1024 / 1024)} MB`);
-    // The ids ls-remote named, where they came (a tag moved in between
-    // isn't there, and waits for the next check).
-    const updates: string[] = [];
-    if (await this.git(work, ['cat-file', '-e', `${mainOid}^{commit}`]).then(() => true, () => false)) updates.push(`create ${STAGED_MAIN} ${mainOid}`);
-    for (const name of candidates) {
-      const oid = offered.get(name)!;
-      if (await this.git(work, ['cat-file', '-e', oid]).then(() => true, () => false)) updates.push(`create ${STAGED_NS}${name} ${oid}`);
-    }
-    if (updates.length) await this.git(work, ['update-ref', '--stdin'], { input: updates.join('\n') + '\n' });
-    return work;
   }
 
   // Copies a staged release's objects into the checkout (no ref changes).
@@ -700,18 +723,27 @@ export class Upstream {
   // (release-keys.ts): a key announced in its scripts/release-signers waits
   // a week and then counts, one in scripts/release-keys-revoked stops
   // counting at once. Read from the commit the signature covers.
-  private async keyChanges(checkout: string, signers: string): Promise<void> {
+  // Whether the keys that count changed.
+  private async keyChanges(checkout: string, signers: string): Promise<boolean> {
     const signed = this.newestVerified;
-    if (!signed) return;
+    if (!signed) return false;
     const signer = signerKey(signed.signature);
-    if (!signer) return;
+    if (!signer) return false;
     const file = (f: string) => this.git(checkout, ['show', `${signed.commit}:${f}`]).catch(() => '');
     const [announced, revoke] = await Promise.all([file(SIGNERS_FILE), file(REVOKED_FILE)]);
-    const change = applyKeyChanges({ home: this.deps.home, signers, signer, announced: keysIn(announced), revoke: keysIn(revoke), tag: signed.tag, now: this.deps.clock.now() });
+    let change;
+    try {
+      change = applyKeyChanges({ home: this.deps.home, signers, signer, announced: keysIn(announced), revoke: keysIn(revoke), tag: signed.tag, now: this.deps.clock.now() });
+    } catch (e) {
+      // Another runner is at it; the next check reads the release again.
+      if (e instanceof KeysBusy) return false;
+      throw e;
+    }
     for (const k of change.revoked) this.deps.log.warn('a release revoked a release key; it no longer counts', { key: k.slice(0, 60), tag: signed.tag });
     for (const k of change.added) this.deps.log.warn('a new release key now counts, announced a week ago by a pinned key', { key: k.slice(0, 60), tag: signed.tag });
     for (const k of change.refused) this.deps.log.warn("a release tried to revoke a key it can't (only that key or a newer one can)", { key: k.slice(0, 60), tag: signed.tag });
     if (change.waiting.length) this.deps.log.info('a new release key is waiting out its week before it counts', { keys: change.waiting.map((k) => k.slice(0, 60)), tag: signed.tag });
+    return change.added.length > 0 || change.revoked.length > 0;
   }
 
   // Whether `commit` is on upstream's main as this check staged it.

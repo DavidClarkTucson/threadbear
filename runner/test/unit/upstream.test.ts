@@ -1104,3 +1104,40 @@ test("Mike's runner signs with a Touch ID key only while he's at the Mac, and ho
   assert.match(up.status().held?.why ?? '', /Touch ID wasn't given/);
   assert.equal(git(w.mike, 'tag', '--list', 'release/*').split('\n').filter((t) => t !== 'release/2026-10-01' && t).length, 0, 'no tag left behind');
 });
+
+// Codex's review of (c): a signed side-branch tag an older runner kept,
+// dated after every real release, held every real one out.
+test("a kept release whose commit isn't on upstream's main is taken out, and doesn't hold real ones back", async () => {
+  const w = world();
+  const up = upstreamFor(w.theirs, w.home);
+  await up.check();
+  git(w.mike, 'checkout', '-q', '-b', 'side');
+  commit(w.mike, 'side.txt', 'Never reviewed');
+  signedTag(w.mike, 'release/2026-12-01', w.mikeKey.priv);
+  git(w.mike, 'push', '-q', 'origin', 'refs/tags/release/2026-12-01');
+  git(w.mike, 'checkout', '-q', 'main');
+  // As a runner from before the main check kept it.
+  git(w.theirs, 'fetch', '-q', 'upstream', 'refs/tags/release/2026-12-01:refs/threadbear/upstream/2026-12-01');
+  release(w, 'release/2026-11-01', w.mikeKey.priv);
+  const s = await up.check();
+  assert.equal(s.release?.tag, 'release/2026-11-01');
+  assert.equal(git(w.theirs, 'for-each-ref', 'refs/threadbear/upstream/2026-12-01'), '');
+});
+
+// Codex's review of (d): a release that revokes the key it's signed with
+// was still offered (and could start a bring-in) until the next check.
+test('a release that revokes its own signing key is not offered', async () => {
+  const w = world();
+  const up = upstreamFor(w.theirs, w.home);
+  const next = key(w.root, 'next-key');
+  fs.writeFileSync(signersPath(w.home), `${keyLine(w.mikeKey)}\n${keyLine(next)}\n`);
+  release(w, 'release/2026-10-30', next.priv);
+  assert.equal((await up.check()).release?.tag, 'release/2026-10-30');
+  const offered: (string | undefined)[] = [];
+  const up2 = upstreamFor(w.theirs, w.home, new FakeClock(LATER), { onChecked: (st: { release?: { tag: string } }) => offered.push(st.release?.tag) });
+  release(w, 'release/2026-11-01', next.priv, { 'scripts/release-keys-revoked': `${pubOf(next)}\n` });
+  const s = await up2.check();
+  assert.notEqual(s.release?.tag, 'release/2026-11-01');
+  assert.ok(!offered.includes('release/2026-11-01'));
+  assert.deepEqual(pinnedKeys(w.home), [pubOf(w.mikeKey)]);
+});

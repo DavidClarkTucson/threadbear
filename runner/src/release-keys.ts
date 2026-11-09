@@ -109,16 +109,58 @@ export function readRevoked(home: string): string[] {
 
 export type KeyChange = { added: string[]; revoked: string[]; waiting: string[]; refused: string[] };
 
+// One runner at a time changes the key files (a runner handing over to the
+// next runs two checks at once): both reading the same files and writing
+// what each worked out could put a revoked key back (Codex's review, 9 Nov
+// 2026). A lock older than LOCK_STALE_MS was left by a runner that died.
+const LOCK_STALE_MS = 60_000;
+export class KeysBusy extends Error {}
+
+function withKeyLock<T>(home: string, fn: () => T): T {
+  const lock = path.join(home, 'upstream-keys.lock');
+  try {
+    fs.mkdirSync(lock);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    let stale = false;
+    try {
+      stale = Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS;
+    } catch {
+      stale = true;
+    }
+    if (!stale) throw new KeysBusy('another runner is changing the release keys');
+    fs.rmSync(lock, { recursive: true, force: true });
+    fs.mkdirSync(lock);
+  }
+  try {
+    return fn();
+  } finally {
+    fs.rmSync(lock, { recursive: true, force: true });
+  }
+}
+
 // Applies what a verified release's commit says about the keys (above).
 // `signer` is the key that signed that release, `announced` the keys in its
 // release-signers, `revoke` those in its release-keys-revoked.
 export function applyKeyChanges(o: { home: string; signers: string; signer: string; announced: string[]; revoke: string[]; tag: string; now: number }): KeyChange {
+  return withKeyLock(o.home, () => applyLocked(o));
+}
+
+function applyLocked(o: { home: string; signers: string; signer: string; announced: string[]; revoke: string[]; tag: string; now: number }): KeyChange {
   const out: KeyChange = { added: [], revoked: [], waiting: [], refused: [] };
   let lines = fs.readFileSync(o.signers, 'utf8').split('\n').filter((l) => l.trim());
-  const pinned = () => lines.map(keyOf);
   const revoked = new Set(readRevoked(o.home));
   const state = readState(o.home);
-  const at = (k: string) => pinned().indexOf(k);
+  // Each key's place as the file was when this began: taking keys out as
+  // it goes mustn't move a newer key below the signer (Codex's review:
+  // C revoking A, B and then D got D too).
+  const rank = new Map<string, number>();
+  lines.forEach((l, i) => {
+    const k = keyOf(l);
+    if (k && !rank.has(k)) rank.set(k, i);
+  });
+  const at = (k: string) => rank.get(k) ?? -1;
+  const pinnedNow = (k: string) => lines.some((l) => keyOf(l) === k);
   const signerAt = at(o.signer);
   if (signerAt < 0) return out; // only a pinned key's release says anything
 
@@ -127,7 +169,7 @@ export function applyKeyChanges(o: { home: string; signers: string; signer: stri
     const waiting = state.pending.find((p) => p.key === r);
     // Itself, or a key pinned after it; one still waiting, by the key that
     // announced it or a later one.
-    const may = r === o.signer || (at(r) >= 0 ? signerAt > at(r) : waiting ? signerAt >= at(waiting.by) && at(waiting.by) >= 0 : false);
+    const may = r === o.signer || (at(r) >= 0 ? signerAt > at(r) : waiting ? at(waiting.by) >= 0 && signerAt >= at(waiting.by) : false);
     if (!may) {
       if (at(r) >= 0 || waiting) out.refused.push(r);
       continue;
@@ -139,15 +181,16 @@ export function applyKeyChanges(o: { home: string; signers: string; signer: stri
     state.pending = state.pending.filter((p) => p.key !== r && p.by !== r);
   }
 
-  const principal = (lines[0] ?? '').trim().split(/\s+/)[0] || 'threadbear-releases';
+  // The principal of the first real key line (a comment above it isn't one).
+  const principal = lines.find((l) => keyOf(l))?.trim().split(/\s+/)[0] || 'threadbear-releases';
   for (const a of o.announced) {
-    if (revoked.has(a) || at(a) >= 0 || state.pending.some((p) => p.key === a)) continue;
+    if (revoked.has(a) || pinnedNow(a) || state.pending.some((p) => p.key === a)) continue;
     if (revoked.has(o.signer)) continue;
     state.pending.push({ key: a, by: o.signer, seenAt: o.now, tag: o.tag });
   }
   const still: Pending[] = [];
   for (const p of state.pending) {
-    if (revoked.has(p.key) || revoked.has(p.by) || at(p.by) < 0) continue; // its announcer is gone
+    if (revoked.has(p.key) || revoked.has(p.by) || !pinnedNow(p.by)) continue; // its announcer is gone
     if (o.now - p.seenAt >= ADD_DELAY_MS) {
       lines.push(`${principal} namespaces="git" ${p.key}`);
       out.added.push(p.key);
