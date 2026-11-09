@@ -351,6 +351,16 @@ const BRUCE_FILES = {
 };
 const bruceModifiedAt = new Date(Date.now() - 3600_000).toISOString();
 if (!process.env.TB_MOCK_NO_REMOTE) addRemoteDemo();
+// One demo thread that has sat for three days with a librarian's recap, for
+// the recap box. Only when asked: it would move the thread down every list.
+if (process.env.TB_MOCK_QUIET) {
+  for (const s of threads.values()) {
+    const summary = s.summary ?? s;
+    if (summary.title !== 'Ship the beta to TestFlight') continue;
+    summary.lastActivityAt = new Date(Date.now() - 72 * 3_600_000).toISOString();
+    summary.recap = "Gets the first beta out to testers.\n- The build is uploaded and processing\n- Waiting on you to accept the agreement";
+  }
+}
 /** The schedules (docs/protocol.md, "Schedules"), soonest first. */
 let schedules = [];
 addDemoSchedules();

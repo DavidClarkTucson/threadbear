@@ -253,6 +253,9 @@ public struct PhoneThread: Codable, Sendable, Hashable, Identifiable {
     /// What Mike last said to it, one line (backend API 31): the row's
     /// "You: ...". Nil until he's sent one, and from an older runner.
     public var asked: String?
+    /// The librarian's recap (backend API 70): the recap box above the
+    /// message box. Nil until it has written one, and from an older runner.
+    public var recap: String?
     @OptionalFlexibleDate public var archivedAt: Date?
     /// Mike starred it: the Starred section at the top (backend API 27).
     @OptionalFlexibleDate public var starredAt: Date?

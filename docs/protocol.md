@@ -303,6 +303,7 @@ type ThreadSummary = {
                         // started it when Mike didn't (Who started a thread)
   asked?: string        // Mike's last message to it, one line, <= 140 chars
                         // (What Mike last asked)
+  recap?: string        // the librarian's recap (The recap box)
   woke?: { at: string, since?: string } // came back from hibernating by
                         // itself (its time, a restart, a topic) at `at`,
                         // put away at `since` when known; only until Mike
@@ -2340,6 +2341,33 @@ from anyone but Mike is dropped. Both fields are set afresh by each archive and 
 `archivedAt` is set, so bringing a thread back needn't clear them; threads
 archived before 5 Nov have neither. `read_thread` and `list_threads` say
 them ("archived by the user: it worked").
+
+## The recap box
+
+Coming back to a thread after a while, you often can't remember what it was
+for. The librarian writes a recap ahead of time, as part of the look it
+already takes after a turn: `ThreadSummary.recap`, a sentence on what the
+thread is for and then the bullets from its note on where it stands
+(`brief` in the thread's record), one per line starting `- `. A note from
+before this has only the bullets. It's in the summary only with the
+`recapBox` experiment on, and goes to the phone, the website and other
+runners with the rest of the row (backend API 70).
+
+Each app shows it in a box above the message box when all of these hold,
+and they all use the same rule:
+
+- there is a `recap`
+- `status` is `idle` and the thread isn't archived
+- `lastActivityAt` is 12 hours ago or more
+- it wasn't dismissed for this `lastActivityAt`
+
+Dismissing is the app's own (× on the box), remembered per thread on that
+device. Sending a message ends it, as `lastActivityAt` moves.
+
+A message the user types at a thread that hasn't had a turn for 12 hours
+reaches the agent after a line asking it to open with what the thread is for
+(`user.message`, above). When the box was up and said what the thread is
+for, the runner leaves that line off, so the recap isn't said twice.
 
 ## What Mike last asked
 

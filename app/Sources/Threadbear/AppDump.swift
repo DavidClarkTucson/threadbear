@@ -110,6 +110,8 @@ struct AppDump: Encodable {
         /// The open card in the box, for the behaviour specs: "Done" with
         /// its follow-ups, or "Needs you" with each ask.
         var card: [String]? = nil
+        /// The recap box's lines, while it's up.
+        var recap: [String]? = nil
         /// A new thread from this box is on its way: its words stay, greyed
         /// and locked, until the runner has made it (`composer.starting`).
         var creating: Bool = false
@@ -1018,7 +1020,14 @@ struct AppDump: Encodable {
                         cwd: settings.cwd, account: settings.account, model: settings.model, ask: settings.ask, mode: settings.mode, effort: settings.effort,
                         pool: settings.pool, chip: ThreadSettings(app: app, thread: app.selectedThread).modelChipTitle,
                         runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil),
-                        card: cardLines(app, key: key), creating: key == "new" && app.creatingThread)
+                        card: cardLines(app, key: key), recap: recapLines(app), creating: key == "new" && app.creatingThread)
+    }
+
+    /// The recap box as lines (`composer.recap`), nil unless it's up.
+    @MainActor private static func recapLines(_ app: AppModel) -> [String]? {
+        guard let thread = app.selectedThread, Recap.isDue(thread, dismissedAt: app.dismissedRecaps[thread.id]), let recap = thread.recap else { return nil }
+        let parts = Recap.parts(recap)
+        return (parts.purpose.map { [$0] } ?? []) + parts.points
     }
 
     /// The open card as lines (`composer.card`): "Done" with a "[x]" or
@@ -1125,6 +1134,7 @@ struct AppDump: Encodable {
         }
         if let decisions { lines.append("decisions: " + decisions[0]); lines += decisions.dropFirst().map { "  " + $0 } }
         // The open card as it reads in the box, the done card's follow-ups too.
+        if let recap = composer.recap { lines.append("recap: " + recap.joined(separator: " | ")) }
         if let card = composer.card, let first = card.first { lines.append("card: " + first); lines += card.dropFirst().map { "  " + $0 } }
         lines.append("composer (\(composer.draft)): \"\(composer.text)\"" + (composer.images > 0 ? " and \(composer.images) image(s)" : "")
             + (composer.editing.map { ", editing the message at seq \($0)" } ?? ""))

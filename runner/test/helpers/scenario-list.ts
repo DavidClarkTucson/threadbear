@@ -43,6 +43,17 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The box itself needs 12 quiet hours, which a seeded thread doesn't
+    // have, so `shows` is the reply and the routes compare the recap.
+    name: 'a thread the librarian has written a recap for',
+    shows: ['Parked until Nipunn replies.'],
+    play: (p) => {
+      p.say('Parked until Nipunn replies.');
+      p.endTurn({ needs: 'nothing' });
+      p.librarianWrites('- Asked Nipunn how to go ahead\n- Nothing goes out until he replies', 'A community port of the clients, and what to say about it.');
+    },
+  },
+  {
     name: 'a reply with no card',
     shows: ['Just an answer.'],
     play: (p) => {

@@ -59,6 +59,7 @@ struct ComposerView: View {
         let cardCollapsed = needsYou && thread.map { app.collapsedCards[$0.id] == cardRow?.seq } == true
         VStack(alignment: .leading, spacing: 0) {
         if let thread {
+            RecapBox(thread: thread)
             RefusalOffer(thread: thread)
         }
         // The folder's actions (patches), on shelves sitting on the box's
