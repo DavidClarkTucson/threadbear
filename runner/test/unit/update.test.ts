@@ -524,13 +524,17 @@ test('a commit the Mac slept through every build of is marked failed after a few
   const h = harness({}, { onFailed: (f) => (failures.push(f), true) });
   h.deployResult = { ok: false, error: "The Mac slept during Unit tests, so it's tried again later", transient: true, slept: true };
   h.u.start();
+  h.main = { ...h.main, buildTree: 'B1' };
+  await h.u.check();
+  // A commit that changes only a test has a count of its own.
+  h.main = { ...h.main, commit: 'c3', short: 'c3', subject: 'Fix a test', buildTree: 'B2' };
   for (let i = 1; i < MAX_SLEPT_TRIES; i++) {
     await h.u.check();
     assert.equal(h.u.status().state, 'idle', `try ${i}`);
   }
   assert.equal(failures.length, 0);
   await h.u.check();
-  assert.equal(h.deploys, MAX_SLEPT_TRIES);
+  assert.equal(h.deploys, MAX_SLEPT_TRIES + 1);
   assert.equal(h.u.status().state, 'failed');
   assert.equal(failures.length, 1);
   assert.match(failures[0]!.error, /slept through all 3 tries at this commit/);

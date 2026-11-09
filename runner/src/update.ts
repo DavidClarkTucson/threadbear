@@ -545,8 +545,11 @@ export class RunnerUpdater {
       log.info('building a release of main', { commit: main.short, subject: main.subject });
       let result = await (this.deps.deploy ?? runDeploy)(path.join(dir, release.prefix), home, updateLogPath(home), release.checkout);
       if (this.stopped) return decision;
-      const tries = !result.ok && result.slept ? (this.slept?.tree === main.tree ? this.slept.tries : 0) + 1 : 0;
-      this.slept = tries ? { tree: main.tree, tries } : undefined;
+      // Counted per build tree, as failedAlready keys a failure, so a commit
+      // that only fixes a test starts its own count (Codex, 9 Nov).
+      const builds = main.buildTree ?? main.tree;
+      const tries = !result.ok && result.slept ? (this.slept?.tree === builds ? this.slept.tries : 0) + 1 : 0;
+      this.slept = tries ? { tree: builds, tries } : undefined;
       if (!result.ok) {
         if (result.transient && tries < MAX_SLEPT_TRIES) {
           log.info('could not build main now; trying again later', { error: result.error, ...(tries ? { sleptTries: tries } : {}) });
