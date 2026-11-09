@@ -10,7 +10,8 @@ Like the Mac app, it holds no agent state of its own. It talks to a runner
 
 So far it signs in to the runner, shows the inbox, opens a thread (live, as
 it streams), answers a card's asks and approvals, sends messages and stops a
-turn.
+turn, and draws the pane beside the thread: Highlights, file previews, Patches
+and the folder browser.
 
 ## How it's put together
 

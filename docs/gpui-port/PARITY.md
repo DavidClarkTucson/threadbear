@@ -116,7 +116,7 @@ built parsers and gates with no launch of the app, which is the trap.)
   desktop); the arrows are GPUI's own, so that scenario is `@swift-pending`.
 - Files: `desktop/gpui/src/viewer.rs`, `rows/images.rs`, `features/picture-viewer.feature`.
 - Remaining: zoom and pan, video, PDFs, drag out (`file.quicklook`, `drag.fileout`).
-- Verification: `TB_APP=swift` 1 of 1 and `TB_APP=gpui` 2 of 2 on Tinker Desk (real Mac), the arrows scenario `@swift-pending`; picture of the overlay on the GPUI app.
+- Verification: `TB_APP=swift` 1 of 1 and `TB_APP=gpui` 2 of 2 on Tinker Desk (real Mac) and on Linux (`cloud`), the arrows scenario `@swift-pending`; picture of the overlay on the GPUI app. Whole suite with the pane's 19 new scenarios: `TB_APP=swift` 124 of 124 on Tinker Desk, `TB_APP=gpui` 125 of 125 on Tinker Desk and 124 of 125 on Linux (one streaming scenario was too slow on a loaded box and passed on its own).
 
 ### 2026-11-09 Files panel and the folder browser
 
@@ -129,7 +129,7 @@ built parsers and gates with no launch of the app, which is the trap.)
   decoding), `desktop/gpui/src/folders.rs`, `features/folders.feature`.
 - Remaining: the icon grid (`folder.icons`, the menu item is there, greyed), Finder keys
   and Quick Look on Space (`folder.keys`), type-to-select, the folder watch.
-- Verification: `TB_APP=swift` 6 of 6 on Tinker Desk and `TB_APP=gpui` 6 of 6 on Tinker Desk (real Mac); side-by-side pictures against the Swift pane.
+- Verification: `TB_APP=swift` 6 of 6 on Tinker Desk; `TB_APP=gpui` 6 of 6 on Tinker Desk (real Mac) and on Linux (`cloud`); side-by-side pictures against the Swift pane.
 
 ### 2026-11-09 Patches: the list, chips and native panels
 
@@ -142,7 +142,7 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Remaining: chip look (the Swift app's grouped bar with its +N overflow; these are
   simple pills), patch and `.app` picture icons (`patches.icons`), web panels
   (`panel.web`).
-- Verification: `TB_APP=swift` 5 of 5 on Tinker Desk and `TB_APP=gpui` 5 of 5 on Tinker Desk (real Mac); side-by-side pictures against the Swift pane.
+- Verification: `TB_APP=swift` 5 of 5 on Tinker Desk; `TB_APP=gpui` 5 of 5 on Tinker Desk (real Mac) and on Linux (`cloud`); side-by-side pictures against the Swift pane.
 
 ### 2026-11-09 File previews in the pane
 
