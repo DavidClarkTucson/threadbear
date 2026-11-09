@@ -147,7 +147,17 @@ function readRunnerJson() {
   try {
     text = fs.readFileSync(runnerJsonPath, 'utf8');
   } catch (e) {
-    if (e.code === 'ENOENT') return {};
+    if (e.code === 'ENOENT') {
+      // A link to a file that has gone is a runner.json that's there.
+      let link = false;
+      try {
+        link = fs.lstatSync(runnerJsonPath).isSymbolicLink();
+      } catch {
+        // no file and no link: a first run
+      }
+      if (link) throw new Fail(`${runnerJsonPath} is a link to a file that isn't there. Put the file back (or remove the link), then run setup again.`);
+      return {};
+    }
     throw new Fail(`Couldn't read ${runnerJsonPath} (${e.code ?? e}). Setup won't change it until it can.`);
   }
   let json;

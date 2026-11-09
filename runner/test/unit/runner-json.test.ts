@@ -194,3 +194,10 @@ test('markConfigStop marks the boot again if launch.mjs writes over the mark fro
   const after = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
   assert.deepEqual(after.boots.map((b: { clean?: boolean }) => b.clean), [true, true]);
 });
+
+test('a read-only load (tb logs) reads a broken runner.json as {} and writes nothing', () => {
+  const { home, file } = brokenHome();
+  assert.throws(() => loadConfig({ THREADBEAR_HOME: home }), RunnerJsonError);
+  assert.equal(loadConfig({ THREADBEAR_HOME: home }, { readOnly: true }).home, home);
+  assert.equal(fs.readFileSync(file, 'utf8'), BROKEN);
+});

@@ -342,11 +342,14 @@ export function adoptOldNames(env: NodeJS.ProcessEnv): void {
 }
 adoptOldNames(process.env);
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+// `readOnly`: a broken runner.json reads as {} instead of throwing, for a
+// tb command that only looks (tb logs, to see why the runner won't start).
+// Nothing loaded that way may write runner.json.
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnly?: boolean } = {}): Config {
   adoptOldNames(env);
   // THREADBEAR_DATA_DIR is the name the Mac app uses for the same override.
   const home = path.resolve(expandHome(env.THREADBEAR_HOME || env.THREADBEAR_DATA_DIR || defaultHome()));
-  const json = readRunnerJson(home);
+  const json = opts.readOnly ? peekRunnerJson(home) : readRunnerJson(home);
   const port = Number(env.THREADBEAR_PORT || json.port || DEFAULT_PORT);
   const idleMs = env.THREADBEAR_IDLE_MS
     ? Number(env.THREADBEAR_IDLE_MS)

@@ -104,6 +104,19 @@ done
 case "$DATA_HOME" in /*) ;; *) DATA_HOME="$PWD/$DATA_HOME" ;; esac
 DATA_HOME="${DATA_HOME%/}"
 
+# Whether $DATA_HOME/runner.json is there but broken (launch.mjs,
+# runnerJsonBroken). A runner from before 9 Nov reads a broken one as {}
+# and writes over it, so nothing here starts or goes back to one then.
+runner_json_broken() {
+  "$NODE" --input-type=module -e 'const { runnerJsonBroken } = await import(process.argv[1]); process.exit(runnerJsonBroken(process.argv[2]) ? 0 : 1)' "file://$RUNNER_DIR/launch.mjs" "$DATA_HOME" 2>/dev/null
+}
+
+if runner_json_broken; then
+  echo "$DATA_HOME/runner.json isn't valid JSON. Fix it first: the runner won't start on it, and one from before 9 Nov would write over it." >&2
+  exit 1
+fi
+
+
 # Same folder, even through a symlink (/tmp is /private/tmp).
 same_dir() {
   [ "$1" = "$2" ] && return 0
@@ -551,7 +564,12 @@ fail_back() {
       if [ "$HAD_LAUNCH" = 1 ]; then mv -f "$PREV_LAUNCH" "$RDIR/launch.mjs"; else rm -f "$RDIR/launch.mjs"; fi
     fi
     if [ "$BUILT" = 1 ] && [ -n "$OLD_CURRENT" ]; then
-      point_current "$OLD_CURRENT" && echo "current points at $OLD_CURRENT again." >&2
+      if runner_json_broken; then
+        # Why the new release wouldn't start; the old one could write over it.
+        echo "$DATA_HOME/runner.json isn't valid JSON, so current stays on the new release rather than going back to $OLD_CURRENT, which could write over it. Fix runner.json and run this again." >&2
+      else
+        point_current "$OLD_CURRENT" && echo "current points at $OLD_CURRENT again." >&2
+      fi
     fi
     if reload; then
       echo "Back as it was. The log above says what went wrong; fix it and run this again." >&2

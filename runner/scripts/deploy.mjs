@@ -1273,6 +1273,9 @@ function refuseWaiting(c, v, live) {
 }
 
 async function rollback(c, v, waitMs) {
+  // The release before may be from before 9 Nov, which writes over a
+  // broken runner.json; and no release starts on one anyway.
+  if (runnerJsonBroken(c.home)) throw new Fail(`${path.join(c.home, 'runner.json')} isn't valid JSON. Fix it first: going back to an older release could write over it.`);
   const state = readState(c.dir);
   const cur = currentId(c);
   const target = state.previous;

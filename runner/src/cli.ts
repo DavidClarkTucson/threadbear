@@ -261,11 +261,12 @@ async function main(argv: string[]): Promise<number> {
     cfg = loadConfig();
   } catch (e) {
     // A broken runner.json: say what's wrong with it, not a stack trace.
-    if (e instanceof RunnerJsonError) {
-      console.error(e.message);
-      return 1;
-    }
-    throw e;
+    if (!(e instanceof RunnerJsonError)) throw e;
+    console.error(e.message);
+    // tb logs and tb activity only read files, and the log is where to
+    // look while the runner won't start, so they still run.
+    if (cmd !== 'logs' && cmd !== 'activity') return 1;
+    cfg = loadConfig(process.env, { readOnly: true });
   }
   if (cmd === 'logs') return logsCommand(cfg, values);
   // The app's activity log is files on this Mac: no runner needed.
