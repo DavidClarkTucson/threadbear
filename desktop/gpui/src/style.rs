@@ -111,3 +111,18 @@ pub fn send_faint_fill(cx: &App) -> Hsla {
 pub fn chip_fill(cx: &App) -> Hsla {
     pick(cx, white(0.1), black(0.06))
 }
+
+/// A composer chip's hover fill (ComposerChip).
+pub fn chip_hover_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.07), black(0.05))
+}
+
+/// Faint icons on the chips (Theme.faintIcon).
+pub fn faint_icon(cx: &App) -> Hsla {
+    pick(cx, white(0.45), black(0.45))
+}
+
+/// The hairline between chips (ChipDivider).
+pub fn chip_divider(cx: &App) -> Hsla {
+    pick(cx, white(0.12), black(0.12))
+}

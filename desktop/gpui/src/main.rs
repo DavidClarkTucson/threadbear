@@ -6,6 +6,7 @@ mod app;
 #[cfg(feature = "automation")]
 mod automation;
 mod composer;
+mod composer_chips;
 mod rows;
 mod sidebar;
 mod style;

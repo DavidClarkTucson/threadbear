@@ -71,6 +71,23 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 Composer: the chips under the box
+
+- The row under the words: "+" (Attach images…, folder), the model chip with its
+  picker (search, rail of pools or providers, rows with default and selection,
+  effort), the permission chip, the account chip when there are no pools, and the
+  context ring with its popover. Each click updates at once through the
+  `update_open` guess. `composer-menu` (permission, model, context) matches the
+  Swift text; `desktop/core/src/logins.rs` ports the picker logic with tests.
+- Files: `desktop/gpui/src/composer_chips.rs`, `desktop/core/src/logins.rs`,
+  `features/composer-chips.feature`.
+- Remaining: provider logos on the model rows and chip, usage badges on the
+  account and model chips, Older rail details, Schedule… in "+".
+- Verification: `TB_APP=swift` on Tinker Desk 4 of 4 for
+  `@composer.permission @composer.modelpicker`; `TB_APP=gpui` on Linux (`cloud`)
+  4 of 4 and on Tinker Desk 10 of 10 together with the composer's text scenarios;
+  screenshot of the chip row against Swift's.
+
 ### 2026-11-09 Composer: pictures as inline chips
 
 - Paste, drop or the automation's `paste-image` puts a chip with a thumbnail in the

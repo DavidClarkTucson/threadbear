@@ -8,6 +8,7 @@
 // keeps them atomic through edits and undo. That mark is exactly what the
 // Swift draft holds (InlinePictures), so the two apps' drafts read the same.
 use crate::app::Threadbear;
+use crate::composer_chips::ModelPickerView;
 use crate::style;
 use crate::thread::ThreadPane;
 use gpui_kit::assets::IconName;
@@ -60,6 +61,8 @@ pub struct Composer {
     stopping: bool,
     /// A refused send's draft, to put back at the next render.
     restore: Option<(String, Vec<ImageRef>)>,
+    /// The model picker's search and column, kept while it's open.
+    pub(crate) model_picker: Option<Entity<ModelPickerView>>,
     _subs: Vec<Subscription>,
 }
 
@@ -87,6 +90,7 @@ impl Composer {
             hover_serial: 0,
             stopping: false,
             restore: None,
+            model_picker: None,
             _subs: vec![sub],
         }
     }
@@ -641,13 +645,9 @@ impl Render for Composer {
             self.stopping = false;
         }
         let strip = self.render_strip(cx);
-        let body = v_flex()
-            .w_full()
-            .gap(px(style::COMPOSER_GAP))
-            .p(px(style::COMPOSER_PADDING))
-            .when_some(strip, |s, strip| s.child(strip))
-            .child(self.render_text_field(cx))
-            .child(h_flex().w_full().h(px(style::size::SEND_BUTTON)).justify_end().child(self.render_send_button(running, cx)));
+        let send_button = self.render_send_button(running, cx);
+        let controls = self.render_controls(send_button, window, cx);
+        let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(cx)).child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.
         h_flex()

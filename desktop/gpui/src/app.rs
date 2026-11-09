@@ -13,6 +13,7 @@ use std::sync::Arc;
 use threadbear_client::config::RunnerConfig;
 use threadbear_client::runner::{Client, Status};
 use threadbear_core::inbox::{self, iso_time, ThreadSummary};
+use threadbear_core::logins::RunnerLogins;
 use tokio::sync::mpsc;
 
 actions!(threadbear, [StopTurn, ArchiveThread]);
@@ -27,6 +28,9 @@ pub struct Threadbear {
     pub(crate) search: Entity<InputState>,
     /// The sections folded away under their headings, by key.
     pub(crate) folded: HashSet<&'static str>,
+    /// The runner's accounts, pools and defaults, from its `hello`, for the
+    /// composer's chips.
+    pub(crate) logins: RunnerLogins,
     /// Each thread's message box, kept so what's typed (with its undo and
     /// pictures) stays with the thread while others are open.
     pub(crate) composers: HashMap<String, Entity<Composer>>,
@@ -70,6 +74,7 @@ impl Threadbear {
             search,
             folded: HashSet::from(["hibernating", "archived"]),
             composers: HashMap::new(),
+            logins: RunnerLogins::default(),
             _events: events,
             _subs: vec![appearance, searching],
         }
@@ -79,6 +84,9 @@ impl Threadbear {
         match seen {
             Seen::Status(status) => {
                 let connected = matches!(status, Status::Connected { .. });
+                if let Status::Connected { hello, .. } = &status {
+                    self.logins = RunnerLogins::from_hello(hello);
+                }
                 self.status = status;
                 // Each time it's connected, the whole list again, and the
                 // open thread read again: thread.updated only says what changed.
@@ -161,7 +169,7 @@ impl Threadbear {
     /// `threads.update` for the open thread, with the summary changed here
     /// first: anything clicked shows at once, and the runner's answer (or its
     /// thread.updated) puts it right.
-    fn update_open(&mut self, change: impl FnOnce(&mut ThreadSummary), params: Value, cx: &mut Context<Self>) -> Result<(), String> {
+    pub(crate) fn update_open(&mut self, change: impl FnOnce(&mut ThreadSummary), params: Value, cx: &mut Context<Self>) -> Result<(), String> {
         let Some(id) = self.selected.clone() else { return Err("no thread open".into()) };
         let before = self.threads.get(&id).cloned();
         if let Some(t) = self.threads.get_mut(&id) {
@@ -255,10 +263,31 @@ impl Threadbear {
             "connection": connection,
             "selection": selected.map(row),
             "sidebar": { "mode": "inbox", "sections": sections, "snoozed": snoozed, "archived": archived },
-            "composer": { "draft": self.selected.clone().unwrap_or_else(|| "new".into()), "text": pane.map(|p| p.draft(cx)).unwrap_or_default(), "images": pane.map_or(0, |p| p.composer.read(cx).draft_images(cx)) },
+            "composer": self.dump_composer(cx),
             "transcript": pane.map(|p| p.dump()).unwrap_or_else(|| json!({ "rows": [] })),
             "banner": Value::Null,
         })
+    }
+
+    /// The composer's part of the dump (AppDump.composer).
+    #[cfg(feature = "automation")]
+    fn dump_composer(&self, cx: &App) -> Value {
+        let pane = self.pane.as_ref().map(|p| p.read(cx));
+        let mut out = json!({
+            "draft": self.selected.clone().unwrap_or_else(|| "new".into()),
+            "text": pane.map(|p| p.draft(cx)).unwrap_or_default(),
+            "images": pane.map_or(0, |p| p.composer.read(cx).draft_images(cx)),
+        });
+        if let Some(pane) = pane {
+            let data = pane.composer.read(cx).chip_data(cx);
+            if let Some(t) = &data.summary {
+                out["cwd"] = json!(t.cwd);
+                out["account"] = json!(t.account_id);
+                out["mode"] = json!(if t.permission_mode.is_empty() { "full" } else { t.permission_mode.as_str() });
+            }
+            out["chip"] = json!(crate::composer_chips::model_chip_text(&data));
+        }
+        out
     }
 
     /// The sections with the search applied, as they're drawn.

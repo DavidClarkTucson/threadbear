@@ -151,6 +151,33 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             }
             Ok(json!("ok"))
         }
+        // The Swift app's `composer-menu`: a chip's menu as text, or a click
+        // on one of its items.
+        "composer-menu" => {
+            let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
+            let data = composer.read(cx).chip_data(cx);
+            match text(cmd, "menu") {
+                "permission" => {
+                    let summary = data.summary.clone().unwrap_or_default();
+                    if let Some(title) = cmd["click"].as_str() {
+                        let Some(mode) = crate::composer_chips::permission_modes(&summary).into_iter().find(|m| threadbear_core::logins::permission_title(m) == title) else { return Err(format!("no item {title}")) };
+                        composer.update(cx, |c, cx| c.set_permission(mode, cx));
+                        return Ok(json!("ok"));
+                    }
+                    Ok(json!(crate::composer_chips::permission_lines(&summary)))
+                }
+                "context" => match data.summary.as_ref().and_then(|t| threadbear_core::composer::ContextMeter::new(t.context_tokens, t.context_window)) {
+                    Some(meter) => Ok(json!([meter.amount(), format!("{}%", meter.percent())])),
+                    None => Err("no context meter on this thread".into()),
+                },
+                _ => {
+                    if let Some(title) = cmd["click"].as_str() {
+                        return crate::composer_chips::picker_click(&composer, title, cx).map(|_| json!("ok"));
+                    }
+                    Ok(json!(crate::composer_chips::picker_lines(&data)))
+                }
+            }
+        }
         "composer-peek" => {
             let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
             let number = cmd["number"].as_u64().map(|n| n as usize);
