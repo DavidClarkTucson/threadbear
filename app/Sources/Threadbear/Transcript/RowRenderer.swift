@@ -1115,8 +1115,10 @@ enum RowRenderer {
         if let command = input["command"]?.stringValue {
             // Where it runs and any network it asks for (a Codex card's)
             // are part of what Allow allows; a reason or description isn't.
-            let output = NSMutableAttributedString(attributedString: mono(command, .labelColor))
-            let extra = ToolPresentation.fields(input, whole: true).filter { !["command", "description", "reason"].contains($0.key) }
+            // Characters that hide, break or reorder text are named, not
+            // drawn: the card shows what the shell will read (ApprovalText.shown).
+            let output = NSMutableAttributedString(attributedString: mono(ApprovalText.shown(command), .labelColor))
+            let extra = ApprovalText.shown(ToolPresentation.fields(input, whole: true).filter { !["command", "description", "reason"].contains($0.key) })
             if !extra.isEmpty {
                 output.append(mono("\n", .labelColor))
                 output.append(fieldsText(extra))
@@ -1135,12 +1137,12 @@ enum RowRenderer {
                     || request.title.contains("Threadbear can't tell whether this file runs as code")
                 return diffText([diff], maxLines: code ? 1_000_000 : 8, inset: 0).0
             }
-            return mono(ToolPresentation.shortTitle(ApprovalText.filePath(request) ?? "", limit: 300), Theme.quietText)
+            return mono(ApprovalText.shown(ToolPresentation.shortTitle(ApprovalText.filePath(request) ?? "", limit: 300)), Theme.quietText)
         }
         if !request.name.hasPrefix("mcp__"), let url = input["url"]?.stringValue {
-            return mono(url, .labelColor)
+            return mono(ApprovalText.shown(url), .labelColor)
         }
-        let fields = ToolPresentation.fields(input, whole: true)
+        let fields = ApprovalText.shown(ToolPresentation.fields(input, whole: true))
         if fields.isEmpty { return mono(request.title, .labelColor) }
         return fieldsText(fields)
     }

