@@ -1715,6 +1715,8 @@ public struct HelloResult: Sendable, Hashable, Decodable {
     /// Nil from a runner older than pools: the app then works as before,
     /// with providers in the picker's rail and an account chip.
     public var pools: [Pool]?
+    /// What each provider is called and can do; empty from an older runner.
+    public var providers: [ProviderInfo]
     /// The experiments on for the runner (docs/experiments.md); empty from
     /// a runner older than this.
     public var experiments: Set<String>
@@ -1733,11 +1735,12 @@ public struct HelloResult: Sendable, Hashable, Decodable {
         clis = c.lossyArray(CliStatus.self, forKey: .clis)
         updates = try? c.decodeIfPresent(RunnerUpdates.self, forKey: .updates)
         pools = c.contains(.pools) ? c.lossyArray(Pool.self, forKey: .pools) : nil
+        providers = c.lossyArray(ProviderInfo.self, forKey: .providers)
         experiments = Set(((try? c.decodeIfPresent([String].self, forKey: .experiments)) ?? nil) ?? [])
     }
 
     enum CodingKeys: String, CodingKey {
-        case runnerVersion, `protocol`, accounts, defaults, clis, updates, pools, experiments
+        case runnerVersion, `protocol`, accounts, defaults, clis, updates, pools, experiments, providers
     }
 }
 

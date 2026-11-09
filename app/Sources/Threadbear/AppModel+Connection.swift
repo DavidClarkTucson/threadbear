@@ -42,6 +42,7 @@ extension AppModel {
                 clisSupported = hello.clis.isEmpty ? nil : true
                 runnerUpdates = hello.updates
                 experiments = hello.experiments
+                Providers.update(hello.providers)
                 // An older runner sends no pools; the app then works as it
                 // did before them.
                 pools = hello.pools ?? []

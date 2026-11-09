@@ -333,11 +333,7 @@ public enum AccountUsageText {
 /// quiet line under the toolbar (`clis.list`, `clis.updated`).
 public enum CliText {
     public static func name(_ provider: String) -> String {
-        switch provider {
-        case "claude": return "Claude Code"
-        case "codex": return "Codex"
-        default: return provider.prefix(1).uppercased() + provider.dropFirst()
-        }
+        Providers.info(provider).cliName
     }
 
     /// "Claude Code 2.1.311, up to date", "Claude Code 2.1.311, 2.1.312

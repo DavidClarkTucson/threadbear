@@ -31,12 +31,12 @@ extension AppModel {
         if !settings.defaultCwd.isEmpty { defaults.cwd = (settings.defaultCwd as NSString).expandingTildeInPath }
     }
 
-    /// Pools with a Claude login: only those can take small jobs (titles,
-    /// the librarian). Settings › Models and the Librarian's page pick
+    /// Pools with a login that can take small jobs (titles, the librarian):
+    /// a Claude one, or an ACP agent's in a pool of its own. Settings › Models and the Librarian's page pick
     /// from these.
     var claudePools: [Pool] {
         pools.filter { pool in
-            pool.accountIds.contains { id in accounts.contains { $0.id == id && $0.provider == "claude" } }
+            pool.accountIds.contains { id in accounts.contains { $0.id == id && Providers.info($0.provider).smallJobs } }
         }
     }
 

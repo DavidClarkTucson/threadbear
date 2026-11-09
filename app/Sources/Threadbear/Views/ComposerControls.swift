@@ -642,9 +642,9 @@ struct ThreadSettings {
 
     func permissionMenu() -> NSMenu {
         let menu = NSMenu()
-        // Auto is Claude Code's; Codex has nothing like it, so it's only offered
-        // for Claude (or if a thread is somehow on it already).
-        let modes: [PermissionMode] = provider == "claude" || permissionMode == .auto ? [.full, .auto, .ask, .plan] : [.full, .ask, .plan]
+        // Auto needs a provider with its own judge of each action. Without one
+        // it's only there for a thread that is somehow on it already.
+        let modes: [PermissionMode] = Providers.info(provider).autoMode == "classifier" || permissionMode == .auto ? [.full, .auto, .ask, .plan] : [.full, .ask, .plan]
         for mode in modes {
             let item = ActionMenuItem(mode.composerTitle, symbol: mode.composerIcon, checked: permissionMode == mode) { setPermission(mode) }
             item.subtitle = mode.composerHelp
@@ -1128,7 +1128,9 @@ struct ModelPickerView: View {
                 .frame(maxHeight: Self.listMaxHeight(pools: pools))
                 .fixedSize(horizontal: false, vertical: true)
                 Divider()
-                EffortRow(levels: settings.effortLevels, chosen: settings.effectiveEffort) { settings.setEffort($0) }
+                if !settings.effortLevels.isEmpty {
+                    EffortRow(levels: settings.effortLevels, chosen: settings.effectiveEffort) { settings.setEffort($0) }
+                }
                 if pools, settings.pinnedLine != nil {
                     Divider()
                     PoolFooter(settings: settings, column: column, showPinned: { columnId = ThreadSettings.pinnedColumn },
