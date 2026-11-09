@@ -1,6 +1,6 @@
 # Porting the desktop app to GPUI
 
-Status: plan, waiting for Mike's choices on the options below (9 Nov 2026).
+Status: approved by Mike on 9 Nov 2026. Stage 0 is under way.
 
 The goal is one Rust desktop app, drawn with [GPUI](https://gpui.rs) and
 [gpui-kit](https://gpui-kit.com), for Mac, Windows and Linux. It replaces the
@@ -12,10 +12,14 @@ The working app is in `desktop/` (`client/` for the runner connection,
 `gpui/` for the app). It signs in, shows the inbox in the website's order,
 streams a thread live, answers cards and approvals, sends and stops.
 
-The four choices still open are [the web view](#choice-1-the-web-view), [the
-spec format](#choice-2-the-spec-format), [where Windows and Linux
-run](#choice-3-where-windows-and-linux-run) and [the order of
-work](#choice-4-order).
+Mike's four choices (9 Nov), each explained further down:
+
+- [The web view](#choice-1-the-web-view): CEF, downloaded on first use.
+- [The spec format](#choice-2-the-spec-format): Gherkin `.feature` files, set
+  up the way Let's Build It does.
+- [Where Windows and Linux run](#choice-3-where-windows-and-linux-run):
+  GitHub Actions first, then a Hetzner Windows box when the runner work starts.
+- [The order of work](#choice-4-order): the daily driver first.
 
 The detail lives beside this file:
 
@@ -252,6 +256,8 @@ through accessibility.
 
 ### Choice 2: the spec format
 
+Decided: **A, Gherkin**. The other two are kept here for the reasoning.
+
 | | How it works | Good | Bad |
 |---|---|---|---|
 | **A. Gherkin `.feature` files** (my pick) | `Given a thread needs an answer / When I press Allow / Then ...`, run by one Node runner that talks to whichever app | Reads as plain English, it's what Poddle and Let's Build It use, and one file covers Swift, Mac, Windows and Linux | A step-definition layer to keep up |
@@ -259,10 +265,19 @@ through accessibility.
 | **C. Rust `#[gpui_kit::test]` tests only** | Fast in-process tests, headless on every system | Very fast, simplest setup | Doesn't touch the Swift app, so nothing defines "same as today" |
 
 Fast in-process tests still get used under A for components, just not as the
-parity record. This waits on the other thread Mike says is starting BDD, so we
-agree one format.
+parity record.
+
+It follows Let's Build It's conventions, which `features/README.md` spells out:
+one `<name>.feature` to one `steps/<name>.steps.ts`, shared steps in
+`_common.steps.ts`, a pairing check that fails on an orphan file, features as
+an intent contract for designed behaviour and not a regression dragnet, and its
+Rendering Rule: a scenario asserts on what's drawn, not that a shell mounted.
+What differs is the driver. Let's Build It runs in a browser through
+Playwright-BDD, and here it's Cucumber.js driving two native apps.
 
 ### Choice 3: where Windows and Linux run
+
+Decided: **A from the first slice, B when the Windows runner work starts.**
 
 Linux runs on `cloud`, which already has the packages and takes screenshots.
 Windows is the question.
@@ -273,9 +288,9 @@ Windows is the question.
 | **B. A Windows Server box on Hetzner** | An x64 cloud server next to `cloud`, reached over ssh, for running the runner and driving the app live | Roughly 10 to 30 euro a month for the server (to be confirmed), plus a Windows licence of our own, or a 180-day Server evaluation | A real place to run threads and to debug on | No GPU, so software rendering; another machine to keep patched |
 | **C. A Windows VM on Tinker Desk** | Windows 11 on Arm in UTM or Parallels | Free | Close at hand, real desktop | Arm only, and it takes Tinker Desk's memory while other tests are running |
 
-**My pick: A from the first slice, B when the Windows runner work starts** (it
-needs a real machine and real logins), and skip C. Real screenshots of the
-Windows GPUI app can come from Actions' desktop session.
+The Windows runner work needs a real machine and real logins, which is why B
+comes in then. Real screenshots of the Windows GPUI app can come from Actions'
+desktop session.
 
 ## Order of work
 
@@ -298,6 +313,8 @@ spec runs on all three from the day it's written, and a system's failing specs
 become its slices.
 
 ### Choice 4: order
+
+Decided: **A, the daily driver first.**
 
 | | What comes first | Good | Bad |
 |---|---|---|---|
@@ -384,6 +401,8 @@ The web engine is 146 to 186 MB per system if we go with Choice 1's first
 option, published the same way with a signature checked before it's unpacked.
 
 ## Choice 1: the web view
+
+Decided: **A, CEF downloaded on first use.**
 
 Threadbear shows web pages in patch panels, the Convex dashboard, sealed HTML
 and mermaid blocks and the options window. Whichever we pick, GPUI's own
