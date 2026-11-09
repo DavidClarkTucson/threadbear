@@ -9,7 +9,9 @@
 #
 # With `window` as the first argument it's a torn-out window instead: open one
 # from the menu, drag its bar back over the dock with the real pointer, drop it
-# in. Saves stills in $TMPDIR/dock-pointer. Build first:
+# in. With `out`, a tab dragged past the window's edge: the outline of the new
+# window, then the window itself. Saves stills in $TMPDIR/dock-pointer (other
+# windows as fNN-w-M.png). Build first:
 # `cargo build -p threadbear-dock --features automation --bin dock-demo`.
 set -euo pipefail
 scenario="${1:-tabs}"
@@ -64,6 +66,17 @@ if scenario == "window" {
     mouse(.leftMouseUp, over); pause(1.2)
     exit(0)
 }
+if scenario == "out" {
+    // The Worktrees tab, dragged out past the window's right edge, then
+    // let go: the outline of the window it would open, then the window.
+    let tab = at(1150, 15), away = at(1500, 300)
+    mouse(.mouseMoved, tab); pause(0.3)
+    mouse(.leftMouseDown, tab); pause(0.15)
+    drag(from: tab, to: away, seconds: 0.6)
+    pause(1.3)              // still: the outline, following the pointer
+    mouse(.leftMouseUp, away); pause(1.2)
+    exit(0)
+}
 // The Highlights tab, top right, to the middle of Transcript: the compass.
 let tab = at(1037, 15), middle = at(640, 390), left = at(320, 560)
 mouse(.mouseMoved, tab); pause(0.3)
@@ -86,7 +99,7 @@ swiftc -O -o "$out/pointer" "$out/pointer.swift"
 # A film strip: a still every 300 ms or so while the pointer test runs.
 events="wait 1800;pos $out/pos.txt"
 for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26; do
-  events="$events;wait 300;shot $out/f$n.png"
+  events="$events;wait 300;shot $out/f$n.png;others $out/f$n-w"
 done
 export BEARDOCK_FRESH=1 BEARDOCK_QUIT=1 BEARDOCK_APPEARANCE="${BEARDOCK_APPEARANCE:-dark}" BEARDOCK_EVENTS="$events"
 "$demo" &
