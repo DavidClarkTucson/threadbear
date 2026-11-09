@@ -26,7 +26,8 @@ pub struct ThreadSummary {
     pub starred_at: Option<String>,
     pub archived_at: Option<String>,
     pub waiting_for_room: Option<Value>,
-    pub background: Option<Vec<Background>>,
+    /// Kept as it came: the reducer reads its own `BackgroundTask` from these.
+    pub background: Option<Vec<Value>>,
     pub projects: Option<Vec<Project>>,
     pub preview: String,
     pub last_seq: u64,
@@ -41,12 +42,6 @@ pub struct OpenAsk {
     pub options: Option<Vec<String>>,
     pub suggested: Option<usize>,
     pub ticked: Option<bool>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct Background {
-    pub kind: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -66,7 +61,7 @@ impl ThreadSummary {
     /// Sub-agents or a workflow still going: not waiting on Mike yet,
     /// whatever its last turn said (docs/protocol.md, "Needs you").
     pub fn working(&self) -> bool {
-        self.background.iter().flatten().any(|b| b.kind == "agent" || b.kind == "other")
+        self.background.iter().flatten().any(|b| matches!(b.get("kind").and_then(Value::as_str), Some("agent") | Some("other")))
     }
     /// What `needs` the website's rows see: left out while sub-agents run.
     fn needs_seen(&self) -> Option<&str> {

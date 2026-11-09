@@ -14,14 +14,17 @@ turn.
 
 ## How it's put together
 
+- **`core/`, what the app knows with no window**: the inbox rules, and
+  `reducer/`, a port of how the Swift app turns events into rows, checked
+  against golden files both languages test (`core/tests/golden`).
 - **`client/`, the runner connection** (`runner.rs`): the challenge sign-in
   (`auth.rs`, the same HMAC as `runner/src/rpc-auth.ts`), hello, requests and
   replies, and reconnecting when the runner restarts. `tests/mock_runner.rs`
   signs in to the mock runner.
 - **`gpui/`, the app.** GPUI has no tokio, so the connection runs on its own
-  runtime and its events cross on a channel (`main.rs`). The inbox rules
-  (`inbox.rs`) and transcript folding (`transcript.rs`) are Rust ports of the
-  TypeScript ones, with the same test cases, so the two must change together.
+  runtime and its events cross on a channel (`main.rs`). With the `automation`
+  feature (never in a release) `automation.rs` takes the same scripted commands
+  as the Swift app, which is how `features/` drives it.
 - **Which runner.** The one in `THREADBEAR_HOME` (default `~/Library/Application
   Support/Threadbear`, which the runner uses on Linux too), on the port from
   its `runner.json` (default 8797), as `tb` finds it.
@@ -51,6 +54,13 @@ the app with `THREADBEAR_HOME=/tmp/tb-mock`.
 
 ```bash
 cargo test    # the connection (with the mock) and the app's rules
+```
+
+`../features/README.md` has the behaviour specs, which run the real app on the
+mock runner. Run Rust builds and suites elsewhere (`scripts/remote.sh`):
+
+```bash
+scripts/remote.sh cloud -- bash -c 'cd desktop && cargo test -p threadbear-core'
 ```
 
 `desktop/test/auth-vector-*.txt` are fixed sign-in proofs. The Rust tests

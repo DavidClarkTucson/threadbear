@@ -199,6 +199,17 @@ else may be using that desktop: first check nothing's recording it
 (`pgrep -fl ffmpeg`) and that your window really is in front (`front`, then a
 look at the screen). Wake its screen with `caffeinate -u`, or the events go nowhere.
 
+## The GPUI port
+
+The desktop app is being rewritten as one GPUI app for Mac, Windows and Linux
+(`docs/gpui-port.md`, `desktop/`). Until it replaces `app/`, a change to what the
+Mac app does should get a spec in `features/` (Gherkin, driven against both apps;
+`features/README.md`), so the two apps' differences stay visible in
+`docs/gpui-port/PARITY.md`. A change to how the transcript folds has to keep both
+languages' golden tests happy (`desktop/core/tests/golden`). Rust builds and spec
+runs go elsewhere: `desktop/scripts/remote.sh cloud -- <command>`, or
+`tinker-desk --desk` for a window on a real Mac.
+
 ## Other people's PRs
 
 The repo's public, so people send fixes. Before starting on a GitHub issue, run
