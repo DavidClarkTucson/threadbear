@@ -38,7 +38,8 @@ import { Runner } from './runner.ts';
 import { startOwnThread } from './own-threads.ts';
 import { CodexAdapter } from './adapters/codex/adapter.ts';
 import { AcpAdapter } from './adapters/acp/adapter.ts';
-import { ACP_AGENTS, ACP_PROVIDERS } from './adapters/acp/agents.ts';
+import { ACP_AGENTS, ACP_PROVIDERS, type AcpProvider } from './adapters/acp/agents.ts';
+import { acpAsker } from './models/acp-oneshot.ts';
 import { resolveCodexBinary } from './adapters/codex/appserver.ts';
 import { checkSurface, testedVersion } from './adapters/codex/surface.ts';
 import { CliUpdates } from './updates/manager.ts';
@@ -246,6 +247,8 @@ async function main(): Promise<void> {
     onNotice: (text) => runner.notice('warning', text),
     extraGuidance: () => (experimentOn(cfg.home, 'richBlocks') ? RICH_BLOCKS_LINE : ''),
   });
+  const acpOn = () => experimentOn(cfg.home, 'acpAgents');
+  const acpBinary = (p: AcpProvider) => () => ACP_AGENTS[p].findBinary({ explicit: p === 'cursor' ? cfg.cursorPath : cfg.opencodePath, home: os.homedir(), pathEnv: process.env.PATH ?? '' });
   // One process per live thread on an agent that speaks ACP, off unless the
   // experiment is on (they find no account, and refuse to start without it).
   const acpAdapters = Object.fromEntries(
@@ -253,8 +256,8 @@ async function main(): Promise<void> {
       p,
       new AcpAdapter({
         agent: ACP_AGENTS[p],
-        binary: () => ACP_AGENTS[p].findBinary({ explicit: p === 'cursor' ? cfg.cursorPath : cfg.opencodePath, home: os.homedir(), pathEnv: process.env.PATH ?? '' }),
-        on: () => experimentOn(cfg.home, 'acpAgents'),
+        binary: acpBinary(p),
+        on: acpOn,
         registry,
         log,
         toolsFor: codexStyleTools,
@@ -270,6 +273,7 @@ async function main(): Promise<void> {
     settings: () => cfg.models,
     claudePath: cfg.claudePath,
     registry,
+    askers: Object.fromEntries(ACP_PROVIDERS.map((p) => [p, acpAsker({ agent: ACP_AGENTS[p], binary: acpBinary(p), on: acpOn, registry, log })])),
     poolHost: { pool: (id) => runner.smallModelPool(id), ranDry: (id) => runner.noteRanDry(id) },
   });
   const projects = new Projects({ home: cfg.home, clock: realClock, log });

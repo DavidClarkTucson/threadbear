@@ -52,6 +52,14 @@ function asksFor(cwd) {
   }
 }
 
+function deniesAll() {
+  try {
+    return JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? '{}').permission?.['*'] === 'deny';
+  } catch {
+    return false;
+  }
+}
+
 function openedSession(cwd) {
   if (env.OPENCODE_DISABLE_PROJECT_CONFIG !== '1' && !process.argv.includes('--pure')) {
     const plugin = path.join(cwd, '.opencode', 'plugins', 'run.txt');
@@ -65,6 +73,10 @@ async function runTool(sessionId, cwd, kind, input, locations, run) {
   const toolCallId = `call-${Math.random().toString(36).slice(2)}`;
   update(sessionId, { sessionUpdate: 'tool_call', toolCallId, title: kind === 'edit' ? 'write' : 'bash', kind, status: 'pending', locations: [], rawInput: {} });
   update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress', kind, locations, rawInput: input });
+  if (deniesAll()) {
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId, status: 'failed', kind, rawOutput: { error: 'denied by config' } });
+    return;
+  }
   if (asksFor(cwd)) {
     const r = await ask('session/request_permission', {
       sessionId,

@@ -1117,6 +1117,11 @@ one process per live thread, over stdio. With it off no account, pool or
   `127.0.0.1` (a port per live session), with a random bearer token in a
   header; loopback `Host` and no `Origin` required. They go through the same
   gate as a Codex thread's, so `delete_thread` always asks.
+- **Small jobs** (titles, summaries; `models.run`) run on one of these only when
+  Settings picks a pool with no Claude login in it, so the built-in `claude`
+  pool never becomes another agent. The agent starts in an empty folder with no
+  MCP servers and every tool denied, in its read-only mode; every request it
+  makes is refused, and the prompt goes over stdin, never in its arguments.
 - **Not offered:** the sandbox (a confined thread is refused), rewind, steering
   (a message sent during a turn runs next).
 

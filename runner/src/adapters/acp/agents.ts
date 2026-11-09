@@ -23,7 +23,8 @@ export type AcpAgent = {
   // Set on every process it starts. What stops a thread running tools
   // unguarded is here, so it applies whatever mode the thread starts in and
   // whatever it changes to later: the runner answers each request (AcpSession).
-  env(): Record<string, string>;
+  // noTools: for a small job, where the agent may not use anything at all.
+  env(o?: { noTools?: boolean }): Record<string, string>;
   // Whether the process that answered initialize really is this agent, as
   // the same command name can be another program's.
   identifies(init: InitializeResult): boolean;
@@ -67,7 +68,8 @@ export function isCursorBinary(file: string): boolean {
 // Every tool asks unless it only reads, so a tool an agent adds later asks
 // too. Read of something outside the folder asks as external_directory, and
 // the threadbear tools have their own gate (tool-gate.ts).
-const ASK_FOR_EVERYTHING = { '*': 'ask', read: 'allow', glob: 'allow', grep: 'allow', list: 'allow', external_directory: 'ask', 'threadbear_*': 'allow' };
+const ASK_FOR_EVERYTHING: Record<string, string> = { '*': 'ask', read: 'allow', glob: 'allow', grep: 'allow', list: 'allow', external_directory: 'ask', 'threadbear_*': 'allow' };
+const DENY_EVERYTHING: Record<string, string> = { '*': 'deny' };
 
 // OpenCode runs anything without asking unless its config says otherwise,
 // and a folder's own opencode.json outranks this inline config: tried on
@@ -76,8 +78,8 @@ const ASK_FOR_EVERYTHING = { '*': 'ask', read: 'allow', glob: 'allow', grep: 'al
 // So the folder's OpenCode config isn't read at all, as a folder's Claude
 // settings aren't until trusted. The rules go on the agents too: agent-level
 // rules outrank top-level ones.
-export function opencodeEnv(): Record<string, string> {
-  const permission = ASK_FOR_EVERYTHING;
+export function opencodeEnv(o: { noTools?: boolean } = {}): Record<string, string> {
+  const permission = o.noTools ? DENY_EVERYTHING : ASK_FOR_EVERYTHING;
   return {
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_AUTOUPDATE: '1',

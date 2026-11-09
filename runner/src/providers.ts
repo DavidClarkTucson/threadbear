@@ -44,7 +44,7 @@ export const PROVIDER_INFO: Record<Provider, ProviderInfo> = {
     autoMode: 'asks',
     sandbox: false,
     rewind: false,
-    smallJobs: false,
+    smallJobs: true,
     usageReadings: false,
   },
   opencode: {
@@ -56,7 +56,7 @@ export const PROVIDER_INFO: Record<Provider, ProviderInfo> = {
     autoMode: 'asks',
     sandbox: false,
     rewind: false,
-    smallJobs: false,
+    smallJobs: true,
     usageReadings: false,
   },
 };
