@@ -64,10 +64,12 @@ jobs:
       # what pins them: the Package.resolved files, and the Package.swift
       # files that name the prebuilt libraries' URLs. A new key starts from
       # the last one (restore-keys), so only what changed is fetched. Free:
-      # caches count against the repo's 10 GB, not money. A run saves only
-      # when it passes, and a PR's run saves only for that PR.
-      - name: Cache SwiftPM's downloads
-        uses: actions/cache@v6
+      # caches count against the repo's 10 GB, not money. Saved as soon as
+      # the packages are in (below), so a build that fails later still keeps
+      # them; a PR's run saves only for that PR.
+      - name: Restore SwiftPM's downloads
+        id: spm
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/Library/Caches/org.swift.swiftpm
@@ -88,6 +90,30 @@ jobs:
           DEVELOPER_DIR="$pick/Contents/Developer" xcodebuild -version
           DEVELOPER_DIR="$pick/Contents/Developer" swift --version
 
+      - name: Fetch the packages
+        # Before the build, and up to three times: GitHub's release downloads
+        # answer 504 now and then, and a minute later they work.
+        run: |
+          for try in 1 2 3; do
+            if [ "${{ matrix.app }}" = mac ]; then
+              (cd app && swift package resolve) && exit 0
+            else
+              (cd ios && xcodebuild -resolvePackageDependencies -project Threadbear.xcodeproj -scheme Threadbear \
+                -clonedSourcePackagesDirPath "$HOME/ios-source-packages") && exit 0
+            fi
+            [ "$try" = 3 ] || { echo "Fetching failed (try $try of 3); again in a minute."; sleep 60; }
+          done
+          exit 1
+
+      - name: Save SwiftPM's downloads
+        if: steps.spm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/ios-source-packages
+          key: ${{ steps.spm.outputs.cache-primary-key }}
+
       - name: Build the Mac app
         if: matrix.app == 'mac'
         working-directory: app
@@ -100,8 +126,7 @@ jobs:
         # For a phone, as ios/scripts/install-phone.sh builds it: Convex's
         # prebuilt library has no Intel simulator slice, so a generic
         # simulator build can't link.
-        # -clonedSourcePackagesDirPath puts its packages and prebuilt
-        # libraries where the cache step above keeps them.
+        # -clonedSourcePackagesDirPath: the packages fetched above.
         run: |
           xcodebuild -project Threadbear.xcodeproj -scheme Threadbear -configuration Debug \
             -destination 'generic/platform=iOS' -clonedSourcePackagesDirPath "$HOME/ios-source-packages" \
