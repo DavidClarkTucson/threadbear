@@ -17,6 +17,9 @@ turn.
 - **`core/`, what the app knows with no window**: the inbox rules, and
   `reducer/`, a port of how the Swift app turns events into rows, checked
   against golden files both languages test (`core/tests/golden`).
+- **`dock/`, BearDock for GPUI**: splits, tabs, panel dragging and torn-out
+  windows. Its layout tree (`dock/layout`) has no GPUI in it and reads what the
+  Swift `dock/` saved. Not in the app yet; see `dock/README.md`.
 - **`client/`, the runner connection** (`runner.rs`): the challenge sign-in
   (`auth.rs`, the same HMAC as `runner/src/rpc-auth.ts`), hello, requests and
   replies, and reconnecting when the runner restarts. `tests/mock_runner.rs`

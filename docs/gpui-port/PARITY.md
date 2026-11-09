@@ -71,6 +71,18 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 BearDock for GPUI
+
+- New crates: `desktop/dock/layout` (the tree, line for line from Swift, no GPUI)
+  and `desktop/dock` (rendering, dragging, drop targets, torn-out windows), with
+  a demo.
+- Not in the app yet. GPUI can't scale or tilt a live subtree, so the ghost is a
+  second copy of the panel. Glides between layouts aren't there. Moving a window
+  by hand is Mac only; Windows and X11 use the OS drag, Wayland a menu command.
+- Remaining: integrating it into the app, then the glides.
+- Verification: `cargo test -p threadbear-dock-layout`, 32 tests; `press` tests
+  headless, 4; real CGEvent drags on Tinker Desk through `pointer-test.sh`.
+
 ### 2026-11-09 Risk checks: Chromium in a slot, accessibility, Windows
 
 - Spike (`gpui-web-spike` branch): CEF 156 in a GPUI layout slot on macOS, with a
