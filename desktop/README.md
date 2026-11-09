@@ -12,7 +12,9 @@ So far it signs in to the runner, shows the inbox, opens a thread (live, as
 it streams), answers a card's asks and approvals, sends messages and stops a
 turn, in the Swift app's window: the panels in BearDock with the activity bar
 and right rail, the thread's title line and menu, banners, notes, the menu bar
-and the keyboard shortcuts.
+and the keyboard shortcuts. It starts new threads (the new-thread page, on any
+runner) and offers the slash command palette. Other runners' threads are listed
+and open through this Mac's runner.
 
 ## How it's put together
 

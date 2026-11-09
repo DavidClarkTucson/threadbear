@@ -110,6 +110,104 @@ struct AppDump: Encodable {
         /// The open card in the box, for the behaviour specs: "Done" with
         /// its follow-ups, or "Needs you" with each ask.
         var card: [String]? = nil
+        /// A new thread from this box is on its way: its words stay, greyed
+        /// and locked, until the runner has made it (`composer.starting`).
+        var creating: Bool = false
+    }
+
+    /// The new-thread page, for the behaviour specs (`thread.newpage`),
+    /// while it's what's showing: what the heading and note say, the project
+    /// chip, and each login's room card.
+    struct NewThreadInfo: Encodable {
+        var heading: String
+        var note: String
+        var project: String?
+        var rooms: [RoomInfo]
+    }
+
+    struct RoomInfo: Encodable {
+        var label: String
+        var line: String
+        var selected: Bool
+        var note: String?
+    }
+
+    /// The slash palette over the composer while it's open (`composer.slash`).
+    struct PaletteInfo: Encodable {
+        var query: String
+        var category: String
+        var categories: [PaletteCategory]
+        var commands: [String]
+        var picked: String?
+        var detail: PaletteDetail?
+        /// What the list says when it has nothing to show.
+        var note: String?
+    }
+
+    struct PaletteCategory: Encodable {
+        var title: String
+        var count: Int
+    }
+
+    struct PaletteDetail: Encodable {
+        var title: String
+        var usage: String
+        var description: String?
+        var now: String?
+        var also: String?
+        var origin: String
+        var path: String?
+        var buttons: [String]
+    }
+
+    /// The Move sheet while it's up (MoveSheet), for the behaviour specs.
+    struct MoveSheetInfo: Encodable {
+        var title: String
+        var subtitle: String
+        var folder: String
+        var login: String
+        var problems: [String]
+        var leftBehind: [String]
+        var clone: String?
+        var asking: Bool
+        var canMove: Bool
+    }
+
+    /// Set by the sheet as it draws, so `dump` can say what it shows.
+    @MainActor static var moveSheetNow: MoveSheetInfo?
+
+    /// Set where the palette is drawn (ComposerView.paletteContent), so
+    /// `dump` can say what it shows; nil while it's closed.
+    @MainActor static var slashPalette: PaletteInfo?
+
+    /// What a palette shows, in the words `dump` gives them.
+    @MainActor
+    static func paletteInfo(commands: [SlashCommand]?, query: String, provider: String, recent: [String], state: PaletteState, current: [String: String], canOpenFile: Bool) -> PaletteInfo {
+        let all = commands ?? []
+        let matches = SlashPalette.matches(all, query: query, category: state.category, recent: recent)
+        let picked = matches.first { $0.name == state.selected } ?? matches.first
+        let categories = SlashPalette.counts(all, query: query, recent: recent).map { PaletteCategory(title: $0.0.title(provider: provider), count: $0.1) }
+        let note: String?
+        if commands == nil {
+            note = "Getting this thread's commands…"
+        } else if matches.isEmpty {
+            note = query.isEmpty ? "Nothing here yet." : "No command matches /\(query). Send it and it goes to the agent as words."
+        } else {
+            note = nil
+        }
+        let detail = picked.map { command in
+            PaletteDetail(
+                title: "/\(command.name)",
+                usage: command.usage,
+                description: command.description.flatMap { $0.isEmpty ? nil : $0 },
+                now: current[command.name],
+                also: (command.aliases ?? []).isEmpty ? nil : "Also " + (command.aliases ?? []).map { "/\($0)" }.joined(separator: ", "),
+                origin: SlashPalette.origin(of: command, provider: provider),
+                path: command.path.map { SlashPalette.shortPath($0) },
+                buttons: ["Run", "Add details"] + (command.path != nil && canOpenFile ? ["Open file"] : [])
+            )
+        }
+        return PaletteInfo(query: query, category: state.category.title(provider: provider), categories: categories, commands: matches.map { "/\($0.name)" }, picked: picked.map { "/\($0.name)" }, detail: detail, note: note)
     }
 
     struct Settings {
@@ -206,6 +304,12 @@ struct AppDump: Encodable {
     /// Its action chips (ActionChips).
     var actions: [ActionInfo] = []
     var composer: Composer
+    /// The new-thread page while it's showing: nil with a thread open.
+    var newThread: NewThreadInfo? = nil
+    /// The slash palette over the composer while it's open.
+    var palette: PaletteInfo? = nil
+    /// The Move sheet while it's up.
+    var moveSheet: MoveSheetInfo? = nil
     /// The open card of asks and what's picked on it, as lines; nil when
     /// there's none.
     var decisions: [String]? = nil
@@ -440,6 +544,9 @@ struct AppDump: Encodable {
                 thread.actions.map { ActionInfo(id: $0.id, title: $0.title, kind: $0.kind.rawValue, running: app.isRunning(action: $0, in: thread.id)) }
             } ?? [],
             composer: composer(app, key: key),
+            newThread: newThreadPageDump(app),
+            palette: slashPalette,
+            moveSheet: app.moveRequest == nil ? nil : moveSheetNow,
             decisions: app.selectedThread.flatMap { decisions($0, app: app) },
             transcript: transcript,
             usage: Usage(shown: app.usageShown, lines: usageLines(app)),
@@ -663,7 +770,7 @@ struct AppDump: Encodable {
                         cwd: settings.cwd, account: settings.account, model: settings.model, ask: settings.ask, mode: settings.mode, effort: settings.effort,
                         pool: settings.pool, chip: ThreadSettings(app: app, thread: app.selectedThread).modelChipTitle,
                         runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil),
-                        card: cardLines(app, key: key))
+                        card: cardLines(app, key: key), creating: key == "new" && app.creatingThread)
     }
 
     /// The open card as lines (`composer.card`): "Done" with a "[x]" or

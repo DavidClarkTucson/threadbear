@@ -202,7 +202,16 @@ struct ComposerView: View {
 
     /// The palette for what's typed, or nil when it's closed.
     private func paletteContent(_ draft: Binding<Draft>) -> SlashPaletteView? {
-        guard let thread, let query = paletteQuery(draft.wrappedValue.text) else { return nil }
+        guard let thread, let query = paletteQuery(draft.wrappedValue.text) else {
+            #if DEBUG
+            AppDump.slashPalette = nil
+            #endif
+            return nil
+        }
+        #if DEBUG
+        // For `dump`: what the palette shows (the view's own state lives here).
+        AppDump.slashPalette = AppDump.paletteInfo(commands: app.slashCommands[thread.id], query: query, provider: thread.provider, recent: app.recentSlashCommands, state: palette, current: paletteCurrent(thread), canOpenFile: app.runnerName(of: thread) == nil)
+        #endif
         return SlashPaletteView(
             commands: app.slashCommands[thread.id],
             query: query,

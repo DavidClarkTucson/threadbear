@@ -173,6 +173,89 @@ built parsers and gates with no launch of the app, which is the trap.)
   `navigation`, `shortcuts` and `zoom` modules) and `settings` tests. Side-by-side
   picture of the window on Tinker Desk: the Swift app and the GPUI app with the
   same thread open, 1180 by 800, dark.
+### 2026-11-09 Move to another runner (`sidebar.move`)
+
+- The row menu's Move to ▸ (behind `moveToRunner`): it goes straight away when
+  the other runner has a clean answer, else the sheet comes up with its guess at
+  the folder and login, what's in the way and what won't come, and asks again as
+  they change. Cancel Move while it's going, and "Moving to bruce" on the row.
+- Files: `desktop/gpui/src/move_sheet.rs`, `desktop/core/src/remote.rs`,
+  `desktop/gpui/src/sidebar.rs` (the menu lines), `features/remote-threads.feature`,
+  `app/Sources/Threadbear/Views/MoveSheet.swift` and `AppDump.swift` (the dump's
+  `moveSheet`, debug only).
+- Remaining: the login picker is a popover where Swift's is a pop-up menu; a
+  summary landing while a move is being asked for takes the row's guess off
+  (`keepingAskedMove`), which only shows as a flicker.
+- Verification: `@sidebar.move`, 5 of 5 on `TB_APP=swift` and on `TB_APP=gpui` on
+  Tinker Desk, and in the whole-suite runs under the new-thread page's entry
+  below; a picture of the sheet on Tinker Desk.
+
+### 2026-11-09 Other runners' threads and the runner chip (`sidebar.row.remote`, `composer.runner`)
+
+- Rows from `remoteThreads.list`/`remoteThreads.updated` sit beside this Mac's,
+  with the machine's icon in the tile and "On bruce" (faded when offline); opening
+  one reads its events and sends through this Mac's runner, the app's default way
+  in (the direct link's own connections aren't ported, `directRemoteLink`).
+  The box on such a thread leads with its machine's chip; a thread's logins and
+  folders are that runner's once they've come (`remoteThreads.logins`), as is the
+  draft's. The new-thread box has the Runs on chip: this Mac, each runner, the star
+  on the default and a Default submenu that sets it, and on another runner its
+  folders. `composer-menu` with `runner` reads and clicks it, `setDefault` sets
+  the star.
+- Files: `desktop/gpui/src/remote.rs`, `desktop/gpui/src/composer_chips.rs`,
+  `desktop/core/src/remote.rs`, `features/remote-threads.feature`,
+  `app/Tools/mock-runner/server.mjs` (the mock now answers another runner's
+  threads over its own connection, as the real runner does through the backend,
+  and `remoteThreads.logins`).
+- Remaining: the direct link (Settings > Runners), `files.read` of another
+  runner's paths (their pictures show their own placeholder), the sparse mode is
+  on for the relay but a real relay hasn't been run from this app.
+- Verification: `@sidebar.row.remote` and `@composer.runner`, 7 of 7 on both
+  apps on Tinker Desk, and in the whole-suite runs under the new-thread page's
+  entry below.
+
+### 2026-11-09 The slash command palette (`composer.slash`, `composer.slash.keys`)
+
+- Floating over the box in the same window (a deferred layer, as wide as the box,
+  half the window tall): categories with counts and Recent, the matches, the picked
+  command in full with Run, Add details and Open file. The keys come from the box's
+  own actions while it's open (arrows move the pick, Tab fills it in, Return runs
+  it, Esc closes it until the words change), so the cursor stays in the box.
+  Recent is kept in `gpui-prefs.json`. The rules are in `desktop/core/src/slash.rs`
+  with tests; the dump's `palette` is on both apps.
+- Files: `desktop/gpui/src/slash_palette.rs`, `desktop/gpui/src/composer.rs`,
+  `desktop/core/src/slash.rs`, `features/slash-palette.feature`,
+  `app/Sources/Threadbear/AppDump.swift` and `ComposerView.swift` (debug only).
+- Remaining: `composer.slash.resize` (dragging its edges and columns); Open file
+  opens the system's app until file previews land; descriptions read as plain text
+  rather than inline markdown.
+- Verification: `@composer.slash` and `@composer.slash.keys`, 9 of 9 on both apps
+  on Tinker Desk, and in the whole-suite runs under the new-thread page's entry
+  below; `cargo test -p threadbear-core` (the palette's own rules, 18 tests); a
+  picture of `/co` on Tinker Desk read against SlashPaletteView.
+
+### 2026-11-09 The new-thread page (`thread.newpage`, `composer.starting`)
+
+- ⌘N and the compose button open a page with the box about 40% of the way down,
+  the heading above it, "Starts in misc on the Claude pool" under it and the
+  logins' room cards (a click pins the draft to that login); a project's New
+  Thread adds its "In …" chip and folder. Sending goes through `threads.create` on
+  the draft's pool or login, the words greyed and locked with a spinner for Send
+  until the thread exists, and starts the next one from the defaults again. `new`
+  (with `project`), `options`, and `composer-menu` work on the page as in the
+  Swift app. The picks that stick (model, effort, last login, default runner, recent
+  commands) live in `<data dir>/gpui-prefs.json`; `docs/on-your-mac.md` should
+  name it when this app ships.
+- Files: `desktop/gpui/src/new_thread.rs`, `desktop/gpui/src/prefs.rs`,
+  `desktop/core/src/new_thread.rs`, `features/new-thread.feature`, a page branch
+  in `desktop/gpui/src/app.rs`.
+- Remaining: the page doesn't clamp the heading and note for very short windows
+  as ComposerPlacement does; the bear over the heading.
+- Verification: `TB_APP=gpui` whole suite, 125 of 125 on Tinker Desk (real Mac
+  desktop) and 125 of 125 on Linux (`cloud`) at the final commit; `TB_APP=swift`
+  whole suite, 125 of 125 on Tinker Desk; `cargo test -p threadbear-core`
+  (92 lib tests); side-by-side of the page at
+  `/tmp/gpui-new-thread-side-by-side.png`.
 
 ### 2026-11-09 BearDock for GPUI
 

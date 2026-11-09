@@ -11,10 +11,15 @@ mod composer_chips;
 mod header;
 mod icons;
 mod rails;
+mod move_sheet;
+mod new_thread;
+mod prefs;
+mod remote;
 mod rows;
 mod settings;
 mod shell;
 mod sidebar;
+mod slash_palette;
 mod style;
 mod thread;
 

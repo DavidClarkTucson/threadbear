@@ -549,6 +549,16 @@ extension Automation {
         case "runner":
             // Runs on, on the new-thread composer only.
             guard app.selectedThread == nil else { return "error runner is for a new thread" }
+            // The Default submenu, by a runner's name.
+            if let name = c["setDefault"] as? String {
+                if name == "This Mac" {
+                    app.setDefaultRunner(nil)
+                    return "ok"
+                }
+                guard let runner = app.remoteRunners.first(where: { $0.name == name }) else { return "error no runner \(name)" }
+                app.setDefaultRunner(runner.id)
+                return "ok"
+            }
             menu = settings.runnerMenu()
         default: return "error menu is model, account, pin, permission, folder or runner"
         }
@@ -775,7 +785,7 @@ extension Automation {
             if item.isSeparatorItem { return [indent + "---"] }
             if item.isSectionHeader { return [indent + "# " + item.title] }
             var line = indent + (item.state == .on ? "[x] " : "[ ] ") + item.title
-            if item.image?.accessibilityDescription == "Default" { line += " *" }
+            if item.image?.accessibilityDescription == "Default" || item.badge?.stringValue == "★" { line += " *" }
             if let subtitle = item.subtitle, !subtitle.isEmpty { line += " - " + subtitle }
             return [line] + (item.submenu.map { describe($0, indent: indent + "    ") } ?? [])
         }

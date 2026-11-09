@@ -60,6 +60,11 @@ pub struct ThreadSummary {
     pub on_old_runner: Option<bool>,
     /// Sharing (protocol "Sharing"): `{ access, slug }`.
     pub share: Option<Value>,
+    /// Which other runner it lives on; none for this Mac's own threads.
+    /// Never on the wire: a runner's summaries are all its own (Swift
+    /// `ThreadSummary.runnerId`), and `remote::summary` sets it.
+    #[serde(skip)]
+    pub runner_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

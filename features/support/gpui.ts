@@ -124,9 +124,10 @@ export class GpuiDriver implements Driver {
     this.home = process.env.TB_RUNNER_HOME ?? fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tb-spec-'));
     const ready = path.join(this.home, 'mock-ready');
     // TB_MOCK_FIXTURES swaps the demo threads for that folder's, for one-off checks.
+    // TB_MOCK_REMOTE: a scenario about other machines (@remote-threads).
     const fixtures = process.env.TB_MOCK_FIXTURES ? ['--fixtures', process.env.TB_MOCK_FIXTURES] : [];
     if (!process.env.TB_RUNNER_HOME) {
-      this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready, ...fixtures], { TB_MOCK_NO_REMOTE: '1' });
+      this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready, ...fixtures], { TB_MOCK_NO_REMOTE: process.env.TB_MOCK_REMOTE ? '' : '1' });
       await waitForFile(ready, 'The mock runner', 15_000);
     }
     await this.launchApp();

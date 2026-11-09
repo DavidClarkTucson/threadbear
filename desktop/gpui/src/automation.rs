@@ -90,8 +90,30 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
         let client = app.read_with(cx, |t, _| t.client.clone()).map_err(|e| e.to_string())?;
         return call(client, method, cmd["params"].clone()).await.map_err(|e| e.message);
     }
+    // `send` from the new-thread box waits for the thread it starts and says
+    // its id, as the Swift command does, for `tb show` and the like.
+    let from_new = cmd["cmd"] == "send" && app.read_with(cx, |t, _| t.selected.is_none()).map_err(|e| e.to_string())?;
+    let weak = app.clone();
     let Some(app) = app.upgrade() else { return Err("the app has gone".into()) };
-    cx.update_window(window, |_, window, cx| step(&app, cmd, window, cx)).map_err(|e| e.to_string())?
+    let out = cx.update_window(window, |_, window, cx| step(&app, cmd, window, cx)).map_err(|e| e.to_string())??;
+    if !from_new {
+        return Ok(out);
+    }
+    let started = std::time::Instant::now();
+    let wait = cmd["timeout"].as_f64().unwrap_or(10.);
+    loop {
+        let (opened, error) = weak.read_with(cx, |t, _| (t.selected.clone(), t.new_thread.error.clone())).map_err(|e| e.to_string())?;
+        if let Some(id) = opened {
+            return Ok(json!(format!("ok {id}")));
+        }
+        if let Some(error) = error {
+            return Err(format!("not sent: {error}"));
+        }
+        if started.elapsed().as_secs_f64() > wait {
+            return Err(format!("sent, but no new thread showed up within {wait} s"));
+        }
+        cx.background_executor().timer(std::time::Duration::from_millis(50)).await;
+    }
 }
 
 fn text<'a>(cmd: &'a Value, key: &str) -> &'a str {
@@ -106,7 +128,9 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "status" => Ok(json!("ok")),
         // The sidebar's commands (sidebar.rs). Guarded ones only take the forms
         // that name a section, a row or a tip; the others fall through below.
-        "hover" | "sort" | "archive-more" | "star" | "unstar" | "unarchive" | "new" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),
+        "hover" | "sort" | "archive-more" | "star" | "unstar" | "unarchive" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),
+        "new" | "options" => crate::new_thread::automation(app, cmd, window, cx),
+        "move" => crate::move_sheet::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("section").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "archive" | "snooze" if cmd.get("id").is_some() || cmd.get("said").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "click" if cmd.get("tip").is_some() || cmd.get("tipPrefix").is_some() => crate::sidebar::automation(app, cmd, window, cx),
@@ -136,6 +160,20 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         }
         "return" => {
             window.press(if cmd["shift"].as_bool().unwrap_or(false) { "shift-enter" } else { "enter" }, cx);
+            Ok(json!("ok"))
+        }
+        // The keys the composer's slash palette takes, where the cursor is
+        // (the Swift `arrow`, `tab`, `escape`).
+        "arrow" => {
+            window.press(if text(cmd, "dir") == "up" { "up" } else { "down" }, cx);
+            Ok(json!("ok"))
+        }
+        "tab" => {
+            window.press("tab", cx);
+            Ok(json!("ok"))
+        }
+        "escape" => {
+            window.press("escape", cx);
             Ok(json!("ok"))
         }
         // The Swift app's `paste-image` and `drop`: a file through the same
@@ -171,6 +209,9 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // The Swift app's `composer-menu`: a chip's menu as text, or a click
         // on one of its items.
         "composer-menu" => {
+            if text(cmd, "menu") == "runner" {
+                return crate::new_thread::runner_menu_command(app, cmd, cx);
+            }
             let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
             let data = composer.read(cx).chip_data(cx);
             match text(cmd, "menu") {
@@ -550,6 +591,11 @@ fn shell_step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &m
 }
 
 fn type_in_composer(app: &Entity<Threadbear>, words: &str, replace: bool, window: &mut Window, cx: &mut App) -> Result<(), String> {
+    // On the new-thread page the box is made at its first render; a script
+    // may type before that frame has been drawn.
+    if app.read(cx).pane.is_none() {
+        app.update(cx, |t, cx| t.ensure_new_composer(window, cx));
+    }
     let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
     let input = composer.read(cx).input.clone();
     if replace {

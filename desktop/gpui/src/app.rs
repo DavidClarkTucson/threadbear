@@ -93,6 +93,14 @@ pub struct Threadbear {
     /// header's chips (`projects.list`).
     pub(crate) all_projects: Vec<(String, String, bool)>,
 
+    /// The new-thread page's box and what it's set to (new_thread.rs).
+    pub(crate) new_thread: crate::new_thread::NewThreadState,
+    /// Other runners' threads and logins (remote.rs).
+    pub(crate) remote: crate::remote::RemoteState,
+    /// Each thread's slash commands, for the composer's palette.
+    pub(crate) slash: crate::slash_palette::SlashState,
+    /// The Move sheet, while it's up (move_sheet.rs).
+    pub(crate) move_sheet: Option<Entity<crate::move_sheet::MoveSheet>>,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -207,6 +215,10 @@ impl Threadbear {
             active_schedule_count: 0,
             projects_supported: false,
             all_projects: Vec::new(),
+            new_thread: crate::new_thread::NewThreadState::new(),
+            remote: Default::default(),
+            slash: Default::default(),
+            move_sheet: None,
             _events: events,
             _subs: vec![appearance, searching, frame],
         };
@@ -223,6 +235,7 @@ impl Threadbear {
                 let connected = matches!(status, Status::Connected { .. });
                 if let Status::Connected { hello, .. } = &status {
                     self.logins = RunnerLogins::from_hello(hello);
+                    self.remote.experiments = hello["experiments"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(str::to_owned)).collect();
                 }
                 self.status = status;
                 // Each time it's connected, the whole list again, and the
@@ -233,6 +246,7 @@ impl Threadbear {
                     self.refresh_restart(cx);
                     self.load_projects(cx);
                     self.load_schedules(cx);
+                    self.load_remote(cx);
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.load(cx));
                     }
@@ -240,7 +254,10 @@ impl Threadbear {
             }
             Seen::Note(method, params) => match method.as_str() {
                 "thread.updated" => {
-                    if let Ok(t) = serde_json::from_value::<ThreadSummary>(params["thread"].clone()) {
+                    if let Ok(mut t) = serde_json::from_value::<ThreadSummary>(params["thread"].clone()) {
+                        // Another runner's thread from this Mac's runner (the
+                        // relay) stays marked as that runner's.
+                        t.runner_id = self.threads.get(&t.id).and_then(|old| old.runner_id.clone());
                         if let Some(pane) = &self.pane {
                             pane.update(cx, |p, cx| p.summary_changed(&t, cx));
                         }
@@ -260,9 +277,11 @@ impl Threadbear {
                 }
                 "projects.updated" => {
                     self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]);
+                    self.sidebar.projects = crate::sidebar::project_briefs(&params["projects"]);
                     self.all_projects = project_list(&params["projects"]);
                 }
                 "schedules.updated" => self.load_schedules(cx),
+                "remoteThreads.updated" => self.receive_remote(&params, cx),
                 "thread.event" => {
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.event(&params, cx));
@@ -283,6 +302,8 @@ impl Threadbear {
                     Ok(v) => {
                         let list: Vec<ThreadSummary> = serde_json::from_value(v["threads"].clone()).unwrap_or_default();
                         this.threads = list.into_iter().map(|t| (t.id.clone(), t)).collect();
+                        // Other runners' rows stay listed beside these.
+                        this.apply_remote_index(cx);
                         this.list_error = None;
                         this.sidebar.loaded = true;
                     }
@@ -318,6 +339,11 @@ impl Threadbear {
             return;
         }
         let Some(summary) = self.threads.get(&id).cloned() else { return };
+        // Another runner's thread: its logins fill the pickers once they've
+        // come (`openClient`'s `loadRelayLogins`).
+        if let Some(runner) = summary.runner_id.clone() {
+            self.load_remote_logins(runner, cx);
+        }
         if let Some(old) = &self.pane {
             old.read(cx).unsubscribe();
         }
@@ -404,7 +430,8 @@ impl Threadbear {
 
     #[cfg(feature = "automation")]
     pub(crate) fn composer(&self, cx: &App) -> Option<Entity<Composer>> {
-        self.pane.as_ref().map(|p| p.read(cx).composer.clone())
+        // The open thread's box, or the new-thread page's.
+        self.pane.as_ref().map(|p| p.read(cx).composer.clone()).or_else(|| self.new_thread.composer.clone())
     }
 
     #[cfg(feature = "automation")]
@@ -455,6 +482,9 @@ impl Threadbear {
             "selection": self.selection_dump(),
             "sidebar": sidebar,
             "composer": self.dump_composer(cx),
+            "newThread": crate::new_thread::page_dump(self, cx),
+            "palette": self.composer(cx).map_or(Value::Null, |c| c.read(cx).palette_dump(cx)),
+            "moveSheet": self.move_sheet.as_ref().map_or(Value::Null, |s| s.read(cx).dump(cx)),
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": self.banner_dump(),
@@ -471,21 +501,25 @@ impl Threadbear {
     /// The composer's part of the dump (AppDump.composer).
     #[cfg(feature = "automation")]
     fn dump_composer(&self, cx: &App) -> Value {
-        let pane = self.pane.as_ref().map(|p| p.read(cx));
+        let composer = self.composer(cx);
+        let composer = composer.as_ref().map(|c| c.read(cx));
         let mut out = json!({
             "draft": self.selected.clone().unwrap_or_else(|| "new".into()),
-            "text": pane.map(|p| p.draft(cx)).unwrap_or_default(),
-            "images": pane.map_or(0, |p| p.composer.read(cx).draft_images(cx)),
+            "text": composer.map(|c| c.draft_text(cx)).unwrap_or_default(),
+            "images": composer.map_or(0, |c| c.draft_images(cx)),
+            "creating": self.selected.is_none() && self.new_thread.creating,
         });
-        if let Some(pane) = pane {
-            let data = pane.composer.read(cx).chip_data(cx);
+        if let Some(composer) = composer {
+            let data = composer.chip_data(cx);
             if let Some(t) = &data.summary {
                 out["cwd"] = json!(t.cwd);
                 out["account"] = json!(t.account_id);
                 out["mode"] = json!(if t.permission_mode.is_empty() { "full" } else { t.permission_mode.as_str() });
             }
+            if let Some(away) = &data.away {
+                out["runner"] = json!(away.name);
+            }
             out["chip"] = json!(crate::composer_chips::model_chip_text(&data));
-            let composer = pane.composer.read(cx);
             if let Some(card) = composer.card_lines(cx) {
                 out["card"] = json!(card);
             }

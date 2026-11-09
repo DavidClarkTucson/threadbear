@@ -30,6 +30,12 @@ struct MoveSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            #if DEBUG
+            // For `dump`: what the sheet shows (AppDump.moveSheet).
+            let _ = (AppDump.moveSheetNow = AppDump.MoveSheetInfo(
+                title: "Move \u{201C}\(title)\u{201D} to \(request.runnerName)", subtitle: subtitle, folder: folder, login: login,
+                problems: preview?.problems ?? [], leftBehind: preview?.leftBehind ?? [], clone: preview?.clone, asking: asking, canMove: canMove))
+            #endif
             VStack(alignment: .leading, spacing: 4) {
                 Text("Move \u{201C}\(title)\u{201D} to \(request.runnerName)")
                     .font(.headline)

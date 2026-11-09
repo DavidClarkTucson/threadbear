@@ -319,6 +319,12 @@ enum Automation {
             try? await Task.sleep(for: .milliseconds(150))
             return "ok \(subagentId) \(session.displayCount) rows"
         case "new":
+            // With `project` (an id): New Thread on that project's page.
+            if let id = c["project"] as? String {
+                guard let project = app.projects.first(where: { $0.id == id }) else { return "error no project \(id)" }
+                app.newThread(in: project)
+                return "ok"
+            }
             app.newThread()
             return "ok"
         case "open-panel":
@@ -598,9 +604,19 @@ enum Automation {
                 // `tipPrefix` is for a tip that ends with a keyboard shortcut
                 // ("Archive (⌘E)"), which differs from one Mac to another.
                 let prefix = c["tipPrefix"] != nil
-                guard let window = c["settings"] as? Bool == true ? SettingsWindow.current : (mainWindow?.attachedSheet ?? mainWindow), let content = window.contentView,
-                      let anchor = all(TipAnchorView.self, in: content).last(where: { (prefix ? $0.text.hasPrefix(tip) : $0.text == tip) && !$0.isHiddenOrHasHiddenAncestor })
-                else { return "error no control with the tip \(tip)" }
+                // The slash palette has a window of its own (SlashPalettePanel),
+                // looked in after the main window's controls.
+                let windows = c["settings"] as? Bool == true ? [SettingsWindow.current].compactMap { $0 }
+                    : [mainWindow?.attachedSheet ?? mainWindow].compactMap { $0 } + NSApp.windows.filter { $0 is SlashPalettePanel && $0.isVisible }
+                var found: (window: NSWindow, anchor: TipAnchorView)?
+                for candidate in windows {
+                    guard let content = candidate.contentView,
+                          let anchor = all(TipAnchorView.self, in: content).last(where: { (prefix ? $0.text.hasPrefix(tip) : $0.text == tip) && !$0.isHiddenOrHasHiddenAncestor })
+                    else { continue }
+                    found = (candidate, anchor)
+                    break
+                }
+                guard let (window, anchor) = found else { return "error no control with the tip \(tip)" }
                 let center = anchor.convert(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: nil)
                 for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                     guard let event = NSEvent.mouseEvent(with: type, location: center, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,

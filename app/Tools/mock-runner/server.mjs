@@ -473,14 +473,27 @@ function onConnection(ws, request) {
 
 async function handle(client, { id, method, params = {} }) {
   // Each runner knows only its own threads: asking this one about one of
-  // bruce's (or bruce about this one's) is "Thread not found".
+  // bruce's (or bruce about this one's) is "Thread not found"...
+  let caller = client;
   if (typeof params?.threadId === 'string' && threads.has(params.threadId) && ownerOf(params.threadId) !== client.as) {
-    return reply(client, id, null, { code: -32004, message: 'Thread not found' });
+    // ...except that this runner answers for bruce's threads through the
+    // backend (docs/protocol.md, "Other runners' threads through the
+    // backend"), the app's default way in: here, that's bruce's own code
+    // answering, on the same connection and with the same shapes. Events
+    // come to whoever subscribed, whichever runner's connection they used.
+    if (client.as !== null || ownerOf(params.threadId) !== BRUCE) {
+      return reply(client, id, null, { code: -32004, message: 'Thread not found' });
+    }
+    caller = { ...client, as: BRUCE };
+  }
+  if (method === 'threads.create' && params?.runnerId === BRUCE && client.as === null) {
+    // A new thread on bruce through this runner, as the relay files it.
+    caller = { ...client, as: BRUCE };
   }
   if (slow.ms > 0 && ['threads.send', 'threads.create', 'threads.update'].includes(method)) {
     await new Promise((resolve) => setTimeout(resolve, slow.ms));
   }
-  const result = await dispatch(client, method, params);
+  const result = await dispatch(caller, method, params);
   if (id !== undefined && id !== null) reply(client, id, result ?? {});
   // Like the real runner: a client that says hello hears about a restart
   // that's waiting, straight after the hello result.
@@ -1192,6 +1205,13 @@ async function dispatch(client, method, p) {
     case 'remoteThreads.list':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       return remoteThreads(client);
+    case 'remoteThreads.logins': {
+      // That runner's logins through this one, from the backend (no pools,
+      // and its default folder), as bruce's own hello has them.
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      if (p.runnerId !== BRUCE) throw rpcError(-32000, `No logins known for ${p.runnerId}`);
+      return { accounts: publicAccounts().filter((a) => a.id === 'claude-main' || a.id === 'codex-main'), pools: [], defaults: { ...defaults, poolId: undefined, accountId: 'claude-main', cwd: '/Users/bruce/dev/me/misc' } };
+    }
     case 'runners.setOrder': {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (!Array.isArray(p.runnerIds) || !p.runnerIds.every((x) => typeof x === 'string')) throw rpcError(-32602, 'runnerIds must be a list of runner ids');

@@ -1036,14 +1036,8 @@ impl Threadbear {
         let main: AnyElement = match (&self.pane, page) {
             (Some(pane), None) => div().size_full().child(pane.clone()).into_any_element(),
             (_, Some(page)) => div().size_full().flex().items_center().justify_center().text_color(muted).child(format!("The {page} page isn't in this app yet.")).into_any_element(),
-            (None, None) => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(muted)
-                .child(if matches!(self.status, threadbear_client::runner::Status::Connected { .. }) { "No thread open".to_string() } else { self.connection_note().unwrap_or_default() })
-                .into_any_element(),
+            // No thread open is the new-thread page, as in the Swift app.
+            (None, None) => self.render_new_page(window, cx),
         };
         let toasts = self.render_toasts(window, cx);
         div().relative().size_full().child(v_flex().size_full().child(banners).child(div().flex_1().min_h_0().child(main))).child(toasts)
