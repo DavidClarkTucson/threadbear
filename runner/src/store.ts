@@ -107,6 +107,8 @@ export type ThreadRecord = {
   lastSeenSeq: number;
   nativeSessionId?: string;
   contextTokens?: number;
+  // Cache pings since the turn at seq, the last at `at` (cache-keepalive.ts).
+  keepWarm?: { seq: number; pings: number; at: string };
   contextWindow?: number; // the model's window, when the CLI reports it
   continuedIn?: { threadId: string; title: string }; // Continue in a new thread (runner/long-threads.ts)
   costUsd?: number;
