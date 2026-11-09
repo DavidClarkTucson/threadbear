@@ -64,6 +64,8 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "plus" => IconName::Plus,
         "desktopcomputer" => IconName::Monitor,
         "macmini" => IconName::Server,
+        "ladybug" | "ant" => IconName::Bug,
+        "externaldrive" => IconName::HardDrive,
         // The symbols Settings › Pools and the librarian offer for a project
         // (`Pools.iconChoices`).
         "photo" => IconName::Image,

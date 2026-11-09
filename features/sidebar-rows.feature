@@ -19,6 +19,11 @@ Feature: What a thread's row says in the sidebar
     And the row "Why is the build slow on CI?" lists the sub-agent "Time the test step on each commit" indented by 1
     And the sub-agent "Check the Docker layer cache" of "Why is the build slow on CI?" says "Failed: Couldn't reach the registry."
 
+  @sidebar.row.origin
+  Scenario: A thread someone else started says so before its place line
+    Then the row "Rename the Settings tabs" has the origin mark "pawprint"
+    And the row "Make uploads resume after a crash" has no origin mark
+
   @sidebar.row.marks
   Scenario: A thread that needs me has a blue dot and a bold title
     Then the row "Make uploads resume after a crash" has a blue dot

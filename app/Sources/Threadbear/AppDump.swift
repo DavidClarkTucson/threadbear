@@ -44,6 +44,9 @@ struct AppDump: Encodable {
         var mark: String? = nil
         var trailing: String = ""
         var tile: String = ""
+        /// Who started it, when it wasn't Mike: the mark before the place line
+        /// (`ThreadByline`), as an SF Symbol name.
+        var origin: String? = nil
         /// The hover buttons' tips, while the row's hovered.
         var hoverButtons: [String]? = nil
     }
@@ -285,7 +288,7 @@ struct AppDump: Encodable {
                           background: look.status == .background ? BackgroundWork.short(summary.background) : nil,
                           waiting: summary.waitingForRoom.map { Pools.waitingLine($0, now: app.now) } ?? (summary.waitingForNetwork != nil ? "Waiting for connection" : nil),
                           subagents: subagents, runner: app.runnerPlace(of: summary), place: shown.place, bold: shown.bold, mark: shown.mark,
-                          trailing: shown.trailing, tile: shown.tile, hoverButtons: shown.buttons)
+                          trailing: shown.trailing, tile: shown.tile, origin: ThreadByline.line(summary)?.symbol, hoverButtons: shown.buttons)
         }
         let sections: [Section]
         switch app.sidebarMode {

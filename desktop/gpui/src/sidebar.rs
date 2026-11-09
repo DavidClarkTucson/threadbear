@@ -976,7 +976,7 @@ impl Threadbear {
                     .gap(px(4.))
                     .text_color(secondary)
                     .tooltip(move |window, cx| Tooltip::new(place_tip_text.clone()).build(window, cx))
-                    .when_some(byline.as_ref(), |s, b| s.child(icon(&b.symbol, style::size::SIDEBAR_META, secondary).flex_none()))
+                    .when_some(byline.as_ref(), |s, b| s.child(icons::try_symbol(&b.symbol).unwrap_or_else(|| icons::symbol("wrench.and.screwdriver")).with_size(px(style::size::SIDEBAR_META)).text_color(secondary).flex_none()))
                     .child(div().min_w_0().truncate().text_size(px(style::size::SIDEBAR_META + 1.)).line_height(px(15.)).child(place)),
             )
             .child(div().flex_1().min_w(px(6.)))
@@ -1126,6 +1126,7 @@ impl Threadbear {
                 "background": (look.status == rows::RowStatus::Background).then(|| rows::background_short(&t.background_tasks())),
                 "waiting": t.waiting_for_room_until_ms().map(|u| rows::waiting_line(u, &clock)).or_else(|| t.waiting_for_network.as_ref().map(|_| "Waiting for connection".to_string())),
                 "subagents": subagents,
+                "origin": rows::byline(t).map(|b| b.symbol),
                 "place": t.place(),
                 "bold": plain.emphasised,
                 "mark": mark,

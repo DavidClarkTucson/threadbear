@@ -26,6 +26,7 @@ export type Thread = {
   mark?: string | null;
   trailing?: string;
   tile?: string;
+  origin?: string | null;
   hovered?: boolean;
   hoverButtons?: string[] | null;
   background?: string | null;

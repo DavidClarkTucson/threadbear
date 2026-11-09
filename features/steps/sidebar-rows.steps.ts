@@ -12,6 +12,17 @@ Then('the row {string} is in {string}', async function (this: ThreadbearWorld, t
   await this.until(`"${title}" in ${place}`, (d) => this.thread(d, title)?.place === place);
 });
 
+Then('the row {string} has the origin mark {string}', async function (this: ThreadbearWorld, title: string, symbol: string) {
+  await this.until(`"${title}" with the mark ${symbol}`, (d) => this.thread(d, title)?.origin === symbol);
+});
+
+Then('the row {string} has no origin mark', async function (this: ThreadbearWorld, title: string) {
+  await this.until(`"${title}" with no mark`, (d) => {
+    const t = this.thread(d, title);
+    return t && !t.origin;
+  });
+});
+
 Then('the row {string} has a blue dot', async function (this: ThreadbearWorld, title: string) {
   await this.until(`"${title}" with a dot`, (d) => this.thread(d, title)?.mark === 'dot');
 });
