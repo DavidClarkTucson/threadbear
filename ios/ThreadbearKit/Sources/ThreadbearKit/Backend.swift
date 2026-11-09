@@ -147,7 +147,13 @@ public final class ConvexBackend: Backend, @unchecked Sendable {
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
-        do { return try JSONDecoder().decode(T.self, from: data) } catch {
+        do {
+            // Every list the backend answers (threads, projects, schedules,
+            // accounts...) is read item by item, so one row this build
+            // can't read is skipped rather than failing the whole answer.
+            if let list = T.self as? LossyListDecodable.Type, let value = try list.decodeLossily(data) as? T { return value }
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
             throw TransportError.server("Couldn't read the server's answer: \(error)")
         }
     }

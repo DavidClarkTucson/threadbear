@@ -510,10 +510,10 @@ export class RpcServer {
         return { ...r.hello(), ...(updates ? { updates } : {}), experiments };
       }
       case 'threads.list': {
-        const include = p.include === undefined ? undefined : stringArray(p, 'include');
-        for (const x of include ?? []) {
-          if (x !== 'inbox' && x !== 'snoozed' && x !== 'archived') throw bad(`unknown include value ${x}`);
-        }
+        // A bucket this runner doesn't know is left out, not refused: a
+        // newer app's new one would otherwise fail its whole thread list
+        // here (docs/protocol.md, both sides tolerate unknown values).
+        const include = p.include === undefined ? undefined : stringArray(p, 'include').filter((x) => x === 'inbox' || x === 'snoozed' || x === 'archived');
         const ids = p.ids === undefined ? undefined : stringArray(p, 'ids');
         const local = r.list(include as Bucket[] | undefined, ids);
         const only = ids && new Set(ids);
@@ -856,7 +856,10 @@ function optStartedBy(p: Record<string, unknown>): { startedBy?: ThreadStartedBy
   if (v === undefined || v === null) return {};
   if (typeof v !== 'object') throw bad('startedBy must be an object');
   const o = v as Record<string, unknown>;
-  if (typeof o.kind !== 'string' || !STARTED_BY_KINDS.has(o.kind)) throw bad('startedBy.kind must be tool, thread, schedule, librarian or runner');
+  if (typeof o.kind !== 'string') throw bad('startedBy.kind must be a string');
+  // A kind from a newer caller: the thread starts with no byline rather
+  // than not at all, as it's only what Mike's row says.
+  if (!STARTED_BY_KINDS.has(o.kind)) return {};
   const words = (x: unknown, max: number) => (typeof x === 'string' ? cutSafely(x.replace(/\s+/g, ' ').trim(), max) : '');
   const label = words(o.label, 40);
   if (!label) throw bad('startedBy.label required');

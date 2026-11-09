@@ -1721,9 +1721,12 @@ public struct HelloResult: Sendable, Hashable, Decodable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        runnerVersion = try c.decodeIfPresent(String.self, forKey: .runnerVersion) ?? "?"
-        `protocol` = try c.decodeIfPresent(Int.self, forKey: .protocol) ?? 1
-        accounts = try c.decodeIfPresent([Account].self, forKey: .accounts) ?? []
+        // Each read leniently, as accounts.updated reads its list: one odd
+        // field or account here made hello throw, and the app reconnected
+        // forever without ever connecting (9 Nov review).
+        runnerVersion = ((try? c.decodeIfPresent(String.self, forKey: .runnerVersion)) ?? nil) ?? "?"
+        `protocol` = c.lenientInt(forKey: .protocol) ?? 1
+        accounts = c.lossyArray(Account.self, forKey: .accounts)
         defaults = (try? c.decodeIfPresent(RunnerDefaults.self, forKey: .defaults))
             ?? RunnerDefaults(cwd: "", accountId: accounts.first?.id ?? "claude-main")
         if defaults.accountId.isEmpty { defaults.accountId = accounts.first?.id ?? "claude-main" }
