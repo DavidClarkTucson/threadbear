@@ -82,6 +82,7 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "cloud" => IconName::Cloud,
         "server.rack" => IconName::Server,
         "smartphone" => IconName::Smartphone,
+        "arrow.right.square" => IconName::SquareArrowRight,
         "ladybug" | "ant" => IconName::Bug,
         "externaldrive" => IconName::HardDrive,
         // The symbols Settings › Pools and the librarian offer for a project

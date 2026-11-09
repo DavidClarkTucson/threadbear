@@ -338,7 +338,9 @@ impl Threadbear {
     pub(crate) fn render_new_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let composer = self.ensure_new_composer(window, cx);
         if std::mem::take(&mut self.new_thread.focus_pending) {
-            composer.update(cx, |c, cx| c.focus(window, cx));
+            // After the frame: focusing is for the next render, not this one.
+            let target = composer.clone();
+            window.defer(cx, move |window, cx| target.update(cx, |c, cx| c.focus(window, cx)));
         }
         let logins = self.new_thread_logins().cloned();
         let logins_known = logins.is_some();

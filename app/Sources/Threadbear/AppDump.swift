@@ -160,6 +160,22 @@ struct AppDump: Encodable {
         var buttons: [String]
     }
 
+    /// The Move sheet while it's up (MoveSheet), for the behaviour specs.
+    struct MoveSheetInfo: Encodable {
+        var title: String
+        var subtitle: String
+        var folder: String
+        var login: String
+        var problems: [String]
+        var leftBehind: [String]
+        var clone: String?
+        var asking: Bool
+        var canMove: Bool
+    }
+
+    /// Set by the sheet as it draws, so `dump` can say what it shows.
+    @MainActor static var moveSheetNow: MoveSheetInfo?
+
     /// Set where the palette is drawn (ComposerView.paletteContent), so
     /// `dump` can say what it shows; nil while it's closed.
     @MainActor static var slashPalette: PaletteInfo?
@@ -292,6 +308,8 @@ struct AppDump: Encodable {
     var newThread: NewThreadInfo? = nil
     /// The slash palette over the composer while it's open.
     var palette: PaletteInfo? = nil
+    /// The Move sheet while it's up.
+    var moveSheet: MoveSheetInfo? = nil
     /// The open card of asks and what's picked on it, as lines; nil when
     /// there's none.
     var decisions: [String]? = nil
@@ -462,6 +480,7 @@ struct AppDump: Encodable {
             composer: composer(app, key: key),
             newThread: newThreadPageDump(app),
             palette: slashPalette,
+            moveSheet: app.moveRequest == nil ? nil : moveSheetNow,
             decisions: app.selectedThread.flatMap { decisions($0, app: app) },
             transcript: transcript,
             usage: Usage(shown: app.usageShown, lines: usageLines(app)),

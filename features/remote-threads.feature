@@ -48,6 +48,42 @@ Feature: Other runners' threads
     And the transcript shows my message "Check the backup drive's health"
     And the row "Check the backup drive's health" is on the runner "On bruce"
 
+  @sidebar.move @remote-threads
+  Scenario: Move to offers the other machines from the row
+    When I right-click the row "Morning brief"
+    Then the row's menu offers "Move to"
+
+  @sidebar.move @remote-threads
+  Scenario: The sheet opens when something won't come with it
+    When I ask to move the thread "Morning brief" to "bruce"
+    Then the move sheet says "Move “Morning brief” to bruce"
+    And the move sheet warns "1 background job, which gets stopped"
+    And the move sheet offers the folder "/Users/bruce/dev/me/threadbear-threads/slot-4"
+    And the move sheet's login is "claude-main"
+
+  @sidebar.move @remote-threads
+  Scenario: Moving from the sheet takes it off, and says so on the row
+    When I ask to move the thread "Morning brief" to "bruce"
+    Then the move sheet says "Move “Morning brief” to bruce"
+    When I press Move in the move sheet for "bruce"
+    Then the move sheet is closed
+    And the row "Morning brief" says "Moving to bruce" on the right
+
+  @sidebar.move @remote-threads
+  Scenario: With nothing to decide, it goes straight away
+    Given a move would leave nothing behind
+    When I ask to move the thread "Morning brief" to "bruce"
+    Then the row "Morning brief" says "Moving to bruce" on the right
+    And the move sheet stayed closed
+
+  @sidebar.move @remote-threads
+  Scenario: A moving row offers Cancel Move instead
+    Given a move would leave nothing behind
+    When I ask to move the thread "Morning brief" to "bruce"
+    Then the row "Morning brief" says "Moving to bruce" on the right
+    When I right-click the row "Morning brief"
+    Then the row's menu offers "Cancel Move"
+
   @composer.runner @remote-threads
   Scenario: The star sets where new threads start
     When I start a new thread

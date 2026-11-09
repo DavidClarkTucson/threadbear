@@ -87,6 +87,97 @@ impl RemoteThreads {
     }
 }
 
+/// A runner from `runners.list` (`RunnerInfo`): every machine, this one too.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RunnerInfo {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub online: bool,
+    pub is_self: bool,
+}
+
+/// `runners.list`'s answer, this runner first and then the rest by name.
+pub fn decode_runners(value: &Value) -> Vec<RunnerInfo> {
+    value["runners"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            Some(RunnerInfo {
+                id: r["id"].as_str().filter(|s| !s.is_empty())?.to_owned(),
+                name: r["name"].as_str().unwrap_or("").to_owned(),
+                icon: r["icon"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
+                online: r["online"].as_bool().unwrap_or(false),
+                is_self: r["self"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+/// One login a move could carry on with on the other runner.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MoveLogin {
+    pub id: String,
+    pub title: String,
+    pub email: Option<String>,
+}
+
+impl MoveLogin {
+    /// As the sheet's picker names it (MoveSheet.body).
+    pub fn label(&self) -> String {
+        match &self.email {
+            Some(email) => format!("{} ({email})", self.title),
+            None => self.title.clone(),
+        }
+    }
+}
+
+/// `threads.movePreview`'s answer (`MovePreview`): the other runner's guess at
+/// where a thread would go and on which login, what's in the way, and what
+/// won't come with it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MovePreview {
+    pub cwd: Option<String>,
+    pub account_id: Option<String>,
+    pub accounts: Vec<MoveLogin>,
+    pub left_behind: Vec<String>,
+    pub problems: Vec<String>,
+    /// It gets a new worktree of its own in `cwd`'s repo.
+    pub worktree: bool,
+    /// That repo is cloned there first.
+    pub clone: Option<String>,
+    /// The thread's own runner said what it would leave behind.
+    pub source_checked: bool,
+}
+
+impl MovePreview {
+    pub fn decode(value: &Value) -> MovePreview {
+        let text = |key: &str| value[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+        let lines = |key: &str| value[key].as_array().into_iter().flatten().filter_map(|l| l.as_str().map(str::to_owned)).collect::<Vec<_>>();
+        MovePreview {
+            cwd: text("cwd"),
+            account_id: text("accountId"),
+            accounts: value["accounts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|a| Some(MoveLogin { id: a["id"].as_str()?.to_owned(), title: a["title"].as_str().unwrap_or("").to_owned(), email: a["email"].as_str().map(str::to_owned) }))
+                .collect(),
+            left_behind: lines("leftBehind"),
+            problems: lines("problems"),
+            worktree: value["worktree"].as_bool().unwrap_or(false),
+            clone: text("clone"),
+            source_checked: value["sourceChecked"].as_bool().unwrap_or(false),
+        }
+    }
+
+    /// Nothing to decide or be told: Move to goes without showing the sheet.
+    pub fn can_go_as_is(&self) -> bool {
+        self.source_checked && self.problems.is_empty() && self.left_behind.is_empty() && self.cwd.is_some() && self.account_id.is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +208,25 @@ mod tests {
         // No activity time falls back to its creation.
         assert_eq!(list.threads[1].last_activity_at, "2026-11-09T01:00:00.000Z");
         assert!(list.threads[1].busy());
+    }
+
+    #[test]
+    fn a_preview_with_nothing_to_say_can_just_go() {
+        let answer = json!({ "cwd": "/Users/bruce/x", "accountId": "claude-main", "accounts": [{ "id": "claude-main", "title": "Claude", "email": "a@b" }], "leftBehind": [], "problems": [], "sourceChecked": true });
+        assert!(MovePreview::decode(&answer).can_go_as_is());
+        let left = json!({ "cwd": "/x", "accountId": "a", "leftBehind": ["a job"], "sourceChecked": true });
+        assert!(!MovePreview::decode(&left).can_go_as_is());
+        let unchecked = json!({ "cwd": "/x", "accountId": "a", "sourceChecked": false });
+        assert!(!MovePreview::decode(&unchecked).can_go_as_is());
+        assert_eq!(MovePreview::decode(&answer).accounts[0].label(), "Claude (a@b)");
+    }
+
+    #[test]
+    fn runners_list_decodes_itself_and_the_others() {
+        let list = decode_runners(&json!({ "runners": [{ "id": "m", "name": "m5", "icon": "laptopcomputer", "online": true, "self": true }, { "id": "b", "name": "bruce", "online": false }] }));
+        assert_eq!(list.len(), 2);
+        assert!(list[0].is_self);
+        assert!(!list[1].online);
     }
 
     #[test]

@@ -12,7 +12,7 @@ use gpui_kit::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use threadbear_core::logins::RunnerLogins;
-use threadbear_core::remote::{self, RemoteRunner, RemoteThreads};
+use threadbear_core::remote::{self, RemoteRunner, RemoteThreads, RunnerInfo};
 
 /// What the app knows of the other runners; the app holds one of these.
 #[derive(Default)]
@@ -28,8 +28,11 @@ pub(crate) struct RemoteState {
     pub(crate) made: HashSet<String>,
     /// Logins being fetched, so one's asked for once.
     pub(crate) fetching: HashSet<String>,
-    /// This Mac's own icon (`runners.list`), for "This Mac" and its chip.
-    pub(crate) self_icon: Option<String>,
+    /// `runners.list`: every runner, this Mac's too.
+    pub(crate) all_runners: Vec<RunnerInfo>,
+    /// `hello.experiments`: what's on for this runner (the Move to menu is
+    /// `moveToRunner`'s).
+    pub(crate) experiments: Vec<String>,
 }
 
 impl Threadbear {
@@ -43,11 +46,10 @@ impl Threadbear {
             if let Ok(value) = res {
                 this.update(cx, |this, cx| this.receive_remote(&value, cx)).ok();
             }
-            // This Mac's own icon, for the "This Mac" lines.
+            // Every runner, this Mac's too: its icon and where a move can go.
             if let Ok(value) = call(client, "runners.list", json!({})).await {
-                let own = value["runners"].as_array().into_iter().flatten().find(|r| r["self"].as_bool() == Some(true)).and_then(|r| r["icon"].as_str()).map(str::to_owned);
                 this.update(cx, |this, cx| {
-                    this.remote.self_icon = own;
+                    this.remote.all_runners = remote::decode_runners(&value);
                     cx.notify();
                 })
                 .ok();
@@ -58,7 +60,7 @@ impl Threadbear {
 
     /// `selfRunnerIcon`: this Mac's icon, as a symbol this app has.
     pub(crate) fn self_runner_symbol(&self) -> &'static str {
-        crate::icons::runner_symbol(self.remote.self_icon.as_deref())
+        crate::icons::runner_symbol(self.remote.all_runners.iter().find(|r| r.is_self).and_then(|r| r.icon.as_deref()))
     }
 
     /// `receive(remote:)`: the whole list, as `remoteThreads.list` and

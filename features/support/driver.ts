@@ -65,6 +65,8 @@ export type Dump = {
     detail?: { title: string; usage: string; description?: string | null; now?: string | null; also?: string | null; origin: string; path?: string | null; buttons: string[] } | null;
     note?: string | null;
   } | null;
+  /** The Move sheet while it's up. */
+  moveSheet?: { title: string; subtitle: string; folder: string; login: string; problems: string[]; leftBehind: string[]; clone?: string | null; asking: boolean; canMove: boolean } | null;
   decisions?: string[] | null;
   transcript: {
     threadId?: string;

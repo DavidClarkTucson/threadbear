@@ -144,6 +144,9 @@ pub(crate) enum MenuAction {
     /// Runs on: where the new thread starts, and its default (new_thread.rs).
     Runner(Option<String>),
     DefaultRunner(Option<String>),
+    /// Move to ▸ a runner, and Cancel Move once it's going (move_sheet.rs).
+    MoveTo(String, String),
+    CancelMove,
 }
 
 /// The sidebar's own state; the app holds one of these (`Threadbear::sidebar`).
@@ -585,6 +588,8 @@ impl Threadbear {
             MenuAction::CopyId => cx.write_to_clipboard(ClipboardItem::new_string(id)),
             // BearDock isn't in this app yet, so a thread opens in the main pane.
             MenuAction::OpenInPanel => self.open(id, window, cx),
+            MenuAction::MoveTo(runner_id, runner_name) => self.open_move(crate::move_sheet::MoveRequest { thread_id: id, runner_id, runner_name }, window, cx),
+            MenuAction::CancelMove => self.cancel_move(id, cx),
             MenuAction::Sort(_) | MenuAction::Runner(_) | MenuAction::DefaultRunner(_) => {}
         }
         cx.notify();
@@ -608,6 +613,28 @@ impl Threadbear {
             rows.push(MenuRow::item("Delete…", "trash", MenuAction::Delete));
         } else {
             rows.push(MenuRow::item("Archive", "archivebox", MenuAction::Archive));
+        }
+        // Move to ▸ another runner (`ThreadMoveMenu`), behind the experiment;
+        // while a move's going, Cancel Move instead.
+        if self.can_move_threads() {
+            let moving = t.moving.as_ref().filter(|m| !matches!(m["state"].as_str(), Some("cancelled") | Some("failed") | Some("done")));
+            if moving.is_some() {
+                rows.push(MenuRow::item("Cancel Move", "xmark.circle", MenuAction::CancelMove));
+            } else {
+                let targets = self.move_targets(t.runner_id.as_deref());
+                if !targets.is_empty() {
+                    let children = targets
+                        .into_iter()
+                        .map(|r| {
+                            let title = if r.online { r.name.clone() } else { format!("{}, offline", r.name) };
+                            let mut row = MenuRow::item(title, crate::icons::runner_symbol(r.icon.as_deref()), MenuAction::MoveTo(r.id, r.name));
+                            row.enabled = r.online;
+                            row
+                        })
+                        .collect();
+                    rows.push(MenuRow::submenu("Move to", "arrow.right.square", children));
+                }
+            }
         }
         // "Copy thread id" comes after a divider, as `.iconContextMenu` adds it.
         rows.push(MenuRow::separator());

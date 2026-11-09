@@ -9,6 +9,7 @@ mod composer;
 mod composer_card;
 mod composer_chips;
 mod icons;
+mod move_sheet;
 mod new_thread;
 mod prefs;
 mod remote;

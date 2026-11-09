@@ -97,8 +97,6 @@ impl Composer {
         if open && !self.palette_asked {
             self.palette_asked = true;
             if let (Some(id), Some(app)) = (self.thread_id.clone(), self.app.upgrade()) {
-                // Deferred: this runs inside an event from the input, and the
-                // app may be mid-update from the same turn of the event loop.
                 app.update(cx, |app, cx| app.load_slash_commands(id, cx));
             }
         }

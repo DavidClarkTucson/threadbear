@@ -43,6 +43,8 @@ pub struct Threadbear {
     pub(crate) remote: crate::remote::RemoteState,
     /// Each thread's slash commands, for the composer's palette.
     pub(crate) slash: crate::slash_palette::SlashState,
+    /// The Move sheet, while it's up (move_sheet.rs).
+    pub(crate) move_sheet: Option<Entity<crate::move_sheet::MoveSheet>>,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -89,6 +91,7 @@ impl Threadbear {
             new_thread: crate::new_thread::NewThreadState::new(),
             remote: Default::default(),
             slash: Default::default(),
+            move_sheet: None,
             _events: events,
             _subs: vec![appearance, searching],
         }
@@ -100,6 +103,7 @@ impl Threadbear {
                 let connected = matches!(status, Status::Connected { .. });
                 if let Status::Connected { hello, .. } = &status {
                     self.logins = RunnerLogins::from_hello(hello);
+                    self.remote.experiments = hello["experiments"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(str::to_owned)).collect();
                 }
                 self.status = status;
                 // Each time it's connected, the whole list again, and the
@@ -308,6 +312,7 @@ impl Threadbear {
             "composer": self.dump_composer(cx),
             "newThread": crate::new_thread::page_dump(self, cx),
             "palette": self.composer(cx).map_or(Value::Null, |c| c.read(cx).palette_dump(cx)),
+            "moveSheet": self.move_sheet.as_ref().map_or(Value::Null, |s| s.read(cx).dump(cx)),
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": Value::Null,
