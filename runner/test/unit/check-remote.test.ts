@@ -541,6 +541,19 @@ test('a copy that fails on a host short of room says so, and ends as no room rat
   assert.deepEqual(r.left('h1'), []);
 });
 
+// The runner's self-update tells the hosts' trouble from a failed check by
+// this exit (deploy-steps.mjs, remoteChecks); a run that went over its time
+// while checking stays 1, as a hung test is the check's own failure.
+test('with THREADBEAR_CHECK_BUSY_EXIT, no room exits with it, and a run over time while checking does not', () => {
+  const low = setup({ h1: { state: 'free', dfAfter: macDf(0.2 * GiB) } });
+  const r = low.run('h1', 3600, '', { RSYNC_FAILS_ON: 'h1', THREADBEAR_CHECK_BUSY_EXIT: '69' });
+  assert.equal(r.status, 69, r.stdout + r.stderr);
+  assert.match(r.stderr, /No check host has room for this check/);
+  const s = setup({ h1: { state: 'free' } });
+  const hung = s.run('h1', 3600, 'sleep 30', { THREADBEAR_CHECK_PING_SECS: '1', THREADBEAR_CHECK_MAX_SECS: '3', THREADBEAR_CHECK_BUSY_EXIT: '69' });
+  assert.equal(hung.status, 1, hung.stdout + hung.stderr);
+});
+
 test('a copy that fails on a host short of room still goes on to one with room', () => {
   const s = setup({ h1: { state: 'free', dfAfter: macDf(0.2 * GiB) }, h2: { state: 'free' } });
   const r = s.run('h1,h2', 3600, '', { RSYNC_FAILS_ON: 'h1' });

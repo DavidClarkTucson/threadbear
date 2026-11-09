@@ -95,7 +95,11 @@ if [ "${1:-}" = "--on-host" ]; then
 
   # node_modules per package-lock, kept between runs (the newest three of
   # each). npm ci only when the lockfile is new.
-  for dir in . runner app/Tools/mock-runner; do
+  # --runner (the runner's self-update) needs only the runner's: a broken
+  # lockfile elsewhere mustn't hold the runner back (Codex, 9 Nov).
+  dep_dirs=". runner app/Tools/mock-runner"
+  case " $* " in *" --runner "*) dep_dirs="runner" ;; esac
+  for dir in $dep_dirs; do
     [ -f "$src/$dir/package-lock.json" ] || continue
     name="$(printf '%s' "$dir" | tr -c 'a-zA-Z0-9' '-')"
     hash="$(shasum -a 256 "$src/$dir/package-lock.json" | cut -c1-16)"
@@ -277,9 +281,16 @@ dropped() {
   timed 10 "${SSH[@]}" -O exit "$1" >/dev/null 2>&1
 }
 # Past MAX_SECS: not 255, as running it all again here wouldn't be quicker.
+# Before the check started there (waiting for a host or copying: over_time
+# busy), BUSY_EXIT, as with no host having room: the runner's self-update
+# sets THREADBEAR_CHECK_BUSY_EXIT so it can tell the hosts' trouble from a
+# failed check and try again later (deploy-steps.mjs, remoteChecks).
+BUSY_EXIT="${THREADBEAR_CHECK_BUSY_EXIT:-1}"
+case "$BUSY_EXIT" in [1-9]|[1-9][0-9]|1[01][0-9]|12[0-3]) ;; *) BUSY_EXIT=1 ;; esac
 over_time() {
   echo "This check has been going for $((MAX_SECS / 60)) minutes, waiting in line included, so it was stopped." >&2
   rm -f "$files" "$changed"
+  if [ "${1:-}" = busy ]; then exit "$BUSY_EXIT"; fi
   exit 1
 }
 
@@ -378,7 +389,7 @@ choose() {
     case " $SKIP " in *" $h "*) continue ;; esac
     out="$(watched "$h" "${SSH[@]}" "$h" "$probe" 2>/dev/null)"
     rc=$?
-    [ "$rc" != 125 ] || over_time
+    [ "$rc" != 125 ] || over_time busy
     if [ "$rc" = 124 ]; then
       dropped "$h"
       continue
@@ -457,7 +468,7 @@ take_copylock() {
   holder=$!
   # Waiting for another check from this checkout counts towards MAX_SECS too.
   until [ -e "$ready" ] || ! kill -0 "$holder" 2>/dev/null; do
-    if [ "$(date +%s)" -ge "$DEADLINE" ]; then kill_tree "$holder"; wait "$holder" 2>/dev/null; holder="" release=""; over_time; fi
+    if [ "$(date +%s)" -ge "$DEADLINE" ]; then kill_tree "$holder"; wait "$holder" 2>/dev/null; holder="" release=""; over_time busy; fi
     sleep 0.2
   done
   # The helper gone with no ready file never had the lock (a lock file it
@@ -523,7 +534,7 @@ while :; do
     if [ -n "$LOW" ]; then
       # Not 255: a disk to clear isn't a reason to run it all on this Mac.
       echo "No check host has room for this check: $LOW, and it wants $MIN_FREE_GIB GiB. Free some space there and run it again." >&2
-      exit 1
+      exit "$BUSY_EXIT"
     fi
     echo "None of $HOST_LIST can run this check now." >&2
     exit 255
@@ -565,7 +576,7 @@ while :; do
     rc=$?
     if [ "$rc" = 124 ] || [ "$rc" = 125 ]; then
       drop_copylock
-      [ "$rc" != 125 ] || over_time
+      [ "$rc" != 125 ] || over_time busy
       dropped "$HOST"
       continue
     elif [ "$rc" != 0 ]; then

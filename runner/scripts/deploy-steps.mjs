@@ -12,9 +12,10 @@ export class Fail extends Error {}
 
 // A step that didn't exit 0, with where its output went.
 export class StepFailed extends Fail {
-  constructor(message, logFile) {
+  constructor(message, logFile, status) {
     super(message);
     this.logFile = logFile;
+    this.status = status;
   }
 }
 
@@ -92,7 +93,7 @@ export function step(name, cmd, args, opts, io = {}) {
   error(tail(logFile));
   // Not a StepFailed, so unitTests doesn't rerun it either.
   checkSlept(sleepsBefore, slept(), `${name} (${why}; the output is in ${logFile})`);
-  throw new StepFailed(`${name} failed (${why}); the whole output is in ${logFile}`, logFile);
+  throw new StepFailed(`${name} failed (${why}); the whole output is in ${logFile}`, logFile, r.status);
 }
 
 // The check hosts in a runner.json, as check.sh reads them: "checkHosts" (a
@@ -114,12 +115,15 @@ export function checkHostsFrom(json) {
 // so fixing one of those wouldn't even retry it). With no check host (a fork,
 // a sandbox), the steps run here as before. Returns whether it ran them.
 //
-// A run where no check step failed (the host too full or too busy for three
-// hours, its npm ci failing) is the host's trouble, not main's: ChecksUnavailable,
-// which update.ts tries again later, rather than a failure it keeps until
-// runner/ changes. A real failure gets one more whole run, as unitTests()
-// gives one, since check.sh only reruns up to 8 named files; not when it ran
-// here, which would be the full suite on this Mac twice.
+// No host with room, or none free for three hours before the check could
+// start, is the hosts' trouble, not main's: check-remote.sh exits with
+// THREADBEAR_CHECK_BUSY_EXIT for those (an exit code it's told, not words
+// in the output, which a check's own output could fake or leave out), and
+// that's ChecksUnavailable, which update.ts tries again later rather than
+// keeping as a failure until runner/ changes. Anything else is a failed
+// check. That gets one more whole run, as unitTests() gives one, since
+// check.sh only reruns up to 8 named files; not when it ran here, which
+// would be the full suite on this Mac twice.
 export const UNAVAILABLE_EXIT = 69; // EX_UNAVAILABLE
 export class ChecksUnavailable extends Fail {}
 export function remoteChecks(hosts, root, opts, io = {}) {
@@ -129,17 +133,23 @@ export function remoteChecks(hosts, root, opts, io = {}) {
   // The deploy's own Node, which check.sh would otherwise take as the pinned
   // nvm path (an install with --node elsewhere has none there), here and as
   // what it uses on a fallback run.
-  const env = { ...opts.env, THREADBEAR_CHECK_HOST: hosts.join(','), THREADBEAR_NODE: node };
-  const run = (name) => step(name, checkSh, ['--runner'], { ...opts, cwd: root, env }, io);
+  const env = { ...opts.env, THREADBEAR_CHECK_HOST: hosts.join(','), THREADBEAR_NODE: node, THREADBEAR_CHECK_BUSY_EXIT: String(UNAVAILABLE_EXIT) };
+  // Each try is classified the same way, the second included (Codex, 9 Nov).
+  const run = (name) => {
+    try {
+      step(name, checkSh, ['--runner'], { ...opts, cwd: root, env }, io);
+    } catch (e) {
+      if (e instanceof StepFailed && e.status === UNAVAILABLE_EXIT) throw new ChecksUnavailable(`${e.message}. No check host could take it, so it's tried again later`);
+      throw e;
+    }
+  };
   const name = `Typecheck and unit tests (on ${hosts.join(' or ')})`;
   try {
     run(name);
     return true;
   } catch (e) {
-    if (!(e instanceof StepFailed)) throw e;
-    const out = readOr(e.logFile);
-    if (!/^FAIL\s/m.test(out)) throw new ChecksUnavailable(`${e.message}. No check step failed, so it's taken as the check host's trouble and tried again later`);
-    if (/run on this Mac instead/.test(out)) throw e;
+    if (!(e instanceof StepFailed) || e instanceof ChecksUnavailable) throw e;
+    if (/run on this Mac instead/.test(readOr(e.logFile))) throw e;
     say(`Running them once more, in case that was a flaky test.`);
     run(`${name}, again`);
     say(`The second run passed (first run's output: ${e.logFile})`);

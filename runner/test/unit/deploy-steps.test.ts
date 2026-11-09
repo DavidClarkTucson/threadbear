@@ -206,6 +206,9 @@ test('remoteChecks runs a failed check once more, and a second failure fails the
   assert.equal(flaky.calls.length, 2);
   const broken = fakeIo([fail, fail]);
   assert.throws(() => steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, broken.io), (e: unknown) => e instanceof steps.StepFailed && !(e instanceof steps.ChecksUnavailable));
+  // A check that failed before any step said FAIL (check.sh itself broken) is still a failure.
+  const early = fakeIo([{ status: 2, output: 'check.sh: syntax error' }, { status: 2 }]);
+  assert.throws(() => steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, early.io), (e: unknown) => e instanceof steps.StepFailed && !(e instanceof steps.ChecksUnavailable));
 });
 
 test('remoteChecks does not rerun a failure that ran on this Mac', () => {
@@ -214,10 +217,17 @@ test('remoteChecks does not rerun a failure that ran on this Mac', () => {
   assert.equal(calls.length, 1);
 });
 
-test('remoteChecks takes a failure with no failed check step as the host\'s trouble', () => {
-  const { io, calls } = fakeIo([{ status: 1, output: 'No check host has room for this check: tinker-desk (0.5 GiB free)\n' }]);
+test('remoteChecks takes the check hosts\' busy exit as their trouble, on either try', () => {
+  let env: Record<string, string> | undefined;
+  const first = fakeIo([{ status: steps.UNAVAILABLE_EXIT, output: 'No check host has room for this check\n' }]);
+  const spawn = first.io.spawn;
+  const io = { ...first.io, spawn: (cmd: string, args: string[], opts: any) => ((env = opts.env), spawn(cmd, args, opts)) };
   assert.throws(() => steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, io), steps.ChecksUnavailable);
-  assert.equal(calls.length, 1);
+  assert.equal(first.calls.length, 1);
+  assert.equal(env?.THREADBEAR_CHECK_BUSY_EXIT, String(steps.UNAVAILABLE_EXIT));
+  const second = fakeIo([{ status: 1, output: 'FAIL  runner unit tests\n' }, { status: steps.UNAVAILABLE_EXIT }]);
+  assert.throws(() => steps.remoteChecks(['tinker-desk'], withCheckSh(), { env: {} }, second.io), steps.ChecksUnavailable);
+  assert.equal(second.calls.length, 2);
 });
 
 test('remoteChecks leaves the checks here with no host, or no check.sh', () => {
