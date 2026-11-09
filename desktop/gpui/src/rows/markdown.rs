@@ -42,15 +42,17 @@ pub(crate) fn reading_style(cx: &App) -> TextViewStyle {
     // A rule under the header and hairlines between rows, none around them
     // (renderTable). No cell backgrounds.
     let table = StyleRefinement::default().border_0().rounded(px(0.));
-    let table_head = StyleRefinement::default().text_size(px(size::LABEL)).font_weight(FontWeight::SEMIBOLD).text_color(muted).bg(gpui_kit::transparent_black()).border_b_1().border_color(border);
-    let table_cell = StyleRefinement::default().py(px(4.)).px(px(12.)).border_b_1().border_color(hairline);
+    let table_head = StyleRefinement::default().text_size(px(size::LABEL)).font_weight(FontWeight::SEMIBOLD).text_color(muted).bg(gpui_kit::transparent_black()).border_color(border);
+    // Transparent: the kit draws a column divider in the cell border colour, and
+    // the rows carry the rules (renderTable has no vertical lines).
+    let table_cell = StyleRefinement::default().py(px(4.)).px(px(12.)).border_color(gpui_kit::transparent_black());
     TextViewStyle::default()
         .with_foreground(label)
         .with_muted_foreground(muted)
         .with_link(link)
         .with_selection(cx.theme().selection)
         .with_code_background(code_bg)
-        .with_border(border)
+        .with_border(hairline)
         .with_paragraph_gap(rems(PARAGRAPH_GAP / rem))
         .with_heading(move |level| {
             // Sizes and the 6 above / 6 below from MarkdownRenderer (the
