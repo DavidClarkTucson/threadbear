@@ -555,7 +555,8 @@ Queries:
   while the Mac is asleep. The website watches only the newest 30 with it and
   reads older pages once, with `beforeSeq` (`web/src/transcript.ts`). The
   iPhone does the same with an 80-row live page and chunks of 200
-  (`MessageHistory.swift`); builds before 1.0.5 raise `limit` as you scroll
+  (`MessageHistory.swift`), watching `phone:images` from the first row read
+  once for pictures that finish uploading late; builds before 1.0.5 raise `limit` as you scroll
   back, re-reading up to 2,000 rows for each new message (37.6 MB on 8 Nov),
   which is why `PAGE_MAX` stays 2,000 until they're gone. `phone:thread` stays as API 1 had it (newest 20 text messages plus
   any paged ones, never tool rows), for phone apps built before.
