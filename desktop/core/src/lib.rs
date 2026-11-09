@@ -4,5 +4,6 @@
 // libraries and take seconds.
 pub mod composer;
 pub mod inbox;
+pub mod logins;
 pub mod transcript;
 pub mod reducer;

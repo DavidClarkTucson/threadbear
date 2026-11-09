@@ -126,6 +126,37 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             window.press(if cmd["shift"].as_bool().unwrap_or(false) { "shift-enter" } else { "enter" }, cx);
             Ok(json!("ok"))
         }
+        // The Swift app's `paste-image` and `drop`: a file through the same
+        // route a paste or a drop takes.
+        "paste-image" => {
+            let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
+            let path = std::path::PathBuf::from(text(cmd, "path"));
+            if !crate::composer::is_picture(&path) {
+                return Err("not an image".into());
+            }
+            composer.update(cx, |c, cx| c.take_paths(vec![path], window, cx));
+            Ok(json!("ok"))
+        }
+        "drop" => {
+            let position = point(px(cmd["x"].as_f64().unwrap_or(0.) as f32), px(cmd["y"].as_f64().unwrap_or(0.) as f32));
+            if cmd["leave"].as_bool().unwrap_or(false) {
+                window.dispatch_event(FileDropEvent::Exited.to_platform_input(), cx);
+                return Ok(json!("ok"));
+            }
+            let paths = ExternalPaths(vec![std::path::PathBuf::from(text(cmd, "path"))].into());
+            window.dispatch_event(FileDropEvent::Entered { position, paths }.to_platform_input(), cx);
+            window.render_frame(cx);
+            if !cmd["hover"].as_bool().unwrap_or(false) {
+                window.dispatch_event(FileDropEvent::Submit { position }.to_platform_input(), cx);
+            }
+            Ok(json!("ok"))
+        }
+        "composer-peek" => {
+            let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
+            let number = cmd["number"].as_u64().map(|n| n as usize);
+            composer.update(cx, |c, cx| c.debug_peek(number, cx))?;
+            Ok(json!(if number.is_some() { "ok window 0" } else { "ok" }))
+        }
         // `text` pasted as ⌘V would (the Swift app's `paste`): through the
         // clipboard, put back afterwards so a test machine's isn't left changed.
         "paste" => {

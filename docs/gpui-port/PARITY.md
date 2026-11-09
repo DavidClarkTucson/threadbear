@@ -71,6 +71,23 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-09 Composer: pictures as inline chips
+
+- Paste, drop or the automation's `paste-image` puts a chip with a thumbnail in the
+  words at the cursor, each picture copied in through `media.import`, dimmed
+  until it's in; the strip of thumbnails over the words has × on hover; a chip's
+  hover shows the picture after a beat; `[Picture N]` markers go with the words.
+  These are real gpui-kit inline tokens (`InlineToken` on `TextareaState`, 0.9.0),
+  so no fork: atomic in the editing, in undo, with the Swift draft's U+FFFC mark.
+  The whole thread is a drop target (`on_drop` and `drag_over` on the pane).
+- Files: `desktop/gpui/src/composer.rs`, `features/sending.feature`,
+  `features/support/sample.png`, `features/tools/shot.ts` (optional commands).
+- Remaining: `composer.chipcopy`, a whole-insert undo step (each chip and its
+  spaces are separate undo steps today).
+- Verification: `TB_APP=gpui` on Linux (`cloud`) and a real Mac (Tinker Desk), 4 of
+  4 for `@composer.picturechips @composer.filedrop @composer.chiphover`;
+  `TB_APP=swift` on Tinker Desk 4 of 4; screenshot of two chips against Swift's.
+
 ### 2026-11-09 Composer: its own file, the rounded box, list continuation, paste
 
 - The composer is out of `thread.rs` into `desktop/gpui/src/composer.rs`, one

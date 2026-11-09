@@ -54,3 +54,31 @@ Feature: Sending a message
     When I send "Please keep working on this for a while"
     And I stop the turn
     Then the thread isn't running any more
+
+  @composer.picturechips
+  Scenario: A pasted picture goes in at the cursor as a chip
+    When I type "look at " in the composer
+    And I paste the picture into the composer
+    Then the composer says the lines "look at [Picture 1] "
+    And the composer holds 1 picture
+
+  @composer.picturechips
+  Scenario: The pictures go with the message, each in its place among the words
+    When I type "compare " in the composer
+    And I paste the picture into the composer
+    And I type "and " in the composer
+    And I paste the picture into the composer
+    And I type "please" in the composer
+    And I press Return
+    Then the transcript shows my message "compare [Picture 1] and [Picture 2] please"
+
+  @composer.filedrop @composer.dropanywhere
+  Scenario: Dropping a picture on the thread adds it to the composer
+    When I drop the picture on the transcript
+    Then the composer holds 1 picture
+
+  @composer.chiphover
+  Scenario: Hovering a chip shows its picture
+    When I paste the picture into the composer
+    And the composer holds 1 picture
+    Then hovering chip 1 shows its picture

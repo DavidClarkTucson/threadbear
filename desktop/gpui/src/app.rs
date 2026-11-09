@@ -255,7 +255,7 @@ impl Threadbear {
             "connection": connection,
             "selection": selected.map(row),
             "sidebar": { "mode": "inbox", "sections": sections, "snoozed": snoozed, "archived": archived },
-            "composer": { "draft": self.selected.clone().unwrap_or_else(|| "new".into()), "text": pane.map(|p| p.draft(cx)).unwrap_or_default() },
+            "composer": { "draft": self.selected.clone().unwrap_or_else(|| "new".into()), "text": pane.map(|p| p.draft(cx)).unwrap_or_default(), "images": pane.map_or(0, |p| p.composer.read(cx).draft_images(cx)) },
             "transcript": pane.map(|p| p.dump()).unwrap_or_else(|| json!({ "rows": [] })),
             "banner": Value::Null,
         })

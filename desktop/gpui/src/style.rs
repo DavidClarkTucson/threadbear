@@ -26,6 +26,10 @@ pub mod size {
     pub const CHIP: f32 = 13.;
     /// The send button, and the height of the controls row it sits in.
     pub const SEND_BUTTON: f32 = 28.;
+    /// A picture's chip among the words (PictureChip.Metrics at 15 pt).
+    pub const CHIP_HEIGHT: f32 = 20.;
+    /// A picture in the strip over the words (AttachmentThumbnail.size).
+    pub const THUMBNAIL: f32 = 56.;
 }
 
 /// Widest the reading column gets; wider windows centre it.
@@ -101,4 +105,9 @@ pub fn composer_fill(cx: &App) -> Hsla {
 /// The empty look of the send button (CircleButtonStyle, not filled).
 pub fn send_faint_fill(cx: &App) -> Hsla {
     pick(cx, white(0.1), black(0.1))
+}
+
+/// A picture chip's fill (PictureChip.fill).
+pub fn chip_fill(cx: &App) -> Hsla {
+    pick(cx, white(0.1), black(0.06))
 }

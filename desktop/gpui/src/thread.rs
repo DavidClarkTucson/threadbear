@@ -224,13 +224,13 @@ impl ThreadPane {
     }
 
     pub(crate) fn send(&mut self, text: String, answers: Option<Value>, cx: &mut Context<Self>) {
-        self.send_message(text, Vec::new(), answers.unwrap_or(Value::Null), String::new(), WeakEntity::new_invalid(), cx);
+        self.send_message(text, Vec::new(), answers.unwrap_or(Value::Null), None, WeakEntity::new_invalid(), cx);
     }
 
     /// Sends a message (AppModel.post): it shows dimmed at the end of the
     /// transcript straight away, and goes back into the box if the runner
     /// doesn't take it. `draft` is what to give back then.
-    pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: String, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
+    pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<(String, Vec<ImageRef>)>, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
         // Shown straight away and put right when the runner echoes it back.
         self.next_pending += 1;
         let pending_id = format!("local-{}", self.next_pending);
@@ -264,9 +264,9 @@ impl ThreadPane {
                 cx.notify();
             })
             .ok();
-            if failed && !draft.is_empty() {
-                if let Some(composer) = composer.upgrade() {
-                    composer.update(cx, |c, cx| c.restore_draft(draft.clone(), cx));
+            if failed {
+                if let (Some(composer), Some((text, images))) = (composer.upgrade(), draft) {
+                    composer.update(cx, |c, cx| c.restore_draft(text, images, cx));
                 }
             }
         })
@@ -288,6 +288,12 @@ impl ThreadPane {
         let params = json!({ "threadId": self.summary.id, "approvalId": id, "decision": "allow" });
         self.request("approvals.respond", params, cx);
         true
+    }
+
+    /// Something the composer tried that didn't work, for the error line.
+    pub(crate) fn show_error(&mut self, message: String, cx: &mut Context<Self>) {
+        self.error = Some(message);
+        cx.notify();
     }
 
     pub(crate) fn request(&mut self, method: &'static str, params: Value, cx: &mut Context<Self>) {
@@ -394,8 +400,16 @@ impl Render for ThreadPane {
         let (border, muted, danger, bg) = (theme.border, theme.muted_foreground, theme.danger, theme.background);
         let model = threadbear_core::inbox::model_label(&self.summary.provider, self.summary.model_in_use.as_deref().or(self.summary.model.as_deref()));
         let meta = format!("{} · {} · {}", threadbear_core::inbox::folder_name(&self.summary.cwd), model, self.summary.status);
+        let composer = self.composer.clone();
         v_flex()
             .size_full()
+            // The whole thread is drop space for the box (ComposerDropView),
+            // outlined while a file is over it.
+            .on_drop(move |paths: &ExternalPaths, window, cx| {
+                let paths = paths.paths().to_vec();
+                composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
+            })
+            .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(cx.theme().accent.opacity(0.06)).border_2().border_color(cx.theme().accent))
             .child(
                 v_flex()
                     .px_7()

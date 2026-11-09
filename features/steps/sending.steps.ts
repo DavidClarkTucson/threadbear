@@ -1,5 +1,11 @@
 import { Then, When } from '@cucumber/cucumber';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ThreadbearWorld } from '../support/world.ts';
+
+// A tiny real picture, for the steps that need a file (the runner reads it).
+const samplePicture = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'support', 'sample.png');
 
 When('I type {string} in the composer', async function (this: ThreadbearWorld, text: string) {
   await this.app.do({ cmd: 'type', text });
@@ -51,4 +57,22 @@ Then('the reply streams in and the thread goes back to idle', async function (th
 
 Then('the thread isn\'t running any more', async function (this: ThreadbearWorld) {
   await this.until('the thread stopped', (d) => d.selection?.status !== 'running', 30_000);
+});
+
+When('I paste the picture into the composer', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'paste-image', path: samplePicture });
+});
+
+// A point in the thread's transcript on both apps' windows.
+When('I drop the picture on the transcript', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'drop', path: samplePicture, x: 650, y: 300 });
+});
+
+Then('the composer holds {int} picture(s)', async function (this: ThreadbearWorld, count: number) {
+  await this.until(`${count} picture(s) in the composer`, (d) => d.composer.images === count);
+});
+
+Then('hovering chip {int} shows its picture', async function (this: ThreadbearWorld, number: number) {
+  const result = await this.app.do({ cmd: 'composer-peek', number });
+  assert.match(result, /ok/);
 });
