@@ -143,7 +143,7 @@ struct MoveSheet: View {
     }
 
     private var subtitle: String {
-        if thread?.status.isBusy == true { return "It goes once this turn ends. Messages sent meanwhile go with it." }
+        if thread?.status.isBusy == true { return "It goes once this turn ends." }
         return "Its whole conversation and its git work go with it, and it carries on there."
     }
 

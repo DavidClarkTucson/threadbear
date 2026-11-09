@@ -987,7 +987,11 @@ struct AppDump: Encodable {
         var lines = ["\(picks.count) picked"]
         for (i, ask) in thread.asks.enumerated() {
             let options = Decisions.choices(for: ask)
-            let choices = options.enumerated().map { $0.offset == ask.suggested ? "*\($0.element)" : $0.element }
+            // Each with what it does in brackets, when the agent said (optionNotes).
+            let choices = options.enumerated().map { i, label in
+                let note = ask.optionNotes.indices.contains(i) && ask.optionNotes.count == ask.options.count ? ask.optionNotes[i].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                return (i == ask.suggested ? "*" : "") + label + (note.isEmpty ? "" : " (\(note))")
+            }
             let links = ask.links.isEmpty ? "" : " links: " + ask.links.map(\.title).joined(separator: ", ")
             let answer = picks[i] == Decisions.ownAnswer ? "something else: " + ownAnswer(notes[i]) : picks[i].flatMap { options.indices.contains($0) ? options[$0] : nil } ?? "no answer"
             lines.append("  \(i + 1). \(ask.action) [\(choices.joined(separator: " | "))]\(links) -> \(answer)")
@@ -1120,6 +1124,8 @@ struct AppDump: Encodable {
             lines += usage.lines.map { "  " + $0 }
         }
         if let decisions { lines.append("decisions: " + decisions[0]); lines += decisions.dropFirst().map { "  " + $0 } }
+        // The open card as it reads in the box, the done card's follow-ups too.
+        if let card = composer.card, let first = card.first { lines.append("card: " + first); lines += card.dropFirst().map { "  " + $0 } }
         lines.append("composer (\(composer.draft)): \"\(composer.text)\"" + (composer.images > 0 ? " and \(composer.images) image(s)" : "")
             + (composer.editing.map { ", editing the message at seq \($0)" } ?? ""))
         let on = composer.pool.map { "pool \($0) (now \(composer.account))" } ?? (pools.isEmpty || composer.runner != nil ? composer.account : "\(composer.account), pinned")

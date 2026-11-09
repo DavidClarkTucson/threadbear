@@ -1605,6 +1605,20 @@ export class Runner {
     return `[Sent from the iPhone app${where}]\n${msg.text}`;
   }
 
+  // The line that asks for a recap when he comes back to a thread after a
+  // long gap, read from the last turn's own event so threads from before
+  // this line get it too. Only here and not in forAgent: a message steered
+  // into a running turn isn't a return, however old the last finished turn.
+  // Not for an answer to a card or a review: the question is in front of him.
+  awayLine(st: ThreadState, msg: QueuedSend): string | undefined {
+    const { rec } = st;
+    if (!rec.lastTurnCompletedSeq || !fromMike(msg.text, msg) || msg.answers?.length || msg.reviewId) return undefined;
+    const ended = this.store.log(rec.id).read(rec.lastTurnCompletedSeq, rec.lastTurnCompletedSeq)[0];
+    const gap = ended ? this.clock.now() - Date.parse(ended.ts) : NaN;
+    if (!(gap >= AWAY_MS)) return undefined;
+    return `[This thread's last turn ended ${agoWords(gap)}, so the user may have lost track: open your reply with a line or two on what this thread is for and where it stands, then answer.]`;
+  }
+
   // Writes the turn's first events before changing any state, so if the
   // disk refuses (full, permissions) the thread is left as it was rather
   // than stuck on a turn that never started.
@@ -1678,6 +1692,8 @@ export class Runner {
       if (/^\/(compact|review|clear)\b/i.test(msg.text.trim())) rt.turn.noSteer = true;
     }
     let text = command ? msg.text : this.forAgent(msg);
+    const away = command ? undefined : this.awayLine(st, msg);
+    if (away) text = `${away}\n${text}`;
     // Claude's CLI starts a new session for /clear, which the runner follows
     // (its next init), but says nothing.
     if (command && rec.provider === 'claude' && /^\/clear\b/i.test(msg.text.trim())) {
@@ -3588,6 +3604,20 @@ export type SendOptions = { origin?: MessageOrigin; scheduleId?: string; queue?:
 export function fromMike(text: string, opts: SendOptions): boolean {
   if (opts.origin && opts.origin !== 'phone') return false;
   return !sentByAgent(text);
+}
+
+// How long after a thread's last turn a message from Mike counts as coming
+// back to it. From 1,872 messages he typed in real threads up to 9 Nov 2026:
+// 5% come 12 hours or more after the last turn. Those coming back after 8 to
+// 12 hours just carry on from the night before, and from about 12 hours they
+// start to ask what a thing was ("what's this project?", "what's next?").
+// Each time he said outright that he'd lost track was 45 to 124 hours after.
+const AWAY_MS = 12 * 3_600_000;
+
+// "14 hours ago", "3 days ago": rounded, as it's only there to say how long.
+function agoWords(ms: number): string {
+  const hours = Math.round(ms / 3_600_000);
+  return hours < 48 ? `${hours} hours ago` : `${Math.round(hours / 24)} days ago`;
 }
 
 // What the agent is told when Mike writes a message while its question or
