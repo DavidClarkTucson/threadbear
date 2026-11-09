@@ -279,8 +279,9 @@ impl Threadbear {
         self.choose_new_thread_runner(ready, false, cx);
     }
 
-    /// The runner menu as the Swift `runnerMenu` builds it, for the chip and
-    /// for `composer-menu`: `[x]` on the chosen, `*` on the default.
+    /// The runner menu as the Swift `runnerMenu` builds it, for
+    /// `composer-menu`: `[x]` on the chosen, `*` on the default.
+    #[cfg(feature = "automation")]
     pub(crate) fn runner_menu_lines(&self) -> Vec<String> {
         let chosen = self.new_thread.picks.runner.clone();
         let default = self.new_thread.prefs.remembered.default_runner.clone();

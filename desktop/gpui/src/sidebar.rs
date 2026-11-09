@@ -116,16 +116,18 @@ impl MenuRow {
     }
     /// A line of the new-thread box's Runs on menu: `star` marks the default
     /// (`markDefault`'s ★, drawn on the title; this menu has no badge yet).
+    /// A ticked line has no symbol: the kit's menu shows the tick in the
+    /// icon's place, and draws no tick at all beside one.
     pub(crate) fn runner(title: impl Into<String>, symbol: &'static str, checked: bool, star: bool, action: MenuAction) -> Self {
         let mut title: String = title.into();
         if star {
             title.push_str("  ★");
         }
-        Self { title, symbol: Some(symbol), action: Some(action), checked, enabled: true, children: vec![], separator: false }
+        Self { title, symbol: (!checked).then_some(symbol), action: Some(action), checked, enabled: true, children: vec![], separator: false }
     }
     /// A folder on the runner a new thread will start on (Runs on's Folder).
     pub(crate) fn runner_folder(folder: String, checked: bool) -> Self {
-        Self { title: folder.clone(), symbol: Some("folder"), action: Some(MenuAction::DraftFolder(folder)), checked, enabled: true, children: vec![], separator: false }
+        Self { title: folder.clone(), symbol: (!checked).then_some("folder"), action: Some(MenuAction::DraftFolder(folder)), checked, enabled: true, children: vec![], separator: false }
     }
 }
 

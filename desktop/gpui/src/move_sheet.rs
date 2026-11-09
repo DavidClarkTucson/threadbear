@@ -16,7 +16,9 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable, Sizable as _, StyledExt as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use serde_json::{json, Value};
+use serde_json::json;
+#[cfg(feature = "automation")]
+use serde_json::Value;
 use threadbear_client::runner::Status;
 use threadbear_core::remote::{MovePreview, RunnerInfo};
 
