@@ -18,6 +18,10 @@ use threadbear_core::inbox::ThreadSummary;
 const ROW_HEIGHT: f32 = 24.;
 const HEADER_HEIGHT: f32 = 24.;
 const PATH_BAR_HEIGHT: f32 = 26.;
+/// Narrower than this the Date Modified column goes, then Size
+/// (FolderPaneView's layout).
+const HIDE_DATE_UNDER: f32 = 380.;
+const HIDE_SIZE_UNDER: f32 = 260.;
 
 /// One folder browser's state: its listings and what's open in it.
 pub(crate) struct FolderView {
@@ -129,9 +133,13 @@ fn date_words(ms: i64) -> String {
 }
 
 impl SidePane {
-    /// The thread's Files panel: its folder, listed once when first shown.
+    /// The thread's Files panel: its folder, listed again each time it's
+    /// shown, so what the agent has made since is there.
     pub(crate) fn load_folder_for_files(&mut self, thread_id: &str, cx: &mut Context<Self>) {
         let Some(thread) = self.thread(cx).filter(|t| t.id == thread_id) else { return };
+        if let Some(view) = self.folders.views.get_mut(&view_key(thread_id, &thread.cwd)) {
+            view.listings.remove(&thread.cwd);
+        }
         self.ensure_folder(thread_id, &thread.cwd, &thread.cwd, thread.runner_id.clone(), cx);
     }
 
@@ -202,6 +210,7 @@ impl SidePane {
         let path_bar = self.path_bar(&key, &crumb_list, thread, &preview, p, cx).into_any_element();
         let header = self.folder_header(&key, sort, p, cx).into_any_element();
         let count = rows.len();
+        let (show_date, show_size) = (self.width >= HIDE_DATE_UNDER, self.width >= HIDE_SIZE_UNDER);
         let rows_arc: std::rc::Rc<Vec<(FolderEntry, usize)>> = std::rc::Rc::new(rows);
         let rows2 = rows_arc.clone();
         let (preview2, key2) = (preview.clone(), key.clone());
@@ -212,13 +221,12 @@ impl SidePane {
                 let selected = selected.contains(&entry.path);
                 let expanded_key = (key2.clone(), entry.clone());
                 let (entity2, thread3, preview3, key3) = (entity.clone(), thread2.clone(), preview2.clone(), key2.clone());
-                out.push(folder_row(index, entry, depth, selected, expanded_key.0, entity2, thread3, preview3, key3, p, window, cx).into_any_element());
+                out.push(folder_row(index, entry, depth, selected, expanded_key.0, entity2, thread3, preview3, key3, p, show_date, show_size, window, cx).into_any_element());
             }
             out
         })
         .track_scroll(&scroll)
-        .flex_1()
-        .min_h_0();
+        .size_full();
         // A click on the blank space below the rows, or a right-click, goes to the empty space's menu.
         let empty_key = key.clone();
         let surface = div()
@@ -235,21 +243,31 @@ impl SidePane {
                 }),
             )
             .child(list);
-        let mut column = v_flex().size_full().child(path_bar).child(header);
-        column = if let Some(note) = note { column.child(crate::files::pane_note(&note, p)) } else { column.child(surface) };
+        let mut column = v_flex().size_full().child(header);
+        column = if let Some(note) = note { column.child(div().flex_1().min_h_0().child(crate::files::pane_note(&note, p))) } else { column.child(surface) };
+        // The path bar under the list, as the Finder's is.
+        column = column.child(path_bar);
         let _ = window;
         column.into_any_element()
     }
 
     fn path_bar(&mut self, key: &str, crumb_list: &[Crumb], thread: &ThreadSummary, preview: &PanePreview, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut row = h_flex().flex_none().h(px(PATH_BAR_HEIGHT)).px(px(8.)).items_center().gap(px(3.)).border_b_1().border_color(p.hairline).text_size(px(crate::style::size::SMALL)).text_color(p.secondary).overflow_x_hidden();
-        for (i, crumb) in crumb_list.iter().enumerate() {
+        // The end of the path: too many folders to fit show their last few
+        // after a "…", as the Finder's path bar tucks the rest.
+        const SHOWN: usize = 4;
+        let tucked = crumb_list.len() > SHOWN;
+        let shown = if tucked { &crumb_list[crumb_list.len() - SHOWN..] } else { crumb_list };
+        let mut row = h_flex().flex_none().h(px(PATH_BAR_HEIGHT)).px(px(8.)).items_center().justify_end().gap(px(3.)).border_t_1().border_color(p.hairline).text_size(px(crate::style::size::SMALL)).text_color(p.secondary).overflow_x_hidden();
+        if tucked {
+            row = row.child(div().flex_none().child("…")).child(icon("chevron.right", 9., p.faint));
+        }
+        for (i, crumb) in shown.iter().enumerate() {
             if i > 0 {
                 row = row.child(icon("chevron.right", 9., p.faint));
             }
             let (path, name) = (crumb.path.clone(), crumb.name.clone());
             let (key2, thread2, preview2) = (key.to_owned(), thread.clone(), preview.clone());
-            let last = i + 1 == crumb_list.len();
+            let last = i + 1 == shown.len();
             row = row.child(
                 div()
                     .id(SharedString::from(format!("crumb-{i}")))
@@ -295,7 +313,18 @@ impl SidePane {
         let name = column(self, SortKey::Name, "Name", None, false, cx);
         let date = column(self, SortKey::Modified, "Date Modified", Some(150.), false, cx);
         let size = column(self, SortKey::Size, "Size", Some(72.), true, cx);
-        h_flex().flex_none().h(px(HEADER_HEIGHT)).px(px(10.)).items_center().gap(px(8.)).border_b_1().border_color(p.hairline).child(name).child(date).child(size)
+        let (show_date, show_size) = (self.width >= HIDE_DATE_UNDER, self.width >= HIDE_SIZE_UNDER);
+        h_flex()
+            .flex_none()
+            .h(px(HEADER_HEIGHT))
+            .px(px(10.))
+            .items_center()
+            .gap(px(8.))
+            .border_b_1()
+            .border_color(p.hairline)
+            .child(name)
+            .when(show_date, |s| s.child(date))
+            .when(show_size, |s| s.child(size))
     }
 
     pub(crate) fn set_folder_sort(&mut self, key: &str, sort: FolderSort, cx: &mut Context<Self>) {
@@ -457,6 +486,8 @@ fn folder_row(
     preview: PanePreview,
     key2: String,
     p: Palette,
+    show_date: bool,
+    show_size: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
@@ -469,6 +500,7 @@ fn folder_row(
     let _ = expanded;
     let row = div()
         .id(("folder-row", index))
+        .w_full()
         .h(px(ROW_HEIGHT))
         .flex()
         .items_center()
@@ -536,8 +568,8 @@ fn folder_row(
     let date = entry.modified_ms.map(date_words).unwrap_or_else(|| "--".to_owned());
     let size = entry.size.map(size_words).unwrap_or_else(|| "--".to_owned());
     row.child(name_row)
-        .child(div().w(px(150.)).flex_none().truncate().text_size(px(crate::style::size::DETAIL)).text_color(p.secondary).child(date))
-        .child(div().w(px(72.)).flex_none().text_right().truncate().text_size(px(crate::style::size::DETAIL)).text_color(p.secondary).child(size))
+        .when(show_date, |s| s.child(div().w(px(150.)).flex_none().truncate().text_size(px(crate::style::size::DETAIL)).text_color(p.secondary).child(date)))
+        .when(show_size, |s| s.child(div().w(px(72.)).flex_none().text_right().truncate().text_size(px(crate::style::size::DETAIL)).text_color(p.secondary).child(size)))
 }
 
 /// The `folder` automation command (`Automation.swift`).
