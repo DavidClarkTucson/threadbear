@@ -601,7 +601,7 @@ struct ThreadView: View {
     /// A finished turn that needs nothing from Mike: the done card's place.
     private func isDone(_ thread: PhoneThread, messages: [PhoneMessage]) -> Bool {
         thread.status == .idle && !thread.needsYou && thread.archivedAt == nil && thread.working == nil
-            && messages.last?.role == .assistant && nothingOnItsWay
+            && Turns.lastShown(messages)?.role == .assistant && nothingOnItsWay
             && (answeredDone == nil || answeredDone != messages.last?.seq)
     }
 

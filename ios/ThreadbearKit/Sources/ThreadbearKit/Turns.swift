@@ -176,6 +176,15 @@ public enum Turns {
         return []
     }
 
+    /// The last message the thread view shows: a row for one of
+    /// Threadbear's own tools (end_turn above all) or ToolSearch isn't one.
+    /// An agent that writes its reply and then calls end_turn ends on that
+    /// tool's row, and the done card went by the very last row, so it never
+    /// showed there while the Mac and the website did (the parity run, 9 Nov).
+    public static func lastShown(_ messages: [PhoneMessage]) -> PhoneMessage? {
+        messages.last { $0.role != .tool || isStep($0) }
+    }
+
     /// A step of work: a tool call outside Threadbear's own tools and
     /// ToolSearch (which say nothing Mike has to read), or a message sent
     /// into the turn.
