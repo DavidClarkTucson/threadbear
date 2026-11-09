@@ -1,9 +1,10 @@
 import SwiftUI
 import ThreadbearCore
 
-/// The Move sheet (docs/move-plan.md): where a thread will run on the
-/// other runner and on which login, both filled in with that runner's own
-/// guess (threads.movePreview), a line for what won't come, then Move.
+/// The Move sheet (docs/move-plan.md), for a move that can't just go: where
+/// a thread will run on the other runner and on which login, both filled in
+/// with that runner's own guess (threads.movePreview), what's in the way or
+/// won't come, then Move.
 /// Changing the folder or login asks the other runner again, so what it
 /// says can't be done shows before the thread freezes.
 struct MoveSheet: View {
@@ -89,6 +90,10 @@ struct MoveSheet: View {
         // with `connected` true throughout, which ends an ask without
         // changing the key.
         .task(id: CheckKey(connected: connected, asks: asks)) {
+            if !filled, let known = request.answer {
+                apply(known, cwd: nil, accountId: nil)
+                return
+            }
             asking = connected
             guard connected else { return }
             while !Task.isCancelled, await !check() {
@@ -153,6 +158,11 @@ struct MoveSheet: View {
         let accountId = login == guessedLogin ? nil : login
         guard let answer = await app.movePreview(request, cwd: cwd, accountId: accountId) else { return false }
         guard !Task.isCancelled else { return true }
+        apply(answer, cwd: cwd, accountId: accountId)
+        return true
+    }
+
+    private func apply(_ answer: MovePreview, cwd: String?, accountId: String?) {
         preview = answer
         // A field still on the guess follows it, so what shows is what the
         // runner will use, even if its guess changed across a reconnect.
@@ -166,7 +176,6 @@ struct MoveSheet: View {
             guessedLogin = guess
         }
         filled = true
-        return true
     }
 
     private func move() {

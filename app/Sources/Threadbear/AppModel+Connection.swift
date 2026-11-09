@@ -256,8 +256,9 @@ extension AppModel {
         apply(thread)
     }
 
-    private func apply(_ thread: ThreadSummary) {
-        let previous = threads[thread.id]
+    private func apply(_ incoming: ThreadSummary) {
+        let previous = threads[incoming.id]
+        let thread = keepingAskedMove(incoming, over: previous)
         threads[thread.id] = thread
         threadCountMayHaveChanged()
         // The open transcript's "3 sub-agents working in the background"

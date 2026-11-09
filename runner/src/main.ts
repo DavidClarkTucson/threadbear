@@ -480,6 +480,15 @@ async function main(): Promise<void> {
   let movesRef: Moves | undefined;
   // A thread here, as a move's other runner needs to know it (moves.ts).
   const describeMove = (id: string) => runner.describeForMove(id, scheduler.list(id).filter((sc) => sc.threadId === id && !sc.finishedAt).length);
+  // For a preview: that, and what this runner would leave behind, which only
+  // it can tell. The target's moveInfoFrom drops the extra field.
+  const describeMovePreview = async (id: string) => {
+    const info = await describeMove(id);
+    if (!info) return info;
+    const leftBehind = await runner.leftBehindByMove(id);
+    if (scheduler.list(id).some((sc) => sc.threadId === id && !sc.finishedAt && sc.check)) leftBehind.push("its schedules' shell checks");
+    return { ...info, leftBehind };
+  };
   const sync = new ConvexSync({
     config: { ...cfg.sync, runnerId: syncRunnerId, icon: runnerIcon },
     key: syncKey,
@@ -515,7 +524,7 @@ async function main(): Promise<void> {
       // The Mac's Move sheet asking, through the relay (threads.movePreview).
       moveDescribe: async (id) => {
         if (!experimentOn(cfg.home, 'moveToRunner')) throw new Error(`Moving threads is off on ${cfg.sync.name ?? defaultRunnerName()}: turn on the moveToRunner experiment there.`);
-        const info = await describeMove(id);
+        const info = await describeMovePreview(id);
         if (!info) throw new Error("That thread isn't on this runner.");
         return info;
       },
@@ -886,7 +895,7 @@ async function main(): Promise<void> {
     if (here && to === syncRunnerId) throw new RpcError(ErrorCode.badParams, 'The thread is on that runner already.');
     let info: unknown;
     try {
-      if (here) info = await describeMove(threadId);
+      if (here) info = await describeMovePreview(threadId);
       else if (relay.owns(threadId)) info = await relay.describeForMove(threadId);
       else throw new Error('No such thread.');
     } catch (e) {
@@ -895,13 +904,21 @@ async function main(): Promise<void> {
     }
     const cwd = typeof p.cwd === 'string' && p.cwd ? p.cwd : undefined;
     const accountId = typeof p.accountId === 'string' && p.accountId ? p.accountId : undefined;
+    // The target only knows its own end of what won't come.
+    const lines = (v: unknown) => (Array.isArray(v) ? v.filter((l): l is string => typeof l === 'string') : []);
+    const withThisEnd = (answer: unknown) => {
+      const a = answer as { leftBehind?: unknown };
+      const thisEnd = (info as { leftBehind?: unknown } | undefined)?.leftBehind;
+      // A runner from before this says nothing, which isn't "nothing's left".
+      return { ...a, leftBehind: [...lines(a.leftBehind), ...lines(thisEnd)], ...(Array.isArray(thisEnd) ? { sourceChecked: true } : {}) };
+    };
     try {
       if (to === syncRunnerId) {
         const parsed = moveInfoFrom(info);
         if (!parsed) throw new Error("The thread's runner didn't say enough about it.");
-        return await runner.previewMove({ info: parsed, self: syncRunnerId, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) });
+        return withThisEnd(await runner.previewMove({ info: parsed, self: syncRunnerId, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) }));
       }
-      return await relay.previewMove(to, { info, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) });
+      return withThisEnd(await relay.previewMove(to, { info, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) }));
     } catch (e) {
       // A runner from before moves turns the call down by name.
       const older = /can't be asked of this runner/.test(said(e));

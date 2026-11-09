@@ -334,6 +334,8 @@ const BRUCE = 'runner_bruce';
 // runner passes on the backend's.
 // MOCK_MORE_RUNNERS=1 adds two more, for a list worth rearranging (only for
 // a look at Settings > Runners: the usual demo stays at two).
+// What threads.movePreview says won't come; empty and Move to skips the sheet.
+let moveLeftBehind = ['1 background job, which gets stopped'];
 const MORE_RUNNERS = process.env.MOCK_MORE_RUNNERS ? [
   { id: 'runner_cloud', name: 'Hetzner Cloud', icon: 'cloud', online: true, lastSeenAt: new Date().toISOString() },
   { id: 'runner_pixel', name: 'Pixel', icon: 'smartphone', online: true, lastSeenAt: new Date().toISOString() },
@@ -514,7 +516,8 @@ async function dispatch(client, method, p) {
         cwd: p.cwd || `${home}/dev/me/threadbear-threads/slot-4`,
         accountId: p.accountId || 'claude-main',
         accounts: [{ id: 'claude-main', provider: 'claude', title: 'Claude', email: 'mike.cann@gmail.com' }, { id: 'claude-1', provider: 'claude', title: 'Claude', email: 'mike@gangbusters.io' }],
-        leftBehind: ['2 files git ignores (.env.local, app/.build)'],
+        leftBehind: moveLeftBehind,
+        sourceChecked: true,
         problems: p.cwd && !String(p.cwd).startsWith(home) ? [`There's no folder ${p.cwd} on ${runner?.name ?? 'it'}.`] : [],
         worktree: true,
       };
@@ -1366,6 +1369,9 @@ async function dispatch(client, method, p) {
       return deviceList();
     }
     // Mock-only helpers for perf runs, demos and screenshots.
+    case 'mock.moveLeftBehind':
+      moveLeftBehind = p.lines ?? [];
+      return { lines: moveLeftBehind };
     case 'mock.slow': {
       slow = { ms: Math.max(0, Number(p.ms ?? 0)), queueMs: Math.max(0, Number(p.queueMs ?? 0)) };
       return slow;

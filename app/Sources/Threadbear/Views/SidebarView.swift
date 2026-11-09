@@ -1225,7 +1225,8 @@ struct ThreadMenu: View {
 }
 
 /// "Move to ▸": Mike's other runners, offline ones greyed with "offline",
-/// each opening the Move sheet (docs/move-plan.md). While a move is going,
+/// each moving it there, by way of the Move sheet if there's something to
+/// say first (docs/move-plan.md). While a move is going,
 /// Cancel Move instead.
 struct ThreadMoveMenu: View {
     @Environment(AppModel.self) private var app

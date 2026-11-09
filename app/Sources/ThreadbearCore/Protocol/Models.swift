@@ -1484,7 +1484,15 @@ public struct MovePreview: Sendable, Hashable, Decodable {
     /// That repo is cloned there first.
     public var clone: String?
 
-    public init(cwd: String? = nil, accountId: String? = nil, accounts: [Login] = [], leftBehind: [String] = [], problems: [String] = [], worktree: Bool = false, clone: String? = nil) {
+    /// The thread's own runner said what it would leave behind. An older
+    /// one says nothing, and an empty `leftBehind` from it means nothing.
+    public var sourceChecked: Bool
+
+    /// Nothing to decide or be told: Move to goes without showing the sheet.
+    public var canGoAsIs: Bool { sourceChecked && problems.isEmpty && leftBehind.isEmpty && cwd != nil && accountId != nil }
+
+    public init(cwd: String? = nil, accountId: String? = nil, accounts: [Login] = [], leftBehind: [String] = [], problems: [String] = [], worktree: Bool = false, clone: String? = nil, sourceChecked: Bool = false) {
+        self.sourceChecked = sourceChecked
         self.cwd = cwd
         self.accountId = accountId
         self.accounts = accounts
@@ -1503,9 +1511,10 @@ public struct MovePreview: Sendable, Hashable, Decodable {
         problems = ((try? c.decodeIfPresent([String].self, forKey: .problems)) ?? nil) ?? []
         worktree = ((try? c.decodeIfPresent(Bool.self, forKey: .worktree)) ?? nil) ?? false
         clone = (try? c.decodeIfPresent(String.self, forKey: .clone)) ?? nil
+        sourceChecked = ((try? c.decodeIfPresent(Bool.self, forKey: .sourceChecked)) ?? nil) ?? false
     }
 
-    enum CodingKeys: String, CodingKey { case cwd, accountId, accounts, leftBehind, problems, worktree, clone }
+    enum CodingKeys: String, CodingKey { case cwd, accountId, accounts, leftBehind, problems, worktree, clone, sourceChecked }
 }
 
 /// `ThreadSummary.moving`: the move a thread is in, from the runner that
