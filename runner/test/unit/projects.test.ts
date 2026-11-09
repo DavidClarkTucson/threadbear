@@ -243,6 +243,9 @@ test('disclaims needs the project named after the not', () => {
   assert.equal(disclaims('Not BrowserBear work', 'BrowserBear (Chrome browser control)'), true);
   assert.equal(disclaims('Tandem feature work, not yet merged', 'Tandem'), false);
   assert.equal(disclaims('Fixes a Threadbear bug, not the original error', 'Threadbear'), false);
+  assert.equal(disclaims('Thread is not about the Walkies app', 'Walkies'), true);
+  assert.equal(disclaims('Updates out of date Threadbear documentation', 'Threadbear'), false);
+  assert.equal(disclaims('Answers user questions, not questionnaires', 'Questions'), false);
 });
 
 test("a pick the check confirms is filed from a catch-all folder, and the look keeps why, past a restart", async () => {
@@ -301,6 +304,56 @@ test('a check that gets no answer keeps the thread out for now, and a later look
   await again(s, thread.id);
   assert.equal(s.checks.length, 2);
   assert.deepEqual(s.h.runner.get(thread.id).projects?.map((m) => m.id), [build.id]);
+});
+
+test('a refused pick does not turn into a new project of the same name', async () => {
+  let answer: unknown = {};
+  const s = setup({ models: () => reply(answer), check: () => reply({ belongs: false }) });
+  const build = s.projects.create({ title: 'Lets Build It', by: 'mike' });
+  const { thread } = s.create('What do you make of this module?');
+  answer = { projects: [build.id], reasons: { [build.id]: 'Touches the docs' }, new: { title: 'Lets Build It', folders: [], goals: 'x', state: 'y', why: 'z' } };
+  await s.finish(thread.id);
+  s.h.clock.advance(SETTLE_MS);
+  await tick(8);
+  assert.equal(s.projects.list().length, 1);
+  assert.equal(s.h.runner.get(thread.id).projects?.length ?? 0, 0);
+});
+
+test('an asked look that confirms the last refused pick clears the refusal', async () => {
+  let answer: unknown = {};
+  let belongs = false;
+  const s = setup({ models: () => reply(answer), check: () => reply({ belongs }) });
+  const build = s.projects.create({ title: 'Lets Build It', by: 'mike' });
+  const { thread } = s.create('Plan the next build video');
+  answer = { projects: [build.id], reasons: { [build.id]: 'Plans its next video' } };
+  await s.finish(thread.id);
+  s.h.clock.advance(SETTLE_MS);
+  await tick(8);
+  const saved = () => JSON.parse(fs.readFileSync(path.join(s.h.home, 'librarian.json'), 'utf8')).looks[thread.id];
+  await tick();
+  assert.deepEqual(saved().refused, [build.id]);
+  belongs = true;
+  s.librarian.run(thread.id);
+  await tick(8);
+  assert.deepEqual(s.h.runner.get(thread.id).projects?.map((m) => m.id), [build.id]);
+  s.librarian.run(thread.id);
+  await tick(8);
+  assert.equal(saved().refused, undefined);
+});
+
+test('a thread deleted during one check is dropped quietly, with no check of the next pick', async () => {
+  const s = setup({ models: () => reply({ projects: [a.id, b.id], reasons: { [a.id]: 'Does its work', [b.id]: 'Does its work' } }), check: () => {
+    s.h.runner.delete(thread.id);
+    return reply({ belongs: true });
+  } });
+  const a = s.projects.create({ title: 'One', by: 'mike' });
+  const b = s.projects.create({ title: 'Two', by: 'mike' });
+  const { thread } = s.create('A thread that goes away');
+  await s.finish(thread.id);
+  s.h.clock.advance(SETTLE_MS);
+  await tick(8);
+  assert.equal(s.checks.length, 1);
+  assert.equal(s.librarian.status().recent.filter((e) => e.outcome === 'failed').length, 0);
 });
 
 test('a look asks about a few picks at most', async () => {

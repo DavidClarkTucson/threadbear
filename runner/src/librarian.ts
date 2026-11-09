@@ -568,7 +568,9 @@ export class Librarian {
         dropped.add(pid);
         continue;
       }
-      if (asked++ >= PICK_CHECKS_PER_LOOK || this.stopped) {
+      // Gone mid-check: threadGist would throw, and look's guard drops it.
+      if (this.stopped || !this.host.threadRecords().some((t) => t.id === rec.id)) return { answer: a, refused: had };
+      if (asked++ >= PICK_CHECKS_PER_LOOK) {
         dropped.add(pid);
         continue;
       }
@@ -583,7 +585,10 @@ export class Librarian {
       this.log.info('librarian dropped a pick the check refused', { threadId: rec.id, projectId: pid, belongs: belongs ?? null, why: typeof a.why === 'string' ? a.why : undefined });
     }
     const keep = (Array.isArray(a.projects) ? a.projects : []).filter((x) => !dropped.has(x as string));
-    return { answer: { ...a, projects: keep }, refused: refused.size ? [...refused] : undefined };
+    // An empty list, not undefined, so the last refusal can be cleared
+    // (markLooked keeps the old ones when given none). And no new project
+    // on the back of a pick that was turned down: it'd be a copy of it.
+    return { answer: { ...a, projects: keep, ...(dropped.size ? { new: null } : {}) }, refused: [...refused] };
   }
 
   // The thread runs in one of these folders or has edited files there.
@@ -1507,7 +1512,12 @@ export function disclaims(line: string, title: string): boolean {
   if (!name) return false;
   for (const word of ['not ', 'out of ']) {
     for (let at = text.indexOf(word); at >= 0; at = text.indexOf(word, at + 1)) {
-      if (text.slice(at + word.length, at + word.length + name.length + 16).includes(name)) return true;
+      // The name straight after, give or take a small word: "out of date
+      // Threadbear docs" isn't saying anything about Threadbear.
+      let from = at + word.length;
+      for (const small of ['about ', 'for ', 'in ', 'the ']) if (text.startsWith(small, from)) from += small.length;
+      const after = text[from + name.length];
+      if (text.startsWith(name, from) && (after === undefined || !/[\p{L}\p{N}]/u.test(after))) return true;
     }
   }
   return false;
