@@ -82,7 +82,6 @@ import { cleanUpWorktree, makeWorktree, sameSubfolder, worktreeInstructions } fr
 import { stripModelSuffix, type AccountRegistry, type LearnedAccountInfo } from './accounts.ts';
 import { pickAccount as pickByRoom, resetTime, type UsageReading } from './usage.ts';
 import { DEFAULT_POOL_FOLDERS, RUNNER_VERSION, expandHome, paths, peekRunnerJson, type Config } from './config.ts';
-import { experimentOn } from './experiments.ts';
 import { WAIT_SLACK_MS, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from './pools.ts';
 import { copyImageInto, imageRefFor } from './media.ts';
 import { isDirectory } from './fsutil.ts';
@@ -358,9 +357,6 @@ type Runtime = {
   releasedGen?: number; // generation of the session being released on purpose
   resumed: boolean; // the live session was started with resume
   retriedFresh: boolean;
-  // The reason fast mode was last said to be unavailable in this thread's
-  // transcript, so each turn doesn't say it again.
-  fastModeNoted?: string;
   // News of the standing instructions went out in this turn (settleInstructionsNews).
   instructionsNewsSent?: boolean;
   // Where the live session's transcript was carried from, if it moved
@@ -1848,8 +1844,6 @@ export class Runner {
         account,
         model: rec.model,
         effort: rec.effort,
-        // Off again if the experiment was turned off since it was picked.
-        ...(rec.fastMode && experimentOn(this.cfg.home, 'fastMode') ? { fastMode: true } : {}),
         permissionMode: rec.permissionMode,
         ...(rec.confined ? { confined: true } : {}),
         sessionId: rec.nativeSessionId,
@@ -2022,15 +2016,6 @@ export class Runner {
           this.markDirty(st);
         }
         break;
-      case 'fastMode': {
-        // Asked for and turned down (a login without usage credits, an
-        // organization that turned it off): said once, so Mike knows he's
-        // not getting it. A cooldown after a rate limit passes by itself.
-        const why = rec.fastMode && experimentOn(this.cfg.home, 'fastMode') && o.state === 'off' && o.reason && o.reason !== 'pending' ? o.reason : undefined;
-        if (why && rt.fastModeNoted !== why) this.emit(st, { type: 'system.note', text: `Fast mode isn't available (${fastModeWhy(why)}), so this thread runs at standard speed.` }, rt.turn?.turnId);
-        if (o.state === 'on' || why) rt.fastModeNoted = why;
-        break;
-      }
       case 'context':
         rec.contextTokens = o.contextTokens;
         if (o.contextWindow !== undefined) rec.contextWindow = o.contextWindow;
@@ -2653,7 +2638,6 @@ export class Runner {
     poolId?: string | null;
     model?: string | null;
     effort?: EffortLevel | null;
-    fastMode?: boolean;
     permissionMode?: PermissionMode;
     snoozedUntil?: string | null; // an ISO time, 'restart' for until the runner next starts, or 'release' for until it starts on a new release
     archived?: boolean;
@@ -2809,27 +2793,6 @@ export class Runner {
           rt.releaseWhenIdle = true;
         });
         if (sayNextTurn()) nextTurn.push(effort ? `${effortTitle(effort)} effort` : "The model's own effort level");
-      }
-    }
-    // Fast mode: Claude only, and off on a model that doesn't have it (a
-    // pick of one, or a move onto one), which says so.
-    let fast = !providerChanged && rec.fastMode === true;
-    if (params.fastMode !== undefined) fast = params.fastMode;
-    if (fast && account && (touched || params.fastMode !== undefined)) {
-      const checked = this.checkFastMode(account, model);
-      if (!checked.ok) {
-        fast = false;
-        if (checked.note) this.emit(st, { type: 'system.note', text: checked.note }, rt.turn?.turnId);
-      }
-    }
-    if (fast !== (rec.fastMode === true)) {
-      if (fast) rec.fastMode = true;
-      else delete rec.fastMode;
-      rt.fastModeNoted = undefined;
-      if (rt.session && !release && rec.provider === 'claude') {
-        rt.session.setFastMode?.(fast).catch(() => {
-          rt.releaseWhenIdle = true;
-        });
       }
     }
     if (params.permissionMode !== undefined && params.permissionMode !== rec.permissionMode) {
@@ -3304,7 +3267,6 @@ export class Runner {
     if (pendingReviews) s.pendingReviews = pendingReviews;
     if (rec.model) s.model = rec.model;
     if (rec.effort) s.effort = rec.effort;
-    if (rec.fastMode && experimentOn(this.cfg.home, 'fastMode')) s.fastMode = true;
     if (rec.modelInUse) s.modelInUse = rec.modelInUse;
     if (rec.effortInUse) s.effortInUse = rec.effortInUse;
     if (rec.snoozedUntil) s.snoozedUntil = rec.snoozedUntil;
@@ -3788,27 +3750,6 @@ export function modelTitle(account: Account, model: string): string {
 }
 
 const EFFORT_TITLES: Record<EffortLevel, string> = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
-
-// Why the CLI says fast mode can't serve (its fast_mode_disabled_reason),
-// in plain words for the note.
-export function fastModeWhy(reason: string): string {
-  switch (reason) {
-    case 'free':
-      return "this login's plan doesn't include it";
-    case 'preference':
-      return "this login's organization turned it off";
-    case 'extra_usage_disabled':
-      return 'usage credits are off for this login';
-    case 'network_error':
-      return "Claude Code couldn't check, as the network was down";
-    case 'not_first_party':
-      return 'it needs the Anthropic API directly';
-    case 'model_not_allowed':
-      return "this login's organization doesn't allow the model";
-    default:
-      return `Claude Code says ${reason.replace(/_/g, ' ')}`;
-  }
-}
 
 export function effortTitle(e: EffortLevel): string {
   return EFFORT_TITLES[e] ?? e;
