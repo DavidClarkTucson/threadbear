@@ -144,7 +144,8 @@ impl SidebarState {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 n = n.wrapping_add(1);
                 let alive = this.update(cx, |t, cx| {
-                    if n % 20 == 0 || t.threads.values().any(|t| t.busy() || t.subagents.is_some()) {
+                    let ticking = t.threads.values().any(|t| t.busy() || t.subagents.iter().flatten().any(|s| s.get("status").and_then(Value::as_str) == Some("running")));
+                    if n % 20 == 0 || ticking {
                         cx.notify();
                     }
                 });
