@@ -596,6 +596,26 @@ enum RowAction {
     case star, snooze, archive, unsnooze, unarchive, delete
 }
 
+/// Its content's own width, up to `limit`. `.frame(maxWidth:)` would grow to
+/// the limit whenever it's offered more, taking room from the text beside a
+/// short name.
+private struct CappedWidth: Layout {
+    var limit: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews.first?.sizeThatFits(ProposedViewSize(width: min(proposal.width ?? limit, limit), height: proposal.height)) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
+
+    /// Passes the text's baseline up, so it lines up with the project's.
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
+        subviews.first.map { bounds.minY + $0.dimensions(in: ProposedViewSize(bounds.size))[guide] }
+    }
+}
+
 struct ThreadRowView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.controlActiveState) private var activeState
@@ -724,12 +744,17 @@ struct ThreadRowView: View {
                                 .tip(ProjectMark.lineTip(thread, under: heading))
                         }
                         if let runner = app.runnerLabel(of: thread) {
-                            // Its own text, kept whole: a long project name
-                            // gets cut short rather than the runner.
-                            Text("• \(runner)")
-                                .font(.system(size: TypeScale.sidebarMeta + 1))
-                                .lineLimit(1)
-                                .fixedSize()
+                            // Its own text, laid out first: a long project
+                            // name gets cut short before the runner. Capped,
+                            // as `sync.name` can be any length.
+                            CappedWidth(limit: zoomed(100)) {
+                                Text("• \(runner)")
+                                    .font(.system(size: TypeScale.sidebarMeta + 1))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .layoutPriority(1)
+                            .tip("On \(runner)")
                         }
                     }
                     .foregroundStyle(.secondary)

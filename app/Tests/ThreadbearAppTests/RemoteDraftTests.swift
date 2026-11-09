@@ -58,6 +58,31 @@ final class RemoteDraftTests: XCTestCase {
         return (app, local, away)
     }
 
+    /// runners.list failed at launch (no network) and left this Mac's rows
+    /// without their runner's name. Word from the backend asks again, and
+    /// stops asking once the name is known.
+    func testThisMacsRunnerIsAskedForAgainWhenTheBackendComesBack() async throws {
+        let app = AppModel()
+        let local = RecordingTransport()
+        local.answers["runners.list"] = { _ in ["runners": [["id": "r-m5", "name": "M5", "online": true, "self": true]]] }
+        let client = RPCClient(transport: local)
+        try await client.start()
+        app.useClientForTesting(client)
+        let here = ThreadSummary(id: "t1", title: "Here", status: .idle)
+        XCTAssertNil(app.runnerLabel(of: here))
+
+        app.receive(remote: RemoteThreads(runners: [bruce]))
+        try await until { app.runners.contains(where: \.isSelf) }
+        XCTAssertEqual(app.runnerLabel(of: here), "M5")
+
+        var offline = bruce
+        offline.online = false
+        app.receive(remote: RemoteThreads(runners: [offline]))
+        // Long enough for a second ask to have gone out, if there was one.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(local.params("runners.list").count, 1)
+    }
+
     private func until(_ condition: () -> Bool) async throws {
         for _ in 0..<400 where !condition() {
             try await Task.sleep(for: .milliseconds(5))

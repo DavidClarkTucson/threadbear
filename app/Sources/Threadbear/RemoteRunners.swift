@@ -25,7 +25,14 @@ extension AppModel {
 
     func receive(remote: RemoteThreads) {
         remoteIndex = remote
-        if remoteRunners != remote.runners { remoteRunners = remote.runners }
+        if remoteRunners != remote.runners {
+            remoteRunners = remote.runners
+            // runners.list asks the backend, so with no network at launch
+            // it fails and nothing asks again: this Mac's rows would stay
+            // without their runner's name. News from the backend means
+            // it's back. Only until the name's known, so it stops there.
+            if !runners.contains(where: \.isSelf) { loadRunners() }
+        }
         if let pending = pendingRunnerOrder {
             if remote.order == pending { pendingRunnerOrder = nil }
         } else if runnerOrder != remote.order {
