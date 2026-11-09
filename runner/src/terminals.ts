@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Logger } from './log.ts';
 import { ErrorCode, RpcError } from './protocol.ts';
+import { loginShell } from './system-tools.ts';
 
 export const REPLAY_BYTES = 256 * 1024;
 export const FLUSH_MS = 16;
@@ -202,7 +203,7 @@ export class TerminalManager {
     }
     if (raced) this.forget(raced);
 
-    const shell = this.deps.shell ?? (process.env.SHELL || os.userInfo().shell || '/bin/zsh');
+    const shell = this.deps.shell ?? (process.env.SHELL || os.userInfo().shell || loginShell()[0]!);
     const t: Term = {
       id: `term_${crypto.randomBytes(8).toString('hex')}`,
       threadId,
