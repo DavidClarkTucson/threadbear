@@ -103,14 +103,16 @@ impl DockView {
     /// opens and closes the torn-out windows the layout says it has.
     pub fn new(model: Entity<DockModel>, content: SharedContent, options: DockOptions, cx: &mut Context<Self>) -> Self {
         let observed = cx.observe(&model, |this, _, cx| {
+            // Any window of the dock can change it (a torn-out window's bar
+            // drives a drag from over there): this window follows.
+            this.after_drag_update(cx);
             this.sync_windows(cx);
             cx.notify();
         });
         // Windows saved open reopen once the app's up; the model changing
         // does the same for ones that open or close later.
-        cx.defer(|cx| {
-            let _ = cx;
-        });
+        let view = cx.entity();
+        cx.defer(move |cx| view.update(cx, |this, cx| this.sync_windows(cx)));
         Self {
             model,
             content,
@@ -156,44 +158,56 @@ impl DockView {
             let panel = panel.clone();
             cx.spawn_in(window, async move |this, cx| {
                 cx.background_executor().timer(Duration::from_secs_f64(dl::HOLD_SECONDS)).await;
-                let _ = this.update_in(cx, |this, window, cx| this.hold_fired(&panel, window, cx));
+                let _ = this.update(cx, |this, cx| this.hold_fired(&panel, cx));
             })
         });
         self.press = Some(Press { panel, kind, start, location: start, pressed_at: Instant::now(), mode: PressMode::Waiting, _timer: timer });
         cx.notify();
     }
 
-    fn hold_fired(&mut self, panel: &str, window: &mut Window, cx: &mut Context<Self>) {
+    fn hold_fired(&mut self, panel: &str, cx: &mut Context<Self>) {
         let Some(p) = &mut self.press else { return };
         if p.panel != panel || p.mode != PressMode::Waiting {
             return;
         }
         p.mode = PressMode::Panel;
         let (start, location) = (p.start, p.location);
-        self.drag_changed(panel, start, location, window, cx);
+        self.drag_changed(panel, start, location, cx);
     }
 
-    fn drag_changed(&mut self, panel: &str, start: dl::Point, location: dl::Point, window: &mut Window, cx: &mut Context<Self>) {
+    fn drag_changed(&mut self, panel: &str, start: dl::Point, location: dl::Point, cx: &mut Context<Self>) {
         self.model.update(cx, |m, cx| m.update_controller(cx, |c| c.drag_changed(panel, start, location)));
-        self.after_drag_update(window, cx);
+        // Now as well as from the model's observer, so a frame drawn in this
+        // same event (the scripted demo draws right after dispatching) is current.
+        self.after_drag_update(cx);
     }
 
     /// After the controller has moved a drag along: start the lift, follow
     /// the target with the preview, and draw.
-    pub(crate) fn after_drag_update(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn after_drag_update(&mut self, cx: &mut Context<Self>) {
         let drag = self.model.read(cx).controller.drag.clone();
         match &drag {
-            Some(d) if d.window.is_none() => {
-                if self.lift.is_none() {
-                    self.lift = Some(SpringRun::new(dl::LIFT, 0., 1.));
-                }
+            // A panel being dragged from here or from a window of its own:
+            // where it would land shows here either way (Swift's overlay).
+            Some(d) => {
                 // The preview is for places in the dock; opening a window has
                 // its own outline. Swift's DragOverlay draws it for `drop != nil`.
                 let preview = d.target.as_ref().filter(|t| t.drop.is_some()).map(|t| t.preview);
                 self.update_preview(preview);
-                self.watch_escape(cx);
+                if d.window.is_none() {
+                    if self.lift.is_none() {
+                        self.lift = Some(SpringRun::new(dl::LIFT, 0., 1.));
+                    }
+                    self.watch_escape(cx);
+                    // Outside the window (or on the compass's Window button):
+                    // the outline of the window it would open, there.
+                    let float = d.target.as_ref().and_then(|t| t.float);
+                    let title = self.content.title(&d.panel, cx);
+                    let (height, accent) = (self.options.header_height, self.options.accent);
+                    self.windows.update_outline(float, title, height, accent, cx);
+                }
             }
-            _ => {
+            None => {
                 self.lift = None;
                 self.update_preview(None);
             }
@@ -270,7 +284,7 @@ impl DockView {
         let mode = self.press.as_ref().map(|p| p.mode);
         if mode == Some(PressMode::Panel) {
             self.suppress_click = true;
-            self.drag_changed(&panel, start, location, window, cx);
+            self.drag_changed(&panel, start, location, cx);
         }
     }
 
@@ -307,6 +321,7 @@ impl DockView {
     fn after_drop(&mut self, drag: Option<dl::DragState>, lift: f64, window: &mut Window, cx: &mut Context<Self>) {
         self.lift = None;
         self.update_preview(None);
+        self.windows.update_outline(None, SharedString::default(), self.options.header_height, self.options.accent, cx);
         let landing = self.model.read(cx).controller.landing.clone();
         if let (Some(d), Some(landing)) = (drag, landing) {
             self.landing = Some(LandingRun::new(dl::DockController::ghost_rect(&d, lift), landing.to, d.panel.clone(), d.source_frame.size()));
@@ -402,7 +417,7 @@ impl DockView {
         // The grab strips go over the panels (a strip beside the next panel
         // in the flow would be under it), in a second row with the same
         // shares so each lands on its gap without knowing the pixels.
-        let mut rail = div().absolute().size_full().flex();
+        let mut rail = div().absolute().top_0().left_0().size_full().flex();
         rail = if horizontal { rail.flex_row() } else { rail.flex_col() };
         for (k, _) in shown.iter().enumerate() {
             rail = rail.child(flex_cell(fractions[k]));
@@ -521,7 +536,7 @@ impl DockView {
                 });
             }))
             .when(header, |d| d.child(self.header(&visible, corner, theme, window, cx)))
-            .when(!header && corner, |d| d.child(self.corner_bar(panel.clone(), header_height, cx)))
+            .when(!header && corner, |d| d.child(self.corner_bar(panel.clone(), header_height, theme, cx)))
             .child(body)
             .when(hidden_strip, |d| d.child(self.hidden_strip(panel.clone(), theme, cx)))
             .when(lifted, |d| {
@@ -805,7 +820,7 @@ impl DockView {
     /// the window (or the panel, with a title bar), with the grab handle on
     /// hover to move the panel by. In Threadbear that's the sidebar's bar,
     /// the one place left to grab the window by.
-    fn corner_bar(&self, panel: PanelId, height: f32, cx: &mut Context<Self>) -> AnyElement {
+    fn corner_bar(&self, panel: PanelId, height: f32, theme: &DockTheme, cx: &mut Context<Self>) -> AnyElement {
         let leading = self.options.traffic_lights;
         let press = panel.clone();
         let mut row = h_flex().flex_none().w_full().h(px(height));
@@ -825,8 +840,8 @@ impl DockView {
                 ),
             )
         };
+        row = row.child(div().relative().flex_none().w(px(60.)).h_full().child(self.hidden_strip(panel, theme, cx)));
         row = row.child(div().flex_none().w(px(12.)));
-        let _ = panel;
         row.into_any_element()
     }
 
@@ -844,7 +859,7 @@ impl DockView {
 
 impl Render for DockView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = DockTheme::new(cx);
+        let theme = DockTheme::new(cx, self.options.accent);
         let layout = self.model.read(cx).controller.layout.clone();
         let available: Rc<HashSet<PanelId>> = {
             let content = self.content.clone();
@@ -938,6 +953,8 @@ fn listeners(view: WeakEntity<DockView>, active: bool, dragging: bool, divider_a
         },
     )
     .absolute()
+    .top_0()
+    .left_0()
     .size_full()
 }
 
@@ -954,7 +971,9 @@ fn gap_cell(horizontal: bool) -> Div {
 
 /// Reports an element's bounds each frame, for hit testing.
 fn measure(on_bounds: impl FnOnce(Bounds<Pixels>, &mut Window, &mut App) + 'static) -> impl IntoElement {
-    canvas(move |bounds, window, cx| on_bounds(bounds, window, cx), |_, _, _, _| {}).absolute().size_full()
+    // With explicit insets: an absolute child with none sits where it would
+    // have been in the flow, after whatever comes before it.
+    canvas(move |bounds, window, cx| on_bounds(bounds, window, cx), |_, _, _, _| {}).absolute().top_0().left_0().size_full()
 }
 
 fn bounds_to_rect(bounds: Bounds<Pixels>, origin: Point<Pixels>) -> dl::Rect {

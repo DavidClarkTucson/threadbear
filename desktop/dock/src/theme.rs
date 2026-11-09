@@ -30,7 +30,7 @@ pub struct DockTheme {
 pub const GAP: f32 = 1.;
 
 impl DockTheme {
-    pub fn new(cx: &App) -> Self {
+    pub fn new(cx: &App, accent: Option<Hsla>) -> Self {
         let theme = cx.theme();
         let is_dark = theme.is_dark();
         // `Color.primary`, as the bars and tabs use it for tints.
@@ -41,7 +41,7 @@ impl DockTheme {
             header_text: theme.foreground,
             secondary: theme.muted_foreground,
             faint: if is_dark { hsla(0., 0., 1., 0.3) } else { hsla(0., 0., 0., 0.28) },
-            accent: theme.primary,
+            accent: accent.unwrap_or(theme.primary),
             bar_line: primary.opacity(0.07),
             tab_selected: primary.opacity(0.07),
             tab_hover: primary.opacity(0.04),

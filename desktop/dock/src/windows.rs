@@ -17,12 +17,19 @@ use std::time::{Duration, Instant};
 use threadbear_dock_layout as dl;
 use threadbear_dock_layout::{DockFloat, PanelId};
 
-/// The windows of panels taken out of the dock.
+/// The windows of panels taken out of the dock, and the outline of one about
+/// to open.
 #[derive(Default)]
 pub struct FloatingWindows {
-    windows: HashMap<PanelId, WindowHandle<FloatingPanelView>>,
+    windows: HashMap<PanelId, AnyWindowHandle>,
+    outline: Option<OutlineWindow>,
     /// A middle-click pressed on this panel's tab, closing it on release.
     pub(crate) middle_down: Option<PanelId>,
+}
+
+struct OutlineWindow {
+    handle: AnyWindowHandle,
+    size: (f64, f64),
 }
 
 impl FloatingWindows {
@@ -54,6 +61,97 @@ impl FloatingWindows {
             model.update(cx, |m, _| m.controller.focus_next = None);
         }
     }
+
+    /// The outline of the window a drag would open, following the pointer
+    /// outside the dock's window. Shown only where windows can be placed
+    /// and moved by hand, so not on Wayland (see platform.rs).
+    pub fn update_outline(&mut self, frame: Option<dl::Rect>, title: SharedString, header_height: f32, accent: Option<Hsla>, cx: &mut App) {
+        let Some(frame) = frame.filter(|_| platform::can_move_windows_by_hand()) else {
+            if let Some(outline) = self.outline.take() {
+                let _ = outline.handle.update(cx, |_, window, _| window.remove_window());
+            }
+            return;
+        };
+        let origin = point(px(frame.x as f32), px(frame.y as f32));
+        if let Some(outline) = &self.outline {
+            if outline.size == (frame.width, frame.height) {
+                let handle = outline.handle;
+                let _ = handle.update(cx, |_, window, _| platform::set_window_origin(window, origin));
+                return;
+            }
+            let old = outline.handle;
+            let _ = old.update(cx, |_, window, _| window.remove_window());
+            self.outline = None;
+        }
+        let bounds = Bounds::new(origin, size(px(frame.width as f32), px(frame.height as f32)));
+        let opened = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: None,
+                kind: WindowKind::PopUp,
+                focus: false,
+                show: true,
+                is_movable: false,
+                is_resizable: false,
+                is_minimizable: false,
+                window_background: WindowBackgroundAppearance::Transparent,
+                ..Default::default()
+            },
+            |window, cx| {
+                // It floats under the pointer it follows: clicks go through.
+                platform::set_ignores_mouse_events(window, true);
+                cx.new(|_| OutlineView { title, header_height, accent })
+            },
+        );
+        if let Ok(handle) = opened {
+            self.outline = Some(OutlineWindow { handle: handle.into(), size: (frame.width, frame.height) });
+        }
+    }
+}
+
+/// Where a panel would open as a window of its own, drawn while it's dragged
+/// out of the dock: the window's outline with its bar, see-through.
+struct OutlineView {
+    title: SharedString,
+    header_height: f32,
+    accent: Option<Hsla>,
+}
+
+impl Render for OutlineView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = DockTheme::new(cx, self.accent);
+        let accent = theme.accent;
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .rounded(px(10.))
+            .overflow_hidden()
+            .bg(accent.opacity(0.08))
+            .border(px(1.5))
+            .border_color(accent.opacity(0.75))
+            .text_color(accent)
+            .child(
+                h_flex()
+                    .flex_none()
+                    .h(px(self.header_height))
+                    .pl(px(78.))
+                    .bg(accent.opacity(0.14))
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.title.clone()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child("New window"),
+            )
+    }
 }
 
 /// A frame saved on a display that's since gone comes back on the main one.
@@ -75,7 +173,7 @@ fn on_screen(frame: dl::Rect, cx: &App) -> dl::Rect {
     dl::Rect::new(cx_ - frame.width / 2., cy - frame.height / 2., frame.width, frame.height)
 }
 
-fn open_floating_window(float: &DockFloat, focus: bool, model: Entity<DockModel>, content: SharedContent, options: Rc<DockOptions>, cx: &mut App) -> Option<WindowHandle<FloatingPanelView>> {
+fn open_floating_window(float: &DockFloat, focus: bool, model: Entity<DockModel>, content: SharedContent, options: Rc<DockOptions>, cx: &mut App) -> Option<AnyWindowHandle> {
     let frame = on_screen(float.frame, cx);
     let bounds = Bounds::new(point(px(frame.x as f32), px(frame.y as f32)), size(px(frame.width as f32), px(frame.height as f32)));
     let panel = float.panel.clone();
@@ -94,7 +192,7 @@ fn open_floating_window(float: &DockFloat, focus: bool, model: Entity<DockModel>
         if let Some(prepare) = &options.prepare_window {
             prepare(window, cx);
         }
-        let view = cx.new(|cx| FloatingPanelView::new(panel, model, content, options, cx));
+        let view = cx.new(|cx| FloatingPanelView::new(panel, model, content, options, window, cx));
         // The red button closes the panel, as its × would, or puts back one
         // the app always keeps (Threadbear's thread).
         let on_close = view.clone();
@@ -106,10 +204,7 @@ fn open_floating_window(float: &DockFloat, focus: bool, model: Entity<DockModel>
         });
         cx.new(|cx| gpui_kit::base::Root::new(view, window, cx))
     });
-    match result {
-        Ok(handle) => handle.downcast::<FloatingPanelView>(),
-        Err(_) => None,
-    }
+    result.ok().map(Into::into)
 }
 
 /// A panel in a window of its own: its bar (title, buttons, menu) over it, the
@@ -146,9 +241,21 @@ enum FloatMode {
 }
 
 impl FloatingPanelView {
-    fn new(panel: PanelId, model: Entity<DockModel>, content: SharedContent, options: Rc<DockOptions>, cx: &mut Context<Self>) -> Self {
+    fn new(panel: PanelId, model: Entity<DockModel>, content: SharedContent, options: Rc<DockOptions>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let observed = cx.observe(&model, |_, _, cx| cx.notify());
-        Self { panel, model, content, options, press: None, _subscriptions: vec![observed] }
+        // Where the user moves or resizes it (the OS's own drag from the
+        // strip beside the traffic lights, or the window's edges), saved.
+        // A drag by the title saves where it ends up when it's let go.
+        let bounds = cx.observe_window_bounds(window, |this, window, cx| {
+            let dragging = this.model.read(cx).controller.drag.as_ref().is_some_and(|d| d.panel == this.panel);
+            if dragging {
+                return;
+            }
+            let frame = Self::window_frame(window);
+            let panel = this.panel.clone();
+            this.model.update(cx, |m, cx| m.update_controller(cx, |c| c.remember_window_frame(&panel, frame)));
+        });
+        Self { panel, model, content, options, press: None, _subscriptions: vec![observed, bounds] }
     }
 
     /// Where the window is, and where the pointer is on screen.
@@ -285,7 +392,7 @@ fn apply_window_update(window: &Window, update: dl::WindowDragUpdate) {
 
 impl Render for FloatingPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = DockTheme::new(cx);
+        let theme = DockTheme::new(cx, self.options.accent);
         let panel = self.panel.clone();
         let content = self.content.clone();
         let title = content.title(&panel, cx);
@@ -322,8 +429,8 @@ impl Render for FloatingPanelView {
             .items_center()
             .border_b_1()
             .border_color(theme.bar_line)
-            .child(title_el)
             .when_some(icon, |d, i| d.child(i))
+            .child(title_el)
             .child(
                 div()
                     .id("dock-window-bar-space")
@@ -400,5 +507,7 @@ fn float_listeners(view: WeakEntity<FloatingPanelView>, dragging: bool) -> impl 
         },
     )
     .absolute()
+    .top_0()
+    .left_0()
     .size_full()
 }

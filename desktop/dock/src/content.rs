@@ -87,6 +87,10 @@ pub struct DockOptions {
     /// a panel up always takes a press held for a moment first, with or
     /// without this.
     pub bars_move_window: bool,
+    /// The colour of drop targets and the lit divider. Default: the theme's
+    /// primary (Swift's `Color.accentColor`). Apps with an accent of their
+    /// own (the demo's macOS blue) set it here.
+    pub accent: Option<Hsla>,
     /// Gives a panel's window of its own what the main window gives its views.
     pub window_content: Option<WindowWrapper>,
     /// Called on a panel's window of its own as it's made, before it shows.
@@ -101,6 +105,7 @@ impl Default for DockOptions {
             traffic_lights: 0.,
             corner_moves_window: false,
             bars_move_window: false,
+            accent: None,
             window_content: None,
             prepare_window: None,
         }
