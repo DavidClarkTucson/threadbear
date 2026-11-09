@@ -13,7 +13,14 @@ import ThreadbearCore
 /// threads, so switching back finds it as you left it. A thread on another
 /// Mac or the cloud gets a shell on this Mac in your home folder, with a
 /// line saying so, as its folder isn't here. With no thread open it's a
-/// shell in your home folder too. Shells stop when the app quits.
+/// shell in your home folder too.
+///
+/// A shell only starts when you ask for one: ⌘J, or clicking the empty
+/// panel. Clicking through threads with the panel open, or launching with
+/// it left open, starts nothing, as each login shell reads your whole
+/// profile. A thread's shell stops when the thread is archived or deleted
+/// (a dev server left running there would otherwise keep going in a
+/// worktree the next thread gets), and every shell stops when the app quits.
 @MainActor
 @Observable
 final class Terminals {
@@ -23,11 +30,50 @@ final class Terminals {
     /// Bumped to ask the showing terminal to take the keyboard.
     private(set) var focusTick = 0
 
-    func session(for target: TerminalTarget) -> TerminalSession {
+    /// Bumped when a shell starts or stops, so the panel redraws (the
+    /// sessions themselves aren't observed).
+    private(set) var generation = 0
+
+    /// The target's shell, if one has been started.
+    func existing(for target: TerminalTarget) -> TerminalSession? {
+        _ = generation
+        return sessions[target.key]
+    }
+
+    /// The target's shell, starting one if it has none, and gives it the
+    /// keyboard: ⌘J and a click on the empty panel.
+    @discardableResult
+    func open(_ target: TerminalTarget) -> TerminalSession {
+        defer { focusTick += 1 }
         if let s = sessions[target.key] { return s }
         let s = TerminalSession(target: target)
         sessions[target.key] = s
+        generation += 1
         return s
+    }
+
+    /// Stops a thread's shell (the thread was archived or deleted).
+    func stop(threadId: String) {
+        guard let s = sessions.removeValue(forKey: threadId) else { return }
+        s.stop()
+        generation += 1
+    }
+
+    /// Called whenever the app's thread list changes: stops the shells of
+    /// threads that have been archived. Threads missing from the list are
+    /// left alone here, as the list can be briefly incomplete; a deleted
+    /// thread's shell is stopped from `forget`, or from `stopAll(except:)`
+    /// once the runner's full list comes back after a reconnect.
+    func stopArchived(in threads: [String: ThreadSummary]) {
+        for key in sessions.keys where threads[key]?.isArchived == true { stop(threadId: key) }
+    }
+
+    /// The runner's full thread list has come back (on connecting): any
+    /// thread's shell not in it belongs to a thread deleted while the app
+    /// wasn't listening, so it stops. The shared home shell stays.
+    func stopAll(except threadIds: some Collection<String>) {
+        let keep = Set(threadIds)
+        for key in sessions.keys where key != "home" && !keep.contains(key) { stop(threadId: key) }
     }
 
     /// A new shell in place of one that has exited.
@@ -35,11 +81,10 @@ final class Terminals {
         guard let old = sessions[key] else { return }
         let fresh = TerminalSession(target: old.target)
         sessions[key] = fresh
-        old.view.removeFromSuperview()
+        old.stop()
+        generation += 1
         focusTick += 1
     }
-
-    func requestFocus() { focusTick += 1 }
 
     /// For the automation and `dump`: what's running where.
     var debugSummary: [String] {
@@ -51,7 +96,6 @@ final class Terminals {
 struct TerminalTarget: Equatable {
     var key: String
     var cwd: String
-    var threadId: String?
     /// Said above the terminal when its folder isn't the thread's.
     var note: String?
 
@@ -59,6 +103,12 @@ struct TerminalTarget: Equatable {
     static func `for`(_ thread: ThreadSummary?, runnerName: (ThreadSummary) -> String?) -> TerminalTarget {
         let home = NSHomeDirectory()
         guard let thread else { return TerminalTarget(key: "home", cwd: home) }
+        // An archived thread's worktree may have been handed to a newer
+        // thread since (archive keeps it as a spare), so its folder could be
+        // someone else's checkout now. Its own shell was stopped on archive.
+        if thread.isArchived {
+            return TerminalTarget(key: "home", cwd: home, note: "This thread is archived, so this terminal is in your home folder.")
+        }
         if thread.isRemote {
             let where_ = runnerName(thread).map { "on \($0)" } ?? "on another machine"
             return TerminalTarget(key: "home", cwd: home, note: "This thread runs \(where_), so this terminal is on this Mac, in your home folder.")
@@ -67,7 +117,7 @@ struct TerminalTarget: Equatable {
         guard !thread.cwd.isEmpty, FileManager.default.fileExists(atPath: thread.cwd, isDirectory: &isDir), isDir.boolValue else {
             return TerminalTarget(key: "home", cwd: home, note: "This thread's folder isn't on this Mac any more, so this terminal is in your home folder.")
         }
-        return TerminalTarget(key: thread.id, cwd: thread.cwd, threadId: thread.id)
+        return TerminalTarget(key: thread.id, cwd: thread.cwd)
     }
 }
 
@@ -95,17 +145,33 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
         // A login shell ("-zsh" as its name), so it reads your profile and
         // has the PATH Terminal gives you, which an app's own doesn't.
         let name = "-" + (shell as NSString).lastPathComponent
-        view.startProcess(executable: shell, args: [], environment: Self.environment(threadId: target.threadId), execName: name, currentDirectory: target.cwd)
+        view.startProcess(executable: shell, args: [], environment: Self.environment(), execName: name, currentDirectory: target.cwd)
     }
 
-    static func environment(threadId: String?) -> [String] {
-        var env = ProcessInfo.processInfo.environment
+    static func environment(from base: [String: String] = ProcessInfo.processInfo.environment) -> [String] {
+        var env = base
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         env["TERM_PROGRAM"] = "Threadbear"
         if (env["LANG"] ?? "").isEmpty { env["LANG"] = "en_US.UTF-8" }
-        if let threadId { env["THREADBEAR_THREAD_ID"] = threadId } else { env.removeValue(forKey: "THREADBEAR_THREAD_ID") }
+        // Never a thread id: the runner reads it as "this is that thread's
+        // own agent" (runner/src/cli.ts), so `tb` typed here would refuse to
+        // archive the thread with a message meant for agents, and log what
+        // you do as the agent's doing. The app may have inherited either
+        // name if it was started from inside a thread.
+        env.removeValue(forKey: "THREADBEAR_THREAD_ID")
+        env.removeValue(forKey: "THREADBARE_THREAD_ID")
         return env.map { "\($0.key)=\($0.value)" }
+    }
+
+    /// Ends the shell as closing a Terminal window does: SIGHUP, which an
+    /// interactive shell passes on to its jobs (SIGTERM, LocalProcess's
+    /// own terminate, is ignored by an interactive zsh). If it's still
+    /// there once the session is let go, LocalProcess's deinit kills it.
+    func stop() {
+        let pid = view.process?.shellPid ?? 0
+        if pid > 0, !exited { kill(pid, SIGHUP) }
+        view.removeFromSuperview()
     }
 
     /// Text typed into the shell, for the automation.
@@ -148,7 +214,7 @@ struct TerminalPanel: View {
 
     var body: some View {
         let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
-        let session = Terminals.shared.session(for: target)
+        let session = Terminals.shared.existing(for: target)
         VStack(spacing: 0) {
             if let note = target.note {
                 Text(note)
@@ -160,10 +226,11 @@ struct TerminalPanel: View {
                     .padding(.vertical, zoomed(5))
                     .tip(note)
             }
-            ZStack(alignment: .bottom) {
-                TerminalHost(session: session, focusTick: Terminals.shared.focusTick)
-                    .dockDragDisabled()
-                if session.exited {
+            if let session {
+                ZStack(alignment: .bottom) {
+                    TerminalHost(session: session, focusTick: Terminals.shared.focusTick)
+                        .dockDragDisabled()
+                    if session.exited {
                     HStack(spacing: zoomed(8)) {
                         Text("The shell has exited.").foregroundStyle(.secondary)
                         Button("New Shell") { Terminals.shared.restart(target.key) }
@@ -173,7 +240,20 @@ struct TerminalPanel: View {
                     .padding(zoomed(8))
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                     .padding(zoomed(10))
+                    }
                 }
+            } else {
+                // No shell for this thread yet: one starts on a click here
+                // or ⌘J, not just from looking.
+                Button { Terminals.shared.open(target) } label: {
+                    Label("Start a shell", systemImage: WindowDock.terminalSymbol)
+                        .font(.system(size: TypeScale.label))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .tip("Start your login shell in \((target.cwd as NSString).abbreviatingWithTildeInPath)")
             }
         }
     }

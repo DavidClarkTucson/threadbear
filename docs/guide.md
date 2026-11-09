@@ -619,9 +619,13 @@ or htop, and it takes the keyboard as it opens. Each thread has a shell
 of its own, started in the thread's folder (its worktree, when it has
 one), and it keeps running while you look at other threads, so going back
 finds it as you left it. A thread on another Mac or the cloud gets a shell
-on this Mac in your home folder, with a line saying so, and so does the
-new-thread page. If the shell exits, New Shell starts another. Shells stop
-when you quit Threadbear. The Terminal is a panel like the others: drag it
+on this Mac in your home folder, with a line saying so, and so do an
+archived thread (its worktree may be another thread's by now) and the
+new-thread page. If the shell exits, New Shell starts another. A shell
+only starts when you ask for one, with ⌘J or a click on the empty panel,
+so looking through threads with it open starts nothing. A thread's shell
+stops when the thread is archived or deleted, and they all stop when you
+quit Threadbear. The Terminal is a panel like the others: drag it
 beside the thread, into a tab, or out into a window of its own.
 
 ## Highlights

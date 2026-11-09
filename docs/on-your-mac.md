@@ -46,8 +46,9 @@ File references are where to look.
 - **A command:** `~/.local/bin/threadbear`.
 - **Shells, when you open the Terminal (⌘J):** the app starts your login
   shell (`$SHELL`, else zsh) in a pseudo-terminal, one per thread you open
-  it on, in that thread's folder. They're its own child processes and stop
-  when it quits (`app/Sources/Threadbear/Views/TerminalPanel.swift`).
+  it on, in that thread's folder. They're its own child processes: a
+  thread's shell stops when the thread is archived or deleted, and all of
+  them stop when the app quits (`app/Sources/Threadbear/Views/TerminalPanel.swift`).
 - **Files:** the data folder `~/Library/Application Support/Threadbear`
   (threads, settings, `secrets/`, runner releases, the pinned release key
   `upstream-signers`, and `sync-sent.json`, hashes of what's already in your

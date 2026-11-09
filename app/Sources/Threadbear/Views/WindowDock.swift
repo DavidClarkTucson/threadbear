@@ -246,7 +246,7 @@ extension AppModel {
         } else {
             dock.open(WindowDock.terminal, .window(.bottom))
         }
-        Terminals.shared.requestFocus()
+        Terminals.shared.open(TerminalTarget.for(selectedThread) { runnerName(of: $0) })
     }
 
     /// The split a panel's group sits directly in.

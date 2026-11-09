@@ -1399,7 +1399,7 @@ enum Automation {
             // after `front` (ask Mike first).
             if c["toggle"] as? Bool == true { app.toggleTerminal() }
             let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
-            if let text = c["type"] as? String { Terminals.shared.session(for: target).type(text) }
+            if let text = c["type"] as? String { Terminals.shared.open(target).type(text) }
             if let ms = c["wait"] as? Int { try? await Task.sleep(for: .milliseconds(ms)) }
             let focused = (NSApp.mainWindow?.firstResponder as? NSView).map { String(describing: type(of: $0)) } ?? "none"
             return "ok shown=\(app.terminalShown) focus=\(focused) cwd=\(target.cwd) shells=\(Terminals.shared.debugSummary)"

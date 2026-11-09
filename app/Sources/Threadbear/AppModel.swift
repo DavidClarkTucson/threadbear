@@ -181,6 +181,8 @@ final class AppModel {
     @ObservationIgnored var archivesNotSent: Set<String> = []
     var threads: [String: ThreadSummary] = [:] {
         didSet {
+            // An archived thread's Terminal shell stops (TerminalPanel.swift).
+            Terminals.shared.stopArchived(in: threads)
             // A summary from another runner never says which runner it's on
             // (runnerId is this app's own marker), so one stored over a
             // remote thread's (markSeen's reply, a rename's, an archive's)
