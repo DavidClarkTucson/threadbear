@@ -9,7 +9,7 @@
 # With several hosts (Mike's are Tinker Desk and the cloud box), each run
 # goes to the first one that's free and can run it, or waits for the first
 # that can. A Linux host only takes what needs no Mac: a --quick run that
-# doesn't touch ios/ (ThreadbearKit's tests are Swift), with no --shots.
+# doesn't touch ios/, app/ or dock/ (each brings in Swift), with no --shots.
 # Mike asked on 6 Nov, when nine threads' checks queued at once.
 #
 # Mike asked on 6 Nov 2026, after three threads' unit suites, a swift test
@@ -322,11 +322,12 @@ changed="$(mktemp)"
 } 2>/dev/null | sort -u >"$changed"
 
 # Whether a Linux host can run this: only the runner's, Convex's and the
-# website's checks, so --quick, nothing changed under ios/ (and something
+# website's checks, so --quick, nothing changed under ios/ (ThreadbearKit's
+# tests), app/ or dock/ (the Mac app's release build) (and something
 # changed: with nothing, check.sh itself or --all, it runs everything), no
 # shots.
 linux_ok=0
-if [ "$QUICK" = 1 ] && [ "$ALL" = 0 ] && [ -z "$SHOTS" ] && [ -s "$changed" ] && ! grep -qE '^ios/|^check\.sh$' "$changed"; then linux_ok=1; fi
+if [ "$QUICK" = 1 ] && [ "$ALL" = 0 ] && [ -z "$SHOTS" ] && [ -s "$changed" ] && ! grep -qE '^(ios|app|dock)/|^check\.sh$' "$changed"; then linux_ok=1; fi
 # --runner is only Node, whatever changed: the runner's self-update sends
 # it from a clone on main, where nothing has, and with Tinker Desk away a
 # Linux host should still take it rather than this Mac (Codex, 9 Nov).

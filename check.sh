@@ -17,7 +17,8 @@
 #
 #   (no options)  runner typecheck, unit tests and deploy tests, then the
 #                 app's swift build and swift test, and BearDock's tests
-#   --quick       runner typecheck and unit tests only (about a minute)
+#   --quick       runner typecheck and unit tests (about a minute), plus
+#                 the Mac app's release build when app/ or dock/ changed
 #   --runner      only the runner's typecheck and unit tests, nothing else
 #                 that --quick adds (Convex, web, app tools, iPhone kit), on
 #                 main too: the runner's self-update runs this (deploy.mjs),
@@ -253,6 +254,20 @@ if [ "$APP_ONLY" = 0 ]; then
     else
       skip "runner deploy tests" "nothing they cover changed"
     fi
+  fi
+fi
+# --quick (what `tb land` runs) builds the Mac app too when app/ or dock/
+# changed: in release, as the installed app's self-update and app/install.sh
+# build it (app/build-app.sh), so debug-only code that slips out of its
+# #if DEBUG fails here. It did twice on main (28 and 29 Oct), and Mike's
+# self-update was stuck on an older build for a day. No tests, so it's a
+# minute or so on a warm build folder. The full check's own debug build and
+# tests cover the rest.
+if [ "$QUICK" = 1 ] && [ "$RUNNER_ONLY" = 0 ]; then
+  if needed '^(app|dock)/'; then
+    step "app release build" "$ROOT/app" "${LIMITED[@]}" swift build -c release --product Threadbear --disable-keychain
+  else
+    skip "app release build" "nothing in app/ or dock/ changed"
   fi
 fi
 if [ "$QUICK" = 0 ]; then

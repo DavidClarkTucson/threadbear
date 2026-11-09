@@ -479,11 +479,40 @@ test('a run that builds no Swift needs less room than one that does', () => {
   assert.equal(swift.status, 1, swift.stdout + swift.stderr);
   assert.match(swift.stderr, /h1 has 3\.0 GiB free, and it wants 8 GiB/);
 
+  // And touching app/ or dock/ builds the Mac app in release, even with --quick.
+  for (const dir of ['app', 'dock']) {
+    const mac = setup({ h1: { state: 'free', df: room } });
+    fs.mkdirSync(path.join(mac.repo, dir));
+    fs.writeFileSync(path.join(mac.repo, dir, 'x.swift'), '\n');
+    const built = mac.run('h1', 3600);
+    assert.equal(built.status, 1, `${dir}: ${built.stdout}${built.stderr}`);
+    assert.match(built.stderr, /h1 has 3\.0 GiB free, and it wants 8 GiB/, dir);
+  }
+
   const low = setup({ h1: { state: 'free', df: macDf(1.5 * GiB) } });
   changedSomething(low);
   const r = low.run('h1', 3600);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stderr, /h1 has 1\.5 GiB free, and it wants 2 GiB/);
+});
+
+test('a --quick run that touches the Mac app goes past a Linux host to a Mac', () => {
+  // check.sh --quick builds the app in release when app/ or dock/ changed,
+  // and swift can't build an AppKit app on Linux.
+  for (const dir of ['app', 'dock']) {
+    const s = setup({ h1: { state: 'free', os: 'Linux' }, h2: { state: 'free' } });
+    fs.mkdirSync(path.join(s.repo, dir));
+    fs.writeFileSync(path.join(s.repo, dir, 'x.swift'), '\n');
+    const r = s.run('h1,h2', 3600);
+    assert.equal(r.status, 0, `${dir}: ${r.stdout}${r.stderr}`);
+    assert.deepEqual(r.copies, ['h2'], dir);
+  }
+  // Anything else still goes to the Linux host first.
+  const s = setup({ h1: { state: 'free', os: 'Linux' }, h2: { state: 'free' } });
+  changedSomething(s);
+  const r = s.run('h1,h2', 3600);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.copies, ['h1']);
 });
 
 test('a Linux host that could not run it anyway is not named as short of room', () => {

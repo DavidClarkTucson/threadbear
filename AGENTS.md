@@ -254,7 +254,8 @@ if `tb` isn't found (an older runner, or outside a thread), use
 `runner/bin/tb`. `tb --help` lists the rest.
 
 - `./check.sh` runs every check (`--quick`: the runner's typecheck and
-  unit tests, about a minute; `--app`: the app's build and tests, for a
+  unit tests, about a minute, and the Mac app's release build when `app/`
+  or `dock/` changed; `--app`: the app's build and tests, for a
   change outside `runner/`). With a check host set it copies the checkout
   there, runs it, brings back failed steps' logs and deletes the copy
   (`scripts/check-remote.sh`); one run at a time, so it may say it's
