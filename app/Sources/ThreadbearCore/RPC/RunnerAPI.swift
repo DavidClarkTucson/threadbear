@@ -142,6 +142,17 @@ public extension RPCClient {
         try await call("threads.commands", .object(["threadId": .string(threadId)]), as: SlashCommandList.self, timeout: .seconds(30)).commands
     }
 
+    /// The same list for a new thread's box, before the thread exists: the
+    /// login, folder and mode it would start with (`folders.commands`).
+    /// Nil ones default as `threads.create` does.
+    func folderCommands(cwd: String?, accountId: String?, permissionMode: PermissionMode?) async throws -> [SlashCommand] {
+        var params: [String: JSONValue] = [:]
+        if let cwd { params["cwd"] = .string(cwd) }
+        if let accountId { params["accountId"] = .string(accountId) }
+        if let permissionMode { params["permissionMode"] = .string(permissionMode.rawValue) }
+        return try await call("folders.commands", .object(params), as: SlashCommandList.self, timeout: .seconds(30)).commands
+    }
+
     /// Asks the small model about words selected in the thread (see
     /// "Explain"). The pool's CLI can take a few seconds to start.
     func explain(_ session: ExplainSession, threadId: String, turn index: Int) async throws -> ExplainResult {

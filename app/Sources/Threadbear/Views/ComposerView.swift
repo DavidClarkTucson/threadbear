@@ -141,8 +141,9 @@ struct ComposerView: View {
             )
             .frame(height: 1)
         }
-        .task(id: thread.flatMap { paletteQuery(draft.wrappedValue.text) != nil ? $0.id : nil }) {
-            if let thread, paletteQuery(draft.wrappedValue.text) != nil { app.loadSlashCommands(thread.id) }
+        .task(id: paletteQuery(draft.wrappedValue.text) != nil ? paletteListKey : nil) {
+            guard paletteQuery(draft.wrappedValue.text) != nil else { return }
+            if let thread { app.loadSlashCommands(thread.id) } else { app.loadNewThreadSlashCommands() }
         }
         // Esc closed the palette at that text only: any change reopens it,
         // even back to the same words later.
@@ -180,11 +181,11 @@ struct ComposerView: View {
             .onTapGesture { app.focusComposer(draftKey) }
     }
 
-    /// What's typed while the palette is open: the command so far. Not
-    /// in a new thread (it has no CLI yet), and not once Esc closed it at
+    /// What's typed while the palette is open: the command so far, in a
+    /// new thread too (folders.commands), and not once Esc closed it at
     /// this text.
     private func paletteQuery(_ text: String) -> String? {
-        guard thread != nil, palette.closedAt != text else { return nil }
+        guard palette.closedAt != text else { return nil }
         return SlashPalette.query(in: text)
     }
 
@@ -203,28 +204,42 @@ struct ComposerView: View {
 
     /// The palette for what's typed, or nil when it's closed.
     private func paletteContent(_ draft: Binding<Draft>) -> SlashPaletteView? {
-        guard let thread, let query = paletteQuery(draft.wrappedValue.text) else { return nil }
+        guard let query = paletteQuery(draft.wrappedValue.text) else { return nil }
         return SlashPaletteView(
-            commands: app.slashCommands[thread.id],
+            commands: app.slashCommands[paletteListKey],
             query: query,
-            provider: thread.provider,
+            provider: thread?.provider ?? app.newThreadProviderId,
             recent: app.recentSlashCommands,
             state: $palette,
             current: paletteCurrent(thread),
             onFill: { pick($0, run: false) },
             onRun: { pick($0, run: true) },
-            // Another Mac's runner found the file there, not here.
-            onOpen: app.runnerName(of: thread) == nil ? { path in
+            // Another Mac's runner found the file there, not here; a new
+            // thread has no side pane to show it in yet.
+            onOpen: thread.flatMap { thread in app.runnerName(of: thread) == nil ? { path in
                 palette.closedAt = draft.wrappedValue.text
                 app.preview(path: path, in: thread)
-            } : nil,
+            } : nil },
             layout: Binding(get: { app.slashPaletteLayout }, set: { app.slashPaletteLayout = $0 })
         )
     }
 
-    /// What /model and /effort would change, as the thread has it now.
-    private func paletteCurrent(_ thread: ThreadSummary) -> [String: String] {
+    /// Where the palette's list is kept: the thread's, or for a new
+    /// thread its login and folder's.
+    private var paletteListKey: String { thread?.id ?? app.newThreadCommandsKey }
+
+    /// What /model and /effort would change, as the thread has it now, or
+    /// as a new thread would start.
+    private func paletteCurrent(_ thread: ThreadSummary?) -> [String: String] {
         var out: [String: String] = [:]
+        guard let thread else {
+            let account = app.draftLogins.account(app.newThreadAccountId)
+            if let model = app.newThreadModel ?? account?.defaultModel {
+                out["model"] = ComposerChips.modelTitle(model, choices: account?.models ?? []) + (app.newThreadModel == nil ? ", the default" : "")
+            }
+            if let level = app.newThreadEffort { out["effort"] = ComposerChips.effortTitle(level) }
+            return out
+        }
         let account = app.logins(for: thread)?.account(thread.accountId)
         if let model = thread.model ?? thread.modelInUse ?? account?.defaultModel {
             out["model"] = ComposerChips.modelTitle(model, choices: account?.models ?? []) + (thread.model == nil ? ", the default" : "")
@@ -238,8 +253,8 @@ struct ComposerView: View {
     /// Arrows, Tab, Return and Esc while the palette is open. False lets
     /// the box have the key as usual.
     private func paletteKey(_ key: PaletteKey, text: String) -> Bool {
-        guard let thread, let query = paletteQuery(text) else { return false }
-        let matches = SlashPalette.matches(app.slashCommands[thread.id] ?? [], query: query, category: palette.category, recent: app.recentSlashCommands)
+        guard let query = paletteQuery(text) else { return false }
+        let matches = SlashPalette.matches(app.slashCommands[paletteListKey] ?? [], query: query, category: palette.category, recent: app.recentSlashCommands)
         // Return with nothing to pick sends what's typed, as words.
         if key == .enter, matches.isEmpty { return false }
         if let (command, run) = SlashPaletteView.handle(key, matches: matches, state: &palette, text: text) {
