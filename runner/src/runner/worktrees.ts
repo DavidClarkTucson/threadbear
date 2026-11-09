@@ -14,6 +14,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ThreadState } from '../runner.ts';
 
+// The start of a patch file, without waiting: undefined when it isn't a
+// plain file (opening a fifo would block the runner) or is too big to be a
+// patch, read only that far.
+const PATCH_READ_BYTES = 1024 * 1024;
+function readPlainFile(file: string): string | undefined {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > PATCH_READ_BYTES) return undefined;
+    const buf = Buffer.alloc(st.size);
+    const n = st.size ? fs.readSync(fd, buf, 0, st.size, 0) : 0;
+    return buf.subarray(0, n).toString('utf8');
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 export const worktreesPart = {
   // ------------------------------------------------------------ worktrees
   // A worktree per thread (docs/thread-worktrees.md, worktrees.ts).
@@ -163,13 +183,10 @@ export const worktreesPart = {
       if ('skip' in copy) {
         // An untrusted copy can't be loaded to see if it has a teardown, so
         // it's only worth a note when it looks like it might: most don't.
-        let text = '';
-        try {
-          text = fs.readFileSync(file, 'utf8');
-        } catch {
-          // Unreadable: the skip says so if it mentions one.
-        }
-        if (/\bteardown\b/.test(text)) return { skip: copy.skip };
+        // One that isn't a plain file of a sensible size (a fifo, which
+        // would hold the runner up for ever: Codex's review, 9 Nov) might.
+        const text = readPlainFile(file);
+        if (text === undefined || /\bteardown\b/.test(text)) return { skip: copy.skip };
         continue;
       }
       if (!copy.patch) continue;
@@ -228,6 +245,9 @@ export const worktreesPart = {
       shell: this.actionShell,
       timeoutMs: this.actionTimeoutMs,
       background: this.backgroundJobs,
+      // The cleanup, and everything waiting on it, waits for this: nothing
+      // it leaves running can hold the pipes open past it, as for hooks.
+      killGroup: true,
     });
     w.tornDownAt = this.isoNow();
     this.log.info('worktree teardown', { threadId: rec.id, path: w.path, ok: outcome.ok, exitCode: outcome.exitCode });

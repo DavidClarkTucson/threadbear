@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorktreePatch } from './patches.ts';
 import { inBackground } from './background.ts';
+import { mainCheckoutOf as linkedMainCheckout } from './patch-trust.ts';
 
 // What a thread's record keeps about its worktree.
 export type WorktreeRecord = {
@@ -572,11 +573,30 @@ export async function worktreeGone(w: WorktreeRecord): Promise<false | 'gone' | 
   return checkouts.some((c) => realpath(c.path) === here && c.branch === w.branch) ? false : 'taken';
 }
 
+// Whether the folder at the worktree's path is itself the worktree git made
+// there: a real folder, not a link (git's own list follows one, so a folder
+// swapped for a link to the main checkout passed as the worktree, and its
+// teardown ran in main: Codex's review, 9 Nov), whose own .git names the
+// admin folder that names it back, of this repo (patch-trust.ts checks
+// that the same way for trust).
+function isWorktreeItself(w: WorktreeRecord): boolean {
+  try {
+    if (!fs.lstatSync(w.path).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  const real = realpath(w.path);
+  // No link in its last part, however the folders above it are reached.
+  if (real !== path.join(realpath(path.dirname(w.path)), path.basename(w.path))) return false;
+  const main = linkedMainCheckout(real);
+  return main !== undefined && realpath(main) === realpath(w.mainCheckout);
+}
+
 // Whether the worktree's folder is still a checkout of its own branch, so
 // what runs there (its teardown) runs in the thread's work, not in a reused
-// slot that's another thread's now.
+// slot that's another thread's now, nor anywhere a link leads.
 export async function stillCheckedOut(w: WorktreeRecord): Promise<boolean> {
-  if (!isDir(w.path)) return false;
+  if (!isWorktreeItself(w)) return false;
   const checkouts = await listCheckouts(w.mainCheckout);
   const here = realpath(w.path);
   return Boolean(checkouts?.some((c) => realpath(c.path) === here && c.branch === w.branch));
@@ -605,7 +625,9 @@ export async function cleanUpWorktree(w: WorktreeRecord, stillOurs: () => boolea
     const checkouts = await listCheckouts(w.mainCheckout);
     if (!checkouts) return { removed: false, reason: `git couldn't list the worktrees of ${w.mainCheckout}` };
     const here = realpath(w.path);
-    ours = checkouts.some((c) => realpath(c.path) === here && c.branch === w.branch);
+    // And the folder is that checkout itself, not a link to some other
+    // (the main checkout, whose status and removal would be read as this).
+    ours = checkouts.some((c) => realpath(c.path) === here && c.branch === w.branch) && isWorktreeItself(w);
     if (!ours) {
       if (branchThere) {
         if (!stillOurs()) return LET_GO;

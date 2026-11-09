@@ -8,7 +8,7 @@ import path from 'node:path';
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { makeHarness, tmpDir, type Harness } from '../helpers/fakes.ts';
 import { checkSequence, checkSummary } from '../helpers/protocol-check.ts';
-import { findWorktreePatch, readPatchModule } from '../../src/patches.ts';
+import { automaticTrust, findWorktreePatch, readPatchModule } from '../../src/patches.ts';
 import { cleanUpWorktree, land, landTargetFromGit, makeWorktree, MAX_SPARES, overwrittenFiles, type LandTarget } from '../../src/worktrees.ts';
 import { RpcServer } from '../../src/rpc.ts';
 import { RunnerClient } from '../../src/client.ts';
@@ -1127,6 +1127,112 @@ test('the teardown runs once per archive: a delete after it skips it, and a thre
   h.runner.delete(id);
   await until(() => h.notes.some((n) => n.method === 'runner.notice'), "the notice that the worktree stays");
   assert.equal(lines(log).length, 2, 'already torn down for this archive');
+});
+
+// A repo whose patch's teardown is ./teardown.sh, writing where it ran to
+// `log`, committed and trusted for real (not TRUST_ALL), with a harness on
+// that trust.
+function trustedTeardownRepo(log: string) {
+  const { main } = makeRepo(PATCH(`{ teardown: "./teardown.sh" }`));
+  commit(main, { 'teardown.sh': `#!/bin/sh\necho "torn down $PWD" >> ${log}\n` }, 'teardown');
+  fs.chmodSync(path.join(main, 'teardown.sh'), 0o755);
+  sh(main, 'git add -A && git commit -qm modes');
+  const trust = new PatchTrust();
+  trust.trustCurrent([path.join(main, '.threadbear/patches/checks.ts')]);
+  const h = makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 10_000, patchTrust: trust });
+  return { main, trust, h };
+}
+
+// Codex's review of the teardown, 9 Nov, thought a patch symlinked to a copy
+// elsewhere could run its script's `./helper.sh` from beside the link, which
+// the hash didn't cover. It does cover it: the hash follows a script's
+// `./` paths from the link's folder as well, so changing that helper is a
+// version nobody trusted, for setup and teardown alike. Kept as a guard.
+test('a symlinked patch whose script runs a helper beside the link needs trusting again when that helper changes', async () => {
+  const dir = fs.realpathSync(tmpDir('tb-td-'));
+  const log = path.join(dir, 'log');
+  const { main } = makeRepo(PATCH(`{ setup: "./cleanup.sh", teardown: "./cleanup.sh" }`));
+  write(main, { 'cleanup.sh': '#!/bin/sh\n./helper.sh\n', 'helper.sh': `#!/bin/sh\necho safe >> ${log}\n` });
+  for (const f of ['cleanup.sh', 'helper.sh']) fs.chmodSync(path.join(main, f), 0o755);
+  const patch = path.join(main, '.threadbear/patches/checks.ts');
+  const trust = new PatchTrust();
+  trust.trustCurrent([patch]);
+  // The same files under nested/, linked back from where they were.
+  const nested = path.join(main, 'nested');
+  for (const rel of ['.threadbear/patches/checks.ts', 'cleanup.sh', 'helper.sh']) {
+    fs.mkdirSync(path.dirname(path.join(nested, rel)), { recursive: true });
+    fs.copyFileSync(path.join(main, rel), path.join(nested, rel));
+    fs.chmodSync(path.join(nested, rel), 0o755);
+  }
+  for (const rel of ['.threadbear/patches/checks.ts', 'cleanup.sh']) {
+    fs.rmSync(path.join(main, rel));
+    fs.symlinkSync(path.join(nested, rel), path.join(main, rel));
+  }
+  assert.equal(await findWorktreePatch(main, dir, new Map(), undefined, trust), undefined, 'a new layout is a new version, even with the same bytes');
+  trust.trustCurrent([patch]);
+  const found = await findWorktreePatch(main, dir, new Map(), undefined, trust);
+  assert.ok(found?.teardownRun && found.setupRun);
+  sh(main, found.teardownRun);
+  assert.deepEqual(lines(log), ['safe']);
+  // The helper beside the link changed: not the version trusted, and the
+  // check just before a bound command runs says so too.
+  fs.writeFileSync(path.join(main, 'helper.sh'), `#!/bin/sh\necho evil >> ${log}\n`);
+  assert.equal(await findWorktreePatch(main, dir, new Map(), undefined, trust), undefined);
+  const by = automaticTrust(found.teardownRun);
+  assert.ok(by);
+  assert.equal(trust.verify(by.file, by.hash), false);
+});
+
+test("a worktree folder swapped for a link to the main checkout gets no teardown, and the main checkout is left alone", async () => {
+  const dir = fs.realpathSync(tmpDir('tb-td-'));
+  const log = path.join(dir, 'log');
+  const { main, h } = trustedTeardownRepo(log);
+  const { id, w } = await threadWithWorktree(h, main);
+  fs.renameSync(w.path, `${w.path}-moved`);
+  fs.symlinkSync(main, w.path);
+  h.runner.update({ threadId: id, archived: true });
+  const rt = (h.runner as any).threads.get(id).rt;
+  await until(() => rt.archivePending === false && !rt.cleaning, 'the cleanup');
+  assert.deepEqual(lines(log), [], 'no teardown, in the main checkout or anywhere');
+  assert.equal(teardowns(h, id).length, 0);
+  assert.equal(sh(main, 'git rev-parse --abbrev-ref HEAD'), 'main', 'the main checkout is still on main');
+  assert.equal(sh(main, 'git status --porcelain'), '');
+  assert.ok(fs.existsSync(path.join(main, 'README.md')));
+  assert.ok(fs.existsSync(path.join(`${w.path}-moved`, 'runner/a.ts')), 'the moved worktree is left alone too');
+});
+
+test("a worktree's patch swapped for a fifo doesn't hold the runner up: the teardown is skipped, saying so, and the cleanup goes on", async () => {
+  const dir = fs.realpathSync(tmpDir('tb-td-'));
+  const log = path.join(dir, 'log');
+  const { main, h } = trustedTeardownRepo(log);
+  const { id, w } = await threadWithWorktree(h, main);
+  const copy = path.join(w.path, '.threadbear/patches/checks.ts');
+  fs.rmSync(copy);
+  execFileSync('mkfifo', [copy]);
+  h.runner.update({ threadId: id, archived: true });
+  await until(() => notes(h, id).some((n) => n.includes(' stay: ')), 'the cleanup');
+  assert.ok(notes(h, id).some((n) => n.startsWith("Didn't run the worktree's teardown: ")), notes(h, id).join('\n'));
+  assert.deepEqual(lines(log), []);
+});
+
+test('a setup or teardown that ignores SIGTERM still ends at the timeout, so neither the first turn nor the cleanup waits for ever', async () => {
+  const STUCK = `trap '' TERM; while :; do sleep 0.2; done`;
+  const td = makeRepo(PATCH(`{ teardown: "${STUCK}" }`));
+  const h = makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 300 });
+  const { id, w } = await threadWithWorktree(h, td.main);
+  h.runner.update({ threadId: id, archived: true });
+  await until(() => notes(h, id).some((n) => n.startsWith('Removed')), 'the cleanup, past the teardown');
+  assert.deepEqual(teardowns(h, id).map((e) => e.ok), [false]);
+  assert.match(teardowns(h, id)[0].text, /Stopped after/);
+  assert.ok(!fs.existsSync(w.path));
+
+  const su = makeRepo(PATCH(`{ setup: "${STUCK}" }`));
+  const h2 = makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 300 });
+  const { thread } = h2.runner.create({ text: 'Go', accountId: 'claude-3', cwd: su.main });
+  await until(() => h2.adapter.sessions.length === 1, 'the first turn, past the setup');
+  const setup = h2.events(thread.id).find((e) => e.type === 'action.run' && e.trigger === 'worktree.setup');
+  assert.equal(setup?.ok, false);
+  assert.match(setup?.text ?? '', /Stopped after/);
 });
 
 test('with keep, the teardown still runs before the worktree is kept as a spare', async () => {

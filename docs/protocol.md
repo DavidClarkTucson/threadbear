@@ -4047,9 +4047,11 @@ It never pushes. `--dry-run` stops before main moves.
 When the thread is archived or deleted, `teardown` runs first in the
 worktree's root, whether or not the branch landed (an `action.run` with
 `trigger: "worktree.teardown"`, outside any turn; for a deleted thread only
-a notice if it didn't run or failed). It has the action timeout, and a
-failure is shown but doesn't stop the cleanup. It runs once per archive,
-and only while the folder is still a checkout of the thread's branch. Then a
+a notice if it didn't run or failed). It has the action timeout, past
+which it's ended (SIGKILL if SIGTERM doesn't do it), and a failure is
+shown but doesn't stop the cleanup. It runs once per archive, and only
+while the folder is still the thread's own worktree on its branch, not a
+link to somewhere else. Then a
 worktree whose branch is on main
 (or has nothing of its own) is removed with its branch; otherwise both stay,
 with a `system.note` saying how to land or drop them. A thread whose
