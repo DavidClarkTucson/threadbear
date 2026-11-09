@@ -35,6 +35,7 @@ import { AccountRegistry } from './accounts.ts';
 import { ClaudeAdapter } from './adapters/claude/adapter.ts';
 import { ProcessRegistry } from './proc.ts';
 import { Runner } from './runner.ts';
+import { startOwnThread } from './own-threads.ts';
 import { CodexAdapter } from './adapters/codex/adapter.ts';
 import { resolveCodexBinary } from './adapters/codex/appserver.ts';
 import { checkSurface, testedVersion } from './adapters/codex/surface.ts';
@@ -561,14 +562,8 @@ async function main(): Promise<void> {
   const updateFixer = new UpdateFixer({
     home: cfg.home,
     log,
-    start: ({ text, title, why }) => runner.create({
-      text,
-      title,
-      cwd: updateRelease?.checkout,
-      // It fixes, lands and watches the build without anyone to approve.
-      permissionMode: 'full',
-      startedBy: { kind: 'runner', label: 'Threadbear', why },
-    }).thread.id,
+    // On the install's default mode (own-threads.ts).
+    start: (r) => startOwnThread(runner, r, updateRelease?.checkout),
     open: openThread,
     send: (threadId, text) => void runner.send(threadId, text, [], { queue: true }),
   });
@@ -596,14 +591,9 @@ async function main(): Promise<void> {
     clock: realClock,
     log,
     setting: () => bringInSetting(cfg.home),
-    start: ({ text, title, why }) => runner.create({
-      text,
-      title,
-      cwd: thisRelease?.checkout,
-      // As Bring Them In does: it merges and runs the checks in its worktree.
-      permissionMode: 'full',
-      startedBy: { kind: 'runner', label: 'Threadbear', why },
-    }).thread.id,
+    // On the install's default mode (own-threads.ts). It merges and runs
+    // the checks in its worktree, then asks before landing.
+    start: (r) => startOwnThread(runner, r, thisRelease?.checkout),
     open: openThread,
     send: (threadId, text) => void runner.send(threadId, text, [], { queue: true }),
     // The app's Bring Them In and Let's Discuss titles (UpdatesPanel).

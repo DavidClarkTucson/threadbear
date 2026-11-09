@@ -3512,9 +3512,9 @@ export class Runner {
       title,
       worktree: false,
       origin: 'runner',
-      // The runner's own, so not the default for new threads: Mike answering
-      // it runs as it always has.
-      permissionMode: 'full',
+      // On the install's default mode, like the runner's other threads
+      // (own-threads.ts): what it says comes from this Mac, but whoever
+      // answers it may ask its agent to act.
       startedBy: { kind: 'runner', label: 'Threadbear' },
     }).st;
     st.rec.forceUnread = true;

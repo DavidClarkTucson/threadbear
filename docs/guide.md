@@ -342,8 +342,9 @@ on it too. It's `"defaults": { "permissionMode": "auto" }` in `runner.json`
 in the data folder (`"full"`, `"ask"` or `"auto"`; none is Full access), so
 ask any thread to change it. It applies once the runner next restarts. The
 threads Threadbear starts by itself, to bring in Mike's releases or fix a
-failed update, stay on Full access. Deleting a thread is one thing an agent
-always has to ask about, whatever the mode.
+failed update, start on it too, so on Ask before edits (or Auto on Codex,
+which asks before edits) they wait for you to allow what they need. Deleting
+a thread is one thing an agent always has to ask about, whatever the mode.
 
 An agent in Ask before edits or Auto can't give itself more room. Switching
 any thread or schedule to more access, starting a thread with more access

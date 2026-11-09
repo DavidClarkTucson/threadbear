@@ -119,10 +119,11 @@ File references are where to look.
   full access (Claude with `bypassPermissions`, Codex with
   `danger-full-access`). `"defaults": { "permissionMode": ... }` in
   `runner.json` (`"full"`, `"auto"` or `"ask"`) sets it, and each thread
-  can pick its own. Three kinds of thread the runner starts by itself
-  always run on full access, whatever the default: bringing in Mike's
-  releases and fixing a failed update to main (both below), and a note
-  about this Mac (`runner/src/runner.ts`, `noticeOnMac`).
+  can pick its own. The threads the runner starts by itself (bringing in
+  Mike's releases and fixing a failed update to main, both below, and a
+  note about this Mac) start on that default too
+  (`runner/src/own-threads.ts`); on Ask, or Codex's Auto, what they can't
+  do without a yes waits on a card for you.
 - **Your phone and browser can drive the Mac.** A paired iPhone or a
   signed-in browser can start threads in any folder, send messages and
   answer approvals, through your Convex deployment (`runner/src/sync.ts`).
@@ -143,11 +144,12 @@ File references are where to look.
   so a step that failed while the Mac slept is tried again later (up to
   three times for the same commit) rather than taken as a broken main.
   When the runner can't build your main or deploy your backend, it starts
-  a thread by itself, on full access with your own Claude or Codex login,
-  in the release's checkout (`runner/src/fix-update.ts`). That agent reads
-  the output, fixes the cause, lands the fix on your `main`, watches the
-  next build and archives itself once it goes through, so you only hear
-  about it when it needs you. A later failure goes to the same thread.
+  a thread by itself, on your default mode with your own Claude or Codex
+  login, in the release's checkout (`runner/src/fix-update.ts`). That
+  agent reads the output, fixes the cause, lands the fix on your `main`,
+  watches the next build and archives itself once it goes through, so you
+  only hear about it when it needs you (including a step its mode asks
+  you about). A later failure goes to the same thread.
   `followMain: false` turns this off with the rest.
 - **Schedule checks** (`runner/src/schedule-check.ts`, experiment
   `scheduleChecks`, off by default): a schedule's check command runs in
@@ -170,7 +172,7 @@ File references are where to look.
   signature goes in a temp file under `$TMPDIR` for a moment), and copies
   the newest that passes into your checkout, as `refs/threadbear/upstream/`. It never changes your code by
   itself. Every 5 days, when there's one your copy doesn't have, it starts
-  one thread (on your own Claude or Codex login, on full access) that
+  one thread (on your own Claude or Codex login, on your default mode) that
   merges it in a worktree, runs the checks and asks you before it lands
   (`runner/src/bring-in.ts`). A release Mike marks important starts one
   straight away. Settings › General › Updates from Mike, or
