@@ -318,14 +318,15 @@ impl<'a> ChipSettings<'a> {
     }
 
     /// Who runs it, at the front of the model chip (ThreadSettings.owner):
-    /// the pool's title, or a pinned login's name. None without pools.
+    /// the pool's title, or a pinned login's name (`AccountName.login`). None
+    /// without pools.
     pub fn owner(&self) -> Option<String> {
         if !self.uses_pools() {
             return None;
         }
         match self.pool() {
             Some(pool) => Some(pool.title.clone()),
-            None => self.logins.account(&self.account).map(pinned_login_name),
+            None => self.logins.account(&self.account).map(|_| crate::new_thread::login_name(&self.account, &self.logins.accounts)),
         }
     }
 
@@ -428,16 +429,6 @@ pub fn permission_help(mode: &str) -> &'static str {
         "auto" => "A safety check approves or blocks each action, and asks only when unsure",
         "plan" => "Reads and plans, and changes nothing until you approve its plan",
         _ => "A mode from a newer runner that this app doesn't know. Update the app to see it. Anything made from this thread here asks before edits",
-    }
-}
-
-/// AccountName.login: the first part of its email's domain ("gmail" for
-/// sam.lee@gmail.com), for a pinned thread's chip.
-fn pinned_login_name(account: &Account) -> String {
-    let name = account.name();
-    match name.split_once('@') {
-        Some((_, domain)) => domain.split('.').next().unwrap_or(domain).to_owned(),
-        None => name,
     }
 }
 
