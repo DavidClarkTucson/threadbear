@@ -198,7 +198,7 @@ impl SidePane {
         let url = panel.url.clone().unwrap_or_default();
         let bg = style::button_fill(cx);
         let edge = style::button_edge(cx);
-        let label = "Open in Browser";
+        let label = "Open in browser";
         v_flex()
             .size_full()
             .items_center()
