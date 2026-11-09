@@ -299,4 +299,10 @@
 //    has the thread) and moves.preview (to a move's target, with the
 //    thread's description), for the Mac's Move sheet (threads.movePreview).
 //    Both only plan. An older backend refuses them, and the sheet says so.
-export const API_VERSION = 65;
+// 66: phone:registerDevice takes `platform: "android"`, for a phone whose
+//    token is a Firebase one (apnsToken keeps its name), and devices:targets
+//    carries it. A push for such a phone goes through the push relay to
+//    Firebase, whatever Apple key the backend has (docs/push-relay.md). An
+//    older backend refuses the argument, so an Android phone registers only
+//    with a backend of 66 or later.
+export const API_VERSION = 66;
