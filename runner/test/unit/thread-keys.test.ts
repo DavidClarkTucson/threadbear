@@ -448,3 +448,20 @@ test('Always allow on tb saves the exact command, never a prefix', async () => {
   assert.equal(isTbPrefixRule('Bash(tb new --ask x)'), false);
   assert.equal(isTbPrefixRule('Bash(npm test:*)'), false);
 });
+
+test("a thread's connection can't pass as the Mac app in hello", async () => {
+  const { h, server, token, url } = await serve();
+  const me = thread(h, 'auto');
+  try {
+    const c = await as(url, token, me.id);
+    await c.call('hello', { client: 'threadbear-mac', browserPanel: true });
+    assert.equal(server.appConnected(), false);
+    c.close();
+    const app = await RunnerClient.connect(url, token);
+    await app.call('hello', { client: 'threadbear-mac' });
+    assert.equal(server.appConnected(), true);
+    app.close();
+  } finally {
+    await server.close();
+  }
+});

@@ -542,10 +542,12 @@ export class RpcServer {
       case 'auth.whoami':
         return conn.caller !== undefined && this.opts.gate ? this.opts.gate.whoami(conn.caller) : {};
       case 'hello': {
-        conn.client = optString(p, 'client');
+        // A thread's connection isn't the Mac app, whatever it says: presence
+        // and "the app is on this build" go by what it claims here.
+        conn.client = conn.caller === undefined ? optString(p, 'client') : 'thread';
         conn.clientVersion = typeof p.version === 'string' ? p.version : undefined;
         conn.clientPid = typeof p.pid === 'number' ? p.pid : undefined;
-        conn.browserPanel = p.browserPanel === true;
+        conn.browserPanel = conn.caller === undefined && p.browserPanel === true;
         // Only the Mac app's own builds: a dev build has none.
         const build = p.build as Record<string, unknown> | undefined;
         if (conn.client === 'threadbear-mac' && build && typeof build === 'object'
