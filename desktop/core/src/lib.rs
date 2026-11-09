@@ -5,7 +5,10 @@
 pub mod composer;
 pub mod inbox;
 pub mod logins;
+pub mod navigation;
+pub mod shortcuts;
 pub mod sidebar;
 pub mod transcript;
+pub mod zoom;
 pub use chrono;
 pub mod reducer;

@@ -21,6 +21,8 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// The zoom-aware px (style.rs), in place of GPUI's.
+use crate::style::px;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};

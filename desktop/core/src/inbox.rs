@@ -51,6 +51,15 @@ pub struct ThreadSummary {
     pub preview: String,
     pub last_seq: u64,
     pub last_seen_seq: u64,
+    /// The rail's panel buttons (`ThreadSummary.panels`) and Patches, as they
+    /// came: the window shell draws a button for each.
+    pub panels: Option<Vec<Value>>,
+    pub patches: Option<Vec<Value>>,
+    /// The thread's worktree, while it has one (protocol "Worktrees").
+    pub worktree: Option<Value>,
+    pub on_old_runner: Option<bool>,
+    /// Sharing (protocol "Sharing"): `{ access, slug }`.
+    pub share: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -68,6 +77,10 @@ pub struct OpenAsk {
 pub struct Project {
     pub id: String,
     pub title: String,
+    /// Who put the thread in it ("librarian", "mike"...), and whether Mike
+    /// has confirmed it (`ThreadProject.by`, `pinned`).
+    pub by: Option<String>,
+    pub pinned: Option<bool>,
 }
 
 impl ThreadSummary {

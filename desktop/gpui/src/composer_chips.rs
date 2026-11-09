@@ -11,6 +11,8 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Selectable, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+// The zoom-aware px (style.rs), in place of GPUI's.
+use crate::style::px;
 use serde_json::json;
 use threadbear_core::composer::{effort_porridge, effort_title, ContextMeter};
 use threadbear_core::inbox::ThreadSummary;

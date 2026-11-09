@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 threadbear-client = { path = "../client" }
 threadbear-core = { path = "../core" }
+threadbear-dock = { path = "../dock" }
 # Exactly this version: gpui-kit is young, so upgrades are done on purpose
 # and the specs (features/) say what they broke.
 gpui-kit = "=0.9.0"

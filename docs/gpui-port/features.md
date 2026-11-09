@@ -394,6 +394,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `menu.thread` | Thread menu | Archive, Hibernate submenu, Stop, Copy Transcript, Show Inbox, Scheduled, Projects, Librarian, Hibernating, Archived | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `menu.help` | Help menu | Take the Tour, Finish Setting Up | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `nav.copytranscript` | Copy transcript | Markdown | Port `MarkdownExport`, with GPUI's clipboard. | build | S | `ThreadSession`, `MarkdownExport` |
+| `nav.shortcuts` | Keyboard shortcuts | The 22 defaults, kept in `shortcuts.json` and watched live | `threadbear-core`'s `shortcuts` for the rules; GPUI key bindings rebound when the file changes. | build | S | `AppShortcuts`, `Shortcuts` |
 
 **The 22 default bindings:** New Thread ⌘N, Archive ⌘E, Hibernate (none), Stop ⌘., Copy Transcript ⇧⌘C, Back ⌘[, Forward ⌘], Next Inbox ⌥⌘↓, Inbox ⌘1, Scheduled ⌘2, Projects ⌘3, Librarian ⌘4, Hibernating and Archived (none), Settings ⌘,, Zoom ⌘= ⌘- ⌘0, Threads ⌃⌘S, Panels ⌥⌘P, Terminal ⌘J, Reset Layout (none). `shortcuts.json` is watched live.
 

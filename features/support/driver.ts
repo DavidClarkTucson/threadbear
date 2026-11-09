@@ -60,7 +60,23 @@ export type Dump = {
     rows: Row[];
   };
   banner?: { style: string; text: string; detail?: string } | null;
+  /** The error bar's text, when it's up. */
+  error?: string | null;
+  /** The window's panels, in one line ("row[threads (no title) 29% | thread 47% | ...]"). */
+  dock?: string;
+  /** The window's zoom, in percent. */
+  zoom?: number;
+  /** The thread the Archived note names, while it's up. */
+  archivedNote?: string | null;
+  /** "end" or "empty" while the end-of-inbox note is up. */
+  inboxEndNote?: string | null;
+  /** The panel bar's title line and its buttons' tips. */
+  header?: { title?: string; renaming?: boolean; backTip?: string; forwardTip?: string; shared?: boolean };
+  /** The activity bar and the right rail, as drawn. */
+  rails?: { activity: RailButton[]; right: RailButton[] };
 };
+
+export type RailButton = { title: string; badge?: number | null; dot?: boolean; active: boolean };
 
 export interface Driver {
   readonly name: 'swift' | 'gpui';
@@ -70,7 +86,13 @@ export interface Driver {
   dump(): Promise<Dump>;
   /** Saves a picture of the window, for a failed scenario. */
   shot(file: string): Promise<void>;
+  /** Quits the app and opens it again, keeping its data and its settings. */
+  relaunch(): Promise<void>;
   stop(): Promise<void>;
 }
 
 export const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
+/** What a command answered, past the "ok" (the Swift app's lines start
+ * "<cmd> ok ...", the GPUI app's just "ok ..."). */
+export const okValue = (out: string) => out.replace(/^(\S+ )?ok ?/, '').trim();

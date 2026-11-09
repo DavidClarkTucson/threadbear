@@ -31,28 +31,37 @@ export class GpuiDriver implements Driver {
   private waiting: ((line: string) => void)[] = [];
   private log = '';
 
+  private appProcess?: ChildProcess;
+  private display?: string;
+
   private child(cmd: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // dbus-run-session goes in a process group of its own: killing just it
+    // leaves its dbus-daemon running forever, and a day of scenarios left
+    // 1,200 of those on `cloud` (9 Nov) until nothing could start.
+    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: cmd === 'dbus-run-session' });
     c.stdout?.on('data', (d) => (this.log += d));
     c.stderr?.on('data', (d) => (this.log += d));
     this.children.push(c);
     return c;
   }
 
-  async start(): Promise<void> {
-    if (!fs.existsSync(binary)) throw new Error(`No GPUI app at ${binary}: cargo build -p threadbear-gpui --features automation`);
-    // TB_RUNNER_HOME points at a real runner's data folder (a dev runner's), for
-    // a one-off check that the app works with the real thing and not just the mock.
-    this.home = process.env.TB_RUNNER_HOME ?? fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tb-spec-'));
-    const ready = path.join(this.home, 'mock-ready');
-    // TB_MOCK_FIXTURES swaps the demo threads for that folder's, for one-off checks.
-    const fixtures = process.env.TB_MOCK_FIXTURES ? ['--fixtures', process.env.TB_MOCK_FIXTURES] : [];
-    if (!process.env.TB_RUNNER_HOME) {
-      this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready, ...fixtures], { TB_MOCK_NO_REMOTE: '1' });
-      await waitForFile(ready, 'The mock runner', 15_000);
+  /** Stops a child, with the whole process group for a dbus-run-session. */
+  private killChild(c: ChildProcess): void {
+    if (c.spawnargs[0] === 'dbus-run-session' && c.pid) {
+      try {
+        process.kill(-c.pid, 'SIGTERM');
+        return;
+      } catch {
+        // Already gone.
+      }
     }
+    c.kill();
+  }
 
+  /** Starts the app itself and connects to its automation socket. */
+  private async launchApp(): Promise<void> {
     const file = path.join(this.home, `automation-${process.pid}.json`);
+    fs.rmSync(file, { force: true });
     const env: NodeJS.ProcessEnv = {
       THREADBEAR_HOME: this.home,
       THREADBEAR_AUTOMATION: file,
@@ -60,12 +69,14 @@ export class GpuiDriver implements Driver {
     if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
       // A server: a virtual screen, and a session bus of its own for the
       // desktop settings and portals the app asks for.
-      const display = `:${100 + (process.pid % 400)}`;
-      this.child('Xvfb', [display, '-screen', '0', '1400x900x24'], {});
-      await sleep(400);
-      this.child('dbus-run-session', ['--', binary], { ...env, DISPLAY: display, NO_AT_BRIDGE: '1', LIBGL_ALWAYS_SOFTWARE: '1' });
+      this.display ??= `:${100 + (process.pid % 400)}`;
+      if (!this.children.some((c) => c.spawnargs[0] === 'Xvfb')) {
+        this.child('Xvfb', [this.display, '-screen', '0', '1400x900x24'], {});
+        await sleep(400);
+      }
+      this.appProcess = this.child('dbus-run-session', ['--', binary], { ...env, DISPLAY: this.display, NO_AT_BRIDGE: '1', LIBGL_ALWAYS_SOFTWARE: '1' });
     } else {
-      this.child(binary, [], env);
+      this.appProcess = this.child(binary, [], env);
     }
     try {
       await waitForFile(file, 'The app', 30_000);
@@ -74,6 +85,9 @@ export class GpuiDriver implements Driver {
     }
     const { port, token } = JSON.parse(fs.readFileSync(file, 'utf8')) as { port: number; token: string };
     this.token = token;
+    this.socket?.destroy();
+    this.waiting = [];
+    this.buffer = '';
     this.socket = await new Promise<net.Socket>((resolve, reject) => {
       const s = net.connect(port, '127.0.0.1', () => resolve(s));
       s.once('error', reject);
@@ -88,6 +102,34 @@ export class GpuiDriver implements Driver {
         this.waiting.shift()?.(line);
       }
     });
+  }
+
+  async relaunch(): Promise<void> {
+    this.socket?.destroy();
+    this.socket = undefined;
+    const old = this.appProcess;
+    if (old) {
+      const gone = new Promise<void>((done) => old.once('exit', () => done()));
+      this.killChild(old);
+      await Promise.race([gone, sleep(4000)]);
+      this.children = this.children.filter((c) => c !== old);
+    }
+    await this.launchApp();
+  }
+
+  async start(): Promise<void> {
+    if (!fs.existsSync(binary)) throw new Error(`No GPUI app at ${binary}: cargo build -p threadbear-gpui --features automation`);
+    // TB_RUNNER_HOME points at a real runner's data folder (a dev runner's), for
+    // a one-off check that the app works with the real thing and not just the mock.
+    this.home = process.env.TB_RUNNER_HOME ?? fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tb-spec-'));
+    const ready = path.join(this.home, 'mock-ready');
+    // TB_MOCK_FIXTURES swaps the demo threads for that folder's, for one-off checks.
+    const fixtures = process.env.TB_MOCK_FIXTURES ? ['--fixtures', process.env.TB_MOCK_FIXTURES] : [];
+    if (!process.env.TB_RUNNER_HOME) {
+      this.child(process.execPath, [path.join(root, 'app/Tools/mock-runner/server.mjs'), '--data-dir', this.home, '--port', '0', '--quiet', '--ready-file', ready, ...fixtures], { TB_MOCK_NO_REMOTE: '1' });
+      await waitForFile(ready, 'The mock runner', 15_000);
+    }
+    await this.launchApp();
   }
 
   private ask(body: Record<string, unknown>, timeoutSeconds: number): Promise<Record<string, unknown>> {
@@ -120,7 +162,7 @@ export class GpuiDriver implements Driver {
   async stop(): Promise<void> {
     this.socket?.destroy();
     for (const c of this.children.reverse()) {
-      c.kill();
+      this.killChild(c);
       // dbus-run-session's children can outlive it holding these pipes open,
       // and Node then waits on them for ever.
       c.stdout?.destroy();
