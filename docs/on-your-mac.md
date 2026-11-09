@@ -161,6 +161,15 @@ File references are where to look.
   only hear about it when it needs you (including a step its mode asks
   you about). A later failure goes to the same thread.
   `followMain: false` turns this off with the rest.
+- **Following GitHub on a second machine** (`runner/src/follow-origin.ts`):
+  only with `followOrigin: true` in that machine's `runner.json`, which
+  nothing sets for you. Every 5 minutes the runner runs `git fetch origin
+  main` in its checkout (the only network call it adds, to whatever
+  `origin` is), fast-forwards that checkout's `main` when it can, and builds
+  and runs `origin/main`, with no signature check. It never resets or
+  rewrites anything: a commit made only there stays, and `tb status` says so.
+  `tb land` refuses in that repo. If `origin` is Mike's repo rather than
+  your own, leave this off.
 - **Schedule checks** (`runner/src/schedule-check.ts`, experiment
   `scheduleChecks`, off by default): a schedule's check command runs in
   `/bin/sh` before each run, as you, for at most a minute (or up to five,

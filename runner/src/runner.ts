@@ -187,6 +187,10 @@ export type RunnerUpdates = {
   launcherReason?: string;
   // Mike's releases, for a fork (upstream.ts); left out while off.
   upstream?: UpstreamStatus;
+  // This machine isn't following GitHub's main properly (follow-origin.ts).
+  followProblem?: string;
+  // The other runners that say that of themselves, on the main Mac's runner.
+  behindRunners?: { name: string; problem: string }[];
 };
 
 // What the librarian (librarian.ts) hears about threads: a turn that ended,

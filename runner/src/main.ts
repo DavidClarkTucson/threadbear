@@ -18,6 +18,7 @@ import { RunnerUpdater, releaseTreeAt } from './update.ts';
 import { RELEASE_NOTES_SYSTEM, SETTLE_MS, Upstream } from './upstream.ts';
 import { BringIn } from './bring-in.ts';
 import { UpdateFixer } from './fix-update.ts';
+import { followOriginOn } from './follow-origin.ts';
 import { bringInSetting } from './settings.ts';
 import { Restarter, restartMethods } from './restart.ts';
 import { AppRestarts } from './app-restarts.ts';
@@ -486,6 +487,7 @@ async function main(): Promise<void> {
     cachePath: `${cfg.home}/sync-sent.json`,
     presence: async () => (atMac = isAtMac(rpcServer?.appConnected() ?? false, await hidIdleMs())),
     appConnected: () => rpcServer?.appConnected() ?? false,
+    followProblem: () => (updaterReady ? updater.status().followProblem : undefined),
     // A thread past a move's switch is the other runner's: never written
     // from here again (runner/moves.ts).
     runner: {
@@ -596,6 +598,8 @@ async function main(): Promise<void> {
     start: (r) => startOwnThread(runner, r, updateRelease?.checkout),
     open: openThread,
     send: (threadId, text) => void runner.send(threadId, text, [], { queue: true }),
+    followsOrigin: () => followOriginOn(cfg.home),
+    checkout: updateRelease?.checkout,
   });
   // Follows main once this release has been marked good (below).
   const updater = new RunnerUpdater({
@@ -609,6 +613,7 @@ async function main(): Promise<void> {
     onFailed: (f) => Boolean(updateRelease?.checkout) && (updateFixer.failed(f), true),
     restart: (p) => restarter.request({ when: 'idle', ...p }),
     pendingRestart: () => Boolean(restarter.status().pendingRestart),
+    followsOrigin: () => followOriginOn(cfg.home),
     onChange: () => publishUpdates(),
   });
   // Mike's releases for a fork, and on Mike's own runner the tagging of
@@ -663,6 +668,9 @@ async function main(): Promise<void> {
     if (u.reason) out.reason = u.reason;
     if (u.launcherChanged) out.launcherChanged = true;
     if (u.launcherReason) out.launcherReason = u.launcherReason;
+    if (u.followProblem) out.followProblem = u.followProblem;
+    const behind = sync.behindRunners();
+    if (behind.length) out.behindRunners = behind;
     const up = upstream.status();
     if (up.state !== 'off' || up.published) out.upstream = up;
     return out;
@@ -684,7 +692,8 @@ async function main(): Promise<void> {
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {
     const draining = peers.status();
-    return { ...(restartStatus(p) as Record<string, unknown>), clis: updates.list(), sync: sync.status(), secretCheck: secretCheck.status(), relay: relay.status(), upstream: upstream.status(), ...(draining.length ? { draining } : {}), ...(macScreen ? { macScreen: macScreen.status() } : {}) };
+    const behind = sync.behindRunners();
+    return { ...(restartStatus(p) as Record<string, unknown>), ...(behind.length ? { behindRunners: behind } : {}), clis: updates.list(), sync: sync.status(), secretCheck: secretCheck.status(), relay: relay.status(), upstream: upstream.status(), ...(draining.length ? { draining } : {}), ...(macScreen ? { macScreen: macScreen.status() } : {}) };
   };
   // tb updates (docs/protocol.md, "Mike's releases").
   methods['upstream.status'] = () => ({ upstream: upstream.status() });

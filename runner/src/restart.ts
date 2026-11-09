@@ -91,6 +91,9 @@ export type RunnerStatus = {
   update?: UpdateStatus;
   // Mike's releases, for a fork (upstream.ts; main.ts adds it).
   upstream?: UpstreamStatus;
+  // Other runners that aren't following GitHub's main properly, from their
+  // heartbeats (the main Mac's runner only; main.ts adds it).
+  behindRunners?: { name: string; problem: string }[];
   // The Convex mirror (src/sync.ts; main.ts adds it).
   sync?: SyncStatus;
   secretCheck?: SecretCheckStatus;

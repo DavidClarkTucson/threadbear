@@ -21,6 +21,7 @@ import type { RestartResult } from './restart.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { inBackground } from './background.ts';
 import type { UpdateFailure } from './fix-update.ts';
+import { followOrigin as fetchAndFollowOrigin, oldestMissingAt, type OriginResult } from './follow-origin.ts';
 
 export const CHECK_INTERVAL_MS = 5 * 60_000;
 // After main's ref changes in the checkout (a commit or merge landing), the
@@ -52,6 +53,13 @@ export const MAX_SLEPT_TRIES = 3;
 // the host's trouble, so tried again like a sleep, with the same limit
 // (deploy-steps.mjs, ChecksUnavailable).
 const UNAVAILABLE_EXIT = 69;
+// A followOrigin machine (follow-origin.ts): how long GitHub can be out of
+// reach before it's worth saying (a laptop asleep, a phone off the wifi), and
+// how long something that runs can have been on GitHub's main and not here. A
+// restart waits for busy threads, so an hour or two is normal; bruce's three
+// days wasn't.
+export const FETCH_WARN_MS = 60 * 60_000;
+export const BEHIND_WARN_MS = 6 * 60 * 60_000;
 
 export type UpdateState = 'off' | 'idle' | 'checking' | 'building' | 'waiting' | 'failed';
 
@@ -72,6 +80,12 @@ export type UpdateStatus = {
   // (launchAgentBehind below), and which way.
   launcherChanged?: boolean;
   launcherReason?: string;
+  // followOrigin in runner.json: this machine follows GitHub's main itself.
+  followsOrigin?: boolean;
+  // What's wrong with that, in a sentence or two, when something is: its main
+  // can't follow GitHub's, GitHub's been out of reach for a while, or the
+  // runner has been hours behind. Goes in the heartbeat too (sync.ts).
+  followProblem?: string;
 };
 
 // tree is what a release of main would hold (RELEASE_PATHS); buildTree is
@@ -101,8 +115,14 @@ export type UpdateDeps = {
   // Restarter.request with when: 'idle'.
   restart: (p: { release: string; reason: string; backgroundWaitMs: number }) => RestartResult;
   pendingRestart: () => boolean;
+  // followOrigin in runner.json (read every check, so setting it on a
+  // machine needs no restart).
+  followsOrigin?: () => boolean;
   // Replaced in tests: bringing the clone to main, and the deploy itself.
-  sync?: (checkout: string, prefix: string, dir: string) => Promise<MainInfo>;
+  // sync's ref is what to build when it isn't the checkout's main.
+  sync?: (checkout: string, prefix: string, dir: string, ref?: string) => Promise<MainInfo>;
+  fetchOrigin?: (checkout: string) => Promise<OriginResult>;
+  oldestMissing?: (checkout: string, prefix: string, since: string, ref: string) => Promise<number | undefined>;
   treeOf?: (dir: string, prefix: string, commit: string) => string | undefined;
   deploy?: (runnerDir: string, home: string, logFile: string, follow: string) => Promise<DeployResult>;
   // Deploys the Convex backend and website at main before the runner is
@@ -254,14 +274,15 @@ function joinTreeHashes(lsTree: string): string | undefined {
 // Brings <dir> to the checkout's main: a clone of the checkout (so only
 // what's committed on main is built, never a working tree), fetched and
 // reset each time. runner/node_modules is kept between runs for the checks,
-// and dropped when package-lock.json changed so they install afresh.
-export async function syncClone(checkout: string, prefix: string, dir: string): Promise<MainInfo> {
+// and dropped when package-lock.json changed so they install afresh. `ref` is
+// the checkout's own main unless the machine follows GitHub's (follow-origin.ts).
+export async function syncClone(checkout: string, prefix: string, dir: string, ref = 'refs/heads/main'): Promise<MainInfo> {
   if (!fs.existsSync(path.join(dir, '.git'))) {
     await fs.promises.rm(dir, { recursive: true, force: true });
     await fs.promises.mkdir(path.dirname(dir), { recursive: true });
     await gitAsync(path.dirname(dir), ['clone', '-q', '--no-checkout', checkout, dir]);
   }
-  await gitAsync(dir, ['fetch', '-q', checkout, 'refs/heads/main']);
+  await gitAsync(dir, ['fetch', '-q', checkout, ref]);
   await gitAsync(dir, ['checkout', '-q', '-B', 'main', 'FETCH_HEAD']);
   const modules = path.join(dir, prefix, 'node_modules');
   await gitAsync(dir, ['clean', '-qfdx', '-e', `${prefix}node_modules`]);
@@ -415,6 +436,12 @@ export class RunnerUpdater {
   private subject?: string;
   private launcherChanged = false;
   private launcherReason?: string;
+  private followsOrigin = false;
+  private followProblem?: string;
+  private fetchFailingSince?: number;
+  // When this runner was first seen missing something that runs, for a
+  // release commit git can't count from.
+  private behindSeenAt?: number;
   private releaseBuilt?: string;
   // The tree whose builds the Mac slept through (or no check host could
   // check), and how many in a row.
@@ -494,6 +521,8 @@ export class RunnerUpdater {
     if (this.releaseBuilt) out.release = this.releaseBuilt;
     if (this.launcherChanged) out.launcherChanged = true;
     if (this.launcherReason) out.launcherReason = this.launcherReason;
+    if (this.followsOrigin) out.followsOrigin = true;
+    if (this.followProblem) out.followProblem = this.followProblem;
     if (this.state !== 'off') out.logFile = updateLogPath(this.deps.home);
     return out;
   }
@@ -520,12 +549,17 @@ export class RunnerUpdater {
     this.state = 'checking';
     try {
       const dir = path.join(updateDir(home), 'src');
-      const main = await (this.deps.sync ?? syncClone)(release.checkout, release.prefix, dir);
+      this.followsOrigin = this.deps.followsOrigin?.() ?? false;
+      const origin = this.followsOrigin ? await (this.deps.fetchOrigin ?? fetchAndFollowOrigin)(release.checkout) : undefined;
+      if (this.stopped) return undefined;
+      const main = await (this.deps.sync ?? syncClone)(release.checkout, release.prefix, dir, origin?.ref);
       this.checkedAt = new Date(this.deps.clock.now()).toISOString();
       this.commit = main.commit;
       this.subject = main.subject;
       this.launcherReason = launchAgentBehind(path.join(dir, release.prefix), home, this.deps.env ?? process.env, this.deps.findLauncherApp, this.deps.platform);
       this.launcherChanged = this.launcherReason !== undefined;
+      this.followProblem = origin ? await this.originProblem(origin, main, release) : undefined;
+      if (origin) this.deps.onChange?.();
       if (main.commit !== this.backendTried) {
         this.backendTried = main.commit;
         const b = await (this.deps.deployBackend ?? runBackendDeploy)(dir, path.join(dir, release.prefix), home, main.commit, backendLogPath(home));
@@ -614,6 +648,34 @@ export class RunnerUpdater {
     }
   }
 
+  // What to say about following GitHub, or undefined for nothing.
+  private async originProblem(origin: OriginResult, main: MainInfo, release: ReleaseJson & { checkout?: string; prefix?: string }): Promise<string | undefined> {
+    const now = this.deps.clock.now();
+    const out: string[] = [];
+    const p = origin.problem;
+    if (p?.kind === 'fetch') {
+      this.fetchFailingSince ??= now;
+      if (now - this.fetchFailingSince >= FETCH_WARN_MS) out.push(`Couldn't reach GitHub for ${hours(now - this.fetchFailingSince)}: ${p.message}`);
+    } else {
+      this.fetchFailingSince = undefined;
+      if (p) out.push(p.message);
+    }
+    const runningTree = release.tree ?? (release.dirty ? undefined : (this.deps.treeOf ?? releaseTreeAt)(path.join(updateDir(this.deps.home), 'src'), release.prefix ?? '', release.commit));
+    if (!runningTree || runningTree === main.tree) {
+      this.behindSeenAt = undefined;
+    } else {
+      this.behindSeenAt ??= now;
+      let since: number | undefined;
+      if (origin.ref && release.checkout) {
+        // Failing to count isn't worth stopping the check for.
+        since = await (this.deps.oldestMissing ?? oldestMissingAt)(release.checkout, release.prefix ?? '', release.commit, origin.ref).catch(() => undefined);
+      }
+      const missingFor = now - (since ?? this.behindSeenAt);
+      if (missingFor >= BEHIND_WARN_MS) out.push(`This runner is ${hours(missingFor)} behind GitHub's main.`);
+    }
+    return out.length ? out.join(' ') : undefined;
+  }
+
   // A thread to fix it when one can be started, else the notice.
   private failed(f: UpdateFailure, notice: string): void {
     try {
@@ -641,6 +703,11 @@ export class RunnerUpdater {
     }
     return out;
   }
+}
+
+function hours(ms: number): string {
+  const h = Math.max(1, Math.round(ms / 3_600_000));
+  return h === 1 ? 'an hour' : `${h} hours`;
 }
 
 // Whether main's launch.mjs (in the clone) isn't the installed one. Only

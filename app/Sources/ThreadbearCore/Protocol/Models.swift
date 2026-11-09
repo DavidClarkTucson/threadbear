@@ -1750,6 +1750,16 @@ public struct HelloResult: Sendable, Hashable, Decodable {
 /// What the runner's own update is doing (protocol "Runner updates"): hello's
 /// `updates` and `runner.updates`. Read leniently.
 public struct RunnerUpdates: Sendable, Hashable, Decodable {
+    public struct BehindRunner: Sendable, Hashable, Decodable {
+        public var name: String
+        public var problem: String
+
+        public init(name: String, problem: String) {
+            self.name = name
+            self.problem = problem
+        }
+    }
+
     public struct OldRunner: Sendable, Hashable, Decodable {
         public var version: String
         public var threads: [String]
@@ -1861,8 +1871,13 @@ public struct RunnerUpdates: Sendable, Hashable, Decodable {
     public var launcherReason: String?
     /// Left out by runners before 30 Oct 2026, and while it's off.
     public var upstream: Upstream?
+    /// This machine can't follow GitHub's main properly (a commit made only
+    /// here, GitHub out of reach, hours behind). Nil while it's fine.
+    public var followProblem: String?
+    /// The other runners saying that of themselves (the main Mac's runner).
+    public var behindRunners: [BehindRunner]
 
-    public init(state: String = "idle", commit: String? = nil, subject: String? = nil, reason: String? = nil, oldRunners: [OldRunner] = [], launcherChanged: Bool = false, launcherReason: String? = nil, upstream: Upstream? = nil) {
+    public init(state: String = "idle", commit: String? = nil, subject: String? = nil, reason: String? = nil, oldRunners: [OldRunner] = [], launcherChanged: Bool = false, launcherReason: String? = nil, upstream: Upstream? = nil, followProblem: String? = nil, behindRunners: [BehindRunner] = []) {
         self.state = state
         self.commit = commit
         self.subject = subject
@@ -1871,6 +1886,8 @@ public struct RunnerUpdates: Sendable, Hashable, Decodable {
         self.launcherChanged = launcherChanged
         self.launcherReason = launcherReason
         self.upstream = upstream
+        self.followProblem = followProblem
+        self.behindRunners = behindRunners
     }
 
     public init(from decoder: Decoder) throws {
@@ -1883,9 +1900,11 @@ public struct RunnerUpdates: Sendable, Hashable, Decodable {
         launcherChanged = ((try? c.decodeIfPresent(Bool.self, forKey: .launcherChanged)) ?? nil) ?? false
         launcherReason = (try? c.decodeIfPresent(String.self, forKey: .launcherReason)) ?? nil
         upstream = (try? c.decodeIfPresent(Upstream.self, forKey: .upstream)) ?? nil
+        followProblem = (try? c.decodeIfPresent(String.self, forKey: .followProblem)) ?? nil
+        behindRunners = c.lossyArray(BehindRunner.self, forKey: .behindRunners)
     }
 
-    enum CodingKeys: String, CodingKey { case state, commit, subject, reason, oldRunners, launcherChanged, launcherReason, upstream }
+    enum CodingKeys: String, CodingKey { case state, commit, subject, reason, oldRunners, launcherChanged, launcherReason, upstream, followProblem, behindRunners }
 
     /// Something's on its way: a release being built or about to start, an
     /// old runner still finishing turns, or a LaunchAgent to reinstall.

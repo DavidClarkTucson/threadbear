@@ -102,7 +102,9 @@ struct UpdatesPanel: View {
                 section("Runner") {
                     if let runner {
                         let lines = [UpdatesText.buildLine(runner), UpdatesText.oldRunnersLine(runner), UpdatesText.launcherLine(runner)]
-                        if lines.allSatisfy({ $0 == nil }) { line("The runner is up to date.") }
+                        let notFollowing = UpdatesText.followLines(runner)
+                        if lines.allSatisfy({ $0 == nil }) && notFollowing.isEmpty { line("The runner is up to date.") }
+                        ForEach(notFollowing, id: \.self) { line($0) }
                         if let build = lines[0] { line(build) }
                         if let old = lines[1] {
                             line(old)

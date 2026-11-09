@@ -100,7 +100,10 @@ crash; the empty lock file stays. Separate repos do not block one another.
 5. Prints what landed (`git log --oneline main@{1}..main`).
 
 It never pushes. The runner and the app follow the local main by
-themselves.
+themselves. On a machine with `followOrigin` on (docs/dev-tools.md), `tb
+land` refuses in the repo the runner follows, as that main has to stay
+GitHub's: push the branch as `cloud/<topic>` or hand the work to the main
+Mac.
 
 The Land chip has an hour for waiting and checking; other command actions
 keep their usual ten-minute limit. In an agent tool with its own shorter

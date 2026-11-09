@@ -175,6 +175,9 @@ export type RunnerJson = {
   sandbox?: unknown;
   pools?: unknown[];
   followMain?: boolean;
+  // This machine's main is GitHub's (follow-origin.ts): read by that file,
+  // each time, so it needs no restart.
+  followOrigin?: boolean;
   // The ssh host that ./check.sh sends the repo's checks to, so suites and
   // the app's test windows stay off this Mac (scripts/check-remote.sh), or
   // checkHosts, several tried in order, which wins (a check.sh from before
