@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { call, load, memoryBackend } from '../helpers/convex-memory.ts';
+import { call, load, memoryBackend, THREAD_BASICS } from '../helpers/convex-memory.ts';
 import { Moves, type MoveRow, type MovesBackend, type MovesHost, type MovePlan, type ThreadMoving } from '../../src/moves.ts';
 import type { PackEntry } from '../../src/move-pack.ts';
 import { SecretStore } from '../../src/secrets.ts';
@@ -146,7 +146,7 @@ const moveRow = (w: Awaited<ReturnType<typeof world>>) => w.b.rows('threadMoves'
 
 test('a thread moves from Bruce to the M5, and each side ends as it should', async () => {
   const w = await world();
-  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T1', runnerId: BRUCE, title: 'T', view: 'inbox', needsYou: false }] });
+  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T1', runnerId: BRUCE, ...THREAD_BASICS, title: 'T', view: 'inbox', needsYou: false }] });
   const s = source('T1');
   const t = target({ cwd: '/Users/mike/dev/x', accountId: 'claude-main', leftBehind: [] });
   const { ms } = runners(w, s, t);
@@ -169,7 +169,7 @@ test('a thread moves from Bruce to the M5, and each side ends as it should', asy
 
 test('a busy thread waits for its turn to end before it freezes', async () => {
   const w = await world();
-  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T2', runnerId: BRUCE, title: 'T', view: 'inbox', needsYou: false }] });
+  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T2', runnerId: BRUCE, ...THREAD_BASICS, title: 'T', view: 'inbox', needsYou: false }] });
   const s = source('T2');
   s.idle = false;
   const t = target({ cwd: '/x', accountId: 'a', leftBehind: [] });
@@ -186,7 +186,7 @@ test('a busy thread waits for its turn to end before it freezes', async () => {
 
 test("a move the new runner can't take fails, and the thread stays where it was", async () => {
   const w = await world();
-  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T3', runnerId: BRUCE, title: 'T', view: 'inbox', needsYou: false }] });
+  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T3', runnerId: BRUCE, ...THREAD_BASICS, title: 'T', view: 'inbox', needsYou: false }] });
   const s = source('T3');
   const t = target({ problem: 'The M5 has no copy of mikecann/foo.' });
   runners(w, s, t);
@@ -201,7 +201,7 @@ test("a move the new runner can't take fails, and the thread stays where it was"
 
 test("a bundle that doesn't arrive whole fails before the switch", async () => {
   const w = await world();
-  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T4', runnerId: BRUCE, title: 'T', view: 'inbox', needsYou: false }] });
+  await call(w.b.ctx, sync.upsertThreads, { key: BRUCE_KEY, threads: [{ threadId: 'T4', runnerId: BRUCE, ...THREAD_BASICS, title: 'T', view: 'inbox', needsYou: false }] });
   const s = source('T4');
   const t = target({ cwd: '/x', accountId: 'a', leftBehind: [] });
   // The M5's download comes back damaged.
