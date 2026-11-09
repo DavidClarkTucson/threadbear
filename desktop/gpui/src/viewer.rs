@@ -19,12 +19,19 @@ use threadbear_core::highlights::{looks_like_picture, runs_code};
 use threadbear_core::reducer::ImageRef;
 
 /// What's open in the viewer.
-#[derive(Default)]
 pub(crate) struct ViewerState {
     /// Each picture's path in this message, and its bytes once it's been read.
     pictures: Vec<(String, Option<Arc<Image>>, Option<(u32, u32)>)>,
     index: usize,
     open: bool,
+    /// Holds the keys while it's up: Escape and the arrows.
+    focus: FocusHandle,
+}
+
+impl ViewerState {
+    pub(crate) fn new(cx: &mut App) -> Self {
+        Self { pictures: vec![], index: 0, open: false, focus: cx.focus_handle() }
+    }
 }
 
 impl ViewerState {
@@ -47,20 +54,24 @@ fn opens_here(path: &str) -> bool {
 
 /// A click on a tile: the viewer on that picture, stepping through the
 /// message's other real pictures.
-pub(crate) fn open_from_tile(images: &[ImageRef], index: usize, cx: &mut App) {
+pub(crate) fn open_from_tile(images: &[ImageRef], index: usize, window: &mut Window, cx: &mut App) {
     let Some(handle) = cx.try_global::<ViewerHandle>().cloned() else { return };
     let paths: Vec<String> = images.iter().map(|i| i.path.clone()).filter(|p| opens_here(p)).collect();
     let Some(chosen) = images.get(index).map(|i| i.path.clone()).filter(|p| paths.contains(p)) else { return };
     handle
         .0
-        .update(cx, |pane, cx| pane.open_viewer(paths, &chosen, cx))
+        .update(cx, |pane, cx| pane.open_viewer(paths, &chosen, window, cx))
         .ok();
 }
 
 impl SidePane {
-    pub(crate) fn open_viewer(&mut self, paths: Vec<String>, chosen: &str, cx: &mut Context<Self>) {
+    pub(crate) fn open_viewer(&mut self, paths: Vec<String>, chosen: &str, window: &mut Window, cx: &mut Context<Self>) {
         let index = paths.iter().position(|p| p == chosen).unwrap_or(0);
-        self.viewer = ViewerState { pictures: paths.into_iter().map(|p| (p, None, None)).collect(), index, open: true };
+        self.viewer.pictures = paths.into_iter().map(|p| (p, None, None)).collect();
+        self.viewer.index = index;
+        self.viewer.open = true;
+        // The overlay holds the keys: Escape closes, the arrows step.
+        window.focus(&self.viewer.focus, cx);
         self.read_viewer_picture(index, cx);
         cx.notify();
     }
@@ -132,8 +143,9 @@ impl SidePane {
                 div().id(id).size(px(44.)).flex().items_center().justify_center().rounded_full().bg(gpui_kit::hsla(0., 0., 1., 0.1)).hover(|s| s.bg(gpui_kit::hsla(0., 0., 1., 0.2))).cursor_pointer().child(icon(symbol, 18., fg)),
                 tip,
             )
-            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
-                let _ = ev;
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                // Not the backdrop's click, which closes it.
+                cx.stop_propagation();
                 this.viewer_step(delta, cx);
             }))
             .into_any_element()
@@ -146,6 +158,7 @@ impl SidePane {
         let caption = if total > 1 { format!("{name}  ·  {} of {total}", index + 1) } else { name };
         let overlay = div()
             .id("picture-viewer")
+            .track_focus(&self.viewer.focus)
             .w(bounds.width)
             .h(bounds.height)
             .bg(backdrop)
@@ -239,8 +252,6 @@ pub(crate) fn action_chips(thread: &threadbear_core::inbox::ThreadSummary, cx: &
 /// The tile's tooltip words on a transcript row (`transcript.images`).
 pub(crate) const TILE_TIP: &str = "Open the picture";
 
-/// The tile's click: the viewer. The hover card and drag-out come with
-/// `transcript.images`' other parts.
 pub(crate) fn viewer_handle_global(entity: WeakEntity<SidePane>, cx: &mut App) {
     cx.set_global(ViewerHandle(entity));
 }

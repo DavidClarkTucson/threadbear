@@ -1168,6 +1168,19 @@ mod tests {
         }
     }
 
+    /// A picture only opens in the viewer if it's named as one and its default
+    /// app wouldn't run it (`quickLooks`, `LinkPolicy.runsCode`).
+    #[test]
+    fn only_pictures_reach_the_viewer() {
+        assert!(looks_like_picture("/a/shot.PNG"));
+        assert!(looks_like_picture("/a/photo.heic"));
+        assert!(!looks_like_picture("/a/run.command"));
+        assert!(!looks_like_picture("/a/notes.md"));
+        assert!(runs_code("/a/run.command"));
+        assert!(runs_code("/a/Tool.APP"));
+        assert!(!runs_code("/a/shot.png"));
+    }
+
     #[test]
     fn tandem_projects_are_app_projects() {
         assert!(is_app_project("/a/Pebble Index mic test.tandem"));

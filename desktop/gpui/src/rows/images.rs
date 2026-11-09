@@ -107,7 +107,7 @@ impl ThreadPane {
                     .tooltip(super::tip(crate::viewer::TILE_TIP))
                     // The in-app viewer, not the file's default app: only a
                     // real picture opens, and nothing is ever run (viewer.rs).
-                    .on_click(move |_, _, cx| crate::viewer::open_from_tile(&tile_images, i, cx))
+                    .on_click(move |_, window, cx| crate::viewer::open_from_tile(&tile_images, i, window, cx))
                     .child(img(PathBuf::from(path)).w(px(frame.w)).h(px(frame.h)).rounded(px(8.)).object_fit(ObjectFit::Cover)),
             );
         }

@@ -32,7 +32,10 @@ export class GpuiDriver implements Driver {
   private log = '';
 
   private child(cmd: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // A process group of its own: `dbus-run-session`'s bus and the portals it
+    // starts are grandchildren that outlive a plain kill, and the cloud box
+    // ended up with thousands of them (9 Nov, "can't spawn worker thread").
+    const c = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     c.stdout?.on('data', (d) => (this.log += d));
     c.stderr?.on('data', (d) => (this.log += d));
     this.children.push(c);
@@ -115,7 +118,10 @@ export class GpuiDriver implements Driver {
 
   async stop(): Promise<void> {
     this.socket?.destroy();
-    for (const c of this.children.reverse()) c.kill();
+    for (const c of this.children.reverse()) {
+      // Negative pid: the whole group the child leads (see `child`).
+      try { if (c.pid && process.platform !== 'win32') process.kill(-c.pid, 'SIGKILL'); else c.kill(); } catch { c.kill(); }
+    }
     await sleep(100);
     if (this.home) fs.rmSync(this.home, { recursive: true, force: true });
   }

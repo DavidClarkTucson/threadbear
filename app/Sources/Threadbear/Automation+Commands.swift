@@ -64,6 +64,28 @@ extension Automation {
         return "error highlight needs tick, edited, showAll, open, menu or choose"
     }
 
+    /// What the last tile click would have opened, kept so `viewer` can say
+    /// (the real Quick Look comes in front of whatever's on the desktop).
+    nonisolated(unsafe) private static var viewerShown: (paths: [String], index: Int)?
+
+    /// `tile`: presses a picture tile on the last row of pictures, as a click
+    /// does, with Quick Look's panel swapped for a note of what it would show.
+    static func tile(_ c: [String: Any], app: AppModel) -> String {
+        let least = max((c["count"] as? Int) ?? 1, 1)
+        let grids = all(ImageGridView.self, in: app.transcript.tableView).filter { $0.debugPaths.count >= least }
+        guard let grid = grids.last else { return "error no row of \(least) pictures on screen" }
+        QuickLookCoordinator.shared.debugOpened = { viewerShown = ($0, $1) }
+        guard grid.open((c["index"] as? Int) ?? 0) else { return "error that tile doesn't open" }
+        return viewer([:])
+    }
+
+    /// `viewer`: says what a tile's click would be showing.
+    static func viewer(_ c: [String: Any]) -> String {
+        if c["close"] as? Bool == true { viewerShown = nil }
+        guard let shown = viewerShown else { return "ok closed" }
+        return "ok showing \(shown.index + 1) of \(shown.paths.count) \(shown.paths[shown.index])"
+    }
+
     /// A row's menu, as HighlightsView builds it (FileMenu, LinkMenu, Copy
     /// sha, Divider, Remove), with what each item does.
     private static func highlightMenu(_ item: Highlight, in thread: ThreadSummary) -> [(title: String, action: ((AppModel, Highlight, ThreadSummary) -> Void)?)] {

@@ -808,6 +808,10 @@ enum Automation {
             return "ok \(app.panePreview[thread.id].map { "showing \($0.title)" } ?? "no preview")"
         case "highlight":
             return await highlightCommand(c, app: app)
+        case "tile":
+            return tile(c, app: app)
+        case "viewer":
+            return viewer(c)
         case "folder":
             // {"cmd":"folder","open":"name"} is a double-click on that row of
             // the folder showing in the pane, "select" a click, "expand" its

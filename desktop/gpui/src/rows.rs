@@ -481,6 +481,25 @@ pub(crate) fn plain_code_blocks(_: &gpui_kit::base::text::CodeBlock) -> Vec<(std
     Vec::new()
 }
 
+impl crate::thread::ThreadPane {
+    /// The pictures of the last row with at least `count` of them, for
+    /// scripts (the `tile` command presses one of them).
+    #[cfg(feature = "automation")]
+    pub(crate) fn last_row_images(&self, count: usize) -> Result<Vec<threadbear_core::reducer::ImageRef>, String> {
+        self.feed
+            .model()
+            .rows()
+            .iter()
+            .rev()
+            .find_map(|row| match &row.content {
+                RowContent::Images { images, .. } if images.len() >= count.max(1) => Some(images.clone()),
+                RowContent::User(message) if message.images.len() >= count.max(1) => Some(message.images.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| format!("no row of {count} pictures in this thread"))
+    }
+}
+
 pub(crate) fn tip(text: &str) -> impl Fn(&mut Window, &mut App) -> AnyView + use<> {
     let text: SharedString = text.to_owned().into();
     move |window, cx| Tooltip::new(text.clone()).build(window, cx)
