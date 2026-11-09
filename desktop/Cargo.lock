@@ -7010,6 +7010,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "threadbear-dock"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+ "image",
+ "objc2 0.6.5",
+ "raw-window-handle",
+ "serde_json",
+ "taffy",
+ "threadbear-dock-layout",
+ "unicode-properties",
+]
+
+[[package]]
 name = "threadbear-dock-layout"
 version = "0.1.0"
 dependencies = [
