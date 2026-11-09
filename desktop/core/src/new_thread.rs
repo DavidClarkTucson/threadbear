@@ -551,7 +551,10 @@ impl Draft<'_> {
             }
         }
         let last = self.mem.last_account.as_deref().unwrap_or(&self.logins.defaults.account_id);
-        pick_account(&self.logins.accounts, Some(last)).unwrap_or_else(|| last.to_owned())
+        // On another runner only one of its own logins will do, so nothing
+        // picked means its default; on this Mac it's the last one used.
+        let fallback = if self.picks.runner.is_some() { self.logins.defaults.account_id.clone() } else { last.to_owned() };
+        pick_account(&self.logins.accounts, Some(last)).unwrap_or(fallback)
     }
 
     pub fn provider(&self) -> String {

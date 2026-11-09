@@ -303,10 +303,26 @@ impl Threadbear {
         lines
     }
 
+    /// `remoteFolders`: folders a new thread on another runner might start
+    /// in: its default and the folders of its threads this Mac lists, newest
+    /// first. Paths on that Mac, so nothing here is checked.
+    fn remote_folders(&self, runner: &str) -> Vec<String> {
+        let default_folder = self.remote.logins.get(runner).map_or_else(String::new, |l| l.defaults.cwd.clone());
+        let mut threads: Vec<&ThreadSummary> = self.threads.values().filter(|t| t.runner_id.as_deref() == Some(runner)).collect();
+        threads.sort_by_key(|t| std::cmp::Reverse(t.activity_ms()));
+        let mut out = Vec::new();
+        for folder in std::iter::once(default_folder).chain(threads.into_iter().map(|t| t.cwd.clone())) {
+            if !folder.is_empty() && !out.contains(&folder) {
+                out.push(folder);
+            }
+        }
+        out.truncate(8);
+        out
+    }
+
     /// The "Runs on" menu (`runnerMenu`): this Mac, then each other runner
     /// (the offline ones saying so), a star on the default, then "Default"
-    /// to set it here. On another runner a "Folder" line would come next; a
-    /// new thread there keeps that runner's default folder for now.
+    /// to set it here; on another runner, its folders after that.
     pub(crate) fn open_runner_menu(&mut self, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         use crate::sidebar::{MenuAction, MenuRow};
         let chosen = self.new_thread.picks.runner.clone();
@@ -324,6 +340,15 @@ impl Threadbear {
             defaults.push(MenuRow::runner(runner.name.clone(), crate::icons::runner_symbol(runner.icon.as_deref()), default.as_deref() == Some(runner.id.as_str()), false, MenuAction::DefaultRunner(Some(runner.id.clone()))));
         }
         rows.push(MenuRow::submenu("Default", "star", defaults));
+        // On another runner there's no "+": its folders are here.
+        if let Some(runner) = chosen.as_deref().filter(|r| self.remote.logins.contains_key(*r)) {
+            let current = self.draft_summary().cwd;
+            let folders: Vec<MenuRow> = self.remote_folders(runner).into_iter().map(|f| { let on = f == current; MenuRow::runner_folder(f, on) }).collect();
+            if !folders.is_empty() {
+                rows.push(MenuRow::separator());
+                rows.push(MenuRow::submenu("Folder", "folder", folders));
+            }
+        }
         self.open_menu(None, rows, position, false, window, cx);
     }
 

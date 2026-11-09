@@ -10,7 +10,9 @@ Like the Mac app, it holds no agent state of its own. It talks to a runner
 
 So far it signs in to the runner, shows the inbox, opens a thread (live, as
 it streams), answers a card's asks and approvals, sends messages and stops a
-turn.
+turn, starts new threads (the new-thread page, on any runner), and offers
+the slash command palette. Other runners' threads are listed and open
+through this Mac's runner.
 
 ## How it's put together
 

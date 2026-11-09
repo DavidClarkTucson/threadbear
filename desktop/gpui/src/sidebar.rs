@@ -123,6 +123,10 @@ impl MenuRow {
         }
         Self { title, symbol: Some(symbol), action: Some(action), checked, enabled: true, children: vec![], separator: false }
     }
+    /// A folder on the runner a new thread will start on (Runs on's Folder).
+    pub(crate) fn runner_folder(folder: String, checked: bool) -> Self {
+        Self { title: folder.clone(), symbol: Some("folder"), action: Some(MenuAction::DraftFolder(folder)), checked, enabled: true, children: vec![], separator: false }
+    }
 }
 
 /// What choosing a menu line does.
@@ -141,9 +145,11 @@ pub(crate) enum MenuAction {
     CopyId,
     Sort(InboxOrder),
     OpenInPanel,
-    /// Runs on: where the new thread starts, and its default (new_thread.rs).
+    /// Runs on: where the new thread starts, its default, and a folder on
+    /// the chosen runner (new_thread.rs).
     Runner(Option<String>),
     DefaultRunner(Option<String>),
+    DraftFolder(String),
     /// Move to ▸ a runner, and Cancel Move once it's going (move_sheet.rs).
     MoveTo(String, String),
     CancelMove,
@@ -559,6 +565,7 @@ impl Threadbear {
             }
             MenuAction::Runner(runner) => return self.choose_new_thread_runner(runner, true, cx),
             MenuAction::DefaultRunner(runner) => return self.set_default_runner(runner, cx),
+            MenuAction::DraftFolder(folder) => return self.change_new_draft(&json!({ "cwd": folder }), cx),
             _ => {}
         }
         let Some(id) = thread else { return };
@@ -590,7 +597,7 @@ impl Threadbear {
             MenuAction::OpenInPanel => self.open(id, window, cx),
             MenuAction::MoveTo(runner_id, runner_name) => self.open_move(crate::move_sheet::MoveRequest { thread_id: id, runner_id, runner_name }, window, cx),
             MenuAction::CancelMove => self.cancel_move(id, cx),
-            MenuAction::Sort(_) | MenuAction::Runner(_) | MenuAction::DefaultRunner(_) => {}
+            MenuAction::Sort(_) | MenuAction::Runner(_) | MenuAction::DefaultRunner(_) | MenuAction::DraftFolder(_) => {}
         }
         cx.notify();
     }
@@ -1025,10 +1032,11 @@ impl Threadbear {
         let behind = if selected { p.tile_ring.blend(p.selected) } else if show_buttons { p.tile_ring.blend(p.hover) } else { p.tile_ring };
         let project_icon = t.projects.as_ref().and_then(|ps| ps.first()).and_then(|first| self.sidebar.project_icons.get(&first.id));
         // Another runner's thread with no project shows its machine's icon
-        // where the folder would be (`ProjectTiles.runnerIcon`), faded when
-        // that machine's offline (`ThreadRowView.body`).
-        let runner_symbol = t.runner_id.as_deref().filter(|_| t.projects.as_ref().is_none_or(|ps| ps.is_empty())).map(|id| self.runner_icon_symbol(Some(id)));
-        let tile = render_tile(t, &look, behind, project_icon, runner_symbol, p);
+        // where the folder would be (`ProjectTiles.runnerIcon`) and its name
+        // in the tile's tooltip, faded when that machine's offline
+        // (`ThreadRowView.body`).
+        let runner_tile = t.runner_id.as_deref().filter(|_| t.projects.as_ref().is_none_or(|ps| ps.is_empty())).map(|id| (self.runner_icon_symbol(Some(id)), self.runner_place_of(id)));
+        let tile = render_tile(t, &look, behind, project_icon, runner_tile, p);
         let offline = t.runner_id.as_deref().is_some_and(|id| self.remote.runners.iter().any(|r| r.id == id && !r.online));
 
         let byline = rows::byline(t);
@@ -1258,15 +1266,25 @@ fn abbreviate_home(path: &str) -> String {
 /// `ProjectTiles`: the row's tile, with the dot or tick in the gutter.
 /// `behind` is the colour drawn just under the tile (the row's highlight over
 /// the sidebar), which the ring round the front tile takes so a stacked pair
-/// reads as Swift's cut-out does. `runner_symbol`: another runner's thread with
-/// no project draws its machine's icon in place of the folder.
-fn render_tile(t: &ThreadSummary, look: &RowLook, behind: Hsla, project_icon: Option<&ProjectIcon>, runner_symbol: Option<&'static str>, p: &Palette) -> impl IntoElement {
+/// reads as Swift's cut-out does. `runner_tile`: another runner's thread with
+/// no project draws its machine's icon (a little larger, as a Mac mini is a
+/// flat box) in place of the folder, and names it in the tooltip.
+fn render_tile(t: &ThreadSummary, look: &RowLook, behind: Hsla, project_icon: Option<&ProjectIcon>, runner_tile: Option<(&'static str, String)>, p: &Palette) -> impl IntoElement {
     let (tile, stacked) = rows::tile(t);
-    let help = rows::tile_help(t);
+    let help = match &runner_tile {
+        Some((_, place)) => format!("{place}, in {}", abbreviate_home(&t.cwd)),
+        None => rows::tile_help(t),
+    };
     let size = px(TILE);
     let tinted = |content: AnyElement| div().flex().items_center().justify_center().size(size).rounded(px(7.)).bg(p.tile).child(content).into_any_element();
     let face = match (&tile, project_icon) {
-        (Tile::Folder, _) => div().flex().items_center().justify_center().size(size).rounded(px(7.)).bg(p.tile_empty).child(icon(runner_symbol.unwrap_or("folder"), 12., p.faint)).into_any_element(),
+        (Tile::Folder, _) => {
+            let glyph = match &runner_tile {
+                Some((symbol, _)) => icon(symbol, 16., p.secondary),
+                None => icon("folder", 12., p.faint),
+            };
+            div().flex().items_center().justify_center().size(size).rounded(px(7.)).bg(p.tile_empty).child(glyph).into_any_element()
+        }
         // The project's picture fills the tile; the letter stands in if the
         // file can't be read (a project on another runner's disk).
         (Tile::Letter(letter), Some(ProjectIcon { image_path: Some(path), .. })) => {
