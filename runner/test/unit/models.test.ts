@@ -337,6 +337,35 @@ test('titles: retitle names the threads still on their first line, and only thos
   await assert.rejects(async () => h.runner.retitle({ threadIds: ['nope'] }), (e: RpcError) => e.code === ErrorCode.threadNotFound);
 });
 
+test('titles: a Jira ticket in the first message leads the title, with its summary sent to the model', async () => {
+  const home = tmpDir();
+  fs.mkdirSync(path.join(home, 'secrets'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'secrets', 'jira.json'), JSON.stringify({ site: 'https://example.atlassian.net', email: 'me@example.com', token: 't' }));
+  const realFetch = globalThis.fetch;
+  const fetched: string[] = [];
+  globalThis.fetch = (async (url: any) => (fetched.push(String(url)), new Response(JSON.stringify({ fields: { summary: 'Force reclassification of URLs on demand' } }), { status: 200 }))) as typeof fetch;
+  try {
+    const asked: any[] = [];
+    const models = { generate: async (p: any) => (asked.push(p), { ok: true as const, value: 'Force reclassifications tech design', model: HAIKU }), isPrivateFolder: () => false };
+    const h = makeHarness(home, {}, { models });
+    const { thread } = h.runner.create({ text: 'MACG-3375 tech design', accountId: 'claude-3' });
+    for (let i = 0; i < 50 && h.runner.get(thread.id)!.title === 'MACG-3375 tech design'; i++) await tick();
+    assert.equal(h.runner.get(thread.id)!.title, 'MACG-3375 - force reclassifications tech design');
+    assert.deepEqual(fetched, ['https://example.atlassian.net/rest/api/3/issue/MACG-3375?fields=summary']);
+    assert.match(asked[0].prompt, /Jira ticket MACG-3375: Force reclassification of URLs on demand/);
+
+    // A private folder: Jira isn't asked (and the model refuses as before).
+    fetched.length = 0;
+    const priv = { ...models, isPrivateFolder: () => true };
+    const h2 = makeHarness(home, {}, { models: priv });
+    h2.runner.create({ text: 'MACG-1 something', accountId: 'claude-3' });
+    await tick();
+    assert.deepEqual(fetched, []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('titles: naming an older thread also sends the start of its first reply', async () => {
   const asked: any[] = [];
   const models = { generate: async (p: any) => (asked.push(p), { ok: false as const, reason: 'no-pool' as const, message: '' }) };

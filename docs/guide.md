@@ -971,6 +971,16 @@ Titles, the librarian and Wake when… run on a Claude login, so with only
 Codex they don't happen: threads keep the first line of their first message
 as their title.
 
+A thread whose first message names a Jira ticket (`MACG-3375 tech design`)
+can have the ticket in its title too: `MACG-3375 - force reclassifications
+tech design`, from the ticket's summary. Put an Atlassian API token (from
+id.atlassian.com, Security, API tokens) in `secrets/jira.json` in
+Threadbear's data folder: `{ "site": "https://<yours>.atlassian.net",
+"email": "<your login>", "token": "<the token>" }`. The runner asks Jira
+for the first ticket it finds (up to three keys tried), never for a thread
+in a private folder. Without the file, or when Jira doesn't answer, titles
+are written as before.
+
 Logins are grouped into pools, one for Claude and one for Codex to begin
 with (Settings > Pools). A new thread in a pool starts on the login with room whose
 weekly limit resets soonest, so a week's leftover gets spent before it's

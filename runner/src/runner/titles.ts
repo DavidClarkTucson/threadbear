@@ -9,6 +9,7 @@ import { EXPLAIN_SYSTEM, RECENT_CHARS, RECENT_MESSAGES, explainPrompt } from '..
 import type { ExplainTurn } from '../explain.ts';
 import type { ThreadState } from '../runner.ts';
 import { TITLE_PROMPT, cleanTitle } from '../runner.ts';
+import { jiraKeys, jiraTicket, readJiraConfig, titleWithTicket } from '../jira.ts';
 
 export const titlesPart = {
   // Asks a small model for a better title than the first line. Without a
@@ -20,11 +21,18 @@ export const titlesPart = {
   async titleFromModel(this: Runner, st: ThreadState, text: string, reply?: string): Promise<{ title: string } | { reason: string }> {
     if (!this.models) return { reason: 'Model calls are off in this runner.' };
     const before = st.rec.title;
+    // A Jira ticket in the message (jira.ts): its summary goes to the model
+    // and its key leads the title. Only with secrets/jira.json, and never
+    // for a private folder, whose words go nowhere.
+    const jira = this.models.isPrivateFolder?.(st.rec.cwd) ? undefined : readJiraConfig(this.cfg.home);
+    const ticket = jira ? await jiraTicket(jira, jiraKeys(text.slice(0, 4000))) : undefined;
+    let prompt = reply ? `Message:\n${text.slice(0, 4000)}\n\nStart of the reply:\n${reply.slice(0, 1000)}` : `Message:\n${text.slice(0, 4000)}`;
+    if (ticket) prompt += `\n\nJira ticket ${ticket.key}: ${ticket.summary}`;
     const res = await this.models.generate({
       feature: 'titles',
       cwd: st.rec.cwd,
       system: TITLE_PROMPT,
-      prompt: reply ? `Message:\n${text.slice(0, 4000)}\n\nStart of the reply:\n${reply.slice(0, 1000)}` : `Message:\n${text.slice(0, 4000)}`,
+      prompt,
       // Room for Haiku to think first: at 30 it sometimes ran out before
       // writing a word. A long answer is turned down by cleanTitle anyway.
       maxTokens: 300,
@@ -32,8 +40,9 @@ export const titlesPart = {
     if (!res.ok) return { reason: res.message };
     if (st.rt.deleted) return { reason: 'Deleted meanwhile.' };
     if (st.rec.titleSet || st.rec.title !== before) return { reason: 'Renamed meanwhile.' };
-    const title = cleanTitle(res.value);
-    if (!title) return { reason: 'The model gave no title.' };
+    const cleaned = cleanTitle(res.value);
+    if (!cleaned) return { reason: 'The model gave no title.' };
+    const title = ticket ? titleWithTicket(ticket.key, cleaned) : cleaned;
     st.rec.title = title;
     st.rec.updatedAt = this.isoNow();
     this.markDirty(st);

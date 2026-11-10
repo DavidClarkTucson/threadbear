@@ -552,7 +552,7 @@ export type RunnerDeps = {
   convexKeyOptions?: ConvexKeysOptions; // the CLI's login file, sign-in command and key check, for tests
   // The runner's own small-model calls (models/index.ts), for titles.
   // Absent in most tests, which then keep the first-line title.
-  models?: Pick<Models, 'generate'>;
+  models?: Pick<Models, 'generate'> & { isPrivateFolder?(cwd: string): boolean };
   // Projects (projects.ts): their folders' patches, the brief a session
   // starts with, and the summary's `projects`. Started by start().
   projects?: Projects;
@@ -655,7 +655,7 @@ export class Runner {
   convexKeys: ConvexKeys;
   // Where answers to ask_secret go, and the key the phone seals them to.
   secrets: SecretStore;
-  models?: Pick<Models, 'generate'>;
+  models?: Pick<Models, 'generate'> & { isPrivateFolder?(cwd: string): boolean };
   projects?: Projects;
   standingInstructions?: () => string;
   activity = new Set<(a: ThreadActivity) => void>();
@@ -3750,6 +3750,12 @@ export const TITLE_PROMPT = [
   '',
   'Message: hello there',
   'Title: Hello',
+  '',
+  'A Jira ticket under the message: a few words of what the ticket is about, then what the message asks, without the ticket key.',
+  '',
+  'Message: MACG-3375 tech design',
+  'Jira ticket MACG-3375: Force reclassification of URLs on demand',
+  'Title: Force reclassifications tech design',
 ].join('\n');
 
 // A model's title, tidied: first line, no wrapping quotes or full stop,
