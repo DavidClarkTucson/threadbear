@@ -15,7 +15,7 @@ final class EveryClickShowsTests: XCTestCase {
         "convexPanelLogin", "convexPanelKey", "threadHighlights", "threadCommands", "contextUsage", "folderCommands", "explain", "panelShown",
         "events", "subscribe", "subagent", "unsubscribe", "markSeen", "startRequest", "importMedia", "usageStats",
         "listClis", "listSchedules", "listRunners", "remoteLogins", "remoteThreads", "previewSchedule",
-        "movePreview", "listProjects", "getProject", "refreshProjectTasks", "librarianStatus", "connectorsStatus", "listPools",
+        "movePreview", "listProjects", "getProject", "refreshProjectTasks", "librarianStatus", "connectorsStatus", "listPools", "threadSummary",
         // Not calls: helpers on the request types in the same file.
         "applied", "params",
     ]
