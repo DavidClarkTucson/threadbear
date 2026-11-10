@@ -832,8 +832,12 @@ unknown option IDs, picks of reference options and `none` with picks are
 invalid. A response needs a pick, `none`, a reply or a nonblank note.
 Saving an empty draft is allowed. The agent's message reads `Picked A.
 <title>.` or `Picked A + D. <title> + <title>.`, or `Picked none of them.`,
-then the reply as written, then any notes; the Mac and phone read that
-wording back for Mike's bubble (`ReviewAnswer`), so change them with it.
+then the reply as written, then any notes. With a pick, a last paragraph
+names the pickable options passed over (`Passed over: B. <title>; C.
+<title>.` and a fixed sentence, `PASSED_OVER_TAIL`), so the agent doesn't
+later offer one as a new follow-up. The Mac, phone and GPUI apps read that
+wording back for Mike's bubble (`ReviewAnswer`), leaving the passed-over
+paragraph out, so change them with it.
 
 Every change persists a `review.updated` event with `{ review: DesignReview }`.
 An option's `url` is an http or https page; the Mac app drops any other

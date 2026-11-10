@@ -619,6 +619,15 @@ fn testReviewReplyEventReachesTheBubble() {
 }
 
 #[test]
+fn testReviewReplyLeavesOutWhatHePassedOver() {
+    let words = format!("Review: Picker (r1)\n\nPicked A. Auto account.\n\nPassed over: B. Manual. {}", ReviewAnswer::PASSED_OVER_TAIL);
+    let e = event(4, "user.message", json!({"text": words, "images": [], "reviewId": "r1", "reviewResponse": {"pickedId": "A", "notes": {}}}));
+    let model = from_events(vec![e]);
+    let Some(RowContent::User(message)) = model.rows().first().map(|r| &r.content) else { panic!("no bubble") };
+    assert_eq!(message.review.as_ref().map(|r| r.lines.clone()), Some(vec![ReviewAnswerLine { label: "Picker".into(), text: "Picked A: Auto account".into() }]));
+}
+
+#[test]
 fn testActionRunEventBecomesAToolRow() {
     let value = json!({"seq": 7, "ts": "2026-10-27T02:00:00Z", "threadId": "th1", "type": "action.run", "actionId": "tools.typecheck", "patch": "tools", "title": "Typecheck", "command": "npx tsc --noEmit", "ok": false, "exitCode": 2, "text": "src/a.ts(1,1): error TS1\n", "truncated": false, "durationMs": 1234});
     let e = Event::decode(&value).expect("an event");
