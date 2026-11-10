@@ -20,6 +20,15 @@ Feature: The thread's bar, banners and notes
     Then the panel bar's title says "Evening brief"
     And the sidebar lists "Evening brief"
 
+  # The demo's "Draft the release notes" is on the Evenings pool, whose only
+  # login is at its limit, so the runner is holding it until there's room.
+  @banner.limit
+  Scenario: A pool thread out of room says when it carries on, and offers a login outside the pool
+    When I open the thread "Draft the release notes for 0.4"
+    Then the limit line starts "Every login in Evenings is out of room. It carries on"
+    And the limit line's button says "Pin to mike (78% left)"
+    And the model chip is marked "Limit reached"
+
   @header.backforward
   Scenario: The back and forward buttons say where they go
     When I open the thread "Morning brief"

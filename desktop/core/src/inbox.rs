@@ -112,8 +112,11 @@ impl ThreadSummary {
         self.last_seq > self.last_seen_seq
     }
     /// A turn is running or starting (ThreadStatus.isBusy).
+    /// A turn is underway or about to be (Swift `ThreadStatus.isBusy`),
+    /// waiting on a permission card included: that turn can still be stopped,
+    /// and the composer offered Send instead of Stop for one (10 Nov).
     pub fn busy(&self) -> bool {
-        self.status == "running" || self.status == "starting"
+        matches!(self.status.as_str(), "running" | "starting" | "waiting")
     }
     /// The background list, read leniently: a malformed entry is left out.
     pub fn background_tasks(&self) -> Vec<BackgroundTask> {
@@ -466,6 +469,15 @@ mod tests {
         assert_eq!(ids(&s, "running"), ["t2"]);
         assert_eq!(ids(&s, "hibernating"), ["t4"]);
         assert_eq!(ids(&s, "starred"), ["t5"]);
+    }
+
+    #[test]
+    fn a_turn_waiting_on_a_permission_card_is_still_busy() {
+        // As Swift's ThreadStatus.isBusy: it can be stopped, and isn't idle.
+        assert!(thread(1, json!({ "status": "waiting" })).busy());
+        assert!(thread(1, json!({ "status": "running" })).busy());
+        assert!(!thread(1, json!({ "status": "idle" })).busy());
+        assert!(!thread(1, json!({ "status": "error" })).busy());
     }
 
     #[test]

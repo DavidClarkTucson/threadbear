@@ -404,6 +404,10 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         }
         "screenshot" => {
             let path = text(cmd, "path");
+            // A fresh frame first, as `dump` draws one: a covered window gets
+            // no frames from the system, so a picture that's finished loading
+            // since the last one (a project's icon) was missing from the shot.
+            window.render_frame(cx);
             let image = window.render_to_image().map_err(|e| e.to_string())?;
             image.save(path).map_err(|e| e.to_string())?;
             Ok(json!("ok"))

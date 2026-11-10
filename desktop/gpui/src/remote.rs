@@ -6,6 +6,7 @@
 // `Threadbear::threads` beside this Mac's own, so the sidebar and the
 // transcript take them as they are: every request about one goes to this
 // Mac's runner, which answers from the backend.
+use threadbear_core::inbox::ThreadSummary;
 use crate::app::Threadbear;
 use crate::call;
 use gpui_kit::*;
@@ -135,6 +136,20 @@ impl Threadbear {
     /// `runnerName(of:)`: "bruce" for another runner's thread.
     pub(crate) fn runner_name_of(&self, runner_id: &str) -> String {
         self.remote.runners.iter().find(|r| r.id == runner_id).map_or_else(|| "another Mac".to_owned(), |r| r.name.clone())
+    }
+
+    /// `runnerLabel(of:)`: the runner's name on a sidebar row ("m5",
+    /// "bruce"), this Mac's own threads included: Mike moves threads between
+    /// machines and asked to see at a glance where each one is (9 Nov). None
+    /// with only this Mac, where every row would just repeat the same name.
+    pub(crate) fn runner_label(&self, t: &ThreadSummary) -> Option<String> {
+        if let Some(id) = t.runner_id.as_deref() {
+            return Some(self.runner_name_of(id));
+        }
+        if self.remote.runners.is_empty() {
+            return None;
+        }
+        self.remote.all_runners.iter().find(|r| r.is_self).map(|r| r.name.clone())
     }
 
     /// `runnerPlace(of:)`: "On bruce", or "On bruce, offline".

@@ -105,6 +105,8 @@ struct AppDump: Encodable {
         var pool: String? = nil
         /// The model chip as it reads ("Claude · Opus 5.5 · High").
         var chip: String = ""
+        /// After its title: "Limit reached", or "· 12%" running low.
+        var chipBadge: String? = nil
         /// The other runner it runs on ("bruce"); nil for this Mac.
         var runner: String? = nil
         /// The open card in the box, for the behaviour specs: "Done" with
@@ -278,6 +280,11 @@ struct AppDump: Encodable {
         var buttons: [String]? = nil
     }
 
+    struct LimitInfo: Encodable {
+        var text: String
+        var button: String?
+    }
+
     struct Transcript: Encodable {
         var threadId: String
         var state: String
@@ -291,6 +298,9 @@ struct AppDump: Encodable {
     var connection: String
     var runnerVersion: String
     var banner: BannerInfo?
+    /// The line under the bar when the open thread can't go on where it is
+    /// (LimitBanner): what it says and its button.
+    var limit: LimitInfo?
     /// The Archived note with Undo at the top of the thread panel: its thread.
     var archivedNote: String?
     /// The milestone note at the top of the thread panel: its first line.
@@ -597,6 +607,7 @@ struct AppDump: Encodable {
             connection: connectionName(app.connection),
             runnerVersion: app.runnerVersion,
             banner: app.banner.map { BannerInfo(style: $0.style.rawValue, text: $0.text, detail: $0.detail) },
+            limit: app.selectedThread.flatMap { limitInfo(app, thread: $0) },
             archivedNote: app.archivedNote?.threadId,
             milestoneNote: app.milestoneNote.map { ThreadMilestones.title($0.tier) },
             error: app.errorMessage,
@@ -1041,8 +1052,29 @@ struct AppDump: Encodable {
                         editing: app.editing[key]?.seq,
                         cwd: settings.cwd, account: settings.account, model: settings.model, ask: settings.ask, mode: settings.mode, effort: settings.effort,
                         pool: settings.pool, chip: ThreadSettings(app: app, thread: app.selectedThread).modelChipTitle,
+                        chipBadge: badgeWords(ThreadSettings(app: app, thread: app.selectedThread).modelChipBadge),
                         runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil),
                         card: cardLines(app, key: key), recap: recapLines(app), creating: key == "new" && app.creatingThread)
+    }
+
+    /// LimitBanner's words and button, as it draws them.
+    @MainActor private static func limitInfo(_ app: AppModel, thread: ThreadSummary) -> LimitInfo? {
+        guard let advice = app.limitAdvice(for: thread) else { return nil }
+        let waiting = thread.waitingForRoom != nil && app.usesPools
+        let button = advice.target.map { target -> String in
+            let title = AccountUsageText.switchTitle(target, accounts: app.accounts)
+            return waiting ? title.replacingOccurrences(of: "Switch to", with: "Pin to") : title
+        }
+        return LimitInfo(text: advice.text, button: button)
+    }
+
+    /// A chip's badge as it reads after the title.
+    private static func badgeWords(_ badge: AccountUsageText.ChipBadge?) -> String? {
+        switch badge {
+        case .low(let percent)?: return "· " + percent
+        case .blocked?: return "Limit reached"
+        case nil: return nil
+        }
     }
 
     /// The recap box as lines (`composer.recap`), nil unless it's up.

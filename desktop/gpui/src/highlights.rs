@@ -1376,7 +1376,12 @@ impl Render for SidePane {
             return v_flex().size_full().bg(bg).child(crate::files::pane_note("Pick a thread to see its Highlights.", p)).into_any_element();
         };
         let section = self.section_for(&thread);
-        let header = self.render_header(&thread, &section, cx).into_any_element();
+        // Only a preview has a header of its own here, for its Back and its
+        // buttons. Otherwise the dock's bar above already names the section,
+        // and the Swift pane has nothing between the two (PaneHeader is gone
+        // from its panes); a second "Highlights" under the first looked off.
+        let previewing = self.previews.get(&thread.id).is_some_and(|pv| pv.from == section);
+        let header = previewing.then(|| self.render_header(&thread, &section, cx).into_any_element());
         let body = if let Some(preview) = self.previews.get(&thread.id).filter(|pv| pv.from == section).cloned() {
             self.render_preview(&thread, &preview, window, cx)
         } else {
@@ -1418,7 +1423,7 @@ impl Render for SidePane {
             .bg(bg)
             .text_color(p.fg)
             .child(measure)
-            .child(header)
+            .children(header)
             .child(div().flex_1().min_h_0().child(body))
             .when_some(menu, |s, (position, view)| s.child(deferred(anchored().position(position).snap_to_window_with_margin(px(8.)).child(div().occlude().child(view))).with_priority(1)))
             .when_some(popover, |s, card| s.child(card))

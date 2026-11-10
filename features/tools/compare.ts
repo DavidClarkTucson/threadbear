@@ -8,6 +8,7 @@
 //
 // With no titles it takes every demo thread in the Inbox. It writes
 // <out folder>/index.html; copy the folder back and open that.
+// TB_APPEARANCE=light or dark sets both apps' look (the desktop's otherwise).
 import fs from 'node:fs';
 import path from 'node:path';
 import { GpuiDriver } from '../support/gpui.ts';
@@ -30,6 +31,7 @@ async function shoot(name: 'swift' | 'gpui', app: Driver, titles: string[] | nul
       if (d.connection === 'connected') threads = d.sidebar.sections.flatMap((s) => s.threads);
       if (!threads.length) await sleep(50);
     }
+    if (process.env.TB_APPEARANCE) await app.do({ cmd: 'appearance', mode: process.env.TB_APPEARANCE });
     const scenes = titles ?? threads.map((t) => t.title);
     for (const title of scenes) {
       const thread = threads.find((t) => t.title === title);

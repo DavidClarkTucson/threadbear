@@ -125,7 +125,12 @@ pub struct Threadbear {
 impl Threadbear {
     pub(crate) fn new(settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // gpui-kit starts in its light theme whatever the system says; follow
-        // the system's light or dark, and keep following it when it changes.
+        // the system's light or dark, and keep following it when it changes,
+        // in the system's own window colours (style.rs). Scroll bars show only
+        // while scrolling, whatever the system's set to, as the Swift app's
+        // transcript and composer have them (`scrollerStyle = .overlay`).
+        crate::style::install_window_colours(cx);
+        Theme::set_scrollbar_mode(gpui_kit::component::scroll::ScrollbarMode::Scrolling, cx);
         Theme::sync_system_appearance(Some(window), cx);
         let appearance = window.observe_window_appearance(|window, cx| Theme::sync_system_appearance(Some(window), cx));
         crate::style::set_zoom_percent(settings.zoom_percent());
@@ -528,6 +533,7 @@ impl Threadbear {
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": self.banner_dump(),
+            "limit": self.limit_dump(),
             "error": self.error_message.clone(),
             "dock": dock,
             "zoom": crate::style::zoom_percent(),
@@ -562,6 +568,7 @@ impl Threadbear {
                 out["runner"] = json!(away.name);
             }
             out["chip"] = json!(crate::composer_chips::model_chip_text(&data));
+            out["chipBadge"] = json!(crate::composer_chips::model_chip_badge_text(&data));
             if let Some(card) = composer.card_lines(cx) {
                 out["card"] = json!(card);
             }
