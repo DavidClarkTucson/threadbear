@@ -79,7 +79,8 @@ test('the reported shapes: line separators, and Hebrew letters turning a pipe an
 
 test("a Codex patch's line is its one file: more files, a folder to write under, or none aren't whole", () => {
   const one = { paths: ['/w/notes.txt'], reason: 'Update notes' };
-  assert.equal(remoteCardShowsAll('apply_patch', one), true);
+  // An edit is allowed only on the Mac now, one file or many (Mike, 10 Nov 2026).
+  assert.equal(remoteCardShowsAll('apply_patch', one), false);
   assert.equal(summaryField(one), '/w/notes.txt');
   assert.equal(inputSummary(one), '/w/notes.txt', 'the line the phone shows is the path, not the reason');
   assert.equal(remoteCardShowsAll('apply_patch', { paths: ['/w/a.txt', '/w/b.txt'], reason: 'x' }), false);
@@ -109,7 +110,8 @@ test('ordinary ASCII commands, paths and pages still show whole', () => {
   // Spaces and line breaks at a command's ends change nothing it does.
   assert.equal(remoteCardShowsAll('Bash', { command: 'npm test\n' }), true);
   assert.equal(remoteCardShowsAll('Bash', { command: '  npm test  ' }), true);
-  assert.equal(remoteCardShowsAll('Write', { file_path: '/w/notes.txt', content: 'x' }), true);
+  // An edit isn't: the phone shows only its path (Mike, 10 Nov 2026).
+  assert.equal(remoteCardShowsAll('Write', { file_path: '/w/notes.txt', content: 'x' }), false);
   assert.equal(remoteCardShowsAll('WebFetch', { url: 'https://example.com/a' }), true);
   // The rules that were there before still hold.
   assert.equal(remoteCardShowsAll('Bash', { command: 'a'.repeat(161) }), false);

@@ -3211,7 +3211,12 @@ test('which cards the phone may allow: a short one-line command, or a threadbear
   assert.equal(remoteCardShowsAll('Bash', { command: 'npm test', description: 'x' }), true);
   assert.equal(remoteCardShowsAll('Bash', { command: 'a'.repeat(161) }), false);
   assert.equal(remoteCardShowsAll('Bash', { command: 'ls\nrm -rf ~' }), false);
-  assert.equal(remoteCardShowsAll('Write', { file_path: '/x', content: 'long' }), true, 'an edit shows its path, as before');
+  // An edit shows only its path there and Allow writes all of it, so
+  // only the Mac allows one (Mike, 10 Nov 2026).
+  for (const name of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply_patch']) {
+    assert.equal(remoteCardShowsAll(name, { file_path: '/x', content: 'rm -rf ~', paths: ['/x'] }), false, name);
+  }
+  assert.equal(remoteCardShowsAll('WebFetch', { url: 'https://example.com', prompt: 'x' }), true, "a page's address is still its line");
   // A Codex card's folder and network are more than its line shows, unless it's the thread's own folder.
   assert.equal(remoteCardShowsAll('shell', { command: 'rm -rf build', cwd: '/w' }, '/w'), true);
   assert.equal(remoteCardShowsAll('shell', { command: 'rm -rf build', cwd: '/Users/me' }, '/w'), false);

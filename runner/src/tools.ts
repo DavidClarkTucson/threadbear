@@ -273,6 +273,11 @@ export const REMOTE_RUN_REFUSED = "Its command can't be shown in full here, so i
 // only its path here (its title says it is one), so it counts too.
 export function remoteCardShowsAll(name: string, input: Record<string, unknown>, cwd?: string, title = ''): boolean {
   if (name === 'permissions' || title.includes(RUNS_AS_CODE) || title.includes(MAYBE_RUNS_AS_CODE)) return false;
+  // A file edit shows only its path there, and Allow writes all of it: the
+  // Mac's card shows every line, so only the Mac allows one (Mike chose
+  // this on 10 Nov 2026, after Codex's review of the approval-card fixes;
+  // it had been "an edit shows its path, as before").
+  if (REMOTE_EDIT_TOOLS.has(name)) return false;
   // A command's spaces and line breaks at its ends change nothing it does.
   const fits = (v: string) => drawnAsWritten(v.replace(/^[ \n]+|[ \n]+$/g, ''));
   // An MCP tool's arguments say what it does (a threadbear tool's own ask,
@@ -305,6 +310,9 @@ export function remoteCardShowsAll(name: string, input: Record<string, unknown>,
   return line === undefined || (line === line.trim() && drawnAsWritten(line));
 }
 const ID_KEYS = new Set(['threadId', 'id', 'scheduleId', 'project']);
+// Every name a file edit's card comes under: Claude's tools, and Codex's,
+// OpenCode's and Cursor's patches (adapters/codex/approvals.ts, acp/adapter.ts).
+const REMOTE_EDIT_TOOLS = new Set([...EDIT_TOOLS, 'NotebookEdit', 'apply_patch']);
 
 // What a line the phone, the website or another Mac's view shows may hold
 // for Allow to be offered there: printable ASCII, a space to a tilde, and

@@ -5505,8 +5505,8 @@ the mirror back as state. The Mac app doesn't use it.
   ends, a Codex patch to more than one file or asking to write under a
   folder, in another folder or asking for the network, one scrubbing
   changed (checked again as the row goes up, after any value found since),
-  an MCP tool with more than one short thing to read, an edit of a file that
-  runs as code, a threadbear tool's own card, Codex asking for more access) has
+  an MCP tool with more than one short thing to read, any file edit (it
+  shows only its path there, and Allow writes all of it), a threadbear tool's own card, Codex asking for more access) has
   only its non-allow options there, and its title says it can only be
   allowed in the Mac app connected straight to its runner; the runner
   refuses an allow or allowAlways that comes through the backend for one
