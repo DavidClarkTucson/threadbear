@@ -93,10 +93,10 @@ fn approval_title(item: &ApprovalItem, cx: &App) -> Div {
         .when_some(reason, |d, reason| d.child(div().text_size(px(size::DETAIL)).line_height(px(19.)).text_color(quiet).child(ApprovalText::shown(reason))))
 }
 
-/// `approvalPayload`: the command, the start of what would be written to a
-/// file, the page, or the tool's input, whole, as Allow allows all of it.
+/// `approvalPayload`: the command, what would be written to a file, the
+/// page, or the tool's input, whole, as Allow allows all of it.
 pub(crate) fn approval_payload(ix: usize, n: usize, request: &ApprovalRequest, root: Option<&str>, cx: &App) -> AnyElement {
-    let (label, quiet) = (style::label_text(cx), style::quiet_text(cx));
+    let label = style::label_text(cx);
     let input = &request.input;
     if let Some(command) = input.get("command").and_then(Value::as_str) {
         let mut col = v_flex().child(mono(("cmd", ix * 100 + n), ApprovalText::shown(command), label, cx));
@@ -108,7 +108,7 @@ pub(crate) fn approval_payload(ix: usize, n: usize, request: &ApprovalRequest, r
     }
     let is_mcp = request.name.starts_with("mcp__");
     if !is_mcp {
-        if let Some(path) = ApprovalText::file_path(request) {
+        if ApprovalText::file_path(request).is_some() {
             let call = ToolCall { item_id: request.approval_id.clone(), name: request.name.clone(), kind: if request.name == "Write" { ToolKind::Write } else { ToolKind::Edit }, title: request.title.clone(), input: input.clone() };
             if let Some(mut diff) = DiffBuilder::diff_for_tool(&call).filter(|d| !d.hunks.is_empty()) {
                 // What it writes, with any character that hides, breaks or
@@ -116,14 +116,19 @@ pub(crate) fn approval_payload(ix: usize, n: usize, request: &ApprovalRequest, r
                 for hunk in &mut diff.hunks {
                     hunk.lines = hunk.lines.iter().map(|l| ApprovalText::shown(l)).collect();
                 }
-                // A file Threadbear runs as code, or can't rule out, shows
-                // every line it writes: a hook past the eighth line is still a hook.
-                let code = request.title.contains("Threadbear runs this file as code") || request.title.contains("Threadbear can't tell whether this file runs as code");
-                return super::diff::diff_with_note(SharedString::from(format!("approval-diff-{ix}-{n}")), std::slice::from_ref(&diff), if code { 1_000_000 } else { 8 }, 0., root, super::diff::DiffNote::None, cx).into_any_element();
+                // Every line it writes, and every argument the diff doesn't
+                // draw: Allow allows all of it, so the card grows to fit, as
+                // for a command (Codex review, 10 Nov 2026: a ninth line past
+                // eight harmless ones was hidden with no note).
+                let mut col = v_flex().child(super::diff::diff_with_note(SharedString::from(format!("approval-diff-{ix}-{n}")), std::slice::from_ref(&diff), 1_000_000, 0., root, super::diff::DiffNote::None, cx));
+                let extra = ApprovalText::fields_beyond_diff(input);
+                if !extra.is_empty() {
+                    col = col.child(div().mt(px(4.)).child(work::fields_text(ix * 100 + n, &extra, cx)));
+                }
+                return col.into_any_element();
             }
-            return mono(("path", ix * 100 + n), ApprovalText::shown(&ToolPresentation::short_title(&path, 300)), quiet, cx).into_any_element();
-        }
-        if let Some(url) = input.get("url").and_then(Value::as_str) {
+            // Nothing a diff can draw (a notebook cell, say): every field, below.
+        } else if let Some(url) = input.get("url").and_then(Value::as_str) {
             return mono(("url", ix * 100 + n), ApprovalText::shown(url), label, cx).into_any_element();
         }
     }
@@ -339,7 +344,7 @@ impl ThreadPane {
 
     /// `queuedDecisions`: its own call's answer, and each queued call's, from
     /// the ticks. Deny denies the lot.
-    fn respond_queued(&mut self, approval_id: &str, decision: &str, cx: &mut Context<Self>) {
+    pub(crate) fn respond_queued(&mut self, approval_id: &str, decision: &str, cx: &mut Context<Self>) {
         let Some(item) = self.feed.model().rows().iter().find_map(|r| match &r.content {
             threadbear_core::reducer::RowContent::Approval(a) if a.request.approval_id == approval_id => Some(a.clone()),
             _ => None,
@@ -688,7 +693,7 @@ impl ThreadPane {
             body = body.child(super::plan_steps(ix, &plan.entries, cx));
         }
         if let Some(doc) = doc {
-            body = body.child(div().when(!plan.entries.is_empty(), |d| d.mt(px(23.))).text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(gpui_kit::base::TextView::new(&doc).selectable(true).style(text_style).code_block_highlighter(super::plain_code_blocks)));
+            body = body.child(div().when(!plan.entries.is_empty(), |d| d.mt(px(23.))).text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).code_block_highlighter(super::plain_code_blocks)));
         }
         content = content.child(body);
         let has_footer = waiting || !plan.entries.is_empty() || clipped;

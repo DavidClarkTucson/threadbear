@@ -5,8 +5,26 @@
 // pasting a path into `file://`.
 use std::path::{Path, PathBuf};
 
-/// What reaches the system's opener, or starts a program, directly.
-const OPENERS: &[&str] = &[".open_url(", ".reveal_path(", "open_with_system", "Command::new(", "NSWorkspace", "ShellExecute", "xdg-open", "format!(\"file://"];
+/// What reaches the system's opener, or starts a program, directly. The
+/// kit's own rich text, links and menu links count: with no handler of their
+/// own they call `open_url` themselves (Codex review of the 10 Nov fix), so
+/// they're made only by the gate's `text_view` and `markdown_view`.
+const OPENERS: &[&str] = &[
+    ".open_url(",
+    ".reveal_path(",
+    "open_with_system",
+    "Command::new(",
+    "NSWorkspace",
+    "ShellExecute",
+    "xdg-open",
+    "format!(\"file://",
+    "TextView::new(",
+    "TextView::markdown(",
+    "TextView::html(",
+    "PopupMenuItem::link(",
+    "Link::new(",
+    "EditorHost",
+];
 
 /// The gate itself, and a test helper that starts the mock runner.
 const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs"];

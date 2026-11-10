@@ -47,6 +47,31 @@ public enum ApprovalText {
         return title.isEmpty ? nil : shown(title)
     }
 
+    /// What a file card's diff doesn't draw, which Allow allows too: every
+    /// argument but the path and the text the diff shows (`replace_all`, a
+    /// notebook cell's id and kind, an edit's own flags), named as for a
+    /// command (Codex review, 10 Nov 2026: `replace_all: true` and
+    /// `false` drew the same card).
+    public static func fieldsBeyondDiff(_ input: JSONValue) -> [ToolPresentation.Field] {
+        let drawn: Set<String> = ["file_path", "notebook_path", "path", "content", "old_string", "new_string", "edits"]
+        var out = ToolPresentation.fields(input, whole: true).filter { !drawn.contains($0.key) }
+        if case .array(let edits)? = input["edits"] {
+            for (i, edit) in edits.enumerated() {
+                var rest: JSONValue?
+                if case .object(let fields) = edit {
+                    let kept = fields.filter { $0.key != "old_string" && $0.key != "new_string" }
+                    if !kept.isEmpty { rest = .object(kept) }
+                } else {
+                    rest = edit
+                }
+                if let rest {
+                    out.append(ToolPresentation.Field(key: "edit \(i + 1)", value: rest.compactText))
+                }
+            }
+        }
+        return shown(out)
+    }
+
     /// The decision in a word or two.
     public static func decision(_ decision: ApprovalDecision) -> String {
         switch decision {

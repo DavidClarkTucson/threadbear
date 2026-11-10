@@ -324,13 +324,21 @@ impl ThreadPane {
     pub(crate) fn allow_sole_approval(&mut self, cx: &mut Context<Self>) -> bool {
         let pending = self.feed.model().pending_approval_ids();
         let [id] = pending.as_slice() else { return false };
-        if let Some(Row { content: RowContent::Approval(item), .. }) = self.feed.model().item(&format!("ap:{id}")) {
-            if item.is_start_request() {
-                return false;
-            }
+        let id = id.clone();
+        let stacked = match self.feed.model().item(&format!("ap:{id}")) {
+            Some(Row { content: RowContent::Approval(item), .. }) if item.is_start_request() => return false,
+            Some(Row { content: RowContent::Approval(item), .. }) => !item.queued().is_empty(),
+            _ => false,
+        };
+        // A stacked card's Return is its "Allow N": the ticked calls only,
+        // the crossed ones refused (Codex review, 10 Nov 2026: a bare allow
+        // here ran a call Mike had crossed out). Either way the card spins
+        // until the answer lands.
+        if stacked {
+            self.respond_queued(&id, "allow", cx);
+        } else {
+            self.respond_approval(&id, "allow", None, None, cx);
         }
-        let params = json!({ "threadId": self.summary.id, "approvalId": id, "decision": "allow" });
-        self.request("approvals.respond", params, cx);
         true
     }
 

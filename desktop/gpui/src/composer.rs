@@ -888,7 +888,7 @@ fn paste_base() -> PathBuf {
 /// with a random name and 0700, the file new with 0600, so on a shared
 /// `/tmp` nobody else can read it, list it, or make the folder first and
 /// have it written into theirs (Daybreak, 10 Nov 2026, finding 63). The
-/// folder goes once the runner has its own copy (`settle_picture`).
+/// folder goes once the runner has its own copy (`import_picture`).
 fn stage_private(base: &std::path::Path, name: &str, bytes: &[u8]) -> Option<PathBuf> {
     use std::io::Write as _;
     let mut builder = tempfile::Builder::new();
@@ -908,27 +908,31 @@ fn stage_private(base: &std::path::Path, name: &str, bytes: &[u8]) -> Option<Pat
         let _ = std::fs::remove_dir_all(&folder);
         return None;
     }
+    STAGED.lock().unwrap_or_else(|e| e.into_inner()).push(folder);
     Some(path)
 }
 
-/// A staged picture's folder, once the runner has copied it (or couldn't):
-/// only one `stage_private` made, so a dropped file's own folder is never
-/// touched.
-fn unstage(path: &std::path::Path) {
-    unstage_in(&paste_base(), path);
-}
+/// The folders `stage_private` made and hasn't removed: only these are
+/// ever deleted, never a folder that just has the same kind of name (Codex
+/// review, 10 Nov 2026: a picture dropped from `/tmp/threadbear-paste-x/`
+/// would have taken that whole folder with it).
+static STAGED: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
 
-fn unstage_in(base: &std::path::Path, path: &std::path::Path) {
+/// A staged picture's folder, once the runner has copied it (or couldn't).
+/// A dropped or pasted file's own folder is never touched.
+fn unstage(path: &std::path::Path) {
     let Some(folder) = path.parent() else { return };
-    let ours = folder.file_name().is_some_and(|n| n.to_string_lossy().starts_with("threadbear-paste-")) && folder.parent() == Some(base);
-    if ours {
+    let mut staged = STAGED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(at) = staged.iter().position(|f| f == folder) {
+        staged.remove(at);
+        drop(staged);
         let _ = std::fs::remove_dir_all(folder);
     }
 }
 
 #[cfg(test)]
 mod paste_tests {
-    use super::{stage_private, unstage_in};
+    use super::{stage_private, unstage};
     use std::fs;
 
     /// Finding 63: under umask 022 the old folder was 0755 and the file
@@ -963,20 +967,24 @@ mod paste_tests {
     }
 
     /// Once the runner has its copy, the staged folder goes, and only a
-    /// folder this made: a dropped file's own folder stays.
+    /// folder this made: a dropped file's own folder stays, even one with
+    /// the same kind of name.
     #[test]
     fn the_staged_copy_goes_after_the_import() {
         let base = tempfile::tempdir().unwrap();
         let path = stage_private(base.path(), "pasted-3.png", b"x").unwrap();
         let folder = path.parent().unwrap().to_owned();
-        unstage_in(base.path(), &path);
+        unstage(&path);
         assert!(!folder.exists());
-        let dropped_dir = base.path().join("Desktop");
-        fs::create_dir(&dropped_dir).unwrap();
-        let dropped = dropped_dir.join("shot.png");
-        fs::write(&dropped, b"x").unwrap();
-        unstage_in(base.path(), &dropped);
-        assert!(dropped.exists());
+        for name in ["Desktop", "threadbear-paste-project"] {
+            let dropped_dir = base.path().join(name);
+            fs::create_dir(&dropped_dir).unwrap();
+            fs::write(dropped_dir.join("other.txt"), b"keep").unwrap();
+            let dropped = dropped_dir.join("shot.png");
+            fs::write(&dropped, b"x").unwrap();
+            unstage(&dropped);
+            assert!(dropped.exists() && dropped_dir.join("other.txt").exists(), "{name}");
+        }
     }
 }
 

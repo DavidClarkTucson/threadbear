@@ -95,6 +95,31 @@ impl ApprovalText {
         out
     }
 
+    /// What a file card's diff doesn't draw, which Allow allows too: every
+    /// argument but the path and the text the diff shows (`replace_all`, a
+    /// notebook cell's id and kind, an edit's own flags), named as for a
+    /// command (Codex review, 10 Nov 2026: `replace_all: true` and
+    /// `false` drew the same card).
+    pub fn fields_beyond_diff(input: &Value) -> Vec<Field> {
+        const DRAWN: &[&str] = &["file_path", "notebook_path", "path", "content", "old_string", "new_string", "edits"];
+        let mut out: Vec<Field> = super::tool_presentation::ToolPresentation::fields(input, true).into_iter().filter(|f| !DRAWN.contains(&f.key.as_str())).collect();
+        if let Some(edits) = input.get("edits").and_then(Value::as_array) {
+            for (i, edit) in edits.iter().enumerate() {
+                let rest = match edit.as_object() {
+                    Some(fields) => {
+                        let rest: serde_json::Map<String, Value> = fields.iter().filter(|(k, _)| k.as_str() != "old_string" && k.as_str() != "new_string").map(|(k, v)| (k.clone(), v.clone())).collect();
+                        (!rest.is_empty()).then(|| Value::Object(rest).to_string())
+                    }
+                    None => Some(edit.to_string()),
+                };
+                if let Some(rest) = rest {
+                    out.push(Field { key: format!("edit {}", i + 1), value: rest });
+                }
+            }
+        }
+        Self::shown_fields(&out)
+    }
+
     /// The same for a card's fields, keys and values.
     pub fn shown_fields(fields: &[Field]) -> Vec<Field> {
         fields.iter().map(|f| Field { key: Self::shown(&f.key), value: Self::shown(&f.value) }).collect()

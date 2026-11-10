@@ -56,7 +56,11 @@ pub fn link_kind(url: &str) -> LinkKind {
         return LinkKind::Refuse;
     }
     match scheme(url) {
-        None => LinkKind::File(url_path(url)),
+        // A link to a place in the page itself (`#usage`) names no file.
+        None => match url_path(url) {
+            path if path.is_empty() => LinkKind::Refuse,
+            path => LinkKind::File(path),
+        },
         Some(s) if s == "http" || s == "https" => {
             if crate::reducer::event::is_web_address(url) {
                 LinkKind::Web(url.to_owned())
@@ -132,7 +136,11 @@ pub fn percent_decode(text: &str) -> String {
 /// percent-encoded, so `#`, `?`, `%` and spaces stay part of the name. The
 /// only way the app makes a file URL (`URL(fileURLWithPath:)`).
 pub fn file_url(path: &str) -> String {
-    let mut path = path.replace('\\', "/");
+    // A backslash is a separator only on Windows. Elsewhere it's part of a
+    // name, and turning it into `/` would make the URL name another file
+    // than the one looked at: `Payload.app\` is a plain folder beside the
+    // app `Payload.app` (Codex review, 10 Nov 2026).
+    let mut path = if cfg!(windows) { path.replace('\\', "/") } else { path.to_owned() };
     if !path.starts_with('/') {
         // C:/Users/... is file:///C:/Users/...
         path.insert(0, '/');
@@ -143,7 +151,7 @@ pub fn file_url(path: &str) -> String {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
             // The drive's colon, left as it is.
-            b':' if out.len() == 9 => out.push(':'),
+            b':' if cfg!(windows) && out.len() == 9 => out.push(':'),
             _ => out.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -560,13 +568,37 @@ mod tests {
         assert_eq!(link_kind("docs/report.command"), LinkKind::File("docs/report.command".into()));
         assert_eq!(link_kind("guide.md#links"), LinkKind::File("guide.md".into()));
         assert_eq!(link_kind("a\u{0}b"), LinkKind::Refuse);
+        assert_eq!(link_kind("#usage"), LinkKind::Refuse);
         assert!(is_own_scheme("threadbear://thread/x"));
     }
 
     #[test]
     fn file_urls_escape_what_a_url_would_read() {
         assert_eq!(file_url("/a b/c#d?e%f.md"), "file:///a%20b/c%23d%3Fe%25f.md");
-        assert_eq!(file_url("C:\\Users\\a.md"), "file:///C:/Users/a.md");
+        if cfg!(windows) {
+            assert_eq!(file_url("C:\\Users\\a.md"), "file:///C:/Users/a.md");
+        } else {
+            assert_eq!(file_url("/w/Payload.app\\"), "file:///w/Payload.app%5C");
+        }
+    }
+
+    /// A folder named `Payload.app\` beside the app is judged and opened as
+    /// itself, never as the app.
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_in_a_name_stays_part_of_it() {
+        let s = Scratch::new("backslash");
+        app_bundle(&s, "Payload.app");
+        let plain = s.path("Payload.app\\");
+        fs::create_dir_all(&plain).unwrap();
+        let LinkKind::File(path) = link_kind(&[&s.0.to_string_lossy(), "/Payload.app%5C"].concat()) else { panic!() };
+        match decide_file(&path, Origin::ThisMac, &none) {
+            FileVerdict::Open { url, resolved } => {
+                assert_eq!(resolved, plain);
+                assert!(url.ends_with("/Payload.app%5C"), "{url}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

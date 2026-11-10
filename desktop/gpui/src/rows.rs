@@ -232,8 +232,20 @@ impl ThreadPane {
             .border_1()
             .border_color(border)
             .child(div().mb(px(8.)).text_size(px(size::SMALL)).line_height(px(17.)).text_color(faint).child(title))
-            .when_some(doc, |d, doc| d.child(div().text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(TextView::new(&doc).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks))));
+            .when_some(doc, |d, doc| d.child(div().text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(self.linked_text(&doc, &format!("agent-{ix}"), cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks))));
         h_flex().w_full().px(px(SIDE_INSET)).justify_center().child(div().w_full().max_w(px(MAX_CONTENT_WIDTH)).pt(px(USER_TOP)).pb(px(USER_BOTTOM)).child(card)).into_any_element()
+    }
+
+    /// A row's markdown, its links going to `link_clicked` (and from there
+    /// through the open gate), never to the system's opener as gpui's own
+    /// text view would send them.
+    pub(crate) fn linked_text(&self, doc: &Entity<gpui_kit::base::TextViewState>, row_id: &str, cx: &mut Context<Self>) -> TextView {
+        let weak = cx.weak_entity();
+        let row_id = row_id.to_owned();
+        crate::open_gate::text_view(doc, self.origin(), &self.summary.cwd).on_link_click(move |url: &SharedString, _event: &ClickEvent, window: &mut Window, cx: &mut App| {
+            let (url, row_id) = (url.to_string(), row_id.clone());
+            let _ = weak.update(cx, |this, cx| this.link_clicked(&url, &row_id, window, cx));
+        })
     }
 
     /// The reading column's text: markdown, selectable, links going where they
@@ -243,12 +255,7 @@ impl ThreadPane {
         let source = markdown::prepare(&item.text);
         let doc = self.markdown_state(&item.item_id, &source, cx);
         let text_style = self.reading_style(cx);
-        let weak = cx.weak_entity();
-        let row_id = row.id.clone();
-        let text = TextView::new(&doc).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks).on_link_click(move |url: &SharedString, _event: &ClickEvent, window: &mut Window, cx: &mut App| {
-            let (url, row_id) = (url.to_string(), row_id.clone());
-            let _ = weak.update(cx, |this, cx| this.link_clicked(&url, &row_id, window, cx));
-        });
+        let text = self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);
         row_wrap(row, div().pt(px(ROW_TOP)).pb(px(10.)).text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).text_color(style::label_text(cx)).child(text))
     }
 
@@ -342,7 +349,7 @@ impl ThreadPane {
         for (ai, ask) in asks.asks.iter().enumerate() {
             let mut block = v_flex().gap_1().child(div().font_semibold().child(ask.action.clone()));
             if let Some(why) = &ask.why {
-                block = block.child(div().text_sm().text_color(muted).child(gpui_kit::component::text::TextView::markdown(("why", ix * 10 + ai), why.clone())));
+                block = block.child(div().text_sm().text_color(muted).child(crate::open_gate::markdown_view(("why", ix * 10 + ai), why.clone(), self.origin(), &self.summary.cwd)));
             }
             if asks.is_open && !ask.options.is_empty() {
                 let mut buttons = h_flex().gap_2().flex_wrap().pt_1();

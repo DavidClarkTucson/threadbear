@@ -275,6 +275,26 @@ impl SidePane {
         FileBody::Text { editor: None, text, language }
     }
 
+    /// A previewed Markdown file, its links going through the open gate:
+    /// a file it links to (from the file's own folder) previews here too,
+    /// read through the runner, so a repo's page can't hand the system one
+    /// of its programs; a web page opens; anything else asks.
+    fn preview_text(&self, doc: &Entity<TextViewState>, thread: &ThreadSummary, path: &str, cx: &mut Context<Self>) -> gpui_kit::base::TextView {
+        use threadbear_core::open_policy::{self as policy, LinkKind};
+        let origin = if thread.is_remote() { crate::open_gate::Origin::OtherMac } else { crate::open_gate::Origin::ThisMac };
+        let folder = path.rsplit_once(['/', '\\']).map_or(String::new(), |(dir, _)| dir.to_owned());
+        let (side, thread) = (cx.entity().downgrade(), thread.clone());
+        let base = folder.clone();
+        crate::open_gate::text_view(doc, origin, &folder).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| match policy::link_kind(url) {
+            LinkKind::File(target) => {
+                if let Some(target) = policy::absolute(&target, &base, &home_dir()) {
+                    let _ = side.update(cx, |side, cx| side.preview_path(&target, None, &thread, cx));
+                }
+            }
+            _ => crate::open_gate::open_link(url, origin, &base, cx),
+        })
+    }
+
     /// The bar's buttons over a preview: Reveal, Open (`PreviewButtons`).
     pub(crate) fn preview_buttons(&mut self, preview: &PanePreview, thread: &ThreadSummary, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let mut row = h_flex().flex_none().gap(px(0.));
@@ -370,7 +390,7 @@ impl SidePane {
                             .py(px(18.))
                             .text_size(px(style::size::BODY))
                             .line_height(px(style::size::BODY_LINE))
-                            .child(gpui_kit::base::TextView::new(doc).selectable(true).style(style)),
+                            .child(self.preview_text(doc, thread, path, cx).selectable(true).style(style)),
                     )
                     .into_any_element()
             }

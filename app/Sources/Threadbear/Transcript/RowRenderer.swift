@@ -1122,8 +1122,8 @@ enum RowRenderer {
         return output
     }
 
-    /// The command, the start of what would be written to a file, the page,
-    /// or the tool's input, in a monospaced block. The file's name and
+    /// The command, what would be written to a file, the page, or the
+    /// tool's input, in a monospaced block. The file's name and
     /// folder are in the title above it. A command and a tool's input are
     /// shown whole, every line and field, as Allow allows all of them: the
     /// card grows to fit (Daybreak, 7 Nov 2026, a long command's tail was
@@ -1156,13 +1156,21 @@ enum RowRenderer {
                     hunk.lines = hunk.lines.map(ApprovalText.shown)
                     return hunk
                 }
-                // A file Threadbear runs as code, or can't rule out, shows
-                // every line it writes: a hook past the eighth line is still a hook.
-                let code = request.title.contains("Threadbear runs this file as code")
-                    || request.title.contains("Threadbear can't tell whether this file runs as code")
-                return diffText([diff], maxLines: code ? 1_000_000 : 8, inset: 0).0
+                // Every line it writes, and every argument the diff doesn't
+                // draw: Allow allows all of it, so the card grows to fit, as
+                // for a command (Codex review, 10 Nov 2026: a ninth line past
+                // eight harmless ones was hidden with no note).
+                let output = NSMutableAttributedString(attributedString: diffText([diff], maxLines: 1_000_000, inset: 0).0)
+                let extra = ApprovalText.fieldsBeyondDiff(input)
+                if !extra.isEmpty {
+                    output.append(mono("\n", .labelColor))
+                    output.append(fieldsText(extra))
+                }
+                return output
             }
-            return mono(ApprovalText.shown(ToolPresentation.shortTitle(ApprovalText.filePath(request) ?? "", limit: 300)), Theme.quietText)
+            // Nothing a diff can draw (a notebook cell, say): every field, below.
+            let fields = ApprovalText.shown(ToolPresentation.fields(input, whole: true))
+            if !fields.isEmpty { return fieldsText(fields) }
         }
         if !request.name.hasPrefix("mcp__"), let url = input["url"]?.stringValue {
             return mono(ApprovalText.shown(url), .labelColor)

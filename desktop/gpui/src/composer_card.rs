@@ -7,7 +7,6 @@ use crate::composer::Composer;
 use crate::style;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Enter, InputEvent, Textarea, TextareaState};
-use gpui_kit::component::text::TextView;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
@@ -434,7 +433,12 @@ impl Composer {
         let indent = if numbered { px(20.) } else { px(0.) };
         let paragraph = ask_paragraph(ask, index, numbered);
         let mut block = v_flex().w_full().pt(px(8.));
-        block = block.child(div().text_size(px(style::size::COMPOSER)).line_height(px(style::size::BODY_LINE)).child(TextView::markdown(("ask-text", index), paragraph)));
+        // Its links through the open gate, from the thread's folder; with no
+        // thread to say, or another runner's, no file of it opens here.
+        let thread = self.chip_data(cx).summary;
+        let origin = if thread.as_ref().is_some_and(|t| !t.is_remote()) { crate::open_gate::Origin::ThisMac } else { crate::open_gate::Origin::OtherMac };
+        let cwd = thread.map(|t| t.cwd).unwrap_or_default();
+        block = block.child(div().text_size(px(style::size::COMPOSER)).line_height(px(style::size::BODY_LINE)).child(crate::open_gate::markdown_view(("ask-text", index), paragraph, origin, &cwd)));
         if let Some(place) = ask.where_.as_deref().filter(|w| !w.is_empty()) {
             block = block.child(div().pl(indent).text_size(px(12.)).text_color(style::faint_text(cx)).child(place.to_owned()));
         }

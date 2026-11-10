@@ -318,6 +318,17 @@ fn threadbear_cards_say_what_the_runner_is_asking() {
     assert_eq!(ApprovalText::runner_reason(&hidden).as_deref(), Some("Send\u{27E8}U+2028\u{27E9}it"));
 }
 
+/// Codex review of the 10 Nov fix: what a file card's diff doesn't draw is
+/// still part of what Allow allows, so it's listed under the diff.
+#[test]
+fn file_cards_list_what_the_diff_doesnt_draw() {
+    let keys = |input: Value| ApprovalText::fields_beyond_diff(&input).into_iter().map(|f| format!("{}={}", f.key, f.value)).collect::<Vec<_>>();
+    assert_eq!(keys(json!({"file_path": "/w/a", "old_string": "a", "new_string": "b", "replace_all": true})), ["replace_all=true"]);
+    assert_eq!(keys(json!({"file_path": "/w/a", "content": "x"})), Vec::<String>::new());
+    assert_eq!(keys(json!({"file_path": "/w/a", "edits": [{"old_string": "a", "new_string": "b"}, {"old_string": "c", "new_string": "d", "replace_all": true}]})), ["edit 2={\"replace_all\":true}"]);
+    assert_eq!(keys(json!({"notebook_path": "/w/n.ipynb", "cell_id": "c1", "new_source": "x"})), ["cell_id=c1", "new_source=x"]);
+}
+
 /// A character that hides, breaks or reorders text is named on the card,
 /// not drawn: `ls`, six U+2028 and `;curl` must not look like `ls` alone,
 /// and a bidi override must not turn the line around (security review, 9

@@ -206,8 +206,15 @@ built parsers and gates with no launch of the app, which is the trap.)
   `desktop/core/tests/open_gate_source.rs` fails on an opener anywhere else.
 - The slash palette's Open file previews the skill in the pane; a file link in
   another runner's thread previews there too, read through that runner.
+- Every rich text view (replies, plan and ask text, Markdown previews) is made
+  by the gate's `text_view` or `markdown_view`, as the kit's own TextView opens
+  a link with the system's opener when it has no handler; a link in a
+  previewed Markdown file to another file previews in the pane.
 - Threadbear's own approval cards show the runner's words under the title
-  (`ApprovalText::runner_reason`), in both apps.
+  (`ApprovalText::runner_reason`), in both apps. File cards show every line
+  of the diff and any argument it doesn't draw (`replace_all`, a notebook
+  cell), in both apps, and Return on a stacked card allows only the ticked
+  calls, as its Allow button does.
 - Pasted pictures are staged in a fresh 0700 folder (`XDG_RUNTIME_DIR` when
   there is one), written 0600, and removed once the runner has its copy.
 - Remaining: the Swift app's forwarding page for a local `.html` link's

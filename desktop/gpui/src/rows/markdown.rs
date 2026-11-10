@@ -351,7 +351,7 @@ impl ThreadPane {
         }
     }
 
-    fn origin(&self) -> Origin {
+    pub(crate) fn origin(&self) -> Origin {
         if self.summary.is_remote() {
             Origin::OtherMac
         } else {

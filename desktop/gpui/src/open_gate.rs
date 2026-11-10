@@ -81,6 +81,26 @@ fn open_other(url: &str, cx: &mut App) {
     ask(policy::link_question(&url, &app), cx, move |cx| system_open(&url, cx));
 }
 
+// ---------------------------------------------------------------- rich text
+
+/// Every rich text view in the app is made here, with its links going
+/// through the gate. gpui's own TextView hands a clicked link to the
+/// system's opener when it has no handler of its own (Codex review of the
+/// 10 Nov fix: a `file://` link to a `.command` in a previewed SKILL.md ran
+/// it), so a view made anywhere else would be a way round the gate. A caller
+/// with somewhere better for its links (the transcript's `link_clicked`)
+/// sets its own `on_link_click` after, which replaces this one.
+pub(crate) fn text_view(state: &Entity<gpui_kit::base::TextViewState>, origin: Origin, base: &str) -> gpui_kit::base::TextView {
+    let base = base.to_owned();
+    gpui_kit::base::TextView::new(state).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| open_link(url, origin, &base, cx))
+}
+
+/// The same for the kit's markdown text made from a string.
+pub(crate) fn markdown_view(id: impl Into<ElementId>, text: impl Into<SharedString>, origin: Origin, base: &str) -> gpui_kit::component::text::TextView {
+    let base = base.to_owned();
+    gpui_kit::component::text::TextView::markdown(id, text).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| open_link(url, origin, &base, cx))
+}
+
 // ---------------------------------------------------------------- files
 
 /// A file in its own app, after its symlinks are followed: a document opens,
