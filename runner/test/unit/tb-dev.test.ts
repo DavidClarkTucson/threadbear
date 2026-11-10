@@ -773,6 +773,13 @@ test('tb status says when the main key is still being rotated', () => {
   assert.match(text, /RUNNER_KEY_NEXT/);
 });
 
+test('tb status says what a backend on this Mac only leaves out, and says nothing of it for cloud', () => {
+  const now = Date.parse('2026-10-26T12:00:00.000Z');
+  const status = (url: string) => formatStatus({ version: '1', pid: 1, startedAt: '2026-10-26T11:00:00.000Z', home: '/h', logFile: '/h/l', liveClis: 0, running: [], sync: { state: 'ok', url, name: 'm5', pushOff: true } } as never, [], now);
+  assert.match(status('http://127.0.0.1:13210'), /On this Mac only: .*no phone or other Mac can reach it, and the website and share links only open on this Mac/);
+  assert.ok(!status('https://mac.tail1.ts.net:3210').includes('On this Mac only'));
+});
+
 // Daybreak, 10 Nov (finding 76): a runner key heartbeats its own
 // followProblem, and `tb status` wrote it to the terminal as it came, so ESC
 // ]52 could set the owner's clipboard and cursor moves could rewrite what the

@@ -52,6 +52,7 @@ extension AppModel {
                 self.updateRestart { $0.status(status.pendingRestart, now: Date()) }
                 if self.websiteURL != status.websiteURL { self.websiteURL = status.websiteURL }
                 if self.pushOff != status.pushOff { self.pushOff = status.pushOff }
+                if self.localOnly != status.localOnly { self.localOnly = status.localOnly }
             } catch RPCError.server(let code, _) where code == -32601 {
                 // A runner older than runner.status: its notices are all there is.
             } catch {

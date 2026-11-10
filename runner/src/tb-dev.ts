@@ -15,6 +15,7 @@ import { pushFailingText } from './push-failing.ts';
 import type { RestartResult, RunnerStatus } from './restart.ts';
 import type { UpstreamStatus } from './upstream.ts';
 import { forTerminal } from './terminal-text.ts';
+import { localOnly } from './convex-admin.ts';
 
 export const DEV_HELP = `Working on Threadbear itself:
   tb status [--json]              the runner: version, live CLIs, busy threads, a pending restart
@@ -483,6 +484,8 @@ function formatSync(y: NonNullable<RunnerStatus['sync']>, now: number): string {
   const held = y.schedulesHeld ? `; ${y.schedulesHeld} schedule${y.schedulesHeld === 1 ? '' : 's'} too big (or taken) for this runner's key, so its schedules stay in schedules.json on this Mac (tb logs says which)` : '';
   const rotating = y.ownerKeyRotating ? '; RUNNER_KEY_NEXT is still set, so two main keys work: finish with tb runner rotate-owner --finish' : '';
   // A self-hosted backend can't send phone notifications (docs/self-hosting.md).
+  // A backend on 127.0.0.1 (setup --self-hosted --local): what that leaves out.
+  const local = localOnly(y.url) ? "\nOn this Mac only: the backend listens on 127.0.0.1, so no phone or other Mac can reach it, and the website and share links only open on this Mac (docs/self-hosting.md)." : '';
   const push = y.pushOff ? "\nPhone notifications: off, as this backend can't send them (a self-hosted backend can't use the push relay)." : y.pushFailing ? `\n${pushFailingText(y.pushFailing)}` : '';
   const f = y.full;
   const full = f
@@ -490,7 +493,7 @@ function formatSync(y: NonNullable<RunnerStatus['sync']>, now: number): string {
       ? '\nFull sync: on, but the backend is too old to take tool output yet.'
       : `\nFull sync: on: ${plural(f.bodies, 'tool', 'tools')} (${Math.round(f.bytes / 1024)} KB) sent since this runner started, ${f.withheld} held back as they can hold secrets${f.unsent ? `, ${f.unsent} not sent` : ''}${f.pending ? `, ${f.pending} waiting` : ''}.`
     : '';
-  return `Convex mirror: on${where} as ${y.name ?? y.runnerId ?? 'this runner'}${last}${pending}${behind}${held}${rotating}${push}${full}`;
+  return `Convex mirror: on${where} as ${y.name ?? y.runnerId ?? 'this runner'}${last}${pending}${behind}${held}${rotating}${local}${push}${full}`;
 }
 
 // What stands between this runner's threads and the Convex deployment

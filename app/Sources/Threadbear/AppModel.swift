@@ -569,6 +569,10 @@ final class AppModel {
     /// The backend can't send phone notifications (a self-hosted one), from
     /// runner.status, so Phone & browser says so.
     var pushOff = false
+    /// The backend is on this Mac only (runner.status's sync.url on
+    /// 127.0.0.1): no phone can pair, and the website and share links only
+    /// open here.
+    var localOnly = false
     var devicesReason: String?
     var devicesError: String?
     var devicesUnsupported = false
