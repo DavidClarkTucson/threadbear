@@ -19,6 +19,7 @@ mod highlights_store;
 mod icons;
 mod move_sheet;
 mod new_thread;
+mod open_gate;
 mod patches;
 mod prefs;
 mod rails;

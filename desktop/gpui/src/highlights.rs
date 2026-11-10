@@ -465,7 +465,7 @@ impl SidePane {
                 self.preview_path(path, Some(item.title.clone()), thread, cx);
             }
         } else if let Some(url) = &item.url {
-            self.open_url(url, cx);
+            self.follow_link(url, cx);
         }
     }
 
@@ -473,7 +473,7 @@ impl SidePane {
     /// now). Anything else (a `slack:` link and the like) isn't opened from
     /// here: an agent's links only start other apps once Mike has been
     /// asked, which the app can't do yet (`LinkPolicy.ask`).
-    pub(crate) fn open_url(&mut self, url: &str, cx: &mut Context<Self>) {
+    pub(crate) fn follow_link(&mut self, url: &str, cx: &mut Context<Self>) {
         if let Some(path) = url.strip_prefix("file://") {
             if let Some(thread) = self.thread(cx) {
                 let decoded = crate::files::percent_decode(path);
@@ -490,11 +490,16 @@ impl SidePane {
     /// program never opens from a click here). A thread on another Mac has
     /// no copy here, so its rows don't offer this.
     pub(crate) fn open_externally(&mut self, path: &str, cx: &mut Context<Self>) {
-        if core::runs_code(path) {
-            self.note_error(format!("{} is a program. It doesn't open from here.", core::last_component(path)), cx);
-            return;
+        crate::files::open_file_in_app(path, self.origin(cx), cx);
+    }
+
+    /// Whose files the pane's thread names: with no thread, nobody's, so
+    /// none opens.
+    pub(crate) fn origin(&self, cx: &App) -> crate::open_gate::Origin {
+        match self.thread(cx) {
+            Some(t) if !t.is_remote() => crate::open_gate::Origin::ThisMac,
+            _ => crate::open_gate::Origin::OtherMac,
         }
-        crate::files::open_file_in_app(path, cx);
     }
 
     pub(crate) fn preview_path(&mut self, path: &str, title: Option<String>, thread: &ThreadSummary, cx: &mut Context<Self>) {
@@ -622,7 +627,7 @@ impl SidePane {
                     crate::files::open_web(&url, cx);
                 }
             }
-            MenuAction::Reveal { path } => crate::files::reveal(&path, cx),
+            MenuAction::Reveal { path } => crate::files::reveal(&path, if thread.is_remote() { crate::open_gate::Origin::OtherMac } else { crate::open_gate::Origin::ThisMac }, cx),
             MenuAction::Copy { text } => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             MenuAction::Remove { id, title } => self.remove_highlight(id, title, thread.id.clone(), cx),
             MenuAction::CopyPicture => {
@@ -992,7 +997,7 @@ impl SidePane {
                 let mut pr = PaneRow::new(SharedString::from(format!("hl-plink-{project_id}-{i}")), link.title.clone())
                     .icon("globe")
                     .tip(format!("Open {address}"))
-                    .on_click(move |this, _window, cx| this.open_url(&url.clone(), cx))
+                    .on_click(move |this, _window, cx| this.follow_link(&url.clone(), cx))
                     .on_menu(move |this, pos, window, cx| this.open_link_row_menu(&menu_url.clone(), pos, window, cx));
                 if address != link.title {
                     pr = pr.detail(Some(address));

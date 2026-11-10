@@ -118,36 +118,26 @@ pub(crate) fn home_dir() -> String {
     std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()
 }
 
-/// A web page in the browser (the panel page is later work).
+/// A web page in the browser (the panel page is later work). Only http and
+/// https: anything else is refused by the open gate, said so.
 pub(crate) fn open_web(url: &str, cx: &mut App) {
-    cx.open_url(url);
+    crate::open_gate::open_web(url, cx);
 }
 
-/// A path as a `file://` URL, with spaces and the like percent-encoded.
+/// A path as a `file://` URL, with `#`, `?`, spaces and the like
+/// percent-encoded (`open_policy::file_url`).
 pub(crate) fn file_url(path: &str) -> String {
-    let mut out = String::with_capacity(path.len() + 7);
-    out.push_str("file://");
-    for byte in path.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
+    threadbear_core::open_policy::file_url(path)
 }
 
-/// A file in its own app, the way a click on `Open` does on this Mac. A file
-/// whose default app would run it never opens from a click (`LinkPolicy`,
-/// OpenGate's rule).
-pub(crate) fn open_file_in_app(path: &str, cx: &mut App) {
-    if core::runs_code(path) {
-        return;
-    }
-    cx.open_url(&file_url(path));
+/// A file on this runner in its own app, through the open gate: a document
+/// opens, a program asks first (OpenGate's rule).
+pub(crate) fn open_file_in_app(path: &str, origin: crate::open_gate::Origin, cx: &mut App) {
+    crate::open_gate::open_file(path, origin, cx);
 }
 
-pub(crate) fn reveal(path: &str, cx: &mut App) {
-    cx.reveal_path(std::path::Path::new(path));
+pub(crate) fn reveal(path: &str, origin: crate::open_gate::Origin, cx: &mut App) {
+    crate::open_gate::reveal(path, origin, cx);
 }
 
 /// A quiet line in the middle of the pane (`PaneNote`).
@@ -173,8 +163,10 @@ impl SidePane {
                     self.files.open.insert(thread.id.clone(), OpenFile { path: path.clone(), opened: preview.opened, body: FileBody::Opaque { note }, truncated: false });
                     cx.notify();
                 }
+                // The real file, after its symlinks: a page named .html that's
+                // really something else asks first, as any file does.
                 Viewer::Web => {
-                    open_web(&file_url(path), cx);
+                    open_file_in_app(path, crate::open_gate::Origin::ThisMac, cx);
                     self.previews.remove(&thread.id);
                     cx.notify();
                 }
@@ -288,7 +280,7 @@ impl SidePane {
         let mut row = h_flex().flex_none().gap(px(0.));
         if let Some(path) = preview.file_path().filter(|_| !thread.is_remote()).map(str::to_owned) {
             let reveal_path = path.clone();
-            row = row.child(self.header_button("hl-reveal", "folder", REVEAL_TITLE.to_owned(), p, cx, move |_, cx| reveal(&reveal_path.clone(), cx)));
+            row = row.child(self.header_button("hl-reveal", "folder", REVEAL_TITLE.to_owned(), p, cx, move |_, cx| reveal(&reveal_path.clone(), crate::open_gate::Origin::ThisMac, cx)));
             let open_path = path.clone();
             row = row.child(self.header_button("hl-open", "arrow.up.right", "Open in its app".to_owned(), p, cx, move |this, cx| this.open_externally(&open_path.clone(), cx)));
         }

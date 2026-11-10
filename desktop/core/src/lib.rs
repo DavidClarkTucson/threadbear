@@ -10,6 +10,7 @@ pub mod logins;
 pub mod navigation;
 pub mod shortcuts;
 pub mod new_thread;
+pub mod open_policy;
 pub mod remote;
 pub mod sidebar;
 pub mod slash;

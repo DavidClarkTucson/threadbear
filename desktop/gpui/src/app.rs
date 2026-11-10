@@ -131,6 +131,7 @@ impl Threadbear {
         let side_client = client.clone();
         let side = cx.new(|cx| SidePane::new(weak_app, side_client, window, cx));
         crate::viewer::viewer_handle_global(side.downgrade(), cx);
+        crate::open_gate::install(cx.entity().downgrade(), cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
         // The filter is worked out at render, so a change only needs a redraw.
         let searching = cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {

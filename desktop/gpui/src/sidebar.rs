@@ -619,7 +619,7 @@ impl Threadbear {
             }
             MenuAction::OpenOnWeb => {
                 if let Some(link) = self.thread_web_link(&id) {
-                    cx.open_url(&link);
+                    crate::open_gate::open_web(&link, cx);
                 }
             }
             // A project's page isn't in this app yet: the Projects view is

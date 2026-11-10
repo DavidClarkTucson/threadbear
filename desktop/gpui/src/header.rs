@@ -339,7 +339,7 @@ impl Threadbear {
                 .items_center()
                 .child(div().flex_1().min_w_0().truncate().text_size(px(style::size::DETAIL)).text_color(secondary).child(link))
                 .child(self.small_button("share-new", "arrow.triangle.2.circlepath", "Make a new link. The old one stops working.", cx.listener(move |this, _: &ClickEvent, _, cx| this.set_share(id_for_new.clone(), "link", true, cx)), cx))
-                .child(self.small_button("share-open", "arrow.up.right", "Open the shared page in your browser", cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&open)), cx))
+                .child(self.small_button("share-open", "arrow.up.right", "Open the shared page in your browser", cx.listener(move |_, _: &ClickEvent, _, cx| { crate::open_gate::open_web(&open, cx); }), cx))
                 .child(tipped!(div().id("share-copy").px(px(8.)).py(px(3.)).rounded(px(6.)).bg(style::primary_opacity(cx, 0.08)).text_size(px(style::size::DETAIL)), "Copy the link to paste anywhere").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))).child("Copy link"))
         });
         deferred(
