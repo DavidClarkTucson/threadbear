@@ -320,6 +320,11 @@ struct AppDump: Encodable {
     var usage: Usage? = nil
     /// The project page showing in place of the thread, if one is.
     var project: ProjectInfo? = nil
+    /// The open project page's decisions (the projectDecisions experiment),
+    /// one line a thread: "Title: first ask | second ask", "(sending)" at
+    /// the end while an answer's on its way. Nil with the experiment off or
+    /// no project page open.
+    var projectDecisions: [String]? = nil
     /// The Projects page's cards, while it's showing: "Title: 1 needs
     /// you · 2 working" (or "Title: quiet").
     var projectCards: [String]? = nil
@@ -617,6 +622,7 @@ struct AppDump: Encodable {
                 return ProjectInfo(id: project.id, title: project.title, folders: project.folders, threads: threads.map(\.id),
                                    patches: PatchGroups.patches(of: project, in: threads).map(\.patch.id), archived: project.archived)
             },
+            projectDecisions: app.openProject.flatMap { projectDecisionLines($0, app: app) },
             projectCards: app.openProject == nil && app.showsProjectsHome ? app.projectCards.map { card in
                 card.project.title + ": " + (card.status.isQuiet ? "quiet" : card.status.parts.map(\.text).joined(separator: " · "))
             } : nil,
@@ -977,6 +983,22 @@ struct AppDump: Encodable {
         let note = note ?? AskNote()
         let pictures = note.images.isEmpty ? "" : " +\(note.images.count) picture\(note.images.count == 1 ? "" : "s")"
         return "\"\(note.text)\"" + pictures
+    }
+
+    /// The threads with decisions on a project's page, as it lists them.
+    @MainActor
+    static func projectDecisionThreads(_ project: Project, app: AppModel) -> [ThreadSummary] {
+        ProjectDecisions.threads(app.projectSections.sections.first { $0.id == project.id }?.threads ?? [])
+    }
+
+    @MainActor
+    static func projectDecisionLines(_ project: Project, app: AppModel) -> [String]? {
+        guard app.projectDecisionsOn else { return nil }
+        return projectDecisionThreads(project, app: app).map { thread in
+            let asks = thread.asks.filter { !$0.ticked }.map(\.plainAction).joined(separator: " | ")
+            let sending = ProjectDecisions.isSending(thread, sentFor: app.decisionSends[thread.id]?.asksSeq)
+            return "\(thread.title): \(asks)" + (sending ? " (sending)" : "")
+        }
     }
 
     /// "2 picked", then each ask with its choices, "*" on the agent's

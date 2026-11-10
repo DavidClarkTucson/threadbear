@@ -381,6 +381,10 @@ let connectors = {
   ],
 };
 addDemoProjects();
+// Decisions on the Projects page (the projectDecisions experiment): three of
+// Threadbear's threads waiting on a card of asks, with what they're for. Only
+// when asked, as it changes those threads' rows and the Projects page.
+if (process.env.TB_MOCK_DECISIONS) addDemoDecisions();
 
 const token = crypto.randomBytes(24).toString('hex');
 fs.mkdirSync(path.join(dataDir, 'secrets'), { recursive: true });
@@ -526,7 +530,7 @@ async function dispatch(client, method, p) {
       }
       return {
         runnerVersion, protocol: 1, accounts: publicAccounts(),
-        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools, experiments: ['moveToRunner'] }),
+        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools, experiments: ['moveToRunner', ...(process.env.TB_MOCK_DECISIONS ? ['projectDecisions'] : [])] }),
       };
     // Moving a thread to another runner (docs/protocol.md): a guess from
     // "that runner", and a move that only marks the row, for the app's
@@ -2677,6 +2681,46 @@ function listedProjects(archived) {
 
 function membersOf(projectId) {
   return [...threads.values()].map((t) => t.summary).filter((s) => s.projects?.some((x) => x.id === projectId));
+}
+
+/**
+ * TB_MOCK_DECISIONS: cards of asks on three of the Threadbear project's idle
+ * threads, as one-reply cards (options with what each does, the agent's pick),
+ * each with the librarian's recap, for the projectDecisions experiment's
+ * Decisions section (features/projects.feature, its screenshots).
+ */
+function addDemoDecisions() {
+  const cards = {
+    demo_settings_tabs: {
+      minutesAgo: 35, recap: 'Renames the Settings tabs in the Mac app so each says what it holds.\n- General, Accounts and Advanced renamed',
+      asks: [{ action: 'Call the Advanced tab "Machine" or "Runner"?', why: 'It holds the runner\'s folder, the check hosts and the logs.',
+        options: ['Runner', 'Machine'], optionNotes: ['Matches the runner menu', ''], suggested: 0 }],
+    },
+    demo_sqlite_vs_files: {
+      minutesAgo: 60, recap: 'Weighs SQLite against plain files for the runner\'s thread store.\n- Benchmarks done: files win under 10k threads',
+      asks: [{ action: 'Keep plain files for now?', why: 'Files were faster for every size we have. SQLite only wins past about 10,000 threads.',
+        options: ['Keep files', 'Move to SQLite'], optionNotes: ['Revisit at 5,000 threads', 'About two days of work'], suggested: 0 }],
+    },
+    demo_release_notes: {
+      minutesAgo: 180, recap: 'Drafts the release notes for 0.4 from this week\'s commits.\n- Draft written',
+      asks: [
+        { action: 'Lead with projects or with the librarian?', options: ['Projects', 'The librarian'], suggested: 0 },
+        { action: 'Mention the Windows build?', why: 'It runs, but nobody outside has tried it yet.', options: ['Not yet', 'As a preview'], suggested: 0 },
+      ],
+    },
+  };
+  for (const [id, card] of Object.entries(cards)) {
+    const t = threads.get(id);
+    if (!t) continue;
+    const done = t.events.findLast((e) => e.type === 'turn.completed');
+    if (done) Object.assign(done, { needs: 'you', asks: card.asks });
+    Object.assign(t.summary, {
+      status: 'idle', needs: 'you', needsYou: true, asks: card.asks, asksSeq: done?.seq ?? t.summary.lastSeq, recap: card.recap,
+      lastActivityAt: new Date(Date.now() - card.minutesAgo * 60_000).toISOString(),
+    });
+    // Waiting on Mike, not on a login with room.
+    delete t.summary.waitingForRoom;
+  }
 }
 
 function join(summary, project, by, pinned, at = iso(), why) {

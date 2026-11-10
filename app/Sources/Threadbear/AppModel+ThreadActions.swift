@@ -100,6 +100,90 @@ extension AppModel {
         }
     }
 
+    // MARK: Decisions on the Projects page
+
+    /// The projectDecisions experiment is on for this Mac's runner (its
+    /// hello lists it), so the Projects page gathers each project's open
+    /// cards of asks (ProjectDecisions, ProjectDecisionsView.swift).
+    var projectDecisionsOn: Bool { experiments.contains("projectDecisions") }
+
+    /// The card a thread's decision on the Projects page draws: its open
+    /// asks with what's picked, the same card its composer shows.
+    func decisionCard(_ thread: ThreadSummary) -> AsksCard? {
+        guard ProjectDecisions.isWaiting(thread), let seq = thread.asksSeq else { return nil }
+        return AsksCard(seq: seq, asks: thread.asks, ticked: Set(thread.asks.indices.filter { thread.asks[$0].ticked }),
+                        picks: picks(for: thread), notes: notes(for: thread))
+    }
+
+    /// A pick on a decision card on the Projects page. The picks are the
+    /// thread's own (askPicks), so opening the thread shows them too. Once
+    /// every open ask on the card has an answer it goes straight away, as
+    /// there's no composer to send from: one click answers a card of one.
+    /// Something else opens its box instead, and Return there sends.
+    func pickDecision(thread: ThreadSummary, ask: Int, option: Int) {
+        guard ProjectDecisions.isWaiting(thread), let seq = thread.asksSeq, !ProjectDecisions.isSending(thread, sentFor: decisionSends[thread.id]?.asksSeq),
+              thread.asks.indices.contains(ask), Decisions.choices(for: thread.asks[ask]).indices.contains(option) || option == Decisions.ownAnswer else { return }
+        var picks = picks(for: thread)
+        picks[ask] = picks[ask] == option ? nil : option
+        setAnswers(picks: picks, notes: notes(for: thread), seq: seq, threadId: thread.id)
+        guard option != Decisions.ownAnswer, picks[ask] == option, let now = threads[thread.id], decisionAnswered(now) else { return }
+        sendDecision(threadId: thread.id)
+    }
+
+    /// Every ask still open on the thread's card has an answer that would
+    /// send something.
+    func decisionAnswered(_ thread: ThreadSummary) -> Bool {
+        let filled = Decisions.filled(picks: picks(for: thread), notes: notes(for: thread))
+        return thread.asks.indices.allSatisfy { thread.asks[$0].ticked || filled[$0] != nil }
+    }
+
+    /// Return in a decision card's Something else box: sends once every ask
+    /// has an answer, or with ⌘Return whatever's answered (as in the
+    /// thread, where an early Return can't send a card half answered).
+    func decisionBoxReturn(threadId: String, command: Bool) {
+        guard let thread = threads[threadId] else { return }
+        if command || decisionAnswered(thread) { sendDecision(threadId: threadId) } else { NSSound.beep() }
+    }
+
+    /// Sends what's picked on a thread's card from the Projects page. It's
+    /// the very request the thread's own Send makes with an empty composer
+    /// (`threads.send` with the answers, the text from Decisions.message),
+    /// so the agent can't tell where it was answered. The card shows
+    /// "Sending to" with a spinner and takes no clicks (`decisionSends`)
+    /// until the thread starts its turn and drops off the list; the message
+    /// also shows dimmed in the thread's transcript (`post`). If the runner
+    /// doesn't take it, the picks come back and the card with them.
+    /// Whatever is typed in the thread's own composer stays there.
+    func sendDecision(threadId: String) {
+        guard let thread = threads[threadId], ProjectDecisions.isWaiting(thread), let seq = thread.asksSeq,
+              !ProjectDecisions.isSending(thread, sentFor: decisionSends[threadId]?.asksSeq) else { return }
+        let picks = picks(for: thread)
+        let notes = notes(for: thread)
+        let answers = Decisions.answers(asks: thread.asks, picks: picks, notes: notes).map(\.answer)
+        guard !answers.isEmpty else { return }
+        let text = Decisions.message(asks: thread.asks, picks: picks, notes: notes)
+        let images = Decisions.images(asks: thread.asks, picks: picks, notes: notes)
+        if !images.isEmpty, let why = picturesRefusal(for: thread) {
+            errorMessage = why
+            return
+        }
+        // As `send`: one of this Mac's threads waits for a restarting
+        // runner; otherwise it needs its runner connected.
+        let holding = !isRemote(threadId) && connection != .connected && restartUnderWay
+        let ready = client(for: threadId).flatMap { isRemote(threadId) || connection == .connected ? $0 : nil }
+        guard ready != nil || holding else {
+            showConnectionError(notConnectedText(threadId, "that wasn't sent"))
+            return
+        }
+        ActivityRecorder.shared.sent(threadId: threadId, images: images.count, answers: answers.count)
+        decisionSends[threadId] = DecisionSend(asksSeq: seq, answers: answers.map(\.answer))
+        setAnswers(picks: [:], notes: [:], seq: seq, threadId: threadId)
+        post(threadId: threadId, text: text, images: images, answers: answers, client: ready) { [self] in
+            if decisionSends[threadId]?.asksSeq == seq { decisionSends[threadId] = nil }
+            if askPicks[threadId] == nil { setAnswers(picks: picks, notes: notes, seq: seq, threadId: threadId) }
+        }
+    }
+
     private func setAnswers(picks: [Int: Int], notes: [Int: AskNote], seq: Int, threadId: String) {
         askPicks[threadId] = picks.isEmpty && notes.isEmpty ? nil : AskPicks(asksSeq: seq, picks: picks, notes: notes)
         sessions[threadId]?.setAskPicks(seq: seq, picks: picks)

@@ -338,6 +338,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `projects.home` | Projects home | Cards, New project, search | Drawn cards with `Input`. | build | M | `ProjectsHome`, `ProjectCards` |
 | `projects.list` | Projects list | Sidebar view, Archive, Merge, Delete, copy id | gpui-kit list and menus. | kit | M | `ProjectsList`, `ProjectSections` |
 | `projects.page` | Project page | Title, goals, state, notes editing, folders, threads | Drawn page using `Input` and `Textarea`. | build | L | `ProjectPage`, `Projects` |
+| `projects.decisions` | Decisions on the Projects page | Experiment `projectDecisions`: "N decisions" on a project's card and sidebar heading, and at the top of its page a card per thread waiting on a card of asks (title, a line on what it's doing, the asks as the composer draws them, Open thread), answered with the thread's own `threads.send` and showing "Sending to" until the thread takes it | Drawn cards reusing the composer card's asks rendering. | build | M | `ProjectDecisionsView`, `ProjectDecisions` |
 | `projects.icon` | Project icon | Choose or librarian's | GPUI path prompt, with Reveal going through the open gate. | kit | S | `ProjectPage`, `ProjectIconView` |
 | `projects.tasks` | Tasks board page | Status columns from Notion | Drawn columns. | build | M | `ProjectPage` (`TasksSection`) |
 | `projects.newthread` | New thread in project | "In" chip | Drawn chip. | build | S | `DetailView` (`NewThreadProjectChip`) |

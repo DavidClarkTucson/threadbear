@@ -77,6 +77,14 @@ struct AskPicks: Equatable {
     var notes: [Int: AskNote] = [:]
 }
 
+/// An answer sent from a decision card on the Projects page (the
+/// projectDecisions experiment), while it's on its way: which card it
+/// answered, and what was picked, for the card's "Sending to" line.
+struct DecisionSend: Equatable {
+    var asksSeq: Int
+    var answers: [String]
+}
+
 /// The follow-ups ticked on a thread's done card, and which card they're for.
 struct NextPicks: Equatable {
     var seq: Int
@@ -300,6 +308,9 @@ final class AppModel {
     /// thread id, waiting in the composer to go with his next message.
     /// Ones for an older card count as none.
     var askPicks: [String: AskPicks] = [:]
+    /// Answers sent from the Projects page's decision cards, by thread id,
+    /// until the thread takes them (ProjectDecisions.isSending).
+    var decisionSends: [String: DecisionSend] = [:]
     /// The seq of the card of asks collapsed on each thread, by thread id.
     /// By card, so the next one, something new to decide, always opens.
     var collapsedCards: [String: Int] = [:]
