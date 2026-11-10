@@ -37,6 +37,16 @@ public enum ApprovalText {
         return title
     }
 
+    /// Why Threadbear's own tool is asking, in the runner's words ("Switch
+    /// this thread to Full access"), for under the card's title: the
+    /// generic "Use update thread?" alone hid what Allow allowed (Daybreak,
+    /// 9 Nov 2026, finding 67). The fields below it are still all of it.
+    public static func runnerReason(_ request: ApprovalRequest) -> String? {
+        guard request.name.hasPrefix("mcp__threadbear__") else { return nil }
+        let title = request.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? nil : shown(title)
+    }
+
     /// The decision in a word or two.
     public static func decision(_ decision: ApprovalDecision) -> String {
         switch decision {

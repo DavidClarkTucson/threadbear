@@ -53,6 +53,18 @@ impl ApprovalText {
         title
     }
 
+    /// Why Threadbear's own tool is asking, in the runner's words ("Switch
+    /// this thread to Full access"), for under the card's title: the
+    /// generic "Use update thread?" alone hid what Allow allowed (Daybreak,
+    /// 9 Nov 2026, finding 67). The fields below it are still all of it.
+    pub fn runner_reason(request: &ApprovalRequest) -> Option<String> {
+        if !request.name.starts_with("mcp__threadbear__") {
+            return None;
+        }
+        let title = request.title.trim();
+        (!title.is_empty()).then(|| Self::shown(title))
+    }
+
     /// The decision in a word or two.
     pub fn decision(decision: ApprovalDecision) -> &'static str {
         match decision {

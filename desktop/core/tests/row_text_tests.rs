@@ -302,6 +302,22 @@ fn testApprovalTitlesAndTargets() {
     assert_eq!(ApprovalText::decision(ApprovalDecision::AllowAlways), "Always allowed");
 }
 
+/// Finding 67: Threadbear's own gates say what they'd do in the runner's
+/// words, and the card shows them under its generic title; another
+/// server's tool doesn't get to put words there.
+#[test]
+fn threadbear_cards_say_what_the_runner_is_asking() {
+    let raise = ApprovalRequest::new("ap1", "mcp__threadbear__update_thread", "Switch this thread to Full access", json!({"threadId": "t1", "permissionMode": "full"}));
+    assert_eq!(ApprovalText::title(&raise), "Use update thread?");
+    assert_eq!(ApprovalText::runner_reason(&raise).as_deref(), Some("Switch this thread to Full access"));
+    let fields = threadbear_core::reducer::ToolPresentation::fields(&raise.input, true);
+    assert!(fields.iter().any(|f| f.key == "permissionMode" && f.value == "full"), "the card's fields still show the mode");
+    let other = ApprovalRequest::new("ap2", "mcp__github__merge", "Switch this thread to Full access", json!({}));
+    assert_eq!(ApprovalText::runner_reason(&other), None);
+    let hidden = ApprovalRequest::new("ap3", "mcp__threadbear__send_message", "Send\u{2028}it", json!({}));
+    assert_eq!(ApprovalText::runner_reason(&hidden).as_deref(), Some("Send\u{27E8}U+2028\u{27E9}it"));
+}
+
 /// A character that hides, breaks or reorders text is named on the card,
 /// not drawn: `ls`, six U+2028 and `;curl` must not look like `ls` alone,
 /// and a bidi override must not turn the line around (security review, 9

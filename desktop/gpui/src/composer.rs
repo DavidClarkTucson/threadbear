@@ -461,6 +461,9 @@ impl Composer {
         let params = json!({ "path": path.to_string_lossy() });
         cx.spawn_in(window, async move |this, cx| {
             let result = crate::call(client, "media.import", params).await;
+            // The runner keeps its own copy (or said no): a pasted picture's
+            // staged file goes now, whatever happens to the chip.
+            unstage(&path);
             this.update_in(cx, |this, window, cx| this.settle_picture(id, result, window, cx)).ok();
         })
         .detach();
@@ -870,11 +873,111 @@ fn save_pasted_image(image: &gpui_kit::Image) -> Option<PathBuf> {
         ImageFormat::Tiff => "tiff",
         _ => return None,
     };
-    let folder = std::env::temp_dir().join("threadbear-paste");
-    std::fs::create_dir_all(&folder).ok()?;
-    let path = folder.join(format!("pasted-{:x}.{ext}", image.id));
-    std::fs::write(&path, &image.bytes).ok()?;
+    stage_private(&paste_base(), &format!("pasted-{:x}.{ext}", image.id), &image.bytes)
+}
+
+/// Where pasted pictures wait for the runner: the session's own runtime
+/// folder on Linux (`XDG_RUNTIME_DIR`, which only this user can open), else
+/// the temp folder (already this user's own on a Mac and Windows; `/tmp` on
+/// a Linux without one, which everyone can list).
+fn paste_base() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_absolute() && d.is_dir()).unwrap_or_else(std::env::temp_dir)
+}
+
+/// Writes `bytes` as `name` in a folder of its own under `base`: made fresh
+/// with a random name and 0700, the file new with 0600, so on a shared
+/// `/tmp` nobody else can read it, list it, or make the folder first and
+/// have it written into theirs (Daybreak, 10 Nov 2026, finding 63). The
+/// folder goes once the runner has its own copy (`settle_picture`).
+fn stage_private(base: &std::path::Path, name: &str, bytes: &[u8]) -> Option<PathBuf> {
+    use std::io::Write as _;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("threadbear-paste-");
+    // Without a mode the folder would take the umask's (0755 under 022).
+    // Windows has none: a folder there takes the user's temp folder's access.
+    #[cfg(unix)]
+    builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    let folder = builder.tempdir_in(base).ok()?.keep();
+    let path = folder.join(name);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let written = options.open(&path).and_then(|mut f| f.write_all(bytes));
+    if written.is_err() {
+        let _ = std::fs::remove_dir_all(&folder);
+        return None;
+    }
     Some(path)
+}
+
+/// A staged picture's folder, once the runner has copied it (or couldn't):
+/// only one `stage_private` made, so a dropped file's own folder is never
+/// touched.
+fn unstage(path: &std::path::Path) {
+    unstage_in(&paste_base(), path);
+}
+
+fn unstage_in(base: &std::path::Path, path: &std::path::Path) {
+    let Some(folder) = path.parent() else { return };
+    let ours = folder.file_name().is_some_and(|n| n.to_string_lossy().starts_with("threadbear-paste-")) && folder.parent() == Some(base);
+    if ours {
+        let _ = std::fs::remove_dir_all(folder);
+    }
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::{stage_private, unstage_in};
+    use std::fs;
+
+    /// Finding 63: under umask 022 the old folder was 0755 and the file
+    /// 0644, in a fixed `/tmp/threadbear-paste` anyone could list or make
+    /// first. Each paste now gets a fresh folder only its owner can open.
+    #[cfg(unix)]
+    #[test]
+    fn a_pasted_picture_is_kept_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().unwrap();
+        let path = stage_private(base.path(), "pasted-1.png", b"png bytes").unwrap();
+        let folder = path.parent().unwrap();
+        assert_eq!(fs::metadata(folder).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::read(&path).unwrap(), b"png bytes");
+        // Not a name anyone can guess: the same picture twice goes to two folders.
+        let again = stage_private(base.path(), "pasted-1.png", b"png bytes").unwrap();
+        assert_ne!(again.parent(), path.parent());
+        assert!(folder.file_name().unwrap().to_string_lossy().len() > "threadbear-paste-".len() + 4);
+    }
+
+    /// A folder someone else made first, under the old fixed name, is never
+    /// written into.
+    #[test]
+    fn a_folder_made_first_isnt_used() {
+        let base = tempfile::tempdir().unwrap();
+        let planted = base.path().join("threadbear-paste");
+        fs::create_dir(&planted).unwrap();
+        let path = stage_private(base.path(), "pasted-2.png", b"x").unwrap();
+        assert!(!path.starts_with(&planted));
+        assert_eq!(fs::read_dir(&planted).unwrap().count(), 0);
+    }
+
+    /// Once the runner has its copy, the staged folder goes, and only a
+    /// folder this made: a dropped file's own folder stays.
+    #[test]
+    fn the_staged_copy_goes_after_the_import() {
+        let base = tempfile::tempdir().unwrap();
+        let path = stage_private(base.path(), "pasted-3.png", b"x").unwrap();
+        let folder = path.parent().unwrap().to_owned();
+        unstage_in(base.path(), &path);
+        assert!(!folder.exists());
+        let dropped_dir = base.path().join("Desktop");
+        fs::create_dir(&dropped_dir).unwrap();
+        let dropped = dropped_dir.join("shot.png");
+        fs::write(&dropped, b"x").unwrap();
+        unstage_in(base.path(), &dropped);
+        assert!(dropped.exists());
+    }
 }
 
 /// The JSON a picture goes as (`ImageRef` in docs/protocol.md).

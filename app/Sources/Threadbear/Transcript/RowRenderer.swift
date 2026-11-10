@@ -1108,6 +1108,11 @@ enum RowRenderer {
                 output.append(NSAttributedString(string: "  " + ApprovalText.shown(folder), attributes: attributes))
             }
         }
+        // Threadbear's own gates say what they'd do ("Switch this thread to
+        // Full access"), which the generic title doesn't.
+        if let why = ApprovalText.runnerReason(item.request) {
+            output.append(NSAttributedString(string: "\n" + why, attributes: Theme.text(Theme.detailFont, color: .labelColor, line: TypeScale.scaled(19))))
+        }
         // Why it's asking: Claude's CLI says (Auto's safety check, a rule, a
         // hook), and Codex says in the model's own words ("Allow creating
         // b.txt in the current directory?").

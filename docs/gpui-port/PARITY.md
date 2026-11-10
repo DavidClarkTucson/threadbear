@@ -193,6 +193,30 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-10 One gate for opening links and files (Daybreak 58, 59, 63, 64, 67)
+
+- Every link and file the app hands to the system goes through
+  `desktop/gpui/src/open_gate.rs`, on the rules of the Swift app's OpenGate,
+  written in `desktop/core/src/open_policy.rs`: a web page opens, any other
+  scheme asks by name, a file is judged and opened as its real target after
+  symlinks, a known document opens and anything else (a program, a bundle, a
+  script, an unknown kind, a document whose app runs it, which macOS's Launch
+  Services is asked) asks first, and another runner's file never opens here.
+  File URLs are built from the path with `#` and `?` escaped, never pasted.
+  `desktop/core/tests/open_gate_source.rs` fails on an opener anywhere else.
+- The slash palette's Open file previews the skill in the pane; a file link in
+  another runner's thread previews there too, read through that runner.
+- Threadbear's own approval cards show the runner's words under the title
+  (`ApprovalText::runner_reason`), in both apps.
+- Pasted pictures are staged in a fresh 0700 folder (`XDG_RUNTIME_DIR` when
+  there is one), written 0600, and removed once the runner has its copy.
+- Remaining: the Swift app's forwarding page for a local `.html` link's
+  `?query` and `#fragment`, which the gate drops; previewing transcript file
+  links in the pane on this runner's threads (they open in their app).
+- Verification: `cargo test --workspace` on Tinker Desk (macOS, with the Launch
+  Services code); the open policy's own tests and the source scan on Linux;
+  the whole spec suite on Linux (see the report for the run).
+
 ### 2026-11-10 Every spec on real Windows
 
 - Windows paths: the runner's `C:\\` paths work in folder names, relative paths
@@ -337,9 +361,9 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Files: `desktop/gpui/src/slash_palette.rs`, `desktop/gpui/src/composer.rs`,
   `desktop/core/src/slash.rs`, `features/slash-palette.feature`,
   `app/Sources/Threadbear/AppDump.swift` and `ComposerView.swift` (debug only).
-- Remaining: `composer.slash.resize` (dragging its edges and columns); Open file
-  opens the system's app until file previews land; descriptions read as plain text
-  rather than inline markdown.
+- Remaining: `composer.slash.resize` (dragging its edges and columns);
+  descriptions read as plain text rather than inline markdown. (Open file now
+  previews the skill in the pane, as the Swift app does: see the 10 Nov entry.)
 - Verification: `@composer.slash` and `@composer.slash.keys`, 9 of 9 on both apps
   on Tinker Desk, and in the whole-suite runs under the new-thread page's entry
   below; `cargo test -p threadbear-core` (the palette's own rules, 18 tests); a

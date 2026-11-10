@@ -55,6 +55,19 @@ final class CardTextTests: XCTestCase {
         XCTAssertEqual(ApprovalText.title(write), "Write notes\u{27E8}U+202E\u{27E9}txt.sh?")
     }
 
+    /// Finding 67: Threadbear's own gates say what they'd do in the
+    /// runner's words, under the generic title; another server's tool
+    /// doesn't get to put words there.
+    func testThreadbearCardsSayWhatTheRunnerIsAsking() {
+        let raise = ApprovalRequest(approvalId: "ap1", name: "mcp__threadbear__update_thread", title: "Switch this thread to Full access", input: .object(["threadId": .string("t1"), "permissionMode": .string("full")]))
+        XCTAssertEqual(ApprovalText.title(raise), "Use update thread?")
+        XCTAssertEqual(ApprovalText.runnerReason(raise), "Switch this thread to Full access")
+        let other = ApprovalRequest(approvalId: "ap2", name: "mcp__github__merge", title: "Switch this thread to Full access", input: .object([:]))
+        XCTAssertNil(ApprovalText.runnerReason(other))
+        let hidden = ApprovalRequest(approvalId: "ap3", name: "mcp__threadbear__send_message", title: "Send\u{2028}it", input: .object([:]))
+        XCTAssertEqual(ApprovalText.runnerReason(hidden), "Send\u{27E8}U+2028\u{27E9}it")
+    }
+
     func testAnswersReadInTheOrderTheQuestionsWereAsked() {
         let request = QuestionRequest(approvalId: "q1", questions: [
             Question(question: "Which colour?", options: [QuestionOption(label: "Blue")]),
