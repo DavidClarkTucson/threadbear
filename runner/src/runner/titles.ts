@@ -9,7 +9,7 @@ import { EXPLAIN_SYSTEM, RECENT_CHARS, RECENT_MESSAGES, explainPrompt } from '..
 import type { ExplainTurn } from '../explain.ts';
 import type { ThreadState } from '../runner.ts';
 import { TICKET_TITLE_PROMPT, TITLE_PROMPT, cleanTitle } from '../runner.ts';
-import { jiraKeys, jiraTicket, readJiraConfig, titleWithTicket } from '../jira.ts';
+import { jiraKeys, jiraTicket, readJiraConfig, ticketWords, titleWithTicket } from '../jira.ts';
 
 export const titlesPart = {
   // Asks a small model for a better title than the first line. Without a
@@ -27,7 +27,7 @@ export const titlesPart = {
     const jira = this.models.isPrivateFolder?.(st.rec.cwd) ? undefined : readJiraConfig(this.cfg.home);
     const ticket = jira ? await jiraTicket(jira, jiraKeys(text.slice(0, 4000))) : undefined;
     const prompt = ticket
-      ? `Message: ${text.slice(0, 4000)}\n${reply ? `Start of the reply: ${reply.slice(0, 1000)}\n` : ''}Ticket summary: ${ticket.summary}\nWords:`
+      ? `<message>${text.slice(0, 4000)}</message>\n${reply ? `Start of the reply: ${reply.slice(0, 1000)}\n` : ''}Ticket summary: ${ticket.summary}\nWords:`
       : reply
         ? `Message:\n${text.slice(0, 4000)}\n\nStart of the reply:\n${reply.slice(0, 1000)}`
         : `Message:\n${text.slice(0, 4000)}`;
@@ -45,7 +45,7 @@ export const titlesPart = {
     if (st.rec.titleSet || st.rec.title !== before) return { reason: 'Renamed meanwhile.' };
     const cleaned = cleanTitle(res.value);
     if (!cleaned) return { reason: 'The model gave no title.' };
-    const title = ticket ? titleWithTicket(ticket.key, cleaned) : cleaned;
+    const title = ticket ? titleWithTicket(ticket.key, ticketWords(cleaned, ticket.summary)) : cleaned;
     st.rec.title = title;
     st.rec.updatedAt = this.isoNow();
     this.markDirty(st);

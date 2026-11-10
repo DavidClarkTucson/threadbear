@@ -74,6 +74,15 @@ export async function jiraTicket(cfg: JiraConfig, keys: string[], fetchImpl: typ
   return undefined;
 }
 
+// The model's words for a ticket's title, or the ticket's summary when
+// they share no word of three letters or more with it: an answer to the
+// message ("ok") or a stray, not a title for this ticket.
+export function ticketWords(words: string, summary: string): string {
+  const of = (t: string) => new Set(t.toLowerCase().split(/[^a-z0-9_]+/).filter((w) => w.length >= 3));
+  const theirs = of(summary);
+  return [...of(words)].some((w) => theirs.has(w)) ? words : summary;
+}
+
 // "<KEY> - <title>": the model's title without the key wherever it wrote it
 // too ("… for MACG-3375"), its first letter lowercased only when the next
 // word is lowercase too, so "Force reclassifications" reads on from the dash

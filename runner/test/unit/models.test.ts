@@ -353,6 +353,7 @@ test('titles: a Jira ticket in the first message leads the title, with its summa
     assert.equal(h.runner.get(thread.id)!.title, 'MACG-3375 - force reclassifications tech design');
     assert.deepEqual(fetched, ['https://example.atlassian.net/rest/api/3/issue/MACG-3375?fields=summary']);
     assert.match(asked[0].prompt, /Ticket summary: Force reclassification of URLs on demand\nWords:$/);
+    assert.match(asked[0].prompt, /^<message>MACG-3375 tech design<\/message>/);
     assert.equal(asked[0].system, TICKET_TITLE_PROMPT);
 
     // A private folder: Jira isn't asked (and the model refuses as before).

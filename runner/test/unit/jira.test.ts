@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { jiraKeys, readJiraConfig, jiraTicket, titleWithTicket } from '../../src/jira.ts';
+import { jiraKeys, readJiraConfig, jiraTicket, ticketWords, titleWithTicket } from '../../src/jira.ts';
 
 test('jira: finds ticket keys in a message, first ones first, once each', () => {
   assert.deepEqual(jiraKeys('MACG-3375 tech design'), ['MACG-3375']);
@@ -57,4 +57,10 @@ test('jira: the title starts with the ticket key, once, and fits', () => {
   assert.ok(long.length <= 60, long);
   assert.ok(long.startsWith('MACG-3375 - force reclassifications'), long);
   assert.ok(!long.endsWith(' '), long);
+});
+
+test('jira: words that have nothing to do with the ticket give way to its summary', () => {
+  assert.equal(ticketWords('Su_dids table cleanup code review', 'Clean up the su_dids table and document it'), 'Su_dids table cleanup code review');
+  assert.equal(ticketWords('ok', 'Clean up the su_dids table and document it'), 'Clean up the su_dids table and document it');
+  assert.equal(ticketWords('CSV export for reports', 'Update Family Portal subdomain'), 'Update Family Portal subdomain');
 });
