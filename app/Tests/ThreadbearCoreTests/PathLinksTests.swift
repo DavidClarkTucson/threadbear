@@ -79,4 +79,17 @@ final class PathLinksTests: XCTestCase {
         XCTAssertLessThan(took, .seconds(2))
         XCTAssertTrue(out.hasSuffix("%20b)"))
     }
+
+    // The third pass of the cross-lab review, 10 Nov 2026.
+    func testEscapedBackticksAndFencesInQuotesAndLists() {
+        for text in [
+            "\\` example `[x](/a b)`",
+            "> ~~~\n> [x](/a b)\n> ~~~",
+            "- ~~~\n  [x](/a b)\n  ~~~",
+            "1. ```\n   [x](/a b)\n   ```",
+        ] {
+            XCTAssertEqual(PathLinks.escapeDestinations(text), text, text)
+        }
+        XCTAssertEqual(PathLinks.escapeDestinations("> ~~~\n> code\n> ~~~\n\n[y](/a b)"), "> ~~~\n> code\n> ~~~\n\n[y](/a%20b)")
+    }
 }

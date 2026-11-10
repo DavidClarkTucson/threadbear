@@ -8,8 +8,14 @@ public enum PathLinks {
     /// picture showed as raw `![Before](…)` text. Every thread's media is
     /// under Application Support, so most saved shots hit it. A destination
     /// with a title (`"…"`, `'…'` or `(…)` after a space), web addresses,
-    /// code spans and fenced code (a list item can hold one, so not only at
-    /// the block's start) stay as written.
+    /// code spans and fenced code (in a list item or a quote too) stay as
+    /// written.
+    ///
+    /// It reads markdown only as far as finding those, so a few rare forms
+    /// still get their spaces escaped, as `work:` links' do (WorkLinks): a
+    /// path in indented code, a `)` inside a quoted title, and `](/a b)`
+    /// that isn't a link (`\[x](/a b)`). The cross-lab review of 10 Nov 2026
+    /// found these, and they were left as not worth a markdown parser here.
     public static func escapeDestinations(_ markdown: String) -> String {
         guard markdown.contains("](/") || markdown.contains("](~/") else { return markdown }
         let ns = markdown as NSString
@@ -49,6 +55,9 @@ public enum PathLinks {
     private static let backslash = UInt16(UInt8(ascii: "\\")), newline = UInt16(UInt8(ascii: "\n"))
     private static let openBracket = UInt16(UInt8(ascii: "(")), closeBracket = UInt16(UInt8(ascii: ")"))
     private static let backtick = UInt16(UInt8(ascii: "`")), tilde = UInt16(UInt8(ascii: "~"))
+    private static let greaterThan = UInt16(UInt8(ascii: ">")), dash = UInt16(UInt8(ascii: "-"))
+    private static let star = UInt16(UInt8(ascii: "*")), plus = UInt16(UInt8(ascii: "+")), dot = UInt16(UInt8(ascii: "."))
+    private static let zero = UInt16(UInt8(ascii: "0")), nine = UInt16(UInt8(ascii: "9"))
 
     /// Whether a destination (trailing spaces gone) ends with a link title,
     /// which a space sets off: `/a.md 'Bob\'s plan'` or `/a.md (Read this)`
@@ -85,7 +94,17 @@ public enum PathLinks {
             var lineEnd = lineStart
             while lineEnd < u.count, u[lineEnd] != newline { lineEnd += 1 }
             var i = lineStart
-            while i < lineEnd, u[i] == space || u[i] == tab { i += 1 }
+            // Past the indent, and any quote marks and list markers before
+            // the fence (`> ~~~`, `- ~~~`, `1. ~~~`).
+            while true {
+                while i < lineEnd, u[i] == space || u[i] == tab { i += 1 }
+                if i < lineEnd, u[i] == greaterThan { i += 1; continue }
+                if i + 1 < lineEnd, u[i] == dash || u[i] == star || u[i] == plus, u[i + 1] == space { i += 2; continue }
+                var d = i
+                while d < lineEnd, u[d] >= zero, u[d] <= nine { d += 1 }
+                if d > i, d + 1 < lineEnd, u[d] == dot || u[d] == closeBracket, u[d + 1] == space { i = d + 2; continue }
+                break
+            }
             if i < lineEnd, u[i] == backtick || u[i] == tilde {
                 let mark = u[i]
                 var run = i
@@ -120,7 +139,11 @@ public enum PathLinks {
             guard u[i] == backtick else { i += 1; continue }
             var j = i
             while j < u.count, u[j] == backtick { j += 1 }
-            runs.append((i, j - i))
+            // A backslash before the run makes its first backtick plain text.
+            var slashes = 0
+            while i - slashes - 1 >= 0, u[i - slashes - 1] == backslash { slashes += 1 }
+            let start = slashes % 2 == 1 ? i + 1 : i
+            if j > start { runs.append((start, j - start)) }
             i = j
         }
         var byLength: [Int: [Int]] = [:]
