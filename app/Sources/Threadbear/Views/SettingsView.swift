@@ -17,19 +17,12 @@ struct SettingsView: View {
         // the window to the pane and General grew taller than the screen
         // (10 Nov).
         NavigationSplitView(columnVisibility: .constant(.all)) {
-            List(SettingsTab.allCases, id: \.self, selection: Binding(
-                get: { app.settingsTab },
-                // A List selection can go to nil (a click below the rows);
-                // keep the pane that's showing.
-                set: { if let tab = $0 { app.settingsTab = tab } })
-            ) { tab in
-                Label(tab.title, systemImage: tab.symbol)
-            }
-            // The column width alone is ignored in a Settings window (it
-            // stayed at about 145, cutting "Phone & browser" short).
-            .frame(minWidth: SettingsLayout.sidebarWidth)
-            .navigationSplitViewColumnWidth(SettingsLayout.sidebarWidth)
-            .toolbar(removing: .sidebarToggle)
+            SettingsSidebar(selection: $app.settingsTab)
+                // The column width alone is ignored in a Settings window (it
+                // stayed at about 145, cutting "Phone & browser" short).
+                .frame(minWidth: SettingsLayout.sidebarWidth)
+                .navigationSplitViewColumnWidth(SettingsLayout.sidebarWidth)
+                .toolbar(removing: .sidebarToggle)
         } detail: {
             pane(app.settingsTab)
                 .navigationTitle(app.settingsTab.title)
@@ -54,6 +47,67 @@ struct SettingsView: View {
         case .devices: DevicesSettings()
         case .keyboard: KeyboardSettings()
         }
+    }
+}
+
+/// The Settings sidebar: grey symbols, with the open section on a soft grey
+/// fill rather than a List's blue selection (Mike preferred Ghostex's
+/// settings to the blue, 10 Nov). Up and down arrows still move through it.
+private struct SettingsSidebar: View {
+    @Binding var selection: SettingsTab
+    @State private var hovered: SettingsTab?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 2) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    row(tab)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+        }
+        .scrollIndicators(.never)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onMoveCommand { direction in
+            let all = SettingsTab.allCases
+            guard let at = all.firstIndex(of: selection) else { return }
+            switch direction {
+            case .up where at > all.startIndex: selection = all[at - 1]
+            case .down where at < all.endIndex - 1: selection = all[at + 1]
+            default: break
+            }
+        }
+    }
+
+    private func row(_ tab: SettingsTab) -> some View {
+        let on = tab == selection
+        return Button {
+            selection = tab
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: tab.symbol)
+                    .font(.system(size: 13))
+                    .foregroundStyle(on ? .primary : .secondary)
+                    .frame(width: 18)
+                Text(tab.title)
+                    .font(.system(size: 13, weight: on ? .medium : .regular))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(on ? 0.1 : hovered == tab ? 0.05 : 0))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 ? tab : (hovered == tab ? nil : hovered) }
     }
 }
 
