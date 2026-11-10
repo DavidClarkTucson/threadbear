@@ -997,6 +997,25 @@ A Claude login with a limit of its own on Fable shows that week too,
 `/usage` does. Running out of it only stops Fable: the login can still run
 other models, so it never makes a login look full.
 
+### Review by another lab
+
+When a thread changes code (five lines or more, not counting docs) and
+finishes with nothing for you to do, Threadbear has your other provider try
+to break the change: Codex reviews a Claude thread's change, and Claude a
+Codex one's. The review runs in a thread of its own in the same folder, with
+the same permissions as the thread it reviews, and is told not to edit
+anything. Your thread says who is reviewing and waits. Then it wakes with
+the findings, fixes what holds up, and says in its reply what was found and
+what it did. The review thread is archived when it's done, so it stays out
+of your inbox; the link in the note opens it. A thread gets at most two
+reviews between your messages.
+
+With no login of another provider, a fresh session of the same one
+reviews, and the note says it isn't another lab. A folder a pool is kept
+for is only ever reviewed on that pool's logins. Reviews cost tokens on the
+reviewing login, so if you'd rather not have them, turn off Settings >
+General > Code review (`"labReview": false` in `runner.json`).
+
 Claude threads run through Claude Code's Agent SDK, and Anthropic's 5-hour
 meter seems to count that traffic as more per token than the same work typed
 into `claude` in a terminal. People have measured anywhere from about 1.6 to
@@ -1073,7 +1092,7 @@ Threadbear's data folder, read at every turn, so an agent can set them
 there too:
 
 ```json
-"experiments": { "labReview": true }
+"experiments": { "keepAwake": true }
 ```
 
 Once an experiment has proved itself it becomes a standard part of

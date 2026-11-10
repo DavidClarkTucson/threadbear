@@ -28,6 +28,8 @@ export type Settings = {
   followMain: boolean;
   bulletReplies: boolean;
   oneReply: boolean;
+  // Review by another lab (runner/lab-review.ts).
+  labReview: boolean;
   // How often a fork's runner starts a thread to bring in Mike's releases
   // (bring-in.ts): every so many days, 'important' or 'off'.
   bringIn: BringInSetting;
@@ -46,6 +48,7 @@ export type SettingsUpdate = {
   followMain?: boolean;
   bulletReplies?: boolean;
   oneReply?: boolean;
+  labReview?: boolean;
   bringIn?: BringInSetting;
   models?: { pool?: string | null; privateFolders?: string[] };
   // Experiment id to on or off, saved under runner.json `experiments`.
@@ -75,6 +78,7 @@ export class SettingsService {
       followMain: peekRunnerJson(this.cfg.home).followMain !== false,
       bulletReplies: this.cfg.bulletReplies,
       oneReply: this.cfg.oneReply,
+      labReview: this.cfg.labReview,
       bringIn: bringInSetting(this.cfg.home),
       models: {
         pool: this.cfg.models.pool,
@@ -123,6 +127,7 @@ export class SettingsService {
     if (u.followMain !== undefined) json.followMain = u.followMain;
     if (u.bulletReplies !== undefined) json.bulletReplies = this.cfg.bulletReplies = u.bulletReplies;
     if (u.oneReply !== undefined) json.oneReply = this.cfg.oneReply = u.oneReply;
+    if (u.labReview !== undefined) json.labReview = this.cfg.labReview = u.labReview;
     // Read each time it's needed (bring-in.ts), so this takes effect at once.
     if (u.bringIn !== undefined) json.releases = { ...json.releases, bringIn: u.bringIn };
     if (folders !== undefined || pool !== undefined) {
@@ -162,6 +167,10 @@ export function settingsMethods(s: SettingsService): Record<string, (p: Record<s
       if (p.oneReply !== undefined) {
         if (typeof p.oneReply !== 'boolean') throw bad('oneReply must be a boolean');
         u.oneReply = p.oneReply;
+      }
+      if (p.labReview !== undefined) {
+        if (typeof p.labReview !== 'boolean') throw bad('labReview must be a boolean');
+        u.labReview = p.labReview;
       }
       if (p.bringIn !== undefined) {
         const b = parseBringIn(p.bringIn);

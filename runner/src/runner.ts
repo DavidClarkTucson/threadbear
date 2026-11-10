@@ -2349,7 +2349,7 @@ export class Runner {
     if (outcome === 'completed' && said?.needs === 'nothing' && !archive) void this.checkLooseEnds(st);
     this.recheckStarter(st);
     // A code change gets another lab's review before it counts as done
-    // (experiment labReview, runner/lab-review.ts): the thread waits on
+    // (runner/lab-review.ts, unless Settings turns it off): the thread waits on
     // the review, so anything waiting on it hears once it's been fixed.
     // One the last runner owed (a handover) is settled by the next turn to
     // complete: a finish gives this turn's change if it made one worth it,

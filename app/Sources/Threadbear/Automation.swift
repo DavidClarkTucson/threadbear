@@ -225,6 +225,7 @@ enum Automation {
                 "followMain": settings.followMain,
                 "bulletReplies": settings.bulletReplies,
                 "oneReply": settings.oneReply,
+                "labReview": settings.labReview,
                 // "" is none (small jobs off), or an older runner with no pools.
                 "smallJobsPool": settings.models.pool ?? "",
                 "privateFolders": settings.models.privateFolders,

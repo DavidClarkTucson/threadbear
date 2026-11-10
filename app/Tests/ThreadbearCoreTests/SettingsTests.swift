@@ -69,6 +69,15 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(SettingsUpdate(bringIn: .off).params, ["bringIn": .string("off")])
     }
 
+    func testLabReviewIsOnUnlessTheRunnerSaysOff() throws {
+        func decode(_ json: String) throws -> RunnerSettings { try JSONDecoder().decode(RunnerSettings.self, from: Data(json.utf8)) }
+        XCTAssertTrue(try decode(#"{"labReview":true}"#).labReview)
+        XCTAssertFalse(try decode(#"{"labReview":false}"#).labReview)
+        XCTAssertTrue(try decode(#"{"labReview":true}"#).labReviewSupported)
+        XCTAssertFalse(try decode("{}").labReviewSupported, "an older runner sends none, so no switch")
+        XCTAssertEqual(SettingsUpdate(labReview: false).params, ["labReview": .bool(false)])
+    }
+
     func testBringInChoicesKeepACustomNumber() {
         XCTAssertEqual(SettingsText.bringInChoices(current: .standard).map(\.title),
                        ["Every day", "Every 3 days", "Every 5 days", "Every week", "Every 2 weeks", "Only important ones", "Never"])

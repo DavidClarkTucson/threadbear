@@ -178,6 +178,21 @@ private struct GeneralSettings: View {
 
                 InstructionsSection()
 
+                // An experiment from 6 Nov until Mike made it standard on
+                // 10 Nov 2026. A switch rather than always on: with no login
+                // of the other provider it reviews on the same one, which
+                // costs tokens and isn't another lab, so people may want it off.
+                if settings.labReviewSupported {
+                    SettingsSection("Code review",
+                                    about: "When a thread changes code and is done, Threadbear has your other provider (Codex for a Claude thread, Claude for a Codex one) try to break the change in a review thread of its own. Your thread waits for what it finds, fixes what holds up, and tells you in its reply. With only one provider, a fresh session of the same one reviews instead.",
+                                    ask: "explain what a review found, or turn reviews on or off for you.") {
+                        Toggle("Review code changes before a thread is done",
+                               isOn: Binding(get: { settings.labReview },
+                                             set: { app.updateSettings(SettingsUpdate(labReview: $0)) }))
+                            .tip("Have another lab check each code change a thread makes")
+                    }
+                }
+
                 // One reply, Bullet replies, the two live-CLI steppers and
                 // Follow main left here on 2 Nov: Mike wants as few settings
                 // as possible, the defaults suit nearly everyone, and anyone

@@ -118,6 +118,11 @@ export type Config = {
   // and a headline, and the agent's message straight after it is the
   // turn's reply. Off by default while Mike tries it (1 Nov 2026).
   oneReply: boolean;
+  // Review by another lab (runner/lab-review.ts): a turn that changed code
+  // and needs nothing is reviewed on the other provider before it counts as
+  // done. On unless runner.json has `labReview: false` (Settings > General);
+  // an experiment from 6 Nov until Mike made it standard on 10 Nov 2026.
+  labReview: boolean;
   // Mike's runner tags a signed release of main once a day for everyone
   // else's copy (src/upstream.ts): runner.json `releases`.
   releases?: { publish: boolean; signingKey?: string; signingProvider?: string };
@@ -186,6 +191,7 @@ export type RunnerJson = {
   checkHosts?: string[];
   bulletReplies?: boolean;
   oneReply?: boolean;
+  labReview?: boolean;
   // bringIn: how often a fork's runner starts a thread to bring in Mike's
   // releases (bring-in.ts): every so many days, 'important' or 'off'.
   releases?: { publish?: boolean; signingKey?: string; signingProvider?: string; bringIn?: number | 'important' | 'off' };
@@ -398,6 +404,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     // On unless runner.json turns it off (2 Nov: Mike found it the right
     // balance, and it's no longer in Settings).
     oneReply: json.oneReply !== false,
+    labReview: json.labReview !== false,
     ...(json.releases?.publish === true ? { releases: { publish: true, ...(typeof json.releases.signingKey === 'string' ? { signingKey: expandHome(json.releases.signingKey) } : {}), ...(typeof json.releases.signingProvider === 'string' ? { signingProvider: expandHome(json.releases.signingProvider) } : {}) } } : {}),
     models: modelSettingsFrom(json),
     ...(codexPath ? { codexPath: expandHome(codexPath) } : {}),

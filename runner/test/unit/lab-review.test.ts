@@ -1,4 +1,5 @@
-// Review by another lab (experiment labReview, runner/lab-review.ts): a
+// Review by another lab (Settings > General, runner.json `labReview`,
+// runner/lab-review.ts): a
 // turn that changed code and finished starts a review thread on the other
 // provider, waits for it, and wakes with its findings.
 import { test } from 'node:test';
@@ -11,14 +12,14 @@ import { ThreadStore } from '../../src/store.ts';
 import { FakeClock } from '../../src/clock.ts';
 import { nullLogger } from '../../src/log.ts';
 import { LAB_REVIEW_ROUNDS } from '../../src/runner/lab-review.ts';
-import { EXPERIMENTS, experimentOn } from '../../src/experiments.ts';
+import { loadConfig } from '../../src/config.ts';
+import { SettingsService } from '../../src/settings.ts';
 
 const END_TURN = 'mcp__threadbear__end_turn';
 
 function setup(o: { on?: boolean; accounts?: typeof ACCOUNTS; cfg?: Record<string, unknown> } = {}) {
   const home = tmpDir();
-  if (o.on !== false) fs.writeFileSync(path.join(home, 'runner.json'), JSON.stringify({ experiments: { labReview: true } }));
-  const h = makeHarness(home, o.cfg ?? {}, { accounts: new FakeAccounts(o.accounts ?? withCodex()) });
+  const h = makeHarness(home, { labReview: o.on !== false, ...o.cfg }, { accounts: new FakeAccounts(o.accounts ?? withCodex()) });
   return h;
 }
 
@@ -42,13 +43,20 @@ function start(h: ReturnType<typeof setup>, text = 'Fix the login bug') {
   return thread.id;
 }
 
-test('labReview: off by default, so a code change finishes as before', () => {
-  assert.equal(EXPERIMENTS.find((x) => x.id === 'labReview')?.on, false);
-  const h = setup({ on: false });
-  assert.equal(experimentOn(h.home, 'labReview'), false);
+test('labReview: on unless runner.json turns it off, and Settings switches it at once', () => {
+  const home = tmpDir();
+  assert.equal(loadConfig({ THREADBEAR_HOME: home }).labReview, true, 'on with nothing in runner.json');
+  fs.writeFileSync(path.join(home, 'runner.json'), JSON.stringify({ labReview: false }));
+  assert.equal(loadConfig({ THREADBEAR_HOME: home }).labReview, false);
+
+  const h = setup();
+  const settings = new SettingsService({ config: h.runner.cfg, publish: () => {} });
+  assert.equal(settings.get().labReview, true);
+  assert.equal(settings.update({ labReview: false }).labReview, false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(h.home, 'runner.json'), 'utf8')).labReview, false, 'saved');
   const id = start(h);
   turn(h, id, { diffs: [codeDiff()] });
-  assert.equal(h.runner.get(id).snoozedUntil, undefined);
+  assert.equal(h.runner.get(id).snoozedUntil, undefined, 'not waiting on a review');
   assert.equal(h.codex.sessions.length, 0);
 });
 
@@ -253,7 +261,7 @@ test('labReview: a turn that ends on a draining runner is reviewed once the new 
   const codex = new FakeAdapter('codex', { ...CODEX_FLAGS, archives: true });
   const notes: Notification[] = [];
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude: new FakeAdapter(), codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,
@@ -293,7 +301,7 @@ test('labReview: a thread busy when it comes across gives the owed review at its
   const claude = new FakeAdapter();
   const codex = new FakeAdapter('codex', { ...CODEX_FLAGS, archives: true });
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude, codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,
@@ -330,7 +338,7 @@ test('labReview: a thread hibernated before it came across keeps the review for 
   fs.writeFileSync(file, JSON.stringify(saved));
   const codex = new FakeAdapter('codex', { ...CODEX_FLAGS, archives: true });
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude: new FakeAdapter(), codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(Date.now()), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,
@@ -354,7 +362,7 @@ test('labReview: a review owed from a handover starts when the next runner loads
   // The new runner went away before adopting it; the one after loads it.
   const codex = new FakeAdapter('codex', { ...CODEX_FLAGS, archives: true });
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude: new FakeAdapter(), codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,
@@ -386,7 +394,7 @@ test('labReview: a thread adopted while the new runner is still starting gets it
   await tick();
   const codex = new FakeAdapter('codex', { ...CODEX_FLAGS, archives: true });
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude: new FakeAdapter(), codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,
@@ -420,7 +428,7 @@ test('labReview: an owed review is dropped by a next turn that needs Mike', asyn
   const claude = new FakeAdapter();
   const codex = new FakeAdapter('codex', { ...CODEX_FLAGS, archives: true });
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude, codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,
@@ -453,7 +461,7 @@ test('labReview: a slash command the runner answers itself keeps an owed review'
   fs.writeFileSync(file, JSON.stringify(saved));
   const codex = new FakeAdapter('codex', { ...CODEX_FLAGS, archives: true });
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude: new FakeAdapter(), codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,
@@ -475,7 +483,7 @@ test('labReview: an edit that cuts the owed turn drops its review', async () => 
   const claude = new FakeAdapter();
   claude.rewind = async () => ({ resumeAt: 'entry-1' });
   const b = new Runner({
-    config: testConfig(h.home), store: new ThreadStore(h.home),
+    config: testConfig(h.home, { labReview: true }), store: new ThreadStore(h.home),
     adapters: { claude, codex }, accounts: new FakeAccounts(withCodex()),
     clock: new FakeClock(), log: nullLogger, defer: (fn) => fn(), copyTranscript: () => false,
     subagentTranscript: () => null, reachable: async () => true, backgroundJobs: false,

@@ -1,4 +1,4 @@
-// Review by another lab (experiment `labReview`, experiments.ts): when a
+// Review by another lab (Settings > General, runner.json `labReview`): when a
 // turn that changed code ends with nothing needed, a review thread starts
 // in the same folder on the other provider (Codex for a Claude thread,
 // Claude for a Codex one), told to try to break the change without
@@ -21,7 +21,6 @@ import type { Runner, ThreadState } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import type { Account, Hunk, PermissionMode, Provider } from '../protocol.ts';
 import type { ThreadRecord } from '../store.ts';
-import { experimentOn } from '../experiments.ts';
 import { pickInPool, poolAccounts, poolForFolder } from '../pools.ts';
 import { providerName } from '../providers.ts';
 import { cutSafely, safeEnd } from '../safe-cut.ts';
@@ -50,7 +49,7 @@ export const labReviewPart = {
   startLabReview(this: Runner, st: ThreadState, turnId: string, reply: string | undefined, upTo?: number): string | undefined {
     const { rec } = st;
     if (rec.reviewOf || rec.archivedAt) return undefined;
-    if (!experimentOn(this.cfg.home, 'labReview')) return undefined;
+    if (!this.cfg.labReview) return undefined;
     if ((rec.labReviews ?? 0) >= LAB_REVIEW_ROUNDS) return undefined;
     const change = this.turnChange(st, turnId, upTo);
     if (!change || change.codeLines < LAB_REVIEW_MIN_LINES) return undefined;

@@ -705,6 +705,11 @@ type Settings = {
                         // agent's own message (see "The summary")
   oneReply: boolean     // end_turn first, then the agent's message as the
                         // reply (see "Needs you", One reply); on by default
+  labReview?: boolean   // review a code change on the other provider
+                        // before the thread is done (Review by another
+                        // lab); on unless runner.json has labReview: false.
+                        // Absent from an older runner, where it was an
+                        // experiment, so a client shows no switch
   bringIn: number | "important" | "off" // a fork: how often a thread starts
                         // to bring in Mike's releases, in days (1 to 365;
                         // 5 by default), only for important ones, or never
@@ -1108,7 +1113,7 @@ the summary and then the reply.
 | `pools.list` | `{}` | `{ pools: Pool[] }` (see Pools) |
 | `pools.save` | `{ pools: Pool[] }` | `{ pools: Pool[] }`. Replaces the whole list in `runner.json` (`builtIn` is dropped; an empty list goes back to the built-in ones). `-32602` for a duplicate id, a blank id or title, an empty `accountIds`, or an account id the runner doesn't know. A blank or non-string `icon` is dropped. Every client gets `pools.updated` |
 | `settings.get` | `{}` | `{ settings: Settings }` |
-| `settings.update` | `{ defaultCwd?, idleMinutes?, maxLiveCLIs?, followMain?, bulletReplies?, oneReply?, bringIn?, models?: { pool?: string \| null, privateFolders? }, experiments?: { [id]: boolean } }` | `{ settings: Settings }`. Saves what's given to `runner.json` and applies it straight away, except `followMain` (next restart). `experiments` sets those switches under runner.json's `experiments`, keeping the rest; `Settings.experiments` lists every one as `{ id, name, does, on }`, oldest first. `defaultCwd` must be an existing folder, `idleMinutes` at least 1, `maxLiveCLIs` 1 to 20, `pool` a pool id or `null`, each `experiments` key an experiment's id; otherwise `-32602` saying which. Every client gets `settings.updated` |
+| `settings.update` | `{ defaultCwd?, idleMinutes?, maxLiveCLIs?, followMain?, bulletReplies?, oneReply?, labReview?, bringIn?, models?: { pool?: string \| null, privateFolders? }, experiments?: { [id]: boolean } }` | `{ settings: Settings }`. Saves what's given to `runner.json` and applies it straight away, except `followMain` (next restart). `experiments` sets those switches under runner.json's `experiments`, keeping the rest; `Settings.experiments` lists every one as `{ id, name, does, on }`, oldest first. `defaultCwd` must be an existing folder, `idleMinutes` at least 1, `maxLiveCLIs` 1 to 20, `pool` a pool id or `null`, each `experiments` key an experiment's id; otherwise `-32602` saying which. Every client gets `settings.updated` |
 | `instructions.get` | `{}` | `{ instructions: StandingInstructions }` (see Standing instructions). `-32601` with the experiment off, and from an older runner: the app then shows no box |
 | `instructions.set` | `{ text: string }` | `{ instructions: StandingInstructions }`. Saves and signs the text, trimmed; an empty one clears them and removes both files. `-32602` for a `text` that isn't a string or is over 20,000 characters, `-32601` as for `instructions.get`. Every client gets `instructions.updated` |
 | `devices.list` | `{}` | `{ devices: Device[], site?: string, reason?: string }` (see Devices). `site` is the website's root while sync is on; `reason` says why nothing can pair when it's off |
@@ -2857,9 +2862,10 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   `expired`, with no card. A thread
   switched out of Auto meanwhile gets the card. Ask, Full access and plans
   are never reviewed.
-- **Review by another lab** (experiment `labReview`, off unless
-  `runner.json` has `"experiments": { "labReview": true }`;
-  `runner/src/runner/lab-review.ts`). A turn that would count as finished
+- **Review by another lab** (`Settings.labReview`, on unless
+  `runner.json` has `"labReview": false`, Settings > General > Code
+  review; `runner/src/runner/lab-review.ts`. An experiment from 6 Nov
+  until 10 Nov 2026). A turn that would count as finished
   (as for Waiting on threads, below) and whose `edit.diff` events change
   at least 5 lines outside `.md`/`.txt` files, in a thread that isn't
   itself a review, with fewer than 2 reviews since Mike's last message

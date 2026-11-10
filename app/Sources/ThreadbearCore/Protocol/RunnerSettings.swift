@@ -95,6 +95,12 @@ public struct RunnerSettings: Sendable, Hashable, Decodable {
     /// One reply (docs/protocol.md): end_turn carries the card, and the
     /// agent's message after it is the reply. Takes over from bullet replies.
     public var oneReply: Bool
+    /// Review by another lab: a code change is reviewed on the other
+    /// provider before its thread is done. On unless turned off.
+    public var labReview: Bool
+    /// Whether the runner sends `labReview` at all. An older one doesn't
+    /// (it was an experiment there), so Settings shows no switch for it.
+    public var labReviewSupported: Bool
     public var bringIn: BringIn
     /// Whether the runner sends `bringIn` at all. An older one doesn't.
     public var bringInSupported: Bool
@@ -104,6 +110,7 @@ public struct RunnerSettings: Sendable, Hashable, Decodable {
     public var experiments: [Experiment]
 
     public init(defaultCwd: String = "", idleMinutes: Int = 30, maxLiveCLIs: Int = 6, followMain: Bool = true, bulletReplies: Bool = true, oneReply: Bool = false,
+                labReview: Bool = true, labReviewSupported: Bool = false,
                 bringIn: BringIn = .standard, bringInSupported: Bool = false, models: Models = Models(), experiments: [Experiment] = []) {
         self.experiments = experiments
         self.defaultCwd = defaultCwd
@@ -112,6 +119,8 @@ public struct RunnerSettings: Sendable, Hashable, Decodable {
         self.followMain = followMain
         self.bulletReplies = bulletReplies
         self.oneReply = oneReply
+        self.labReview = labReview
+        self.labReviewSupported = labReviewSupported
         self.bringIn = bringIn
         self.bringInSupported = bringInSupported
         self.models = models
@@ -125,13 +134,15 @@ public struct RunnerSettings: Sendable, Hashable, Decodable {
         followMain = (try? c.decodeIfPresent(Bool.self, forKey: .followMain)) ?? true
         bulletReplies = (try? c.decodeIfPresent(Bool.self, forKey: .bulletReplies)) ?? true
         oneReply = (try? c.decodeIfPresent(Bool.self, forKey: .oneReply)) ?? false
+        labReviewSupported = c.contains(.labReview)
+        labReview = (try? c.decodeIfPresent(Bool.self, forKey: .labReview)) ?? true
         bringInSupported = c.contains(.bringIn)
         bringIn = BringIn.decode(c) ?? .standard
         models = (try? c.decodeIfPresent(Models.self, forKey: .models)) ?? Models()
         experiments = c.lossyArray(Experiment.self, forKey: .experiments)
     }
 
-    enum CodingKeys: String, CodingKey { case defaultCwd, idleMinutes, maxLiveCLIs, followMain, bulletReplies, oneReply, bringIn, models, experiments }
+    enum CodingKeys: String, CodingKey { case defaultCwd, idleMinutes, maxLiveCLIs, followMain, bulletReplies, oneReply, labReview, bringIn, models, experiments }
 }
 
 /// Fields for `settings.update`; nil ones are left out, so an edit to one
@@ -143,6 +154,7 @@ public struct SettingsUpdate: Sendable, Hashable {
     public var followMain: Bool?
     public var bulletReplies: Bool?
     public var oneReply: Bool?
+    public var labReview: Bool?
     public var bringIn: RunnerSettings.BringIn?
     /// `.some(nil)` sends null: no pool, so no small jobs.
     public var pool: String??
@@ -150,7 +162,7 @@ public struct SettingsUpdate: Sendable, Hashable {
     /// Experiment id to on or off.
     public var experiments: [String: Bool]?
 
-    public init(defaultCwd: String? = nil, idleMinutes: Int? = nil, maxLiveCLIs: Int? = nil, followMain: Bool? = nil, bulletReplies: Bool? = nil, oneReply: Bool? = nil,
+    public init(defaultCwd: String? = nil, idleMinutes: Int? = nil, maxLiveCLIs: Int? = nil, followMain: Bool? = nil, bulletReplies: Bool? = nil, oneReply: Bool? = nil, labReview: Bool? = nil,
                 bringIn: RunnerSettings.BringIn? = nil, pool: String?? = nil, privateFolders: [String]? = nil, experiments: [String: Bool]? = nil) {
         self.experiments = experiments
         self.pool = pool
@@ -161,6 +173,7 @@ public struct SettingsUpdate: Sendable, Hashable {
         self.followMain = followMain
         self.bulletReplies = bulletReplies
         self.oneReply = oneReply
+        self.labReview = labReview
         self.privateFolders = privateFolders
     }
 
@@ -172,6 +185,7 @@ public struct SettingsUpdate: Sendable, Hashable {
         if let followMain { params["followMain"] = .bool(followMain) }
         if let bulletReplies { params["bulletReplies"] = .bool(bulletReplies) }
         if let oneReply { params["oneReply"] = .bool(oneReply) }
+        if let labReview { params["labReview"] = .bool(labReview) }
         if let bringIn { params["bringIn"] = bringIn.json }
         var models: [String: JSONValue] = [:]
         if let pool { models["pool"] = pool.map { .string($0) } ?? .null }
