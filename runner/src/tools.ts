@@ -286,7 +286,11 @@ export function remoteCardShowsAll(name: string, input: Record<string, unknown>,
   if (name.startsWith('mcp__')) {
     // Only ours are known to be ids; another server's `id` can be what it acts on.
     const ids = name.startsWith('mcp__threadbear__') ? ID_KEYS : new Set<string>();
-    const values = Object.entries(input).filter(([k, v]) => v !== undefined && v !== null && v !== '' && !ids.has(k));
+    // An empty string is something another server's tool is handed too: a
+    // write_file with `content: ""` empties the file, and its path alone
+    // isn't all of it (Codex review, 10 Nov 2026). Only ours leave one out.
+    const ours = name.startsWith('mcp__threadbear__');
+    const values = Object.entries(input).filter(([k, v]) => v !== undefined && v !== null && !(ours && v === '') && !ids.has(k));
     if (values.some(([, v]) => typeof v === 'object')) return false;
     // A tool's value is taken as it is, not as a command: its spaces at the
     // ends can be a file's name, and one of only spaces or separators is

@@ -88,6 +88,12 @@ test("a Codex patch's line is its one file: more files, a folder to write under,
   assert.equal(remoteCardShowsAll('apply_patch', { paths: ['/w/a.txt'], grantRoot: '/w' }), false);
 });
 
+test("another server's empty argument counts: a write_file emptying a file isn't just its path", () => {
+  assert.equal(remoteCardShowsAll('mcp__fs__write_file', { path: '/w/a.txt', content: '' }), false);
+  assert.equal(remoteCardShowsAll('mcp__fs__read_file', { path: '/w/a.txt' }), true);
+  assert.equal(remoteCardShowsAll('mcp__threadbear__pin', { path: 'shot.png', title: '' }), true, "ours: an empty optional says nothing");
+});
+
 test("a tool's one value is taken as it is: spaces at its ends, or nothing but spaces or separators, aren't whole", () => {
   assert.equal(remoteCardShowsAll('mcp__files__delete', { path: 'notes.txt ' }), false);
   assert.equal(remoteCardShowsAll('mcp__files__delete', { path: ' notes.txt' }), false);
