@@ -585,14 +585,17 @@ function ensureContainer(name, image, want, runArgs, cmd = []) {
   ok(`${name} running`);
 }
 
-// What `tailscale serve` has on one of this Mac's tailnet ports.
+// What `tailscale serve` has on one of this Mac's tailnet ports, or
+// undefined when Tailscale couldn't say (its daemon not answering), which
+// isn't the same as nothing.
 function served(ts, tailnetPort) {
   const st = run(ts, ['serve', 'status', '--json']);
+  if (st.status !== 0) return undefined;
   let cfg = {};
   try {
     cfg = JSON.parse(st.stdout || '{}');
   } catch {
-    // no config yet
+    return undefined;
   }
   return Object.entries(cfg.Web ?? {}).filter(([hostPort]) => hostPort.endsWith(`:${tailnetPort}`)).flatMap(([, w]) => Object.values(w.Handlers ?? {}));
 }
@@ -601,7 +604,7 @@ function served(ts, tailnetPort) {
 // the same target is fine, anything else is someone else's and is left alone.
 function serve(ts, tailnetPort, localPort) {
   const target = `http://127.0.0.1:${localPort}`;
-  const handlers = served(ts, tailnetPort);
+  const handlers = served(ts, tailnetPort) ?? [];
   if (handlers.length) {
     if (handlers.every((h) => h.Proxy?.replace(/\/$/, '') === target)) return ok(`tailnet port ${tailnetPort} serves ${target}`);
     throw new Fail(`Tailscale already serves something else on port ${tailnetPort} of this Mac (tailscale serve status). Take it off (tailscale serve --https=${tailnetPort} off) and run setup again.`);
@@ -621,11 +624,19 @@ function serve(ts, tailnetPort, localPort) {
 function unserve(ts, tailnetPort, localPort) {
   const target = `http://127.0.0.1:${localPort}`;
   const handlers = served(ts, tailnetPort);
+  // Tailscale couldn't say what it serves. Coming off the tailnet, that's
+  // not good enough; otherwise it's said, as an earlier failed move is the
+  // only way anything of this backend's could be there.
+  if (!handlers) {
+    if (plan.from === 'tailnet') throw new Fail(`Couldn't ask Tailscale what it serves (tailscale serve status failed), so setup can't take this backend off your tailnet. Open Tailscale and run setup again.`);
+    return note(`couldn't ask Tailscale what it serves on port ${tailnetPort}; if an earlier setup put this backend on your tailnet, check tailscale serve status`);
+  }
   const ours = handlers.filter((h) => h.Proxy?.replace(/\/$/, '') === target);
   if (!ours.length) return;
   if (ours.length !== handlers.length) throw new Fail(`Tailscale serves this backend on tailnet port ${tailnetPort} alongside something else (tailscale serve status), so it's still on your tailnet. Take the backend's part off by hand, then run setup again.`);
   if (dry) return todo(`tailscale serve --https=${tailnetPort} off`);
-  if (run(ts, ['serve', `--https=${tailnetPort}`, 'off']).status !== 0) throw new Fail(`Taking tailnet port ${tailnetPort} off failed. Run tailscale serve --https=${tailnetPort} off, then setup again.`);
+  // Tailscale keeps what it serves while it's stopped, and won't take it off then.
+  if (run(ts, ['serve', `--https=${tailnetPort}`, 'off']).status !== 0) throw new Fail(`Tailscale still has this backend on tailnet port ${tailnetPort}, saved for when it's next on, and taking it off failed. Start Tailscale (it can't change this while stopped), then run setup again, or run tailscale serve --https=${tailnetPort} off yourself.`);
   ok(`tailnet port ${tailnetPort} taken off the tailnet`);
 }
 
@@ -748,7 +759,11 @@ function backend() {
   // A self-hosted move changes the address built into the website. A deploy
   // from before that address was recorded can't see the change, so a move
   // always deploys again (cross-lab review, 10 Nov).
-  const force = plan?.from ? ['--force'] : [];
+  // backend.json records the address the website was last built with; a
+  // move that stopped partway has already written the new one to
+  // runner.json, so this goes by what was built, not by plan.from.
+  const built = readJson(path.join(home, 'backend.json')).site?.url;
+  const force = plan?.from || (plan?.selfHosted && built !== readRunnerJson().sync?.url) ? ['--force'] : [];
   runOrFail('Deploying the backend', process.execPath, [path.join(repo, 'runner', 'scripts', 'deploy-backend.mjs'), '--home', home, '--repo', repo, ...force]);
 }
 
