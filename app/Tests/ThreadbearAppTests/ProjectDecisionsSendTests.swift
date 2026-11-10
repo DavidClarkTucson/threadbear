@@ -68,6 +68,19 @@ final class ProjectDecisionsSendTests: XCTestCase {
         XCTAssertEqual(app.errorMessage, "Busy")
     }
 
+    /// Answered in the thread a moment ago, before the runner says it took
+    /// it: the page doesn't send a second answer (Codex's review).
+    func testAnAnswerFromTheThreadsOwnComposerBlocksThePage() async throws {
+        let one = card.replacingOccurrences(of: #",{"action":"Tell Wayne?","options":["Yes","No"]}"#, with: "")
+        let (app, transport) = try await connected(one)
+        app.session(for: "th1").addPending(id: "p1", text: "Bring it in?\nBring it in", images: [], answers: [], summarySeq: 12)
+        XCTAssertTrue(app.decisionInFlight(app.threads["th1"]!))
+        app.pickDecision(thread: app.threads["th1"]!, ask: 0, option: 1)
+        app.sendDecision(threadId: "th1")
+        XCTAssertNil(app.decisionSends["th1"])
+        XCTAssertEqual(transport.count("threads.send"), 0)
+    }
+
     func testSomethingElseWaitsForItsBox() async throws {
         let one = card.replacingOccurrences(of: #",{"action":"Tell Wayne?","options":["Yes","No"]}"#, with: "")
         let (app, _) = try await connected(one)

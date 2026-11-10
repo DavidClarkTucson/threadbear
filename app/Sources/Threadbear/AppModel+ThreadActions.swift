@@ -121,13 +121,22 @@ extension AppModel {
     /// there's no composer to send from: one click answers a card of one.
     /// Something else opens its box instead, and Return there sends.
     func pickDecision(thread: ThreadSummary, ask: Int, option: Int) {
-        guard ProjectDecisions.isWaiting(thread), let seq = thread.asksSeq, !ProjectDecisions.isSending(thread, sentFor: decisionSends[thread.id]?.asksSeq),
+        guard ProjectDecisions.isWaiting(thread), let seq = thread.asksSeq, !decisionInFlight(thread),
               thread.asks.indices.contains(ask), Decisions.choices(for: thread.asks[ask]).indices.contains(option) || option == Decisions.ownAnswer else { return }
         var picks = picks(for: thread)
         picks[ask] = picks[ask] == option ? nil : option
         setAnswers(picks: picks, notes: notes(for: thread), seq: seq, threadId: thread.id)
         guard option != Decisions.ownAnswer, picks[ask] == option, let now = threads[thread.id], decisionAnswered(now) else { return }
         sendDecision(threadId: thread.id)
+    }
+
+    /// An answer to the thread's card is already on its way: sent from the
+    /// page (`decisionSends`), or a message from the thread's own composer
+    /// the runner hasn't shown yet. Either way the thread's summary can
+    /// still say it's waiting for a moment, and a pick on the page then
+    /// would send a second answer (Codex's review, 10 Nov).
+    func decisionInFlight(_ thread: ThreadSummary) -> Bool {
+        ProjectDecisions.isSending(thread, sentFor: decisionSends[thread.id]?.asksSeq) || loadedSession(thread.id)?.pending.isEmpty == false
     }
 
     /// Every ask still open on the thread's card has an answer that would
@@ -156,7 +165,7 @@ extension AppModel {
     /// Whatever is typed in the thread's own composer stays there.
     func sendDecision(threadId: String) {
         guard let thread = threads[threadId], ProjectDecisions.isWaiting(thread), let seq = thread.asksSeq,
-              !ProjectDecisions.isSending(thread, sentFor: decisionSends[threadId]?.asksSeq) else { return }
+              !decisionInFlight(thread) else { return }
         let picks = picks(for: thread)
         let notes = notes(for: thread)
         let answers = Decisions.answers(asks: thread.asks, picks: picks, notes: notes).map(\.answer)

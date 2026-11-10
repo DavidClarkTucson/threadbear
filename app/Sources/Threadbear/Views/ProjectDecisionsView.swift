@@ -150,6 +150,18 @@ final class DecisionAsksHost: NSView, TranscriptThreadHost, RowCellDelegate {
         cell.bare = true
         cell.delegate = self
         addSubview(cell)
+        // A Run button's state lives with the buttons, not in the card, so
+        // a press (or the runner's word on it) draws the card again, as
+        // the composer's does (Codex's review: it kept showing a pressable
+        // Run while the press was on its way).
+        NotificationCenter.default.addObserver(self, selector: #selector(buttonsChanged), name: ReplyButtons.changed, object: nil)
+    }
+
+    @objc private func buttonsChanged() {
+        guard let card, card.asks.contains(where: { $0.run != nil }) else { return }
+        built = nil
+        shown = nil
+        needsLayout = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
