@@ -19,6 +19,13 @@ public extension RPCClient {
         return try await call("threads.list", params, as: ThreadsResult.self).threads
     }
 
+    /// One thread's summary, whichever list it's in; nil if the runner
+    /// doesn't have it. An older runner ignores `ids`, so it's picked out.
+    func threadSummary(_ threadId: String) async throws -> ThreadSummary? {
+        let params: JSONValue = .object(["include": .array(ThreadListScope.allCases.map { .string($0.rawValue) }), "ids": .array([.string(threadId)])])
+        return try await call("threads.list", params, as: ThreadsResult.self).threads.first { $0.id == threadId }
+    }
+
     func deleteThread(_ threadId: String) async throws {
         _ = try await call("threads.delete", .object(["threadId": .string(threadId)]), as: EmptyResult.self)
     }

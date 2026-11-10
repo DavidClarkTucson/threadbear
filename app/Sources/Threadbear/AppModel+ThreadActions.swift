@@ -374,12 +374,29 @@ extension AppModel {
                         session?.holdForResend(pendingId)
                         _ = try await behindRestart { () async throws -> String? in
                             guard let next = await self.clientAfterRestart(sentOn: client, wait: Self.restartHoldWait) else { throw RPCError.disconnected(nil) }
-                            let since = try await next.events(threadId: threadId, afterSeq: afterSeq)
-                            let mine = PendingMessage(id: pendingId, text: text, images: images, afterSeq: afterSeq)
-                            if since.events.contains(where: mine.isLanded(by:)) {
-                                AppLog.write("rpc", "a send the restart cut off had arrived: \(threadId)")
-                                return nil
+                            // Still with the old runner (finishing a turn-end
+                            // hook, say) or busy: it may sit in a queue there
+                            // that nothing shows, so back in the box rather
+                            // than go twice (Codex's review).
+                            guard let summary = try await next.threadSummary(threadId), !summary.onOldRunner, !summary.status.isBusy else {
+                                AppLog.write("rpc", "a send the restart cut off may be queued on the old runner: \(threadId)")
+                                throw RPCError.disconnected(nil)
                             }
+                            let mine = PendingMessage(id: pendingId, text: text, images: images, afterSeq: afterSeq)
+                            // Every page since it was sent, not just the first.
+                            var after = afterSeq
+                            for _ in 0..<20 {
+                                let page = try await next.events(threadId: threadId, afterSeq: after)
+                                if page.events.contains(where: mine.isLanded(by:)) {
+                                    AppLog.write("rpc", "a send the restart cut off had arrived: \(threadId)")
+                                    return nil
+                                }
+                                guard let last = page.events.last?.seq, last > after, last < summary.lastSeq else { break }
+                                after = last
+                            }
+                            // Its words went in the box of the app taking over
+                            // (DraftStore, at "go"); this app is on its way out.
+                            if self.handingOver { throw RPCError.disconnected(nil) }
                             AppLog.write("rpc", "sending again after the restart cut it off: \(threadId)")
                             return try await send(next)
                         }

@@ -58,15 +58,14 @@ final class DraftStore {
     func save(_ app: AppModel, leaving: Bool = false) {
         pending?.cancel()
         pending = nil
-        var drafts = app.drafts
+        var all = Self.kept(drafts: app.drafts, editing: app.editing)
         if leaving {
             for (threadId, session) in app.sessions {
                 for message in session.heldForResend {
-                    drafts[threadId] = Self.adding(Draft(text: message.text, images: message.images), to: drafts[threadId])
+                    all[threadId] = Self.adding(Draft(text: message.text, images: message.images), to: all[threadId])
                 }
             }
         }
-        let all = Self.kept(drafts: drafts, editing: app.editing)
         do {
             if all.isEmpty {
                 if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }

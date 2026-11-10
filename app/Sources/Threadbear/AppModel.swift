@@ -290,6 +290,8 @@ final class AppModel {
         didSet { draftStore?.changed(self) }
     }
     @ObservationIgnored var draftStore: DraftStore?
+    /// Set once this app has handed its drafts to a new build at "go".
+    @ObservationIgnored var handingOver = false
     /// Messages being edited, by thread id: the seq of the message the
     /// composer's draft will replace (docs/protocol.md, "Editing a
     /// message"), and whatever was in the box before, to put back after.

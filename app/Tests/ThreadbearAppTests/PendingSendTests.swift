@@ -471,6 +471,8 @@ final class PendingSendTests: XCTestCase {
         XCTAssertNil(app.drafts["th1"])
         XCTAssertNil(app.errorMessage)
         let new = try await newRunner(app)
+        try await until { new.waiting("threads.list") }
+        new.answer("threads.list", ["threads": [["id": "th1", "title": "Fix it", "lastSeq": 12, "status": "idle"]]])
         try await until { new.waiting("threads.events") }
         XCTAssertEqual(new.params("threads.events")?["afterSeq"] as? Int, 12, "it looks after the seq it was sent at")
         new.answer("threads.events", ["events": [], "firstSeq": 0, "lastSeq": 12])
@@ -493,6 +495,8 @@ final class PendingSendTests: XCTestCase {
         old.drop()
         app.connectionLostForTesting()
         let new = try await newRunner(app)
+        try await until { new.waiting("threads.list") }
+        new.answer("threads.list", ["threads": [["id": "th1", "title": "Fix it", "lastSeq": 13, "status": "idle"]]])
         try await until { new.waiting("threads.events") }
         let landed: [String: Any] = ["seq": 13, "ts": "2026-11-10T02:36:54Z", "threadId": "th1", "turnId": "t1", "type": "user.message", "text": "make the demo"]
         new.answer("threads.events", ["events": [landed], "firstSeq": 13, "lastSeq": 13])
@@ -518,6 +522,25 @@ final class PendingSendTests: XCTestCase {
         XCTAssertEqual(app.errorMessage, "Lost the connection to the runner. Your message to “Fix it” wasn't sent. It's back in its box.")
         app.clearConnectionError()
         XCTAssertNotNil(app.errorMessage, "reconnecting doesn't take it away")
+    }
+
+    /// Still with the old runner (a turn-end hook running, say), it may be
+    /// queued there where nothing shows: back in the box, not sent twice.
+    func testACutOffSendToAThreadStillOnTheOldRunnerGoesBackInTheBox() async throws {
+        let (app, old) = try await connected()
+        _ = app.restart(notice: "The runner is restarting onto a new release.")
+        app.drafts["th1"] = Draft(text: "make the demo")
+        app.send(threadId: "th1")
+        try await until { old.waiting("threads.send") }
+        old.drop()
+        app.connectionLostForTesting()
+        let new = try await newRunner(app)
+        try await until { new.waiting("threads.list") }
+        new.answer("threads.list", ["threads": [["id": "th1", "title": "Fix it", "lastSeq": 12, "status": "idle", "onOldRunner": true]]])
+        try await until { app.drafts["th1"] != nil }
+        XCTAssertEqual(app.drafts["th1"]?.text, "make the demo")
+        XCTAssertEqual(new.count("threads.send"), 0)
+        XCTAssertEqual(app.errorMessage, "Lost the connection to the runner. Your message to “Fix it” wasn't sent. It's back in its box.")
     }
 
     /// With another message still on its way, the runner may have queued

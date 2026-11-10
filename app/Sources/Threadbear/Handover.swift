@@ -235,8 +235,6 @@ final class Handover {
     // MARK: The outgoing app
 
     private var outgoing = false
-    /// Handing over to a new build, which takes over from here.
-    var isOutgoing: Bool { outgoing }
 
     /// The main window, if it can be handed over.
     static func windowToHandOver() -> NSWindow? {
@@ -302,12 +300,16 @@ final class Handover {
         info["mode"] = state.mode
         info["selection"] = state.selection
         // Words only: a picture's chip would be a mark with no picture behind it.
-        let drafts = app.drafts.compactMapValues { draft in
+        // Not an edit's words: without its edit they'd go as a new message.
+        let drafts = DraftStore.kept(drafts: app.drafts, editing: app.editing).compactMapValues { draft in
             let words = InlinePictures.words(draft.text)
             return words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : words
         }
         if !drafts.isEmpty { info["drafts"] = drafts }
         // On disk before "go", for the incoming app to read with pictures.
+        // Messages held for a runner go with them, so this app stops
+        // sending them (AppModel.post).
+        app.handingOver = true
         app.draftStore?.save(app, leaving: true)
         // The file is the incoming app's from here.
         app.draftStore = nil

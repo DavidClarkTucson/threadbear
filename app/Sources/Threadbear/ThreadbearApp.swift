@@ -309,10 +309,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             ActivityRecorder.shared.quit()
-            // A handover's outgoing app leaves the file to the incoming one,
-            // which has its drafts from "go" and may have had more typed.
+            // A handover's outgoing app has given its store up at "go" (the
+            // file is the incoming one's); one that never got that far
+            // still saves here.
             let app = AppModel.shared
-            if !Handover.shared.isOutgoing { app.draftStore?.save(app, leaving: true) }
+            app.draftStore?.save(app, leaving: true)
             AppUpdater.shared.applyAtQuit()
         }
     }
