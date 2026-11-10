@@ -434,8 +434,12 @@ public struct ThreadUpdate: Sendable, Hashable {
     /// logins at once if its current one isn't in it); `.some(nil)` sends
     /// null, which pins it to the login it's on. `accountId` pins too.
     public var poolId: String??
+    /// Whether a turn that hits its login's limit waits for room and
+    /// carries on by itself (the limit box's menu). false also ends a wait.
+    public var carryOnAtReset: Bool?
 
-    public init(title: String? = nil, cwd: String? = nil, accountId: String? = nil, model: String?? = nil, effort: String?? = nil, permissionMode: PermissionMode? = nil, snoozedUntil: Date?? = nil, snoozeUntilRestart: Bool = false, archived: Bool? = nil, verdict: ArchiveVerdict? = nil, starred: Bool? = nil, poolId: String?? = nil) {
+    public init(title: String? = nil, cwd: String? = nil, accountId: String? = nil, model: String?? = nil, effort: String?? = nil, permissionMode: PermissionMode? = nil, snoozedUntil: Date?? = nil, snoozeUntilRestart: Bool = false, archived: Bool? = nil, verdict: ArchiveVerdict? = nil, starred: Bool? = nil, poolId: String?? = nil, carryOnAtReset: Bool? = nil) {
+        self.carryOnAtReset = carryOnAtReset
         self.verdict = verdict
         self.title = title
         self.cwd = cwd
@@ -467,6 +471,7 @@ public struct ThreadUpdate: Sendable, Hashable {
         if archived == true, let verdict { params["verdict"] = .string(verdict.rawValue) }
         if let starred { params["starred"] = .bool(starred) }
         if let poolId { params["poolId"] = poolId.map { .string($0) } ?? .null }
+        if let carryOnAtReset { params["carryOnAtReset"] = .bool(carryOnAtReset) }
         return params
     }
 
@@ -494,6 +499,11 @@ public struct ThreadUpdate: Sendable, Hashable {
         }
         if let archived { thread.archivedAt = archived ? (thread.archivedAt ?? now) : nil }
         if let starred { thread.starredAt = starred ? (thread.starredAt ?? now) : nil }
+        // Off ends a wait at once; on may start one, which the runner says.
+        if let carryOnAtReset {
+            thread.carryOnAtReset = carryOnAtReset
+            if !carryOnAtReset { thread.waitingForRoom = nil }
+        }
         return thread
     }
 }

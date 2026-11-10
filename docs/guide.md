@@ -108,7 +108,9 @@ At the right of the row:
 - **Stopped**: the runner restarted while the thread was busy.
 - **Waiting for room**, with a time: every login it could use has hit its
   limit (see [Accounts, pools and Usage](#accounts)). It carries on by
-  itself when one has room again.
+  itself when one has room again. A box at the top of the message field
+  says so, with a button to switch to the login with the most room, and
+  Carry on by itself (Yes or No) to have it wait for you instead.
 
 ### Reading a reply
 
@@ -981,7 +983,10 @@ lost rather than draining the login with the most room. When the one it's on get
 another login in the pool with room, and carries on from where it was. When
 none has room, the thread waits and carries on by itself once a limit
 resets. With only one login, that means it waits for that login's limit to
-reset.
+reset. A thread pinned to one login does the same on that login. Either
+way, the box at the top of the message field says what happened and offers
+Switch to another login now; set its Carry on by itself to No and the
+thread waits for your next message instead.
 The first time a pool has a second login, a card by the composer says
 what pools do.
 

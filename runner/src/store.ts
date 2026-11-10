@@ -22,6 +22,12 @@ export type ThreadRecord = {
   // itself at `until` (an ISO time). Kept here so the wait survives a
   // restart; start() re-arms its timer.
   waitingForRoom?: WaitingForRoom;
+  // Mike turned off carrying on by itself once its login has room again
+  // (the limit box by the composer). Absent: on, the default.
+  carryOnAtReset?: false;
+  // The turn that stopped at its login's limit, until the next turn
+  // starts, so turning carryOnAtReset back on knows it's still stuck there.
+  limitHitTurn?: string;
   // The id of the runner's own carry-on turn after a login ran dry, so a
   // carry-on that runs dry straight away waits rather than move again.
   autoCarryOn?: string;

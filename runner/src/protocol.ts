@@ -214,6 +214,9 @@ export type ThreadSummary = {
   accountId: string;
   poolId?: string; // absent: pinned to accountId
   waitingForRoom?: WaitingForRoom;
+  // Off: a turn that hits its login's limit doesn't wait for room and
+  // carry on by itself (Mike turned it off on the limit box). Absent: on.
+  carryOnAtReset?: false;
   // Its last turn couldn't reach the API; it carries on by itself once
   // the runner reaches it again (Runner.onNetworkLost).
   waitingForNetwork?: { since: string };

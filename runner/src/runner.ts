@@ -1675,6 +1675,7 @@ export class Runner {
       delete rec.waitingForRoom;
       this.armRoomTimer();
     }
+    delete rec.limitHitTurn;
     // Likewise a wait for the network: a message from Mike goes now, and
     // if the line's still down it fails and the wait starts over. A turn
     // that isn't the runner's carry-on ends that outage's count.
@@ -2696,6 +2697,10 @@ export class Runner {
     archivedBy?: ArchivedBy;
     verdict?: ArchiveVerdict;
     starred?: boolean;
+    // Whether a turn that hits its login's limit waits for room and
+    // carries on by itself (the limit box's menu). false also ends a wait
+    // under way; true starts one if the thread is stuck at its limit now.
+    carryOnAtReset?: boolean;
     // A move Mike made (the app, tb) or allowed on a card: a thread shut in
     // a sandbox may leave it. Without it, a move or login change that would
     // take it out is refused (ThreadRecord.confined).
@@ -2923,6 +2928,7 @@ export class Runner {
     }
     if (params.starred === true) rec.starredAt ??= this.isoNow();
     else if (params.starred === false) delete rec.starredAt;
+    if (params.carryOnAtReset !== undefined) this.setCarryOnAtReset(st, params.carryOnAtReset);
     if (accountChanged && rt.turn && rt.session && !stop) {
       // The turn carries on where it started; say so, or the picker reads
       // as if the new model were already doing the work.
@@ -3302,6 +3308,7 @@ export class Runner {
     };
     if (rec.poolId) s.poolId = rec.poolId;
     if (rec.waitingForRoom) s.waitingForRoom = { ...rec.waitingForRoom };
+    if (rec.carryOnAtReset === false) s.carryOnAtReset = false;
     if (rec.waitingForNetwork) s.waitingForNetwork = { since: rec.waitingForNetwork.since };
     if (rec.needs && rec.needs.seq === rec.lastTurnCompletedSeq) {
       s.needs = rec.needs.needs;

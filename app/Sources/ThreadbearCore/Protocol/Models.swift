@@ -1147,6 +1147,9 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
     /// Every login in its pool is out of room: it carries on by itself at
     /// `until`.
     public var waitingForRoom: WaitingForRoom?
+    /// Whether a turn that hits its login's limit waits for room and
+    /// carries on by itself. On unless Mike turned it off on the limit box.
+    public var carryOnAtReset = true
     /// Its last turn couldn't reach the API (the internet went): it carries
     /// on by itself once the runner reaches it again. Since when.
     public var waitingForNetwork: Date?
@@ -1324,6 +1327,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         projects = c.lossyArray(ThreadProject.self, forKey: .projects)
         poolId = ((try? c.decodeIfPresent(String.self, forKey: .poolId)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
         waitingForRoom = (try? c.decodeIfPresent(WaitingForRoom.self, forKey: .waitingForRoom)) ?? nil
+        carryOnAtReset = ((try? c.decodeIfPresent(Bool.self, forKey: .carryOnAtReset)) ?? nil) ?? true
         waitingForNetwork = (try? c.nestedContainer(keyedBy: NetworkWaitKeys.self, forKey: .waitingForNetwork))
             .flatMap { try? $0.decode(String.self, forKey: .since) }
             .flatMap(ISO8601.parse)
@@ -1388,6 +1392,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         if !projects.isEmpty { try c.encode(projects, forKey: .projects) }
         try c.encodeIfPresent(poolId, forKey: .poolId)
         try c.encodeIfPresent(waitingForRoom, forKey: .waitingForRoom)
+        if !carryOnAtReset { try c.encode(false, forKey: .carryOnAtReset) }
         if let since = waitingForNetwork {
             var w = c.nestedContainer(keyedBy: NetworkWaitKeys.self, forKey: .waitingForNetwork)
             try w.encode(ISO8601.format(since), forKey: .since)
@@ -1412,7 +1417,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         case id, title, cwd, accountId, provider, model, effort, modelInUse, effortInUse, permissionMode, status, live, needsYou, pendingReviews
         case createdAt, updatedAt, lastActivityAt, snoozedUntil, snoozedUntilRestart, snoozedUntilRelease, wakeWhen, waitingOn, woke, archivedAt, starredAt, onOldRunner, preview
         case lastSeq, lastSeenSeq, nativeSessionId, contextTokens, contextWindow, costUsd, panels, actions, hooks, patches, background, subagents
-        case projects, worktree, needs, asks, asksSeq, highlightsAt, schedule, startedBy, asked, recap, poolId, waitingForRoom, waitingForNetwork, panelRequest, share, sample, looseEnds, moving
+        case projects, worktree, needs, asks, asksSeq, highlightsAt, schedule, startedBy, asked, recap, poolId, waitingForRoom, carryOnAtReset, waitingForNetwork, panelRequest, share, sample, looseEnds, moving
     }
 
     enum NetworkWaitKeys: String, CodingKey { case since }

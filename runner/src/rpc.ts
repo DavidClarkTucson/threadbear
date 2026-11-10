@@ -687,6 +687,10 @@ export class RpcServer {
           if (typeof p.starred !== 'boolean') throw bad('starred must be a boolean');
           upd.starred = p.starred;
         }
+        if (p.carryOnAtReset !== undefined) {
+          if (typeof p.carryOnAtReset !== 'boolean') throw bad('carryOnAtReset must be a boolean');
+          upd.carryOnAtReset = p.carryOnAtReset;
+        }
         return r.update(upd);
       }
       case 'threads.retitle': {

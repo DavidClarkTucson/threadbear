@@ -72,8 +72,12 @@ struct ComposerView: View {
                 .padding(.bottom, -0.5)
                 .zIndex(1)
         }
-        // The box: the open card over a line, then the message.
+        // The box: the limit box and the open card, each over a line, then
+        // the message.
         VStack(alignment: .leading, spacing: 0) {
+        if let thread, !moving {
+            LimitBox(thread: thread, padding: Self.padding)
+        }
         if let cardRow, let controller {
             ComposerCard(row: cardRow, threadId: thread?.id, collapsed: cardCollapsed, controller: controller)
                 .allowsHitTesting(!moving)
