@@ -81,8 +81,14 @@ impl Threadbear {
                     .hover(move |s| s.bg(hover)),
                 "Click to rename",
             )
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_renaming(id.clone(), window, cx)))
+            // The press goes on to the bar under it, so a drag from the title
+            // moves the window, as dragging a title bar does (and Swift's
+            // tap gesture let it). Only a press that didn't is a click.
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                if !this.dock_view.read(cx).press_moved() {
+                    this.start_renaming(id.clone(), window, cx);
+                }
+            }))
             .child(title)
             .into_any_element()
         };
