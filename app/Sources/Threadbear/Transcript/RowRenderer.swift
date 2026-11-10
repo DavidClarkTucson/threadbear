@@ -1655,7 +1655,7 @@ enum RowRenderer {
     }
 
     /// An ask's answers as rows (one reply, docs/reply-card-design A): a
-    /// circle, the label, "my pick" on the agent's, and under it what
+    /// circle, the label, a star and "Recommended" on the agent's, and under it what
     /// picking it does, in a box with a line between rows, then "Something
     /// else…". The whole row is the click (`.tbRow`, `pick:<ask>:<n>`), as
     /// on the done card; picking fills its circle. Each row is one
@@ -1700,13 +1700,17 @@ enum RowRenderer {
             let isSuggested = !own && ask.suggested == n
             output.append(isPicked
                 ? symbol("checkmark.circle.fill", label: "Picked", font: font, attributes: attributes, color: .controlAccentColor)
-                : symbol("circle", label: "Not picked", font: font, attributes: attributes, color: isSuggested ? .controlAccentColor : Theme.faintText))
+                : symbol("circle", label: "Not picked", font: font, attributes: attributes))
             output.append(NSAttributedString(string: "\t" + (own ? "Something else…" : choices[n]), attributes: attributes))
             if isSuggested {
+                // A small gold star and "Recommended" in grey, after Ghostex's:
+                // quieter than the accent-blue "my pick" it replaces (Mike, 9 Nov 2026).
                 var pickAttributes = attributes
                 pickAttributes[.font] = small
-                pickAttributes[.foregroundColor] = NSColor.controlAccentColor
-                output.append(NSAttributedString(string: "  my pick", attributes: pickAttributes))
+                pickAttributes[.foregroundColor] = NSColor.secondaryLabelColor
+                output.append(NSAttributedString(string: "  ", attributes: pickAttributes))
+                output.append(symbol("star.fill", label: "Recommended", font: NSFont.systemFont(ofSize: small.pointSize - 2), attributes: pickAttributes, color: Theme.recommendedStar))
+                output.append(NSAttributedString(string: " Recommended", attributes: pickAttributes))
             }
             if !own, n < ask.optionNotes.count, !ask.optionNotes[n].isEmpty {
                 var noteAttributes = attributes

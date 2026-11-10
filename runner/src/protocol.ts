@@ -687,7 +687,7 @@ export type DesignReview = {
   id: string;
   title: string;
   note?: string;
-  // The option id the agent would pick, marked "my pick" in the window.
+  // The option id the agent would pick, marked with a star and "Recommended" in the window.
   recommended?: string;
   // image is the option's first shot, kept for clients that only show one.
   // shots, when given, is every shot in order, image included. url: the

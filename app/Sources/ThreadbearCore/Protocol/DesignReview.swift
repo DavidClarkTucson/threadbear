@@ -149,7 +149,7 @@ public struct DesignReview: Sendable, Hashable, Codable, Identifiable {
     public var id: String
     public var title: String
     public var note: String?
-    /// The option id the agent would pick, marked "my pick" as on an asks card.
+    /// The option id the agent would pick, marked with a star and "Recommended" as on an asks card.
     public var recommended: String?
     public var options: [ReviewOption]
     public var status: String

@@ -429,7 +429,7 @@ function Dock({ token, thread: t, lastSeq, onSent, onArchive }: { token: string;
                   <span className="radio" />
                   <span>
                     {c}
-                    {a.suggested === n ? <span className="pick">my pick</span> : null}
+                    {a.suggested === n ? <span className="pick"><span className="star" aria-hidden>★</span> Recommended</span> : null}
                     {/* What the answer does, under it as on the Mac and the phone. The
                         parity run's first look at the website found it missing (9 Nov). */}
                     {a.options?.length && a.optionNotes?.[n]?.trim() ? <span className="desc">{a.optionNotes[n]}</span> : null}

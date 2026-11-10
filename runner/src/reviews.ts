@@ -105,7 +105,7 @@ export function reviewInput(raw: unknown, cwd: string): { title: string; note?: 
   });
   if (images > maxReviewImages) bad(`A review can have at most ${maxReviewImages} images in all; this has ${images}.`);
   if (mediaBytes > maxReviewMediaBytes) bad(`A review's videos and pages can be at most 500 MB in all; these are ${Math.ceil(mediaBytes / 1024 / 1024)} MB.`);
-  // The agent's own pick, which the window marks "my pick" as an asks card
+  // The agent's own pick, which the window marks with a star and "Recommended" as an asks card
   // does (Mike, 7 Nov: agents wrote "I'd pick C" in the middle of the note,
   // where it was hard to find).
   const recommended = text(p.recommended, 'recommended', 200) || undefined;

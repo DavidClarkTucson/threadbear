@@ -213,6 +213,12 @@ pub fn answer_rows_fill(cx: &App) -> Hsla {
     pick(cx, white(0.02), black(0.015))
 }
 
+/// The small star beside "Recommended" on the agent's own pick: a muted gold,
+/// as on the Mac app (Theme.recommendedStar), after Ghostex's (Mike, 9 Nov 2026).
+pub fn recommended_star(cx: &App) -> Hsla {
+    pick(cx, srgb(0.86, 0.70, 0.33, 1.), srgb(0.72, 0.54, 0.12, 1.))
+}
+
 fn srgb(r: f32, g: f32, b: f32, a: f32) -> Hsla {
     Hsla::from(Rgba { r, g, b, a })
 }

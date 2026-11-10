@@ -756,7 +756,7 @@ their own (A2, A3) that couldn't be picked; Mike also picked more than one
 or none, and answered most reviews in the thread in his own words (4 Nov
 2026), hence several picks, `none` and `reply`.
 
-`recommended` is the agent's own pick, marked "my pick" in the rail and
+`recommended` is the agent's own pick, marked with a star and "Recommended" in the rail and
 over its picture, worded as an asks card marks `suggested`. Both notes are
 inline markdown. Mike, 7 Nov 2026: the note was drawn raw in grey, so
 backticks showed, nothing stood out, and "I'd pick C" sat halfway through
@@ -775,7 +775,7 @@ type DesignReview = {
   id: string
   title: string
   note?: string        // markdown (bold, code, links), drawn in the text colour
-  recommended?: string // the option id the agent would pick: marked "my pick", as on an asks card
+  recommended?: string // the option id the agent would pick: marked with a star and "Recommended", as on an asks card
   options: {
     id: string          // stable within this review
     title: string
@@ -2540,7 +2540,7 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   `question` is its `action` (no why), and its answers' labels are
   `options`, their `does` notes `optionNotes` in the same order ("" for
   none); the card draws an ask with notes as rows, a circle, the label,
-  "my pick" on the suggested one and the note under it, in a box. The
+  a star and "Recommended" on the suggested one and the note under it, in a box. The
   notes go up with the thread's row too (backend API 64), so a Mac
   reading another runner's thread through the relay draws the same rows;
   an older backend gets the asks without them, and the card falls back to

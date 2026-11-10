@@ -502,7 +502,7 @@ impl Composer {
     }
 
     /// An ask's answers as rows (RowRenderer.answerRows): a circle, the label,
-    /// "my pick" on the agent's, what it does under it, then "Something else…".
+    /// a star and "Recommended" on the agent's, what it does under it, then "Something else…".
     fn render_answer_rows(&mut self, index: usize, ask: &Ask, picked: Option<i64>, indent: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let choices = composer::choices(ask);
         let this = cx.entity().downgrade();
@@ -539,7 +539,12 @@ impl Composer {
                             .min_w_0()
                             .child(
                                 h_flex().gap(px(8.)).child(div().text_size(px(style::size::COMPOSER)).text_color(if own { style::quiet_text(cx) } else { cx.theme().foreground }).child(label)).when(suggested, |s| {
-                                    s.child(div().text_size(px(12.)).text_color(style::accent(cx)).child("my pick"))
+                                    s.child(
+                                        h_flex()
+                                            .gap(px(3.))
+                                            .child(div().text_size(px(10.)).text_color(style::recommended_star(cx)).child("★"))
+                                            .child(div().text_size(px(12.)).text_color(style::quiet_text(cx)).child("Recommended")),
+                                    )
                                 }),
                             )
                             .when_some(note, |s, note| s.child(div().text_size(px(12.)).text_color(style::quiet_text(cx)).child(note))),
