@@ -14,6 +14,7 @@ import { providerName } from './providers.ts';
 import { pushFailingText } from './push-failing.ts';
 import type { RestartResult, RunnerStatus } from './restart.ts';
 import type { UpstreamStatus } from './upstream.ts';
+import { forTerminal } from './terminal-text.ts';
 
 export const DEV_HELP = `Working on Threadbear itself:
   tb status [--json]              the runner: version, live CLIs, busy threads, a pending restart
@@ -76,7 +77,7 @@ export async function runDev(client: RunnerClient, cmd: string, args: string[], 
         const lines = [`Runner ${hello.runnerVersion}`, busy.length ? `Busy threads: ${busy.length}` : 'Busy threads: none'];
         for (const id of busy) lines.push(`  ${threadLine(id, threads, env.THREADBEAR_THREAD_ID)}`);
         lines.push("This runner predates runner.status and picks it up on its next restart. Don't restart it yourself.");
-        process.stdout.write(lines.join('\n') + '\n');
+        process.stdout.write(forTerminal(lines.join('\n') + '\n'));
         return 0;
       }
       if (f.json) return printJson(s);
@@ -451,7 +452,8 @@ export function formatStatus(s: RunnerStatus, threads: ThreadSummary[], now: num
   if (u) lines.push(formatUpdate(u, now));
   // Said on its own line: it's the thing that sat unnoticed for three days.
   if (u?.followProblem) lines.push(`Not following GitHub's main properly: ${u.followProblem}`);
-  for (const r of s.behindRunners ?? []) lines.push(`${r.name} isn't following GitHub's main properly: ${r.problem}`);
+  // One line each: another runner's heartbeat can't add lines that read as this runner's.
+  for (const r of s.behindRunners ?? []) lines.push(`${oneLineOf(r.name)} isn't following GitHub's main properly: ${oneLineOf(r.problem)}`);
   if (s.upstream && (s.upstream.state !== 'off' || s.upstream.published)) lines.push(formatUpstream(s.upstream, now).split('\n')[0]);
   // A held release is the one thing here that wants doing something about.
   if (s.upstream?.held) lines.push(heldLine(s.upstream.held));
@@ -462,8 +464,13 @@ export function formatStatus(s: RunnerStatus, threads: ThreadSummary[], now: num
   if (u?.launcherChanged) lines.push(`${u.launcherReason ?? 'launch.mjs on main differs from the installed one.'} The user runs ${u.checkout ? `${u.checkout}/runner/` : 'runner/'}scripts/install-runner.sh once nothing is busy.`);
   if (s.macScreen?.fullDiskAccess === false) lines.push('Threadbear Runner has no Full Disk Access here, so macOS can stop and wait for someone to answer a prompt. System Settings > Privacy & Security > Full Disk Access turns it on.');
   if (s.macScreen?.dialogs) lines.push(`${plural(s.macScreen.dialogs, 'dialog', 'dialogs')} waiting on this Mac's screen${s.macScreen.dialogsSince ? `, for ${duration(now - Date.parse(s.macScreen.dialogsSince))}` : ''}. A privacy prompt can hold up other apps until someone answers it.`);
-  return lines.join('\n') + '\n';
+  // Other runners' names and problems (their own heartbeats), thread titles
+  // and reasons are written by others: none of it reaches the terminal as
+  // escape sequences (Daybreak, 10 Nov).
+  return forTerminal(lines.join('\n') + '\n');
 }
+
+const oneLineOf = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
 // The Convex mirror (src/sync.ts), one line.
 function formatSync(y: NonNullable<RunnerStatus['sync']>, now: number): string {

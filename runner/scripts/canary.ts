@@ -28,6 +28,9 @@ type Ev = { seq: number; type: string; text?: string; asks?: { action: string; o
 type Runner = { id: string; name: string; online: boolean };
 type Login = { id: string; provider: string; models?: { id: string }[] };
 
+// Network blips worth trying a read again for (read(), below).
+const BLIP = /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|aborted due to timeout/i;
+
 // Each turn's wait; two turns per runner, all runners at once, inside a schedule check's 5 minutes.
 const TURN_MS = 2 * 60_000;
 const BRIEF = [
@@ -102,7 +105,8 @@ async function check(r: Runner): Promise<void> {
 // A read that failed on a network blip (this Mac's runner reaching Convex)
 // is tried again, so the canary doesn't cry wolf: it reports what stays
 // broken. Only reads: a create or a send tried twice could do it twice.
-const BLIP = /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|aborted due to timeout/i;
+// BLIP is up top: the checks run (and exit) before the code down here, and a
+// const declared below them is still uninitialised when they call read().
 async function read<T>(method: string, params: Record<string, unknown>): Promise<T> {
   for (let i = 1; ; i++) {
     try {

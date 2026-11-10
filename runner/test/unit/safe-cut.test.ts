@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tmpDir } from '../helpers/fakes.ts';
+import { makeHarness, tmpDir } from '../helpers/fakes.ts';
 import { wakeNote, WAKE_NOTE_MAX } from '../../src/wake-note.ts';
 import { toThreadDoc, toMessageDoc, WokeRows, type MessageDoc } from '../../src/sync.ts';
 import { redactSecrets, scrubDoc, scrubText } from '../../src/redaction.ts';
@@ -282,4 +282,35 @@ test("codex 8 Nov: spaces at the end of a check's output can't pull a password's
   fs.writeFileSync(path.join(dir, 'a'), `log\n{"password":"first-word ${PASSWORD}"}\n`);
   const s = await runCheck({ command: `cat a; for i in 1 2 3 4; do printf '%3990s' ''; sleep 0.05; done`, cwd: dir, home: dir, scheduleId: 'pad2', timeoutMs: 10_000 });
   assert.ok(!leaks(s.output), JSON.stringify(s.output));
+});
+
+// Daybreak, 10 Nov (finding 75): the librarian's purpose was cut with a plain
+// slice(0, 200), then put in front of the brief for the recap. A cut just
+// before a connection URL's "@" left the whole password, now in the middle of
+// the recap, where neither the URL rule nor a known value's cut-off check (the
+// end of the text only) saw it. Both of setBrief's cuts are secret-aware now.
+test("the recap: neither the librarian's purpose nor its brief is cut through a secret", () => {
+  const h = makeHarness();
+  const { thread } = h.runner.create({ text: 'Go', accountId: 'claude-3' });
+  const file = path.join(h.cfg.home, 'runner.json');
+  const json = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  fs.writeFileSync(file, JSON.stringify({ ...json, experiments: { recapBox: true } }));
+  h.clock.advance(6000);
+  const known = new Scrubber({ env: {}, folders: false });
+  known.known.add(URL);
+  const at = URL.indexOf('@');
+  for (let shift = -3; shift <= 3; shift++) {
+    // Daybreak's own shape at shift 0: the "@" at offset 200, the cut.
+    const purpose = `${'p'.repeat(200 - at + shift - 1)} ${URL} is where it lives`;
+    const brief = `${'b'.repeat(600 - at + shift - 1)} ${URL} and more`;
+    h.runner.setBrief(thread.id, `- Built it ${shift}`, purpose);
+    const recap = h.runner.get(thread.id).recap!;
+    assert.ok(recap, 'a recap');
+    assert.ok(recap.split('\n')[0]!.length <= 200, 'the purpose is still at most 200');
+    for (const sent of [scrubText(recap), scrubText(known.safeText(recap))]) assert.ok(!leaks(sent), `purpose, shift ${shift}: ${sent.slice(150, 260)}`);
+    h.runner.setBrief(thread.id, brief, `A purpose ${shift}`);
+    const recap2 = h.runner.get(thread.id).recap!;
+    assert.ok(recap2.length <= `A purpose ${shift}\n`.length + 600, 'the brief is still at most 600');
+    for (const sent of [scrubText(recap2), scrubText(`${known.safeText(recap2)}\n- more`)]) assert.ok(!leaks(sent), `brief, shift ${shift}: ${sent.slice(-80)}`);
+  }
 });

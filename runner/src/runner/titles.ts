@@ -9,6 +9,7 @@ import { EXPLAIN_SYSTEM, RECENT_CHARS, RECENT_MESSAGES, explainPrompt } from '..
 import type { ExplainTurn } from '../explain.ts';
 import type { ThreadState } from '../runner.ts';
 import { TITLE_PROMPT, cleanTitle } from '../runner.ts';
+import { cutSafely } from '../safe-cut.ts';
 
 export const titlesPart = {
   // Asks a small model for a better title than the first line. Without a
@@ -91,9 +92,12 @@ export const titlesPart = {
   setBrief(this: Runner, threadId: string, text: string, purpose?: string): void {
     const st = this.threads.get(threadId);
     if (!st || st.rt.deleted) return;
-    const clean = text.trim().slice(0, 600);
+    // Cut where no secret is split (safe-cut.ts): the recap puts the purpose
+    // in front of the brief, so a purpose cut just before a URL's "@" left the
+    // password mid-text, where the scrub no longer knew it (Daybreak, 10 Nov).
+    const clean = cutSafely(text.trim(), 600);
     // A look that gave no purpose keeps the one the thread has.
-    const why = purpose?.replace(/\s+/g, ' ').trim().slice(0, 200) || st.rec.brief?.purpose;
+    const why = (purpose ? cutSafely(purpose.replace(/\s+/g, ' ').trim(), 200) : '') || st.rec.brief?.purpose;
     if (!clean || (clean === st.rec.brief?.text && why === st.rec.brief?.purpose)) return;
     st.rec.brief = { text: clean, at: this.isoNow(), ...(why ? { purpose: why } : {}) };
     this.highlightsChanged(st);
