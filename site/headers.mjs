@@ -9,12 +9,11 @@ import { LAUNCH_VIDEO_ID } from "./site.mjs";
  * Cloudflare injects it, like it can on mikecann.app. JSON-LD blocks aren't run as scripts.
  * Once there's a launch video (LAUNCH_VIDEO_ID in site.mjs), YouTube's thumbnail host and its
  * no-cookie player are let in too, for the home page's click-to-play card; until then, nothing.
- * api.github.com is for the changelog: site.js asks it for commits newer than the build.
  */
 const CSP = [
   "default-src 'none'",
   "script-src 'self' https://static.cloudflareinsights.com",
-  "connect-src 'self' https://api.github.com",
+  "connect-src 'self'",
   "font-src 'self'",
   "style-src 'self'",
   LAUNCH_VIDEO_ID ? "img-src 'self' https://i.ytimg.com" : "img-src 'self'",

@@ -242,109 +242,23 @@ for (const card of document.querySelectorAll(".video-card[data-video]")) {
   });
 }
 
-// The changelog (/changelog): the page is built from git when the site's deployed, which is by
-// hand, so here it asks GitHub what's on main that the build's commit (data-built) hasn't got,
-// and adds it in the same markup as scripts/changelog.mjs. Compare, not a date cutoff: a merge
-// can bring in commits dated before the build, and only "reachable from main but not from the
-// build" catches those. Unauthenticated, so 60 asks an hour per visitor; if it fails the page is
-// just as it was built.
-const changelog = document.querySelector(".changelog[data-built]");
-if (changelog?.dataset.built) void topUpChangelog(changelog);
-
-async function topUpChangelog(page) {
-  const { repo, built, commitUrl } = page.dataset;
-  // Compare answers oldest first, 250 a page, so whatever pages come back join straight on to
-  // the build's commits with no hole. It stops after four (a thousand commits, most of a week
-  // stale) and says there's more on GitHub, rather than showing nothing.
-  const commits = [];
-  let url = `https://api.github.com/repos/${repo}/compare/${encodeURIComponent(built)}...main?per_page=250`;
-  try {
-    for (let n = 0; url && n < 4; n++) {
-      const response = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
-      if (!response.ok) break;
-      const batch = (await response.json())?.commits;
-      if (!Array.isArray(batch)) break;
-      commits.push(...batch);
-      url = /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1];
+// The changelog (/changelog). A before/after: the slider moves where the before picture is cut
+// off (a CSS variable, set through the CSSOM, which the CSP allows). Without this it stays
+// halfway, so both halves still show. A clip only plays while it's on screen, and not at all
+// for someone who's asked for less motion (its poster stays).
+for (const box of document.querySelectorAll(".cl-compare")) {
+  const slider = box.querySelector(".cl-slider");
+  const set = () => box.style.setProperty("--cut", `${slider.value}%`);
+  slider.addEventListener("input", set);
+  set();
+}
+const clips = document.querySelectorAll("video.cl-shot");
+if (clips.length && "IntersectionObserver" in window && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const watcher = new IntersectionObserver((entries) => {
+    for (const { target, isIntersecting } of entries) {
+      if (isIntersecting) target.play().catch(() => {});
+      else target.pause();
     }
-  } catch {
-    // Keep whatever pages did come back: they're the oldest, so still no hole.
-  }
-  const shown = new Set([...page.querySelectorAll(".cl-sha")].map((a) => a.getAttribute("href").split("/").pop()));
-  const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Perth", year: "numeric", month: "2-digit", day: "2-digit" });
-  const days = page.querySelector(".cl-days");
-  let added = 0;
-  for (const c of commits) {
-    const sha = typeof c?.sha === "string" && /^[0-9a-f]{40}$/.test(c.sha) ? c.sha : "";
-    const date = c?.commit?.committer?.date;
-    const subject = typeof c?.commit?.message === "string" ? c.commit.message.split("\n")[0].trim() : "";
-    if (!sha || shown.has(sha) || !date || !subject || (Array.isArray(c.parents) && c.parents.length > 1)) continue;
-    shown.add(sha);
-    added++;
-    const day = dayOf.format(new Date(date));
-    let section = document.getElementById(day);
-    // Days stay newest first: a merged-in commit can be dated before days already on the page.
-    if (!section) section = days.insertBefore(daySection(day), [...days.querySelectorAll(":scope > .cl-day")].find((s) => s.id < day) ?? null);
-    section.querySelector("ul").prepend(changeRow(sha, subject, commitUrl));
-    const count = section.querySelectorAll("li").length;
-    section.querySelector(".cl-count").textContent = `${count.toLocaleString("en-AU")} change${count === 1 ? "" : "s"}`;
-  }
-  if (url && added) {
-    const more = document.createElement("p");
-    more.className = "cl-more";
-    const link = document.createElement("a");
-    link.href = `https://github.com/${repo}/commits/main`;
-    link.textContent = "on GitHub";
-    more.append("There are newer changes than these ", link, ".");
-    days.prepend(more);
-  }
-}
-
-function daySection(day) {
-  const section = document.createElement("section");
-  section.className = "cl-day";
-  section.id = day;
-  section.setAttribute("aria-labelledby", `d-${day}`);
-  const heading = document.createElement("h2");
-  heading.id = `d-${day}`;
-  const link = document.createElement("a");
-  link.href = `#${day}`;
-  const time = document.createElement("time");
-  time.dateTime = day;
-  const date = new Date(`${day}T12:00:00Z`);
-  const weekday = document.createElement("span");
-  weekday.className = "cl-weekday";
-  weekday.textContent = `${date.toLocaleDateString("en-AU", { weekday: "long", timeZone: "UTC" })} `;
-  time.append(weekday, date.toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }));
-  link.append(time);
-  const count = document.createElement("span");
-  count.className = "cl-count";
-  heading.append(link, count);
-  section.append(heading, document.createElement("ul"));
-  return section;
-}
-
-// The same split as scripts/changelog.mjs's splitSubject: a short plain "Area:" becomes the chip.
-function changeRow(sha, subject, commitUrl) {
-  const li = document.createElement("li");
-  li.className = "cl-new";
-  const m = /^([^:()[\]`{}]{2,32}):\s+(\S.*)$/.exec(subject);
-  let text = subject;
-  if (m && !/https?$/i.test(m[1])) {
-    const area = document.createElement("span");
-    area.className = "cl-area";
-    area.textContent = m[1].trim();
-    li.append(area);
-    text = m[2].charAt(0).toUpperCase() + m[2].slice(1);
-  }
-  const span = document.createElement("span");
-  span.className = "cl-text";
-  span.textContent = text;
-  const link = document.createElement("a");
-  link.className = "cl-sha";
-  link.href = `${commitUrl}${sha}`;
-  link.textContent = sha.slice(0, 7);
-  link.setAttribute("aria-label", `Commit ${sha.slice(0, 7)} on GitHub`);
-  li.append(span, link);
-  return li;
+  }, { threshold: 0.4 });
+  for (const clip of clips) watcher.observe(clip);
 }

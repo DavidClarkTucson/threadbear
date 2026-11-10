@@ -8,7 +8,7 @@
 // for an iPhone one, {{icon <name>}} for a Phosphor icon, {{fork}} and {{appStoreBadge}} for the
 // two ways to get it, and {{commits}} / {{firstDay}} for the repo's own numbers.
 //
-// The changelog (/changelog) isn't in src either: scripts/changelog.mjs makes it from git log.
+// The changelog (/changelog) isn't in src either: scripts/changelog.mjs makes it from site/changelog/.
 //
 // The docs pages (/docs and /docs/<slug>) aren't in src: scripts/docs.mjs makes them from the
 // repo's docs/guide.md, a page per `## ` section, in the same layout.
@@ -22,7 +22,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_STORE_LIVE, APP_STORE_URL, GITHUB_PUBLIC, GITHUB_URL, LAUNCH_VIDEO_ID, SITE_URL } from "../site.mjs";
 import { markdown, readGuide, summary } from "./docs.mjs";
-import { changelogPage, publishedRef, readCommits, refSha } from "./changelog.mjs";
+import { changelogPage, readReleases } from "./changelog.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "src");
@@ -436,14 +436,12 @@ ${markdown(body, docSlugs)}
     </div>`, `docs/${slug} (docs/guide.md)`);
 });
 
-// The changelog (scripts/changelog.mjs): every published commit, grouped by day.
-const changelogRef = publishedRef(root);
-const changelogCommits = readCommits(root, changelogRef);
+// The changelog (scripts/changelog.mjs): a section per release from site/changelog/.
 writePage("changelog", {
-  title: "Changelog · Threadbear",
-  description: "Everything that's gone into Threadbear, newest first, a commit a line.",
+  title: "What's new · Threadbear",
+  description: "What's new in Threadbear, a release at a time, with a look at the biggest changes.",
   path: "/changelog",
-}, changelogPage({ commits: changelogCommits, built: refSha(root, changelogRef), githubUrl: GITHUB_URL, repo: new URL(GITHUB_URL).pathname.slice(1) }));
+}, changelogPage({ releases: readReleases(join(root, "changelog")), githubUrl: GITHUB_URL }));
 
 // Every link and image that stays on the site has to land somewhere: a page, a file, and the
 // #anchor on it if there is one.
@@ -452,6 +450,9 @@ for (const [name, { html }] of built) {
     const [path, anchor] = target.split("#");
     const clean = path.split("?")[0];
     const pageName = clean === "/" ? "index" : clean.slice(1);
+    // The changelog's pictures and clips are in R2, served by the Worker, not in dist.
+    // `npm run media -- check` checks they're up.
+    if (clean.startsWith("/media/")) continue;
     const page = built.get(pageName);
     if (!page && !existsSync(join(dist, clean))) throw new Error(`${name}.html: ${attr}="${target}" goes nowhere`);
     if (anchor && !(page ?? built.get(name)).html.includes(` id="${anchor}"`)) throw new Error(`${name}.html: ${target} has no #${anchor}`);
