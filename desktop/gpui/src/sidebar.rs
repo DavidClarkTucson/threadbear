@@ -28,6 +28,33 @@ use threadbear_core::sidebar::{self as rows, RowAction, RowLook, RowMode, Tile, 
 
 type Clock = threadbear_core::chrono::DateTime<threadbear_core::chrono::Local>;
 
+/// The Threads panel as a view of its own, so the dock can reuse its last
+/// frame (`cached` in shell.rs). Scrolling the transcript redraws the window
+/// every frame, and before this every frame rebuilt every row of the thread
+/// list as well: with 60 threads, about half the frames on a 120 Hz screen
+/// were late. Everything it draws is the app's state, so it draws again
+/// whenever the app notifies, which the scroll doesn't.
+pub(crate) struct SidebarView {
+    app: WeakEntity<Threadbear>,
+    _app_changed: Subscription,
+}
+
+impl SidebarView {
+    pub(crate) fn new(app: &Entity<Threadbear>, cx: &mut Context<Self>) -> Self {
+        let app_changed = cx.observe(app, |_, _, cx| cx.notify());
+        Self { app: app.downgrade(), _app_changed: app_changed }
+    }
+}
+
+impl Render for SidebarView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.app.upgrade() {
+            Some(app) => app.update(cx, |t, cx| t.render_threads_panel(window, cx)),
+            None => div().into_any_element(),
+        }
+    }
+}
+
 /// A project's icon (protocol `ProjectIcon`): a picture, else a symbol.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ProjectIcon {

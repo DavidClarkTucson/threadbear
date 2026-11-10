@@ -308,18 +308,23 @@ pub fn sections_ordered<'a>(threads: impl IntoIterator<Item = &'a ThreadSummary>
             inbox.push(t.clone());
         }
     }
-    let newest_first = |a: &ThreadSummary, b: &ThreadSummary| b.activity_ms().cmp(&a.activity_ms()).then_with(|| a.id.cmp(&b.id));
+    // Sorted by keys worked out once per thread: a time is text to be read,
+    // and comparing two threads by reading theirs again each time cost the
+    // app more than drawing a frame does (the activity bar's badge counts the
+    // Inbox with this on every frame).
+    use std::cmp::Reverse;
+    let newest_first = |t: &ThreadSummary| (Reverse(t.activity_ms()), t.id.clone());
     starred.sort_by(|a, b| a.starred_at.cmp(&b.starred_at).then_with(|| a.id.cmp(&b.id)));
     match order {
-        InboxOrder::NeedsYou => inbox.sort_by(|a, b| a.urgency().cmp(&b.urgency()).then_with(|| newest_first(a, b))),
-        InboxOrder::Newest => inbox.sort_by(newest_first),
-        InboxOrder::Oldest => inbox.sort_by(|a, b| newest_first(b, a)),
+        InboxOrder::NeedsYou => inbox.sort_by_cached_key(|t| (t.urgency(), newest_first(t))),
+        InboxOrder::Newest => inbox.sort_by_cached_key(newest_first),
+        InboxOrder::Oldest => inbox.sort_by_cached_key(|t| (t.activity_ms(), Reverse(t.id.clone()))),
     }
-    running.sort_by(newest_first);
+    running.sort_by_cached_key(newest_first);
     // A snooze's time; back on restart has none, so it goes last.
     let wakes = |t: &ThreadSummary| t.snoozed_until_ms().filter(|_| t.snoozed_until_restart != Some(true)).unwrap_or(i64::MAX);
-    hibernating.sort_by(|a, b| wakes(a).cmp(&wakes(b)).then_with(|| newest_first(a, b)));
-    archived.sort_by(|a, b| b.archived_ms().cmp(&a.archived_ms()).then_with(|| a.id.cmp(&b.id)));
+    hibernating.sort_by_cached_key(|t| (wakes(t), newest_first(t)));
+    archived.sort_by_cached_key(|t| (Reverse(t.archived_ms()), t.id.clone()));
     [("starred", "Starred", starred), ("inbox", "Inbox", inbox), ("running", "Running", running), ("hibernating", "Hibernating", hibernating), ("archived", "Archived", archived)]
         .into_iter()
         .filter(|(key, _, rows)| !rows.is_empty() || *key == "inbox")

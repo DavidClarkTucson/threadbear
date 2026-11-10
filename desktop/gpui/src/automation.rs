@@ -293,6 +293,18 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             }
             Ok(json!("ok"))
         }
+        // How smoothly it's been drawing (frame_stats.rs), in a build with
+        // `frame-stats`; `reset` starts the count again from now.
+        "frame-stats" => {
+            #[cfg(feature = "frame-stats")]
+            {
+                Ok(crate::frame_stats::report(window, cmd["reset"].as_bool().unwrap_or(false)))
+            }
+            #[cfg(not(feature = "frame-stats"))]
+            {
+                Err("this build can't measure frames: build it with --features frame-stats".into())
+            }
+        }
         "menu-key" => {
             let mut key = String::new();
             for m in cmd["modifiers"].as_array().into_iter().flatten().filter_map(Value::as_str) {

@@ -294,6 +294,12 @@ impl SidePane {
     /// What it's about to show changed: a new selection fetches straight
     /// away, a new event or pin about a second later, as PanelRail does.
     fn app_changed(&mut self, app: &Entity<Threadbear>, cx: &mut Context<Self>) {
+        // It draws from the app's state (the open thread, its title, its
+        // panels) and the dock reuses its last frame until it's told
+        // otherwise (shell.rs, `render_side_section`), so any change to the
+        // app draws it again. Fetching again is only for a new thread or new
+        // events, below.
+        cx.notify();
         let t = app.read(cx);
         let Some(thread) = t.selected.as_ref().and_then(|id| t.threads.get(id)) else { return };
         let key = (thread.id.clone(), thread.last_seq, thread.highlights_at.clone());
@@ -1333,15 +1339,6 @@ impl SidePane {
             PATCHES => "Patches".to_owned(),
             FILES => "Files".to_owned(),
             id => thread.panels().into_iter().find(|p| p.id == id).map_or_else(|| id.to_owned(), |p| p.title),
-        }
-    }
-
-    fn section_symbol(&self, thread: &ThreadSummary, section: &str) -> String {
-        match section {
-            HIGHLIGHTS => "pin".to_owned(),
-            PATCHES => "square.dashed".to_owned(),
-            FILES => "folder".to_owned(),
-            id => thread.panels().into_iter().find(|p| p.id == id).map_or("square.dashed".to_owned(), |p| core::panel_symbol(&p).to_owned()),
         }
     }
 

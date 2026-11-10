@@ -38,3 +38,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # The scripted control the behaviour specs use (src/automation.rs). Off in
 # anything anyone runs for real: only `cargo build --features automation` has it.
 automation = ["gpui-kit/test-support", "tokio/net", "tokio/io-util", "tokio/macros"]
+# GPUI's frame profiler (src/frame_stats.rs): View > Show Frame Rate, and the
+# numbers behind features/tools/scroll-perf.ts. In the build installed for Mike
+# (desktop/scripts/install-app.sh) and the perf runs, not the specs' builds.
+frame-stats = ["gpui-kit/profiler"]

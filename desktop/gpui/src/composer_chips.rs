@@ -1,6 +1,7 @@
 // The row under the composer's text: "+" (pictures and the folder), the
 // account, model and permission chips and the context ring (ComposerControls.swift).
 // The numbers are the Swift app's, at 100% zoom.
+use crate::app::Threadbear;
 use crate::composer::Composer;
 use crate::style::{self, size};
 use gpui_kit::assets::IconName;
@@ -182,11 +183,13 @@ impl Composer {
 
     /// The folders "+" > Folder offers (ThreadSettings.recentFolders): this
     /// thread's, the default, then the ones most recently used, eight at most.
-    fn recent_folders(&self, current: &str, data: &ChipData, cx: &App) -> Vec<String> {
-        let mut folders: Vec<String> = vec![current.to_owned(), data.logins.defaults.cwd.clone()];
-        if let Some(app) = self.app.upgrade() {
+    /// Worked out when the menu opens, not at every render: it looks at every
+    /// thread, and the box is drawn on every frame of a scroll.
+    fn recent_folders(app: &WeakEntity<Threadbear>, current: &str, default_folder: &str, cx: &App) -> Vec<String> {
+        let mut folders: Vec<String> = vec![current.to_owned(), default_folder.to_owned()];
+        if let Some(app) = app.upgrade() {
             let mut threads: Vec<&ThreadSummary> = app.read(cx).threads.values().collect();
-            threads.sort_by_key(|t| std::cmp::Reverse(t.activity_ms()));
+            threads.sort_by_cached_key(|t| std::cmp::Reverse(t.activity_ms()));
             folders.extend(threads.into_iter().map(|t| t.cwd.clone()));
         }
         let mut out = Vec::new();
@@ -285,12 +288,13 @@ impl Composer {
     fn render_plus(&self, data: &ChipData, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let composer = cx.entity().downgrade();
         let current = data.summary.as_ref().map(|t| t.cwd.clone()).unwrap_or_default();
-        let folders = self.recent_folders(&current, data, cx);
         let default_folder = data.logins.defaults.cwd.clone();
+        let app = self.app.clone();
         Popover::new("composer-plus")
             .anchor(Anchor::BottomLeft)
             .trigger(ChipTrigger { id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images, change the folder or schedule the message".into(), selected: false })
             .content(move |_, window, cx| {
+                let folders = Self::recent_folders(&app, &current, &default_folder, cx);
                 let popover = cx.entity();
                 let c1 = composer.clone();
                 let (popover2, c2) = (popover.clone(), composer.clone());

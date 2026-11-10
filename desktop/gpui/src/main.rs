@@ -12,6 +12,8 @@ mod composer_card;
 mod composer_chips;
 mod files;
 mod folders;
+#[cfg(feature = "frame-stats")]
+mod frame_stats;
 mod header;
 mod highlights;
 mod highlights_project;
