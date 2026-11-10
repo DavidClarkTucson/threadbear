@@ -812,6 +812,14 @@ impl Render for Composer {
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
         let palette = self.render_palette(window, cx);
         let width = self.card_width.clone();
+        // The folder's actions, on shelves on the box's top edge, in from its
+        // rounded corner (ActionChips), as wide as the box leaves them.
+        let shelves = self.pane().and_then(|pane| {
+            let summary = pane.read(cx).summary.clone();
+            let icons = self.app.upgrade().map(|a| a.read(cx).sidebar.project_icons.clone()).unwrap_or_default();
+            let room = (self.card_width.get() - style::zoomed(style::COMPOSER_RADIUS) * 2.).max(0.);
+            crate::viewer::action_chips(&summary, room, &icons, window, cx)
+        });
         let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(creating, cx)).child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.
@@ -822,10 +830,15 @@ impl Render for Composer {
             .pt(px(4.))
             .pb(px(20.))
             .child(
+                v_flex()
+                    .w_full()
+                    .max_w(px(style::MAX_CONTENT_WIDTH))
+                    // Overlapping the box's border, so the two read as one piece.
+                    .when_some(shelves, |s, shelves| s.child(div().px(px(style::COMPOSER_RADIUS)).mb(gpui_kit::px(-0.5)).child(shelves)))
+                    .child(
                 div()
                     .relative()
                     .w_full()
-                    .max_w(px(style::MAX_CONTENT_WIDTH))
                     .rounded(px(style::COMPOSER_RADIUS))
                     .bg(style::composer_fill(cx))
                     .border_1()
@@ -835,9 +848,11 @@ impl Render for Composer {
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| this.focus(window, cx)))
                     .children(card)
                     .child(body)
-                    // Measures the box for the palette, which sits on its top edge.
+                    // Measures the box for the palette, which sits on its top
+                    // edge, and for the shelves, which get as many chips as fit.
                     .child(canvas(move |bounds, _, _| width.set(f32::from(bounds.size.width)), |_, _, _, _| {}).absolute().size_full())
                     .children(palette),
+                    ),
             )
             .children(self.render_peek(cx))
     }

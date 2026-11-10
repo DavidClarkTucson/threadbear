@@ -22,6 +22,8 @@ const BUTTON: f32 = 32.;
 pub(crate) struct RailButton {
     pub(crate) id: SharedString,
     pub(crate) symbol: &'static str,
+    /// Drawn instead of `symbol`: a patch panel's own icon and origin badge.
+    pub(crate) face: Option<AnyElement>,
     pub(crate) tip: String,
     pub(crate) badge: Option<usize>,
     pub(crate) dot: bool,
@@ -31,7 +33,7 @@ pub(crate) struct RailButton {
 
 impl RailButton {
     fn new(id: impl Into<SharedString>, symbol: &'static str, title: impl Into<String>, active: bool) -> Self {
-        Self { id: id.into(), symbol, tip: title.into(), badge: None, dot: false, quiet_dot: false, active }
+        Self { id: id.into(), symbol, face: None, tip: title.into(), badge: None, dot: false, quiet_dot: false, active }
     }
 }
 
@@ -63,7 +65,10 @@ fn rail_button(button: RailButton, on_click: impl Fn(&mut Threadbear, &mut Windo
         .aria_label(label)
         .tooltip(move |window, cx| Tooltip::new(tip_for_tooltip.clone()).build(window, cx))
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| on_click(this, window, cx)))
-        .child(icons::symbol(button.symbol).with_size(px(15.)));
+        .child(match button.face {
+            Some(face) => face,
+            None => icons::symbol(button.symbol).with_size(px(15.)).into_any_element(),
+        });
     if let Some(badge) = button.badge.filter(|b| *b > 0) {
         // Grey, not accent: a count of what's there, not an alarm.
         let text = if badge > 99 { "99+".to_string() } else { badge.to_string() };
@@ -189,28 +194,23 @@ impl Threadbear {
         let patches_shown = showing(shell::PATCHES);
         // The accent dot while the last turn's asks aren't all ticked.
         let open_ask = thread.asks.iter().flatten().any(|a| !a.ticked.unwrap_or(false)) && thread.asks_seq.is_some();
-        let panels: Vec<(String, String, Option<usize>, bool)> = thread
-            .panels
-            .iter()
-            .flatten()
-            .filter_map(|p| {
-                let id = p["id"].as_str()?.to_string();
-                let title = p["title"].as_str()?.to_string();
-                let badge = p["badge"].as_u64().map(|b| b as usize);
-                let shown = dock.controller.is_showing(&id);
-                Some((id, title, badge, shown))
-            })
-            .collect();
+        let panels: Vec<(threadbear_core::highlights::Panel, bool)> = thread.panels().into_iter().map(|p| {
+            let shown = dock.controller.is_showing(&p.id);
+            (p, shown)
+        }).collect();
         let _ = dock;
         let mut column = vec![];
         let mut highlights = RailButton::new("rail-highlights", "pin", "Highlights", highlights_shown);
         highlights.dot = open_ask;
         column.push(rail_button(highlights, |this, _, cx| this.click_rail(shell::HIGHLIGHTS, cx), cx));
-        for (id, title, badge, shown) in panels {
-            let mut b = RailButton::new(SharedString::from(format!("rail-panel-{id}")), panel_symbol_for(&id), title, shown);
-            b.badge = badge;
-            let panel = id.clone();
-            column.push(rail_button(b, move |this, _, cx| this.click_rail(&panel, cx), cx));
+        for (panel, shown) in panels {
+            // Its own icon, with where it came from in the corner and in the
+            // tip ("Convex, from the Threadbear project"), as the Swift rail.
+            let mut b = RailButton::new(SharedString::from(format!("rail-panel-{}", panel.id)), "square.dashed", crate::patch_icons::panel_tip(&panel, &thread), shown);
+            b.face = Some(crate::patch_icons::panel_face(&panel, &thread, &self.sidebar.project_icons, 15., 13., cx));
+            b.badge = panel.badge.map(|n| n.max(0) as usize);
+            let id = panel.id.clone();
+            column.push(rail_button(b, move |this, _, cx| this.click_rail(&id, cx), cx));
         }
         column.push(rail_button(RailButton::new("rail-files", "folder", "Files", files_shown), |this, _, cx| this.click_rail(shell::FILES, cx), cx));
         let patches = thread.patches.as_ref().map_or(0, Vec::len);
@@ -257,9 +257,4 @@ impl Threadbear {
     }
 }
 
-/// `PanelIcon.symbol(for:)`, for a thread's own panels. The Swift app reads
-/// the panel's kind; every panel gets the generic mark until they're drawn
-/// here (the panels themselves are Stage 2).
-fn panel_symbol_for(_panel: &str) -> &'static str {
-    "square.dashed"
-}
+

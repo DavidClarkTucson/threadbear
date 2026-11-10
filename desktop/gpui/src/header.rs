@@ -235,6 +235,9 @@ impl Threadbear {
             self.open(id.clone(), window, cx);
         }
         let field = cx.new(|cx| InputState::new(window, cx).placeholder("Thread title").default_value(title));
+        // The whole name selected, so typing replaces it, as a click on the
+        // Swift app's title does (Mike, 11 Nov).
+        field.update(cx, |s, cx| s.select_all(window, cx));
         let subscription = cx.subscribe(&field, |this, _, ev: &InputEvent, cx| match ev {
             InputEvent::PressEnter { .. } | InputEvent::Blur => this.finish_rename(true, cx),
             _ => {}

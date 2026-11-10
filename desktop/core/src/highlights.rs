@@ -588,6 +588,122 @@ pub fn panel_symbol(panel: &Panel) -> &str {
     }
 }
 
+/// Where a panel or an action chip came from (`PanelOrigin`), for the small
+/// badge on its rail button and its tab, and for the shelf its chip sits on:
+/// two Convex buttons, one from the thread's folder and one from a project's,
+/// look alike without it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PanelOrigin {
+    /// One of the thread's projects' folders: the badge is that project's icon.
+    Project(String),
+    /// A tool patch (`appliesTo`), here for these paths.
+    Tool(Vec<String>),
+    /// `~/.threadbear/patches`.
+    Home,
+    /// A `.threadbear/patches` in the thread's folder or one above it.
+    Folder,
+    Builtin,
+}
+
+impl PanelOrigin {
+    pub fn of_panel(panel: &Panel, patches: &[PatchInfo]) -> PanelOrigin {
+        Self::of(&panel.patch, panel.project_id.as_deref(), patches)
+    }
+
+    pub fn of_action(action: &Action, patches: &[PatchInfo]) -> PanelOrigin {
+        Self::of(&action.patch, action.project_id.as_deref(), patches)
+    }
+
+    /// A project's folder wins over the rest, as that's what Mike would least
+    /// expect to see in another folder's thread; then a tool patch, which is
+    /// there because of one file.
+    fn of(patch: &str, project_id: Option<&str>, patches: &[PatchInfo]) -> PanelOrigin {
+        let info = patches.iter().find(|p| p.id == patch);
+        if let Some(id) = project_id.or_else(|| info.and_then(|p| p.project_id.as_deref())) {
+            return PanelOrigin::Project(id.to_owned());
+        }
+        if let Some(matched) = info.and_then(|p| p.matched.as_ref()).filter(|m| !m.is_empty()) {
+            return PanelOrigin::Tool(matched.clone());
+        }
+        match info.map(|p| p.source.as_str()) {
+            Some("home") => PanelOrigin::Home,
+            Some("builtin") => PanelOrigin::Builtin,
+            _ => PanelOrigin::Folder,
+        }
+    }
+
+    /// The badge's symbol; None for a project, whose own icon is drawn.
+    pub fn symbol(&self) -> Option<&'static str> {
+        match self {
+            PanelOrigin::Project(_) => None,
+            PanelOrigin::Tool(_) => Some("wrench.and.screwdriver.fill"),
+            PanelOrigin::Home => Some("house.fill"),
+            PanelOrigin::Folder => Some("folder.fill"),
+            PanelOrigin::Builtin => Some("shippingbox.fill"),
+        }
+    }
+
+    /// The tooltip: "Convex, from the Threadbear project".
+    pub fn tip(&self, title: &str, project_title: Option<&str>) -> String {
+        match self {
+            PanelOrigin::Project(_) => format!("{title}, {}", project_title.map_or("from a project".to_owned(), |t| format!("from the {t} project"))),
+            PanelOrigin::Tool(matched) => {
+                let names: Vec<&str> = matched.iter().map(|m| m.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or(m)).collect();
+                format!("{title}, for {}", names.join(", "))
+            }
+            PanelOrigin::Home => format!("{title}, from ~/.threadbear"),
+            PanelOrigin::Folder => format!("{title}, from this folder's .threadbear"),
+            PanelOrigin::Builtin => format!("{title}, built in"),
+        }
+    }
+}
+
+/// A thread's action chips as shelves over its composer, one for each place
+/// they came from (`ActionShelf`), so a project's buttons read as the
+/// project's rather than as part of writing a message (Mike, 30 Oct). Each
+/// shelf holds its chips by patch, so a hairline can sit between two patches
+/// from the same place. Shelves and patches keep the order their first chip had.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActionShelf {
+    pub origin: PanelOrigin,
+    pub patches: Vec<Vec<Action>>,
+}
+
+impl ActionShelf {
+    pub fn shelves(actions: &[Action], patches: &[PatchInfo]) -> Vec<ActionShelf> {
+        let mut shelves: Vec<ActionShelf> = Vec::new();
+        for action in actions {
+            let origin = PanelOrigin::of_action(action, patches);
+            let index = match shelves.iter().position(|s| s.origin == origin) {
+                Some(i) => i,
+                None => {
+                    shelves.push(ActionShelf { origin, patches: Vec::new() });
+                    shelves.len() - 1
+                }
+            };
+            let shelf = &mut shelves[index];
+            match shelf.patches.iter_mut().find(|g| g.first().is_some_and(|a| a.patch == action.patch)) {
+                Some(group) => group.push(action.clone()),
+                None => shelf.patches.push(vec![action.clone()]),
+            }
+        }
+        shelves
+    }
+}
+
+/// An action chip's glyph when it has no icon of its own (`ActionChip.glyph`):
+/// a bubble for a message, an arrow out for a page, the patch mark for a command.
+pub fn action_glyph(action: &Action) -> &str {
+    if let Some(icon) = action.icon.as_deref().filter(|i| !i.is_empty()) {
+        return icon;
+    }
+    match action.kind.as_str() {
+        "prompt" => "text.bubble",
+        "url" => "arrow.up.right.square",
+        _ => "square.dashed",
+    }
+}
+
 // ---------------------------------------------------------------- sub-agents and started threads
 
 /// A thread's sub-agents for Highlights: running ones first, then the rest
@@ -1052,6 +1168,38 @@ pub mod patches {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn chips_sit_on_a_shelf_for_each_place_they_came_from_grouped_by_patch() {
+        let patch = |id: &str, extra: serde_json::Value| {
+            let mut v = serde_json::json!({ "id": id, "source": "folder" });
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            serde_json::from_value::<PatchInfo>(v).unwrap()
+        };
+        let patches = vec![
+            patch("app-store", serde_json::json!({})),
+            patch("checks", serde_json::json!({})),
+            patch("convex", serde_json::json!({ "projectId": "p1" })),
+            patch("tandem", serde_json::json!({ "matched": ["/Users/mike/v/cut.tandem"] })),
+            patch("mine", serde_json::json!({ "source": "home" })),
+        ];
+        let action = |id: &str, patch: &str| Action { id: id.into(), title: id.into(), kind: "url".into(), patch: patch.into(), ..Default::default() };
+        let actions = vec![action("site", "app-store"), action("dash", "convex"), action("land", "checks"), action("sentry", "app-store"), action("cut", "tandem"), action("note", "mine")];
+        let shelves = ActionShelf::shelves(&actions, &patches);
+        let shape: Vec<(PanelOrigin, Vec<Vec<&str>>)> = shelves.iter().map(|s| (s.origin.clone(), s.patches.iter().map(|g| g.iter().map(|a| a.id.as_str()).collect()).collect())).collect();
+        assert_eq!(
+            shape,
+            vec![
+                (PanelOrigin::Folder, vec![vec!["site", "sentry"], vec!["land"]]),
+                (PanelOrigin::Project("p1".into()), vec![vec!["dash"]]),
+                (PanelOrigin::Tool(vec!["/Users/mike/v/cut.tandem".into()]), vec![vec!["cut"]]),
+                (PanelOrigin::Home, vec![vec!["note"]]),
+            ]
+        );
+        assert_eq!(PanelOrigin::Tool(vec!["/Users/mike/v/cut.tandem".into()]).tip("Cut", None), "Cut, for cut.tandem");
+        assert_eq!(PanelOrigin::Project("p1".into()).tip("Convex", Some("Threadbear")), "Convex, from the Threadbear project");
+        assert_eq!(action_glyph(&action("x", "app-store")), "arrow.up.right.square");
+    }
+
     use super::*;
     use serde_json::json;
 
