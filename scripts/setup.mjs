@@ -745,7 +745,12 @@ function backend() {
 
 function install() {
   say('8. Runner and Mac app');
-  if (v['skip-install']) return note('skipped (--skip-install)');
+  if (v['skip-install']) {
+    note('skipped (--skip-install)');
+    // The runner reads sync.url when it starts, and a move changed it.
+    if (plan?.from) note('The backend moved, so restart the runner to pick up its new address: tb restart, or run setup again without --skip-install.');
+    return;
+  }
   if (dry) return todo('runner/scripts/install-runner.sh, then app/install.sh');
   if (!desktopSession()) throw new Fail("Nobody is logged in to this Mac's desktop, and macOS only starts the runner (a login agent) for someone who is. Log in, in person or with Screen Sharing, then run setup again.");
   const env = { ...process.env, THREADBEAR_NODE: process.execPath };
