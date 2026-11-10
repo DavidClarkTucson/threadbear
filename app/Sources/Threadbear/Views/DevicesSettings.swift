@@ -75,9 +75,6 @@ struct DevicesSettings: View {
             }
         }
         .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
-        .scrollIndicators(.never)
-        .scrollDisabled(true)
         .onAppear { app.loadDevices() }
         .onChange(of: app.connection) { _, state in if state == .connected { app.loadDevices() } }
         // The automation's {"cmd":"settings","pair":true}, for screenshots.

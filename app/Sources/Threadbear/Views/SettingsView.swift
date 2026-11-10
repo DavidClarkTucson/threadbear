@@ -12,42 +12,86 @@ struct SettingsView: View {
 
     var body: some View {
         @Bindable var app = app
-        TabView(selection: $app.settingsTab) {
-            GeneralSettings()
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsTab.general)
-            ModelSettings()
-                .tabItem { Label("Models", systemImage: "sparkles") }
-                .tag(SettingsTab.models)
-            PoolSettings()
-                .tabItem { Label("Pools", systemImage: "square.stack") }
-                .tag(SettingsTab.pools)
-            RunnersSettings()
-                .tabItem { Label("Runners", systemImage: "server.rack") }
-                .tag(SettingsTab.runners)
-            DevicesSettings()
-                .tabItem { Label("Phone & browser", systemImage: "iphone") }
-                .tag(SettingsTab.devices)
-            KeyboardSettings()
-                .tabItem { Label("Keyboard", systemImage: "keyboard") }
-                .tag(SettingsTab.keyboard)
+        // A sidebar like System Settings rather than tabs along the top: the
+        // window keeps one height and each pane scrolls, where tabs sized
+        // the window to the pane and General grew taller than the screen
+        // (10 Nov).
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            List(SettingsTab.allCases, id: \.self, selection: Binding(
+                get: { app.settingsTab },
+                // A List selection can go to nil (a click below the rows);
+                // keep the pane that's showing.
+                set: { if let tab = $0 { app.settingsTab = tab } })
+            ) { tab in
+                Label(tab.title, systemImage: tab.symbol)
+            }
+            // The column width alone is ignored in a Settings window (it
+            // stayed at about 145, cutting "Phone & browser" short).
+            .frame(minWidth: SettingsLayout.sidebarWidth)
+            .navigationSplitViewColumnWidth(SettingsLayout.sidebarWidth)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
+            pane(app.settingsTab)
+                .navigationTitle(app.settingsTab.title)
         }
-        // Drag the window wider for more room; it opens a little wider than
-        // it was and never goes narrower than every tab's title needs.
+        // Drag the window wider or taller for more room; it opens at a size
+        // that fits a laptop screen, and General's rows scroll past that.
         .frame(minWidth: SettingsLayout.minWidth,
                idealWidth: SettingsLayout.idealWidth,
-               maxWidth: .infinity)
+               maxWidth: .infinity,
+               minHeight: SettingsLayout.minHeight,
+               idealHeight: SettingsLayout.idealHeight,
+               maxHeight: .infinity)
         .background(SettingsWindowFinder())
+    }
+
+    @ViewBuilder private func pane(_ tab: SettingsTab) -> some View {
+        switch tab {
+        case .general: GeneralSettings()
+        case .models: ModelSettings()
+        case .pools: PoolSettings()
+        case .runners: RunnersSettings()
+        case .devices: DevicesSettings()
+        case .keyboard: KeyboardSettings()
+        }
     }
 }
 
-/// The Settings window's widths. A grouped Form stops its rows at about 700
+extension SettingsTab {
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .models: "Models"
+        case .pools: "Pools"
+        case .runners: "Runners"
+        case .devices: "Phone & browser"
+        case .keyboard: "Keyboard"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .models: "sparkles"
+        case .pools: "square.stack"
+        case .runners: "server.rack"
+        case .devices: "iphone"
+        case .keyboard: "keyboard"
+        }
+    }
+}
+
+/// The Settings window's size. A grouped Form stops its rows at about 700
 /// points of its own accord (macOS 26), so wider than that adds even sides.
 enum SettingsLayout {
-    /// Narrowest it goes: every tab's title still fits along the top.
-    static let minWidth: CGFloat = 540
-    /// What the window opens at.
-    static let idealWidth: CGFloat = 760
+    static let sidebarWidth: CGFloat = 215
+    /// Narrowest it goes: the sidebar and a pane whose rows still fit.
+    static let minWidth: CGFloat = 640
+    /// What the window opens at: the sidebar and a full-width form.
+    static let idealWidth: CGFloat = 880
+    static let minHeight: CGFloat = 420
+    /// Short enough for a laptop screen with room for the Dock.
+    static let idealHeight: CGFloat = 620
 }
 
 /// What the runner's settings tabs show until there are settings to show.
@@ -64,7 +108,6 @@ private struct SettingsGate<Content: View>: View {
                     .foregroundStyle(.secondary)
             }
             .formStyle(.grouped)
-            .frame(height: 140)
         }
     }
 }
@@ -113,9 +156,6 @@ private struct GeneralSettings: View {
                 }
             }
             .formStyle(.grouped)
-            .fixedSize(horizontal: false, vertical: true)
-            .scrollIndicators(.never)
-            .scrollDisabled(true)
         } else {
             runner
         }
@@ -265,11 +305,6 @@ private struct GeneralSettings: View {
             }
             .task { app.loadStandingInstructions() }
             .formStyle(.grouped)
-            .fixedSize(horizontal: false, vertical: true)
-            // The window fits the form; a scroller beside it is just noise
-            // (General's last section, with no footer, ran a few points over).
-            .scrollIndicators(.never)
-            .scrollDisabled(true)
         }
     }
 
@@ -344,11 +379,6 @@ private struct ModelSettings: View {
                 SettingsErrorRow()
             }
             .formStyle(.grouped)
-            .fixedSize(horizontal: false, vertical: true)
-            // The window fits the form; a scroller beside it is just noise
-            // (General's last section, with no footer, ran a few points over).
-            .scrollIndicators(.never)
-            .scrollDisabled(true)
         }
     }
 
@@ -397,7 +427,6 @@ private struct PoolSettings: View {
                     .foregroundStyle(.secondary)
             }
             .formStyle(.grouped)
-            .frame(height: 140)
         } else {
             form
                 .onAppear { reset(to: app.pools) }
@@ -511,9 +540,6 @@ private struct PoolSettings: View {
             }
         }
         .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
-        .scrollIndicators(.never)
-        .scrollDisabled(true)
         // A name typed and then left (another field, a click elsewhere, or
         // the window closing) is saved, not just one ended with Return.
         .onChange(of: naming) { _, focused in if !focused { commitTitle() } }
@@ -824,10 +850,22 @@ enum SettingsWindow {
     static weak var current: NSWindow?
 
     /// A Settings scene's window comes fixed size; this one can be dragged
-    /// wider (each tab still sets its height).
+    /// wider and taller. It also opens at the panes' smallest height (the
+    /// scene ignores an ideal height, and `.defaultSize` on it stopped the
+    /// window opening at all), so the first time it's grown to the ideal,
+    /// as far as the screen allows.
     static func makeResizable(_ window: NSWindow) {
         guard !window.styleMask.contains(.resizable) else { return }
         window.styleMask.insert(.resizable)
-        window.contentMinSize.width = SettingsLayout.minWidth
+        window.contentMinSize = NSSize(width: SettingsLayout.minWidth, height: SettingsLayout.minHeight)
+        let room = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? SettingsLayout.idealHeight
+        let chrome = window.frame.height - window.contentLayoutRect.height
+        let height = min(SettingsLayout.idealHeight, room - chrome - 40)
+        guard window.contentLayoutRect.height < height else { return }
+        var frame = window.frame
+        // Grow downwards from where the top already is.
+        frame.origin.y -= height - window.contentLayoutRect.height
+        frame.size.height = height + chrome
+        window.setFrame(frame, display: true)
     }
 }

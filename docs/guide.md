@@ -1470,8 +1470,9 @@ first. If you edit it by hand and leave it broken (a trailing comma, say),
 the runner won't start until it's fixed, and never writes over it: `tb logs`
 names the file and what's wrong.
 
-Drag the Settings window wider for more room; each tab still sets how tall
-it is.
+Settings has its sections down a sidebar on the left, like System Settings,
+and each one scrolls when it's taller than the window. Drag the window wider
+or taller for more room.
 
 When something goes wrong, the app says so in an orange bar at the top of
 the thread. Investigate on that bar starts a thread in your Threadbear
