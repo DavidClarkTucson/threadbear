@@ -468,7 +468,7 @@ impl Threadbear {
             column = column.child(self.render_error_banner(error, cx));
         }
         if let Some(thread) = &thread {
-            if let Some(advice) = self.limit_advice(thread) {
+            if let Some(advice) = self.limit_advice(thread, cx) {
                 column = column.child(self.render_limit_banner(thread, advice, cx));
             }
             if let Some(account) = self.sign_in_account(thread, cx) {
@@ -582,9 +582,31 @@ impl Threadbear {
             .into_any_element()
     }
 
+    /// `noteFailedAccounts`: the login a thread was on as it went into
+    /// error, kept until it leaves error.
+    pub(crate) fn note_failed_account(&mut self, before: Option<&ThreadSummary>, now: &ThreadSummary) {
+        if now.status == "error" {
+            if before.is_none_or(|b| b.status != "error") || !self.failed_on_account.contains_key(&now.id) {
+                self.failed_on_account.insert(now.id.clone(), now.account_id.clone());
+            }
+        } else {
+            self.failed_on_account.remove(&now.id);
+        }
+    }
+
+    /// The same over a new list of every thread, against the one before it.
+    pub(crate) fn note_failed_accounts(&mut self, before: &std::collections::HashMap<String, ThreadSummary>) {
+        let now: Vec<ThreadSummary> = self.threads.values().cloned().collect();
+        for t in &now {
+            self.note_failed_account(before.get(&t.id), t);
+        }
+        let known: std::collections::HashSet<String> = self.threads.keys().cloned().collect();
+        self.failed_on_account.retain(|id, _| known.contains(id));
+    }
+
     /// `limitAdvice`: when the open thread can't go on where it is, says so,
     /// and where it could go instead.
-    fn limit_advice(&self, thread: &ThreadSummary) -> Option<LimitAdvice> {
+    fn limit_advice(&self, thread: &ThreadSummary, cx: &App) -> Option<LimitAdvice> {
         use threadbear_core::new_thread::{has_room, pool_logins, switch_target, switch_title, usage_of};
         let accounts = &self.logins.accounts;
         let target = switch_target(accounts, &thread.account_id).map(|a| (a.id.clone(), switch_title(a, accounts)));
@@ -602,12 +624,18 @@ impl Threadbear {
                 }
             }
         }
-        let account = self.logins.account(&thread.account_id)?;
-        let usage = usage_of(account);
-        if !usage.as_ref().is_some_and(|u| u.blocked) {
+        let usage = self.logins.account(&thread.account_id).and_then(usage_of);
+        let blocked = usage.as_ref().is_some_and(|u| u.blocked);
+        // Only while the thread is still on the login the turn failed on:
+        // after "Switch to ..." the status stays error until the next turn,
+        // and the line would blame the new login.
+        let failed_on_limit = thread.status == "error"
+            && self.failed_on_account.get(&thread.id) == Some(&thread.account_id)
+            && self.latest_completion(cx).is_some_and(|c| c.error_kind == Some(TurnErrorKind::UsageLimit));
+        if !blocked && !failed_on_limit {
             return None;
         }
-        let mut text = format!("{} has reached its limit", threadbear_core::logins::short_account_name(&account.id, accounts));
+        let mut text = format!("{} has reached its limit", threadbear_core::logins::short_account_name(&thread.account_id, accounts));
         // The soonest of the windows that are used up (`mainWindows`).
         let reset = usage.as_ref().and_then(|u| threadbear_core::new_thread::main_windows(u).into_iter().filter(|w| w.remaining_percent < 1.).filter_map(|w| w.resets_at).min());
         if let Some(ms) = reset {
@@ -623,8 +651,8 @@ impl Threadbear {
 
     /// `limit` in the dump (`AppDump.LimitInfo`): the line's words and its button.
     #[cfg(feature = "automation")]
-    pub(crate) fn limit_dump(&self) -> Value {
-        let Some(advice) = self.open_thread().and_then(|t| self.limit_advice(t)) else { return Value::Null };
+    pub(crate) fn limit_dump(&self, cx: &App) -> Value {
+        let Some(advice) = self.open_thread().and_then(|t| self.limit_advice(t, cx)) else { return Value::Null };
         json!({ "text": advice.text, "button": advice.target.map(|(_, title)| limit_button_title(title, advice.waiting)) })
     }
 

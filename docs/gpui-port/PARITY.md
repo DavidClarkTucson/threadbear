@@ -266,9 +266,21 @@ built parsers and gates with no launch of the app, which is the trap.)
   `features/header.feature`.
 - Remaining from the pictures: reply buttons drawn as pills, the thread chips
   bar ("Review design options"), the rail's Connectors, Runners, Updates and
-  Setup buttons and the Librarian's count, the providers' logos on the model
-  chip, and the Swift wording of the account-limit line when a turn failed on
-  it (`failedOnLimit`).
+  Setup buttons and the Librarian's count, and the providers' logos on the
+  model chip.
+- Codex (gpt-6.1-sol) tried to break the drag, the caching, the sort, `busy()`
+  and the limit port. It found no stale views, no lease panic and no change of
+  order, and two real problems, both fixed: a torn-out window got its last
+  move from a press that ended without a mouse-up, so it could jump to where
+  the pointer had gone since (`pointer_up(released, ..)` in
+  `desktop/dock/src/windows.rs`); and the limit line lacked Swift's case for a
+  turn that failed on its limit while the account still says it has room
+  (`failedOnAccount`, now `note_failed_account` in `header.rs`). That case
+  looks for the newest turn footer, as Swift's does, and the demo thread that
+  failed on its limit has none for the failed turn, so neither app shows a
+  line there; there's no scenario for it yet.
+- Idle frames: an open thread draws nothing once it has settled (four seconds,
+  no frames); the readout's 30 fps was the second after opening one.
 - Verification: `features/tools/compare.ts` pictures of the changed threads
   beside the Swift app's; specs 193 of 193 on Tinker Desk's Mac and on Linux
   (`cloud`), the Swift app 191 of 191 there, the new `banner.limit` scenario

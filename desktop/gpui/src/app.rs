@@ -74,6 +74,10 @@ pub struct Threadbear {
     /// fast as the screen refreshes, and this was a noticeable part of each
     /// frame (set by an observer of the app itself, in `new`).
     pub(crate) menus_stale: bool,
+    /// The login each thread was on when it went into error
+    /// (`failedOnAccount`), so the limit line blames that login only while
+    /// the thread's still on it, not the one it's just been switched to.
+    pub(crate) failed_on_account: HashMap<String, String>,
     /// The Threads button's badge, kept until the app next changes (the same
     /// observer clears it), as working it out sorts every thread.
     pub(crate) inbox_count_cache: std::cell::Cell<Option<usize>>,
@@ -233,6 +237,7 @@ impl Threadbear {
             shortcuts_path: None,
             menu_signature: String::new(),
             menus_stale: true,
+            failed_on_account: HashMap::new(),
             inbox_count_cache: Default::default(),
             last_window_title: String::new(),
             archived_note: None,
@@ -303,11 +308,14 @@ impl Threadbear {
                         if let Some(pane) = &self.pane {
                             pane.update(cx, |p, cx| p.summary_changed(&t, cx));
                         }
-                        self.threads.insert(t.id.clone(), t);
+                        let before = self.threads.insert(t.id.clone(), t.clone());
+                        self.note_failed_account(before.as_ref(), &t);
                     }
                 }
                 "thread.deleted" => {
-                    self.threads.remove(params["threadId"].as_str().unwrap_or(""));
+                    let id = params["threadId"].as_str().unwrap_or("");
+                    self.threads.remove(id);
+                    self.failed_on_account.remove(id);
                 }
                 "runner.notice" => {
                     // The runner said it's restarting: the connection going
@@ -347,7 +355,9 @@ impl Threadbear {
                 match res {
                     Ok(v) => {
                         let list: Vec<ThreadSummary> = serde_json::from_value(v["threads"].clone()).unwrap_or_default();
+                        let before = std::mem::take(&mut this.threads);
                         this.threads = list.into_iter().map(|t| (t.id.clone(), t)).collect();
+                        this.note_failed_accounts(&before);
                         // Other runners' rows stay listed beside these.
                         this.apply_remote_index(cx);
                         this.list_error = None;
@@ -533,7 +543,7 @@ impl Threadbear {
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": self.banner_dump(),
-            "limit": self.limit_dump(),
+            "limit": self.limit_dump(cx),
             "error": self.error_message.clone(),
             "dock": dock,
             "zoom": crate::style::zoom_percent(),

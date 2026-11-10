@@ -335,7 +335,7 @@ impl FloatingPanelView {
         // The button came up without a release (between two frames): over.
         if event.pressed_button != Some(MouseButton::Left) {
             if self.press.is_some() {
-                self.pointer_up(window, cx);
+                self.pointer_up(false, window, cx);
             }
             return;
         }
@@ -377,10 +377,13 @@ impl FloatingPanelView {
         }
     }
 
-    fn pointer_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// `released`: a real mouse-up ended the press. Otherwise the button was
+    /// found up on a later move (it was let go over another app), and the
+    /// pointer has gone on since, so the window stays where the drag left it.
+    fn pointer_up(&mut self, released: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(p) = self.press.take() else { return };
         cx.notify();
-        if let (FloatMode::WindowMove, Some(grab)) = (p.mode, p.grab) {
+        if let (FloatMode::WindowMove, Some(grab), true) = (p.mode, p.grab, released) {
             // Once more where it let go, as the main window's does.
             platform::move_grabbed_window(window, grab);
         }
@@ -533,7 +536,7 @@ fn float_listeners(view: WeakEntity<FloatingPanelView>, dragging: bool) -> impl 
             let released = view.clone();
             window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| {
                 if phase == DispatchPhase::Capture {
-                    let _ = released.update(cx, |v, cx| v.pointer_up(window, cx));
+                    let _ = released.update(cx, |v, cx| v.pointer_up(true, window, cx));
                 }
             });
         },

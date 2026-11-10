@@ -86,11 +86,13 @@ impl Threadbear {
             }
             listed.insert(summary.id.clone());
             self.remote.made.remove(&summary.id);
-            self.threads.insert(summary.id.clone(), summary);
+            let before = self.threads.insert(summary.id.clone(), summary.clone());
+            self.note_failed_account(before.as_ref(), &summary);
         }
         let gone: Vec<String> = self.threads.values().filter(|t| t.runner_id.is_some() && !listed.contains(&t.id) && !self.remote.made.contains(&t.id)).map(|t| t.id.clone()).collect();
         for id in gone {
             self.threads.remove(&id);
+            self.failed_on_account.remove(&id);
         }
         // An open remote thread keeps up with its row.
         if let Some(id) = self.selected.clone() {
