@@ -76,3 +76,59 @@ test('ordinary commands and paths that only look near it are left alone', () => 
   assert.equal(denySecrets('Read', { file_path: path.join(home, 'threads', 'a.txt') }, home), undefined);
   assert.equal(denySecrets('Read', { file_path: path.join(os.tmpdir(), 'other', 'SECRETS', 'x') }, home), undefined, "someone else's folder of that name");
 });
+
+// Codex tried to break this change before it landed (11 Nov 2026).
+test('what the cross-lab review got past the guard', () => {
+  // The Kelvin sign (U+212A) folds to a K, which took the token's word
+  // boundary with it; the shell's ${x%K} then cuts it back to the file's name.
+  // Nothing else in the command names the folder, so only the name can hold it.
+  const token = ['runner', 'token'].join('-');
+  const kelvin = '\u212A';
+  assert.ok(deny(`cd "$THREADBEAR_HOME"; x=${token}${kelvin}; cat secrets/"\${x%${kelvin}}"`), 'Kelvin sign, the name alone');
+  // Ways of writing the same folder that the shell reads as it.
+  for (const command of [
+    'cat "$THREADBEAR_HOME"/./secrets/convex-deploy.env',
+    'cat $THREADBEAR_HOME//secrets/convex-deploy.env',
+    'cat "${THREADBARE_RUNNER_HOME:-unused}/secrets/convex-deploy.env"',
+    'cat ${THREADBEAR_HOME%/}/secrets/convex-deploy.env',
+    // The fallback can hold the path itself (the second pass).
+    'unset X; cat "${X:-$THREADBEAR_HOME/secrets/convex-deploy.env}"',
+    // A fallback with a $ in it, which the variable never needs (the third pass).
+    'cat "${THREADBEAR_HOME:-$HOME}/secrets/convex-deploy.env"',
+  ]) assert.ok(deny(command), command);
+  // A Grep from further up reads every file its glob picks, whatever its pattern.
+  const up = path.dirname(home);
+  assert.ok(denySecrets('Grep', { path: up, pattern: '.', glob: `${path.basename(home)}/secrets/*`, output_mode: 'content' }, home), 'Grep with a glob');
+  assert.ok(denySecrets('Grep', { path: up, pattern: '.' }, home), 'Grep over everything under it');
+  // An accent the shell cuts off, which NFC would join onto the s (the third pass).
+  const accent = '\u0301';
+  assert.ok(deny(`p="$THREADBEAR_HOME/secrets${accent}"; cat "\${p%${accent}}/convex-deploy.env"`), 'a combining accent');
+  // From the top of the disk too, which already ends in a separator (the second pass).
+  assert.ok(denySecrets('Grep', { path: path.parse(home).root, pattern: '.', glob: '**/secrets/*' }, home), 'Grep from /');
+  // A Glob only lists names, so one that doesn't name the folder is fine.
+  assert.equal(denySecrets('Glob', { path: up, pattern: '*.md' }, home), undefined);
+  // A Grep further in, or beside it, is fine.
+  assert.equal(denySecrets('Grep', { path: path.join(home, 'threads'), pattern: '.' }, home), undefined);
+});
+
+test('a data folder whose name has an accent, written either way', () => {
+  const accented = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-café-')));
+  try {
+    const decomposed = accented.normalize('NFD');
+    assert.notEqual(decomposed, accented);
+    assert.ok(denySecrets('Bash', { command: `cat "${decomposed}/secrets/convex-deploy.env"` }, accented), 'Bash');
+    assert.ok(denySecrets('Read', { file_path: path.join(decomposed, 'secrets', 'x') }, accented), 'Read');
+  } finally {
+    fs.rmSync(accented, { recursive: true, force: true });
+  }
+});
+
+test('a long command with an unclosed ${ is checked quickly', () => {
+  // The second pass found the first rewrite of ${X...} quadratic on these.
+  for (const command of [`printf %s '\${${'A'.repeat(64_000)}'`, `echo ${'${a'.repeat(20_000)}`]) {
+    const start = performance.now();
+    deny(command);
+    const took = performance.now() - start;
+    assert.ok(took < 500, `${command.length} characters took ${Math.round(took)} ms`);
+  }
+});
