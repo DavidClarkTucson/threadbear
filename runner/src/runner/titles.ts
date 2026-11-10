@@ -8,7 +8,7 @@ import { ErrorCode, RpcError } from '../protocol.ts';
 import { EXPLAIN_SYSTEM, RECENT_CHARS, RECENT_MESSAGES, explainPrompt } from '../explain.ts';
 import type { ExplainTurn } from '../explain.ts';
 import type { ThreadState } from '../runner.ts';
-import { TITLE_PROMPT, cleanTitle } from '../runner.ts';
+import { TICKET_TITLE_PROMPT, TITLE_PROMPT, cleanTitle } from '../runner.ts';
 import { jiraKeys, jiraTicket, readJiraConfig, titleWithTicket } from '../jira.ts';
 
 export const titlesPart = {
@@ -26,12 +26,15 @@ export const titlesPart = {
     // for a private folder, whose words go nowhere.
     const jira = this.models.isPrivateFolder?.(st.rec.cwd) ? undefined : readJiraConfig(this.cfg.home);
     const ticket = jira ? await jiraTicket(jira, jiraKeys(text.slice(0, 4000))) : undefined;
-    let prompt = reply ? `Message:\n${text.slice(0, 4000)}\n\nStart of the reply:\n${reply.slice(0, 1000)}` : `Message:\n${text.slice(0, 4000)}`;
-    if (ticket) prompt += `\n\nJira ticket ${ticket.key}: ${ticket.summary}`;
+    const prompt = ticket
+      ? `Message: ${text.slice(0, 4000)}\n${reply ? `Start of the reply: ${reply.slice(0, 1000)}\n` : ''}Ticket summary: ${ticket.summary}\nWords:`
+      : reply
+        ? `Message:\n${text.slice(0, 4000)}\n\nStart of the reply:\n${reply.slice(0, 1000)}`
+        : `Message:\n${text.slice(0, 4000)}`;
     const res = await this.models.generate({
       feature: 'titles',
       cwd: st.rec.cwd,
-      system: TITLE_PROMPT,
+      system: ticket ? TICKET_TITLE_PROMPT : TITLE_PROMPT,
       prompt,
       // Room for Haiku to think first: at 30 it sometimes ran out before
       // writing a word. A long answer is turned down by cleanTitle anyway.

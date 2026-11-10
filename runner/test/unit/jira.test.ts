@@ -50,6 +50,8 @@ test('jira: looks a ticket up and gives its summary; any failure is no ticket', 
 test('jira: the title starts with the ticket key, once, and fits', () => {
   assert.equal(titleWithTicket('MACG-3375', 'Force reclassifications tech design'), 'MACG-3375 - force reclassifications tech design');
   assert.equal(titleWithTicket('MACG-3375', 'MACG-3375 force reclassifications tech design'), 'MACG-3375 - force reclassifications tech design', 'the model said the key too');
+  assert.equal(titleWithTicket('MACG-3375', 'Family Portal subdomain update for MACG-3375'), 'MACG-3375 - Family Portal subdomain update', 'the key mid-title goes too');
+  assert.equal(titleWithTicket('MACG-3704', 'CRT for MACG-3704 code review'), 'MACG-3704 - CRT code review');
   assert.equal(titleWithTicket('PI-517', 'URL list for Guardian admins'), 'PI-517 - URL list for Guardian admins', 'an acronym keeps its capitals');
   const long = titleWithTicket('MACG-3375', 'Force reclassifications of every URL in the district tech design');
   assert.ok(long.length <= 60, long);

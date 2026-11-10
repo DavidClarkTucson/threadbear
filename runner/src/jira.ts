@@ -74,13 +74,21 @@ export async function jiraTicket(cfg: JiraConfig, keys: string[], fetchImpl: typ
   return undefined;
 }
 
-// "<KEY> - <title>": the model's title without the key if it wrote it too,
-// its first letter lowercased unless the word is an acronym ("URL"), cut at
-// a word to fit LIMITS.titleChars.
+// "<KEY> - <title>": the model's title without the key wherever it wrote it
+// too ("… for MACG-3375"), its first letter lowercased only when the next
+// word is lowercase too, so "Force reclassifications" reads on from the dash
+// but "Family Portal" and "URL list" keep their capitals; cut at a word to
+// fit LIMITS.titleChars. A key is letters, digits and one dash, so it goes
+// into the pattern as it is.
 export function titleWithTicket(key: string, title: string): string {
-  let rest = title.trim();
-  if (rest.toUpperCase().startsWith(key)) rest = rest.slice(key.length).replace(/^[\s:—–-]+/, '');
-  if (rest.length > 1 && rest[1] === rest[1]!.toLowerCase()) rest = rest[0]!.toLowerCase() + rest.slice(1);
+  let rest = title
+    .replace(new RegExp(`(?:\\b(?:for|on|in|of)\\s+)?\\b${key}\\b`, 'gi'), ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+    .replace(/^[:—–-]+\s*/, '');
+  const [first, second] = rest.split(' ');
+  if (first && first.length > 1 && first.slice(1) === first.slice(1).toLowerCase() && (!second || second === second.toLowerCase())) rest = first[0]!.toLowerCase() + rest.slice(1);
   let out = rest ? `${key} - ${rest}` : key;
   if (out.length > LIMITS.titleChars) {
     const cut = out.slice(0, LIMITS.titleChars + 1);

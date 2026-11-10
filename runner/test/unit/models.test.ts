@@ -18,7 +18,7 @@ import type { CliRequest, CliResponse } from '../../src/models/claude-pool.ts';
 import { ledgerPath } from '../../src/models/ledger.ts';
 import { SettingsService, modelMethods, settingsMethods } from '../../src/settings.ts';
 import { EXPERIMENTS } from '../../src/experiments.ts';
-import { cleanTitle } from '../../src/runner.ts';
+import { TICKET_TITLE_PROMPT, cleanTitle } from '../../src/runner.ts';
 import type { Notification } from '../../src/runner.ts';
 import { RpcServer } from '../../src/rpc.ts';
 import { ErrorCode, RpcError } from '../../src/protocol.ts';
@@ -352,7 +352,8 @@ test('titles: a Jira ticket in the first message leads the title, with its summa
     for (let i = 0; i < 50 && h.runner.get(thread.id)!.title === 'MACG-3375 tech design'; i++) await tick();
     assert.equal(h.runner.get(thread.id)!.title, 'MACG-3375 - force reclassifications tech design');
     assert.deepEqual(fetched, ['https://example.atlassian.net/rest/api/3/issue/MACG-3375?fields=summary']);
-    assert.match(asked[0].prompt, /Jira ticket MACG-3375: Force reclassification of URLs on demand/);
+    assert.match(asked[0].prompt, /Ticket summary: Force reclassification of URLs on demand\nWords:$/);
+    assert.equal(asked[0].system, TICKET_TITLE_PROMPT);
 
     // A private folder: Jira isn't asked (and the model refuses as before).
     fetched.length = 0;
@@ -387,6 +388,7 @@ test('titles: naming an older thread also sends the start of its first reply', a
 test('titles: cleanTitle tidies what a model says', () => {
   assert.equal(cleanTitle('Title: "Ship the settings window."'), 'Ship the settings window');
   assert.equal(cleanTitle('\n**Debug flaky CI**\nextra'), 'Debug flaky CI');
+  assert.equal(cleanTitle('Words: Safari login redirect loop'), 'Safari login redirect loop');
   assert.equal(cleanTitle('Fix the upload test — a short thread about CI'), 'Fix the upload test');
   assert.equal(cleanTitle('Fix README typo "directons"'), 'Fix README typo "directons"', 'quotes inside stay');
   // Rambling or cut off by the token limit: no title, so the first line stays.

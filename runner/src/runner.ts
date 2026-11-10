@@ -3750,12 +3750,29 @@ export const TITLE_PROMPT = [
   '',
   'Message: hello there',
   'Title: Hello',
-  '',
-  'A Jira ticket under the message: a few words of what the ticket is about, then always the words for what the message itself asks for (like tech design, code review, testing), without the ticket key.',
+].join('\n');
+
+// The title of a thread whose message names a Jira ticket (jira.ts): the
+// words after "<KEY> - ". A prompt of its own: as a rule tacked onto
+// TITLE_PROMPT, Haiku dropped the summary, the message's words or both,
+// and copied its example's ticket into others (10 Nov). The examples' keys
+// and summaries are made up so they can't be mistaken for real ones.
+export const TICKET_TITLE_PROMPT = [
+  'You write the words that follow a Jira ticket key in a thread\'s title, in Threadbear, an app for running AI agents, mostly for coding.',
+  'You get the person\'s message and the ticket\'s summary. Reply with those words only: 3 to 8 words, a short form of the ticket\'s summary, then what the message asks for in its own words (like tech design, code review, testing), when it says.',
+  'Never write the ticket key. Sentence case: a capital for the first word and for names only. No quotes, no full stop, no dashes, no colons, no emoji.',
   '',
   'Message: ABC-12 testing',
-  'Jira ticket ABC-12: Add a CSV export to the reports page',
-  'Title: CSV export for reports testing',
+  'Ticket summary: Add a CSV export to the reports page',
+  'Words: CSV export for reports testing',
+  '',
+  'Message: can you review the PR for xyz-9 please',
+  'Ticket summary: Retry failed webhook deliveries with backoff',
+  'Words: Webhook delivery retries PR review',
+  '',
+  'Message: ABC-40',
+  'Ticket summary: Fix the login redirect loop on Safari',
+  'Words: Safari login redirect loop',
 ].join('\n');
 
 // A model's title, tidied: first line, no wrapping quotes or full stop,
@@ -3763,7 +3780,7 @@ export const TITLE_PROMPT = [
 // token limit) is no title at all, so the first line stays.
 export function cleanTitle(text: string): string {
   let t = (text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
-  t = t.replace(/^(title:\s*)/i, '').split(/\s[—–-]\s/)[0];
+  t = t.replace(/^((?:title|words):\s*)/i, '').split(/\s[—–-]\s/)[0];
   t = t.replace(/^\*+|\*+$/g, '').trim();
   // Quotes only when they wrap the whole title; ones inside it stay.
   if (/^(["'`]).*\1$/.test(t)) t = t.slice(1, -1);
