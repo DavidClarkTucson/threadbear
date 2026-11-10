@@ -22,6 +22,9 @@ import { changedFiles, cloneRepo, cloneableUrl, originUrl, packGit, repoKey, rep
 import { movedSchedules, type MoveInfo, type MovePlan, type MovePreview, type MoveRow, type MovedSchedule, type ThreadMoving } from '../moves.ts';
 import { projectDirName, sessionTranscriptPath } from '../transcripts.ts';
 import { findWorktreePatch } from '../patches.ts';
+import { patchHash } from '../patch-trust.ts';
+import { untrustedGit } from '../safe-git.ts';
+import { isPermissionMode } from '../protocol.ts';
 import { cleanUpWorktree, makeWorktree, mainCheckoutOf, realpath, type WorktreeRecord } from '../worktrees.ts';
 
 // What T placed for a move, so adopting after a restart and throwing it
@@ -66,6 +69,18 @@ function dropMovedPowers(rec: Record<string, any>): boolean {
       changed = true;
     }
   }
+  // A mode this runner doesn't know compares as nothing (2 > undefined is
+  // false), so every check that a thread may raise access would pass:
+  // Ask. A missing return mode from Plan first means Full (leavePlan), so
+  // one that isn't a mode is Ask too.
+  if (!isPermissionMode(rec.permissionMode)) {
+    rec.permissionMode = 'ask';
+    changed = true;
+  }
+  if (rec.modeBeforePlan !== undefined && !isPermissionMode(rec.modeBeforePlan)) {
+    rec.modeBeforePlan = 'ask';
+    changed = true;
+  }
   return changed;
 }
 
@@ -77,22 +92,82 @@ function dropMovedPowers(rec: Record<string, any>): boolean {
 // stays), and so does the mode Plan first would go back to. Says what it
 // was, for the thread's note, or undefined when nothing changed.
 const ABOVE_ASK = new Set(['full', 'auto']);
-function capMovedMode(rec: Record<string, any>): string | undefined {
+function capMovedMode(rec: Record<string, any>): { was?: string; changed: boolean } {
   let was: string | undefined;
-  if (ABOVE_ASK.has(rec.permissionMode)) {
-    was = rec.permissionMode;
+  let changed = false;
+  if (rec.permissionMode !== 'ask' && rec.permissionMode !== 'plan') {
+    if (ABOVE_ASK.has(rec.permissionMode)) was = rec.permissionMode;
     rec.permissionMode = 'ask';
+    changed = true;
   }
-  if (ABOVE_ASK.has(rec.modeBeforePlan)) {
-    was ??= rec.modeBeforePlan;
-    rec.modeBeforePlan = 'ask';
+  if (rec.permissionMode === 'plan') {
+    // Approving the plan goes back to this, and to Full when it's missing
+    // (leavePlan), so it's always set.
+    if (rec.modeBeforePlan !== 'ask') {
+      if (ABOVE_ASK.has(rec.modeBeforePlan)) was ??= rec.modeBeforePlan;
+      rec.modeBeforePlan = 'ask';
+      changed = true;
+    }
+  } else if (rec.modeBeforePlan !== undefined) {
+    delete rec.modeBeforePlan;
+    changed = true;
   }
-  return was;
+  return { ...(was ? { was } : {}), changed };
 }
 
 const MODE_WORDS: Record<string, string> = { full: 'Full access', auto: 'Auto' };
 function cappedNote(was: string, from: string): string {
   return `It had ${MODE_WORDS[was] ?? was} on ${from}, so it asks before tools run here: give it more access again if you want.`;
+}
+
+// What a moved record may keep here, applied to the record wherever it is
+// (staging, the live folder, or loaded already): dropMovedPowers, and on
+// the main Mac capMovedMode. The note's line about the mode goes in
+// `notes`. True if it changed.
+function sanitizeMoved(rec: Record<string, any>, atMostAsk: boolean, from: string, notes: string[]): boolean {
+  let changed = dropMovedPowers(rec);
+  if (atMostAsk) {
+    const capped = capMovedMode(rec);
+    if (capped.was && !notes.some((n) => n.includes('so it asks before tools run here'))) notes.push(cappedNote(capped.was, from));
+    changed ||= capped.changed;
+  }
+  return changed;
+}
+
+// Whether the worktree's setup would run something the moved git work
+// changed: the patch's own copy, or a file it reaches, differs in the
+// worktree from the commit it was made from (this runner's own main), or
+// can't be followed. Threadbear's own checkout is always trusted, so for
+// its worktrees nothing else would stop the old runner's version of the
+// setup script running here (Codex's review, 10 Nov 2026). Says why, or
+// undefined when setup can run.
+export async function setupChangedByMove(w: WorktreeRecord, patchFile: string): Promise<string | undefined> {
+  const copy = path.join(w.path, patchFile);
+  let reached: string[];
+  try {
+    const h = patchHash(copy);
+    if (h.incomplete) return `what it runs can't all be followed (${h.incomplete})`;
+    reached = [copy, ...h.deps.map((d) => (path.isAbsolute(d.path) ? d.path : path.resolve(path.dirname(copy), d.path))), ...h.unnamed.map((u) => (path.isAbsolute(u) ? u : path.resolve(path.dirname(copy), u)))];
+  } catch (e) {
+    return `its patch couldn't be read (${e instanceof Error ? e.message : String(e)})`;
+  }
+  const root = realpath(w.path);
+  for (const file of new Set(reached)) {
+    const real = realpath(file);
+    const rel = path.relative(root, real);
+    // Outside the worktree: the move didn't bring it.
+    if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
+    const there = await untrustedGit(w.path, ['cat-file', '-e', `${w.base}:${rel.split(path.sep).join('/')}`]);
+    const exists = fs.existsSync(real);
+    if (!there.ok) {
+      if (exists) return `the moved work adds ${rel}, which it runs`;
+      continue;
+    }
+    if (!exists) return `the moved work removes ${rel}, which it runs`;
+    const same = await untrustedGit(w.path, ['diff', '--quiet', '--no-ext-diff', '--no-textconv', w.base, '--', rel.split(path.sep).join('/')]);
+    if (!same.ok) return `the moved work changes ${rel}, which it runs`;
+  }
+  return undefined;
 }
 
 export const movesPart = {
@@ -374,11 +449,7 @@ export const movesPart = {
       }
       // Nothing that runs or approves anything comes (dropMovedPowers),
       // and on the main Mac no more than Ask (capMovedMode).
-      dropMovedPowers(rec);
-      if (this.movedInAtMostAsk?.()) {
-        const was = capMovedMode(rec);
-        if (was) placed.leftBehind.push(cappedNote(was, placed.fromName));
-      }
+      sanitizeMoved(rec, Boolean(this.movedInAtMostAsk?.()), placed.fromName, placed.leftBehind);
       rec.cwd = placed.cwd;
       rec.accountId = account.id;
       delete rec.poolId;
@@ -404,34 +475,37 @@ export const movesPart = {
     if (!fs.existsSync(placedFile)) return { adopted: false };
     const placed = JSON.parse(fs.readFileSync(placedFile, 'utf8')) as Placed;
     const dest = paths.thread(this.cfg.home, row.threadId);
+    const atMostAsk = Boolean(this.movedInAtMostAsk?.());
+    // The record as placeMove leaves it is clean already, but one placed by
+    // a runner from before (and adopted after it updated) may not be: made
+    // clean before it joins the live threads, and again wherever a crash
+    // left it (the live folder, or loaded at start).
+    const clean = (recFile: string) => {
+      try {
+        const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
+        if (sanitizeMoved(rec, atMostAsk, placed.fromName, placed.leftBehind)) fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
+      } catch {
+        // No record to read: adopt says the thread didn't load.
+      }
+    };
     if (!fs.existsSync(dest)) {
+      clean(path.join(stage, 'thread', 'thread.json'));
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.renameSync(path.join(stage, 'thread'), dest);
-    }
-    // The record as placeMove leaves it has none of that, but one placed
-    // by a runner from before (and adopted after it updated) still might:
-    // dropped here too, before anything starts.
-    const recFile = path.join(dest, 'thread.json');
-    try {
-      const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
-      const dropped = dropMovedPowers(rec);
-      // Placed by a runner from before the cap, adopted after it updated.
-      const was = this.movedInAtMostAsk?.() ? capMovedMode(rec) : undefined;
-      if (was) placed.leftBehind.push(cappedNote(was, placed.fromName));
-      if (dropped || was) fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
-    } catch {
-      // No record to read: adopt says the thread didn't load.
-    }
+    } else clean(path.join(dest, 'thread.json'));
     this.adopt(row.threadId);
     const st = this.threads.get(row.threadId);
     if (!st) throw new Error("The moved thread didn't load.");
+    if (sanitizeMoved(st.rec as unknown as Record<string, any>, atMostAsk, placed.fromName, placed.leftBehind)) this.store.save(st.rec);
     const lines = [`Moved from ${placed.fromName} to ${this.moveRunnerName(row.to)}, in ${placed.cwd}.`, ...placed.leftBehind];
     this.emit(st, { type: 'system.note', text: lines.join(' ') });
     this.markDirty(st);
     fs.rmSync(stage, { recursive: true, force: true });
     if (placed.worktree && placed.patchFile && placed.patchName) {
       const patch = await findWorktreePatch(placed.worktree.mainCheckout, this.panelsRoot, this.patchCache, undefined, this.patchTrust).catch(() => undefined);
-      if (patch) await this.setUpWorktree(st, { worktree: placed.worktree, patchFile: placed.patchFile }, patch);
+      const changed = patch?.setup ? await setupChangedByMove(placed.worktree, placed.patchFile) : undefined;
+      if (changed) this.emit(st, { type: 'system.note', text: `Didn't run the worktree's setup (${patch!.setup}): ${changed}. Look at it, then run it yourself if it's right.` });
+      else if (patch) await this.setUpWorktree(st, { worktree: placed.worktree, patchFile: placed.patchFile }, patch);
     }
     this.log.info('took a moved thread in', { threadId: row.threadId, from: row.from });
     // Through the same filter again: a placed.json from before it had one.

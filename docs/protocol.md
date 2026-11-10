@@ -5373,7 +5373,15 @@ again and carries on from the state.
   runner arrives with at most Ask: Full or Auto becomes Ask, and so does
   the mode Plan first would go back to, with a line in its note saying
   what it had (Mike, 10 Nov 2026: the mode is that runner's word, and the
-  main Mac's sidebar never showed it). A preview's description in the backend has no title or
+  main Mac's sidebar never showed it); a thread in Plan first there goes
+  back to Ask when its plan is approved. Any runner turns a mode it
+  doesn't know into Ask. All of this is applied to the record before it
+  joins the live threads, and again to one a crash left there or loaded.
+  A moved worktree's setup doesn't run by itself when the moved git work
+  changed the patch's copy or any file its setup reaches (from the commit
+  T made the worktree from): Threadbear's own checkout is always trusted,
+  so nothing else would stop the old runner's script running on T. The
+  thread's note says so, and the setup can be run by hand after a look. A preview's description in the backend has no title or
   session either (an older main Mac sends them).
   Queued messages are sent. T's mirror sends the thread's whole history
   again (a thread new to it), which overwrites the same seqs.
