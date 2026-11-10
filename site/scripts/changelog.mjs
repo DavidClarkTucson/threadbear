@@ -6,8 +6,8 @@
 // It lists what's been published, not what's on this Mac: commits land on the local main first
 // and reach GitHub later (the release publisher pushes them), so the build reads origin/main,
 // which only ever holds what's on GitHub, and every sha link already works. The site's only
-// deployed by hand, so site.js tops the page up from GitHub's public API with anything newer
-// than the build (data-since).
+// deployed by hand, so site.js tops the page up from GitHub's public API with what's on main
+// that the build's commit (data-built) hasn't got.
 import { execFileSync } from "node:child_process";
 
 /** Days are Mike's, in Perth, the same as the home page's first day. */
@@ -65,6 +65,11 @@ export function publishedRef(root) {
   }
 }
 
+/** The full sha `ref` points at: what site.js asks GitHub to compare main with. */
+export function refSha(root, ref) {
+  return execFileSync("git", ["-C", root, "rev-parse", `${ref}^{commit}`], { encoding: "utf8" }).trim();
+}
+
 /** Commits gathered under their Perth day, newest day first, in the order given within a day. */
 export function byDay(commits) {
   const days = new Map();
@@ -96,7 +101,7 @@ function row(c, githubUrl) {
 }
 
 /** The page's content, for writePage. */
-export function changelogPage({ commits, githubUrl, repo }) {
+export function changelogPage({ commits, built, githubUrl, repo }) {
   const days = byDay(commits);
   const sections = days.map(({ day, commits: list }) => `        <section class="cl-day" id="${day}" aria-labelledby="d-${day}">
           <h2 id="d-${day}"><a href="#${day}"><time datetime="${day}"><span class="cl-weekday">${longDay(day).weekday} </span>${longDay(day).date}</time></a><span class="cl-count">${plural(list.length)}</span></h2>
@@ -104,8 +109,7 @@ export function changelogPage({ commits, githubUrl, repo }) {
 ${list.map((c) => row(c, githubUrl)).join("\n")}
           </ul>
         </section>`);
-  const newest = commits[0];
-  return `    <article class="legal changelog" data-repo="${repo}" data-since="${newest?.date ?? ""}" data-commit-url="${githubUrl}/commit/">
+  return `    <article class="legal changelog" data-repo="${repo}" data-built="${built}" data-commit-url="${githubUrl}/commit/">
       <h1>Changelog</h1>
       <p class="lede">Everything that's gone into Threadbear, newest first. Each line is a commit on <a href="${githubUrl}/commits/main">main</a>, and forks get them as a daily release.</p>
       <div class="cl-days">

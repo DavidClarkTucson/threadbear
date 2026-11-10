@@ -243,48 +243,60 @@ for (const card of document.querySelectorAll(".video-card[data-video]")) {
 }
 
 // The changelog (/changelog): the page is built from git when the site's deployed, which is by
-// hand, so here it asks GitHub's public API for anything that's landed on main since (data-since)
-// and adds it in the same markup as scripts/changelog.mjs. Unauthenticated, so 60 asks an hour
-// per visitor; one a page view, and if it fails the page is just as it was built.
-const changelog = document.querySelector(".changelog[data-since]");
-if (changelog?.dataset.since) void topUpChangelog(changelog);
+// hand, so here it asks GitHub what's on main that the build's commit (data-built) hasn't got,
+// and adds it in the same markup as scripts/changelog.mjs. Compare, not a date cutoff: a merge
+// can bring in commits dated before the build, and only "reachable from main but not from the
+// build" catches those. Unauthenticated, so 60 asks an hour per visitor; if it fails the page is
+// just as it was built.
+const changelog = document.querySelector(".changelog[data-built]");
+if (changelog?.dataset.built) void topUpChangelog(changelog);
 
 async function topUpChangelog(page) {
-  const { repo, since, commitUrl } = page.dataset;
-  // A hundred a page, and main can get a couple of hundred a day, so it follows the pages, up to
-  // ten (a thousand commits, over a week stale). Nothing's added unless every page came back, so
-  // the page never shows newer days with a hole between them and the build's.
+  const { repo, built, commitUrl } = page.dataset;
+  // Compare answers oldest first, 250 a page, so whatever pages come back join straight on to
+  // the build's commits with no hole. It stops after four (a thousand commits, most of a week
+  // stale) and says there's more on GitHub, rather than showing nothing.
   const commits = [];
-  let url = `https://api.github.com/repos/${repo}/commits?sha=main&per_page=100&since=${encodeURIComponent(since)}`;
+  let url = `https://api.github.com/repos/${repo}/compare/${encodeURIComponent(built)}...main?per_page=250`;
   try {
-    for (let page = 0; url && page < 10; page++) {
+    for (let n = 0; url && n < 4; n++) {
       const response = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
-      if (!response.ok) return;
-      const batch = await response.json();
-      if (!Array.isArray(batch)) return;
+      if (!response.ok) break;
+      const batch = (await response.json())?.commits;
+      if (!Array.isArray(batch)) break;
       commits.push(...batch);
       url = /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1];
     }
   } catch {
-    return;
+    // Keep whatever pages did come back: they're the oldest, so still no hole.
   }
-  if (url) return;
   const shown = new Set([...page.querySelectorAll(".cl-sha")].map((a) => a.getAttribute("href").split("/").pop()));
   const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Perth", year: "numeric", month: "2-digit", day: "2-digit" });
   const days = page.querySelector(".cl-days");
-  // GitHub answers newest first; going oldest first and prepending keeps that order on the page.
-  for (const c of commits.slice().reverse()) {
+  let added = 0;
+  for (const c of commits) {
     const sha = typeof c?.sha === "string" && /^[0-9a-f]{40}$/.test(c.sha) ? c.sha : "";
     const date = c?.commit?.committer?.date;
     const subject = typeof c?.commit?.message === "string" ? c.commit.message.split("\n")[0].trim() : "";
     if (!sha || shown.has(sha) || !date || !subject || (Array.isArray(c.parents) && c.parents.length > 1)) continue;
     shown.add(sha);
+    added++;
     const day = dayOf.format(new Date(date));
     let section = document.getElementById(day);
-    if (!section) section = days.insertBefore(daySection(day), days.firstElementChild);
+    // Days stay newest first: a merged-in commit can be dated before days already on the page.
+    if (!section) section = days.insertBefore(daySection(day), [...days.querySelectorAll(":scope > .cl-day")].find((s) => s.id < day) ?? null);
     section.querySelector("ul").prepend(changeRow(sha, subject, commitUrl));
     const count = section.querySelectorAll("li").length;
     section.querySelector(".cl-count").textContent = `${count.toLocaleString("en-AU")} change${count === 1 ? "" : "s"}`;
+  }
+  if (url && added) {
+    const more = document.createElement("p");
+    more.className = "cl-more";
+    const link = document.createElement("a");
+    link.href = `https://github.com/${repo}/commits/main`;
+    link.textContent = "on GitHub";
+    more.append("There are newer changes than these ", link, ".");
+    days.prepend(more);
   }
 }
 

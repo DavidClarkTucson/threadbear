@@ -22,7 +22,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_STORE_LIVE, APP_STORE_URL, GITHUB_PUBLIC, GITHUB_URL, LAUNCH_VIDEO_ID, SITE_URL } from "../site.mjs";
 import { markdown, readGuide, summary } from "./docs.mjs";
-import { changelogPage, publishedRef, readCommits } from "./changelog.mjs";
+import { changelogPage, publishedRef, readCommits, refSha } from "./changelog.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "src");
@@ -437,12 +437,13 @@ ${markdown(body, docSlugs)}
 });
 
 // The changelog (scripts/changelog.mjs): every published commit, grouped by day.
-const changelogCommits = readCommits(root, publishedRef(root));
+const changelogRef = publishedRef(root);
+const changelogCommits = readCommits(root, changelogRef);
 writePage("changelog", {
   title: "Changelog · Threadbear",
   description: "Everything that's gone into Threadbear, newest first, a commit a line.",
   path: "/changelog",
-}, changelogPage({ commits: changelogCommits, githubUrl: GITHUB_URL, repo: new URL(GITHUB_URL).pathname.slice(1) }));
+}, changelogPage({ commits: changelogCommits, built: refSha(root, changelogRef), githubUrl: GITHUB_URL, repo: new URL(GITHUB_URL).pathname.slice(1) }));
 
 // Every link and image that stays on the site has to land somewhere: a page, a file, and the
 // #anchor on it if there is one.

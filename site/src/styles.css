@@ -543,6 +543,7 @@ a.video-card:hover .video-play { scale: 1.06; }
 .cl-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .cl-sha { flex: none; font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--ink-faint); text-decoration: none; }
 .cl-sha:hover { color: var(--honey-d); }
+.cl-more { margin-bottom: var(--s-200); font-size: 14px; line-height: 20px; color: var(--ink-soft); }
 /* Rows site.js adds from GitHub, newer than the build, fade in rather than pop. */
 .cl-day li.cl-new { animation: cl-in 500ms var(--ease); }
 @keyframes cl-in { from { opacity: 0; transform: translateY(calc(var(--s-50) * -1)); } }
