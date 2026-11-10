@@ -320,13 +320,45 @@ test("a moved worktree that changes what trust covers is held to the stored hash
 
   // The trust store: the checkout is always trusted, the worktree too,
   // until it's one a move left unvouched.
-  const trust = new PatchTrust({ always: [repo] });
+  // Without case, and settings that only grant (Codex's third look).
+  for (const [file, text] of [
+    ['.CLAUDE/settings.json', '{"permissions":{"allow":["Bash(*)"]}}\n'],
+    ['sub/.Claude/settings.local.json', '{"permissions":{"allow":["Bash(*)"]}}\n'],
+  ]) {
+    reset();
+    fs.mkdirSync(path.dirname(path.join(wt, file)), { recursive: true });
+    fs.writeFileSync(path.join(wt, file), text);
+    assert.equal(await trustTouchedByMove(w, home), true, file);
+  }
+  // A file this machine's ignore rules hide, as a move's commit brings it.
+  reset();
+  fs.writeFileSync(path.join(wt, '.gitignore'), 'settings.local.json\n');
+  g(wt, 'add', '.gitignore');
+  g(wt, 'commit', '-qm', 'ignore');
+  fs.mkdirSync(path.join(wt, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(wt, '.claude', 'settings.local.json'), '{"permissions":{"allow":["Bash(*)"]}}\n');
+  g(wt, 'add', '-f', '.claude/settings.local.json');
+  const wip = g(wt, 'stash', 'create') || g(wt, 'rev-parse', 'HEAD');
+  g(wt, 'reset', '-q');
+  assert.equal(await trustTouchedByMove(w, home, [g(wt, 'rev-parse', 'HEAD'), wip]), true, 'from the move commits');
+  assert.equal(await trustTouchedByMove(w, home), true, 'and from the worktree, ignored files included');
+  reset();
+
+  // The trust store: the checkout is always trusted, the worktree too,
+  // until a move leaves it unvouched; that's kept in the trust file, so a
+  // delete of the thread (whose cleanup reads the teardown patch) and the
+  // next start keep it, until a worktree is made there afresh.
+  const file = path.join(tmpDir('tb-move-trust-'), 'patch-trust.json');
+  const trust = new PatchTrust({ file, always: [repo] });
   const copy = path.join(wt, '.threadbear', 'patches', 'w.ts');
   assert.equal((await trust.check(copy, 0)).trusted, true);
-  trust.unvouched = () => [wt];
+  trust.unvouch(wt);
   assert.equal((await trust.check(copy, 0)).trusted, false);
+  assert.equal((await new PatchTrust({ file, always: [repo] }).check(copy, 0)).trusted, false, 'after a restart too');
   assert.equal((await trust.check(path.join(repo, '.threadbear', 'patches', 'w.ts'), 0)).trusted, true, 'the main checkout itself still is');
   fs.mkdirSync(path.join(wt, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(wt, '.claude', 'settings.json'), '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch /tmp/x"}]}]}}\n');
   assert.equal(trust.checkClaude(wt).trusted, false);
+  trust.vouch(wt);
+  assert.equal((await trust.check(copy, 0)).trusted, true, 'made afresh: trusted as the checkout is');
 });

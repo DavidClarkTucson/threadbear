@@ -733,9 +733,6 @@ export class Runner {
     this.screenshot = deps.screenshot ?? simctlScreenshot;
     this.panelsRoot = deps.panelsRoot;
     this.patchTrust = deps.patchTrust ?? new PatchTrust({ file: path.join(deps.config.home, 'patch-trust.json') });
-    // Moved-in worktrees whose patches and Claude settings are held to the
-    // stored hashes even in an always-trusted checkout (runner/moves.ts).
-    this.patchTrust.unvouched = () => [...this.threads.values()].flatMap((t) => (t.rec.worktree?.unvouched && !t.rec.worktree.removedAt ? [t.rec.worktree.path] : []));
     this.actionShell = deps.actionShell;
     this.actionTimeoutMs = deps.actionTimeoutMs;
     this.backgroundJobs = deps.backgroundJobs ?? true;

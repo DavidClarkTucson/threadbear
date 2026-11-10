@@ -36,10 +36,6 @@ export type WorktreeRecord = {
   // there is where the teardown is read from. Absent in records from before
   // 9 Nov, which look for it from the thread's folder.
   patchFile?: string;
-  // Came from another runner with changes to what patch or Claude settings
-  // trust covers (runner/moves.ts): an always-trusted checkout's trust
-  // doesn't reach it, so they're held to the stored hashes (PatchTrust).
-  unvouched?: true;
   // When the patch's teardown last ran (it runs as the cleanup starts). Each
   // archive clears it, so it runs once per archive: a delete or the next
   // runner picking the cleanup up again doesn't run it twice. The thread's

@@ -30,7 +30,7 @@ import { cleanUpWorktree, makeWorktree, mainCheckoutOf, realpath, type WorktreeR
 
 // What T placed for a move, so adopting after a restart and throwing it
 // away after a failure both know (<home>/moves/<moveId>/placed.json).
-type Placed = { cwd: string; worktree?: WorktreeRecord; patchFile?: string; patchName?: string; transcript: string[]; leftBehind: string[]; fromName: string; schedules?: unknown[] };
+type Placed = { cwd: string; worktree?: WorktreeRecord; patchFile?: string; patchName?: string; transcript: string[]; leftBehind: string[]; fromName: string; schedules?: unknown[]; gitTips?: string[] };
 
 // A moved thread's old folder is kept this long on S, in case.
 const KEPT_MS = 7 * 24 * 60 * 60_000;
@@ -180,16 +180,32 @@ export async function setupChangedByMove(w: WorktreeRecord, patchFile: string): 
 // trusted, and its worktrees with it, so without this the old runner's
 // patches would load and its Claude hooks run here (Codex's review, 10 Nov
 // 2026). True when it did, or when it can't tell.
-export async function trustTouchedByMove(w: WorktreeRecord, home: string): Promise<boolean> {
-  const diff = await untrustedGit(w.path, ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', w.base]);
-  const extra = await untrustedGit(w.path, ['ls-files', '-z', '--others', '--exclude-standard']);
-  if (!diff.ok || !extra.ok) return true;
-  const changed = [...diff.stdout.split('\0'), ...extra.stdout.split('\0')].filter(Boolean);
+// `tips`: the move's own commits (its head, and the commit of its
+// uncommitted work), whose trees say exactly what it brought, ignore rules
+// or not (a file this machine ignores is still written, untracked). Without
+// them (one placed by a runner from before), the worktree as it is, every
+// untracked file included.
+export async function trustTouchedByMove(w: WorktreeRecord, home: string, tips?: readonly string[]): Promise<boolean> {
+  const lists: { ok: boolean; stdout: string }[] = [];
+  if (tips?.length) {
+    for (const tip of tips) lists.push(await untrustedGit(w.path, ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', w.base, tip]));
+  } else {
+    lists.push(await untrustedGit(w.path, ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', w.base]));
+    lists.push(await untrustedGit(w.path, ['ls-files', '-z', '--others']));
+  }
+  if (lists.some((l) => !l.ok)) return true;
+  const changed = [...new Set(lists.flatMap((l) => l.stdout.split('\0')).filter(Boolean))];
   if (!changed.length) return false;
-  if (changed.some((f) => f.split('/').some((part) => part === '.threadbear' || part === '.claude') || path.posix.basename(f) === '.mcp.json')) return true;
+  // Without case: on the Mac .CLAUDE is .claude, and a name from a
+  // case-sensitive machine can be either.
+  if (changed.some((f) => f.toLowerCase().split('/').some((part) => part === '.threadbear' || part === '.claude') || path.posix.basename(f).toLowerCase() === '.mcp.json')) return true;
+  const touchedLower = new Set(changed.map((f) => path.join(realpath(w.path), ...f.split('/')).toLowerCase()));
   const root = realpath(w.path);
   const touched = new Set(changed.map((f) => path.join(root, ...f.split('/'))));
-  const hit = (file: string) => touched.has(realpath(path.isAbsolute(file) ? file : path.join(root, file)));
+  const hit = (file: string) => {
+    const real = realpath(path.isAbsolute(file) ? file : path.join(root, file));
+    return touched.has(real) || touchedLower.has(real.toLowerCase());
+  };
   // What the patches already there reach (a patch file itself changing
   // was caught above).
   const patches = await untrustedGit(w.path, ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ':(glob)**/.threadbear/patches/*']);
@@ -206,10 +222,15 @@ export async function trustTouchedByMove(w: WorktreeRecord, home: string): Promi
       return true;
     }
   }
-  const claude = claudeCommands(w.path, home);
-  if (claude && (claude.incomplete || [...claude.files, ...claude.named].some(hit))) return true;
+  // What runs, and what lets tools run unasked (a permissions allow).
+  for (const grants of [false, true]) {
+    const claude = claudeCommands(w.path, home, { grants });
+    if (claude && (claude.incomplete || [...claude.files, ...claude.named].some(hit))) return true;
+  }
   return false;
 }
+
+const UNVOUCHED_NOTE = "Its worktree's work changes this repo's patches or Claude Code settings, so they wait for you to trust them in Patches here.";
 
 export const movesPart = {
   // ThreadSummary.moving, and while it's set no turn starts: messages wait
@@ -464,9 +485,10 @@ export const movesPart = {
           if (!r.ok) throw new Error(r.reason);
           // Patches and Claude settings it changed are held to the stored
           // hashes here, even in an always-trusted checkout.
-          if (await trustTouchedByMove(made.worktree, os.homedir())) {
-            placed.worktree = { ...made.worktree, unvouched: true };
-            placed.leftBehind.push("Its worktree's work changes this repo's patches or Claude Code settings, so they wait for you to trust them in Patches here.");
+          placed.gitTips = [meta.head, ...(meta.wip ? [meta.wip] : [])];
+          if (await trustTouchedByMove(made.worktree, os.homedir(), placed.gitTips)) {
+            this.patchTrust.unvouch?.(made.worktree.path);
+            placed.leftBehind.push(UNVOUCHED_NOTE);
             save();
           }
         }
@@ -536,6 +558,13 @@ export const movesPart = {
         // No record to read: adopt says the thread didn't load.
       }
     };
+    // Worked out again here: one placed by a runner from before this
+    // never was (trustTouchedByMove), and it must be before anything loads
+    // the worktree's patches or starts its CLI.
+    if (placed.worktree && !placed.leftBehind.includes(UNVOUCHED_NOTE) && (await trustTouchedByMove(placed.worktree, os.homedir(), placed.gitTips))) {
+      this.patchTrust.unvouch?.(placed.worktree.path);
+      placed.leftBehind.push(UNVOUCHED_NOTE);
+    }
     if (!fs.existsSync(dest)) {
       clean(path.join(stage, 'thread', 'thread.json'));
       fs.mkdirSync(path.dirname(dest), { recursive: true });

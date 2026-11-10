@@ -120,7 +120,7 @@ export const HASHES_KEPT = 200;
 // whatever a pull had put there: Daybreak, 5 Nov.) Old hashes stay in the
 // list until HASHES_KEPT pushes them out, matching nothing. A `legacy`
 // list a runner from then wrote is ignored, and goes on the next save.
-type TrustFile = { version: 1 | 2 | 3; folders: Record<string, string[]> };
+type TrustFile = { version: 1 | 2 | 3; folders: Record<string, string[]>; unvouched?: string[] };
 
 // In front of every patch hash, the helper-less ones too, so no version's
 // hash can match another's, nor one patch's text another's whole hash.
@@ -141,8 +141,10 @@ export interface PatchGate {
 // What the runner keeps: the gate, and the ways in.
 export interface PatchTrustStore extends PatchGate {
   readonly existed: boolean;
-  // Worktrees an always-trusted checkout's trust doesn't reach (PatchTrust).
-  unvouched?: () => readonly string[];
+  // A worktree an always-trusted checkout's trust doesn't reach, and back
+  // (PatchTrust).
+  unvouch?(dir: string): void;
+  vouch?(dir: string): void;
   trust(file: string, hash: string): boolean;
   // As they are now, unasked: the first start's seeding.
   trustCurrent(files: string[]): string[];
@@ -236,20 +238,33 @@ export class PatchTrust implements PatchTrustStore {
   }
 
   // Worktrees `always` doesn't reach though their main checkout is in it:
-  // a thread's worktree that came from another runner with changes to
-  // what trust covers (runner/moves.ts), so the old runner's patches and
-  // Claude settings are held to the stored hashes like any folder's
-  // (Codex's review, 10 Nov 2026). The runner says which (main.ts).
-  unvouched?: () => readonly string[];
+  // one that came from another runner with changes to what trust covers
+  // (runner/moves.ts), so the old runner's patches and Claude settings are
+  // held to the stored hashes like any folder's (Codex's review, 10 Nov
+  // 2026). Kept in the trust file, not with the thread, so it holds
+  // through the thread's delete and cleanup (which reads the teardown
+  // patch) and in whatever's left of the folder, until a worktree is made
+  // there afresh (vouch).
+  private unvouchedDirs = new Set<string>();
+
+  unvouch(dir: string): void {
+    this.load();
+    this.unvouchedDirs.add(realpath(path.resolve(dir)));
+    this.save();
+  }
+
+  vouch(dir: string): void {
+    this.load();
+    if (this.unvouchedDirs.delete(realpath(path.resolve(dir)))) this.save();
+  }
 
   // `always` for this key, unless `actual` (the real file or folder) is in
   // a worktree it doesn't reach.
   private alwaysFor(key: string, actual: string): boolean {
     if (!this.always.some((d) => isInside(key, d))) return false;
-    const dirs = this.unvouched?.() ?? [];
-    if (!dirs.length) return true;
+    if (!this.unvouchedDirs.size) return true;
     const real = realpath(path.resolve(actual));
-    return !dirs.some((d) => isInside(real, realpath(path.resolve(d))));
+    return ![...this.unvouchedDirs].some((d) => isInside(real, d));
   }
 
   // Reads the file again when another runner (one finishing turns after a
@@ -277,6 +292,7 @@ export class PatchTrust implements PatchTrustStore {
       // folder had something trusted ("changed").
       const legacy = typeof raw.version !== 'number' || raw.version < 3;
       this.folders.clear();
+      this.unvouchedDirs = new Set((Array.isArray(raw.unvouched) ? raw.unvouched : []).filter((d): d is string => typeof d === 'string'));
       for (const [key, list] of Object.entries(raw.folders ?? {})) {
         if (!Array.isArray(list)) continue;
         const hashes = list.filter((h): h is string => typeof h === 'string');
@@ -524,7 +540,7 @@ export class PatchTrust implements PatchTrustStore {
   // next start doesn't seed again.
   save(): void {
     if (!this.file) return;
-    const out: TrustFile = { version: 3, folders: Object.fromEntries(this.folders) };
+    const out: TrustFile = { version: 3, folders: Object.fromEntries(this.folders), ...(this.unvouchedDirs.size ? { unvouched: [...this.unvouchedDirs] } : {}) };
     atomicWriteFileSync(this.file, JSON.stringify(out, null, 2) + '\n');
     this.loadedMtime = fs.statSync(this.file).mtimeMs;
   }
