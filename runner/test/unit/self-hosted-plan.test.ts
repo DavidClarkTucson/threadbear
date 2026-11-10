@@ -37,6 +37,11 @@ test('setup run again keeps the way it was set up, and only a flag moves it', ()
   assert.deepEqual(m.selfHostedPlan({ flags: { selfHosted: true }, adminKeyFile: true, syncUrl: LOCAL_URL }), { selfHosted: true, mode: 'local' });
   assert.deepEqual(m.selfHostedPlan({ flags: { tailnet: true }, adminKeyFile: true, syncUrl: LOCAL_URL }), { selfHosted: true, mode: 'tailnet', from: 'local' });
   assert.deepEqual(m.selfHostedPlan({ flags: { selfHosted: true, local: true }, adminKeyFile: true, syncUrl: TAILNET_URL }), { selfHosted: true, mode: 'local', from: 'tailnet' });
+  // An admin key with no sync.url: a first setup stopped partway. Without a
+  // flag it asks rather than guess the tailnet; with one it carries on.
+  assert.ok(m.selfHostedPlan({ adminKeyFile: true }).fail);
+  assert.ok(m.selfHostedPlan({ flags: { selfHosted: true }, adminKeyFile: true }).fail);
+  assert.deepEqual(m.selfHostedPlan({ flags: { local: true }, adminKeyFile: true }), { selfHosted: true, mode: 'local' });
   // A loopback sync.url without the admin key file isn't a self-hosted Mac
   // (a dev deployment, say): setup doesn't take it for one.
   assert.deepEqual(m.selfHostedPlan({ syncUrl: LOCAL_URL }), { selfHosted: false });

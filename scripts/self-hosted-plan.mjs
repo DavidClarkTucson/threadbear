@@ -55,6 +55,10 @@ export function selfHostedPlan({ flags = {}, joining = false, adminKeyFile = fal
   if (!asked && !adminKeyFile) return { selfHosted: false };
   // Only a Mac that's self-hosted already has a way it was reached.
   const had = adminKeyFile && syncUrl ? (isLoopbackUrl(syncUrl) ? 'local' : 'tailnet') : undefined;
+  // An admin key but no sync.url: a first setup stopped partway, and which
+  // way it was going isn't written anywhere. Guessing the tailnet could put
+  // it on a work one, so it asks (cross-lab review, 10 Nov).
+  if (adminKeyFile && !syncUrl && !local && !tailnet) return { fail: 'An earlier self-hosted setup stopped before it finished, so setup can\'t tell which way it was going. Run it again with --self-hosted --local (this Mac only) or --self-hosted --tailnet.' };
   const mode = local ? 'local' : tailnet ? 'tailnet' : (had ?? 'tailnet');
   return { selfHosted: true, mode, ...(had && had !== mode ? { from: had } : {}) };
 }

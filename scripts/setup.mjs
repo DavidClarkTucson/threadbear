@@ -611,14 +611,19 @@ function serve(ts, tailnetPort, localPort) {
   ok(`tailnet port ${tailnetPort} serves ${target}`);
 }
 
-// Moving a tailnet backend to local: take its own `tailscale serve` ports
-// off, so it's no longer on the tailnet. Only ports serving exactly this
-// backend; anything else there is someone else's. With Tailscale gone or
-// logged out there's nothing serving, so nothing to do.
+// A local backend: take its own `tailscale serve` ports off, so it's not on
+// any tailnet. Every local run checks, not just a move: a move to the tailnet
+// that failed partway can have left some on (cross-lab review, 10 Nov).
+// Anything else on those ports is someone else's and stays; a port with this
+// backend and something else both on it stops setup, as taking only part of
+// it off isn't something `tailscale serve` does by port. With Tailscale gone
+// or logged out there's nothing serving, so nothing to do.
 function unserve(ts, tailnetPort, localPort) {
   const target = `http://127.0.0.1:${localPort}`;
   const handlers = served(ts, tailnetPort);
-  if (!handlers.length || !handlers.every((h) => h.Proxy?.replace(/\/$/, '') === target)) return;
+  const ours = handlers.filter((h) => h.Proxy?.replace(/\/$/, '') === target);
+  if (!ours.length) return;
+  if (ours.length !== handlers.length) throw new Fail(`Tailscale serves this backend on tailnet port ${tailnetPort} alongside something else (tailscale serve status), so it's still on your tailnet. Take the backend's part off by hand, then run setup again.`);
   if (dry) return todo(`tailscale serve --https=${tailnetPort} off`);
   if (run(ts, ['serve', `--https=${tailnetPort}`, 'off']).status !== 0) throw new Fail(`Taking tailnet port ${tailnetPort} off failed. Run tailscale serve --https=${tailnetPort} off, then setup again.`);
   ok(`tailnet port ${tailnetPort} taken off the tailnet`);
@@ -674,7 +679,7 @@ async function selfHostedBackend() {
   ensureContainer(BACKEND_CONTAINER, BACKEND_IMAGE, b.env, b.runArgs, b.cmd);
   ensureContainer(DASHBOARD_CONTAINER, DASHBOARD_IMAGE, { NEXT_PUBLIC_DEPLOYMENT_URL: url }, ['-p', `127.0.0.1:${PORTS.dashboard[1]}:6791`]);
   if (tailnet) for (const [tailnetPort, localPort] of Object.values(PORTS)) serve(tailnet.ts, tailnetPort, localPort);
-  else if (plan.from === 'tailnet') {
+  else {
     const ts = tailscaleCli();
     if (ts) for (const [tailnetPort, localPort] of Object.values(PORTS)) unserve(ts, tailnetPort, localPort);
   }
@@ -740,7 +745,11 @@ async function runnerJson(url, site) {
 function backend() {
   say('7. Backend and website');
   if (dry) return todo('node runner/scripts/deploy-backend.mjs (deploys convex/ and web/ if they changed)');
-  runOrFail('Deploying the backend', process.execPath, [path.join(repo, 'runner', 'scripts', 'deploy-backend.mjs'), '--home', home, '--repo', repo]);
+  // A self-hosted move changes the address built into the website. A deploy
+  // from before that address was recorded can't see the change, so a move
+  // always deploys again (cross-lab review, 10 Nov).
+  const force = plan?.from ? ['--force'] : [];
+  runOrFail('Deploying the backend', process.execPath, [path.join(repo, 'runner', 'scripts', 'deploy-backend.mjs'), '--home', home, '--repo', repo, ...force]);
 }
 
 function install() {
