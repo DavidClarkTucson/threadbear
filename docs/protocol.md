@@ -5369,7 +5369,11 @@ again and carries on from the state.
   off), folder, login, mode or runner. The thread's `allowRules` ("Always
   allow" answers), its reply buttons and an open card's commands are
   dropped too (as it's placed, and again as it's adopted): asked or made
-  again on T. A preview's description in the backend has no title or
+  again on T. On the main Mac (the owner key), a thread from another
+  runner arrives with at most Ask: Full or Auto becomes Ask, and so does
+  the mode Plan first would go back to, with a line in its note saying
+  what it had (Mike, 10 Nov 2026: the mode is that runner's word, and the
+  main Mac's sidebar never showed it). A preview's description in the backend has no title or
   session either (an older main Mac sends them).
   Queued messages are sent. T's mirror sends the thread's whole history
   again (a thread new to it), which overwrites the same seqs.

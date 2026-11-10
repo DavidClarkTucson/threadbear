@@ -671,6 +671,9 @@ export class Runner {
   threads = new Map<string, ThreadState>();
   // Other runners' names by id, for what a move says (main.ts sets it).
   runnerNames?: (runnerId: string) => string | undefined;
+  // True on the main Mac (the owner key): a thread moved here from another
+  // runner arrives with at most Ask (runner/moves.ts capMovedMode).
+  movedInAtMostAsk?: () => boolean;
   listeners = new Set<(n: Notification) => void>();
   dirty = new Set<string>();
   flushScheduled = false;

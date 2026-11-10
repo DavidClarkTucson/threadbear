@@ -799,6 +799,8 @@ async function main(): Promise<void> {
       .then((rs) => (runnerNames = new Map(rs.map((r) => [r.id, r.name]))))
       .catch(() => undefined);
   runner.runnerNames = (id) => runnerNames.get(id);
+  // The main Mac takes moved threads in at most Ask (runner/moves.ts).
+  runner.movedInAtMostAsk = () => Boolean(sync.ownerKey());
   const moves = (movesRef = new Moves({
     self: () => syncRunnerId,
     on: () => experimentOn(cfg.home, 'moveToRunner'),

@@ -69,6 +69,32 @@ function dropMovedPowers(rec: Record<string, any>): boolean {
   return changed;
 }
 
+// On the main Mac, a thread from another runner arrives with at most Ask
+// (Mike, 10 Nov 2026): its mode is that runner's word, an extra Mac may be
+// compromised, and the main Mac's sidebar never showed what mode the
+// thread had there, so a thread that looked careful could arrive running
+// anything. Full and Auto become Ask (Plan first ranks with Ask and
+// stays), and so does the mode Plan first would go back to. Says what it
+// was, for the thread's note, or undefined when nothing changed.
+const ABOVE_ASK = new Set(['full', 'auto']);
+function capMovedMode(rec: Record<string, any>): string | undefined {
+  let was: string | undefined;
+  if (ABOVE_ASK.has(rec.permissionMode)) {
+    was = rec.permissionMode;
+    rec.permissionMode = 'ask';
+  }
+  if (ABOVE_ASK.has(rec.modeBeforePlan)) {
+    was ??= rec.modeBeforePlan;
+    rec.modeBeforePlan = 'ask';
+  }
+  return was;
+}
+
+const MODE_WORDS: Record<string, string> = { full: 'Full access', auto: 'Auto' };
+function cappedNote(was: string, from: string): string {
+  return `It had ${MODE_WORDS[was] ?? was} on ${from}, so it asks before tools run here: give it more access again if you want.`;
+}
+
 export const movesPart = {
   // ThreadSummary.moving, and while it's set no turn starts: messages wait
   // in the queue, which moves with the thread. Cleared, the queue goes on.
@@ -346,8 +372,13 @@ export const movesPart = {
         delete rec.model;
         delete rec.effort;
       }
-      // Nothing that runs or approves anything comes (dropMovedPowers).
+      // Nothing that runs or approves anything comes (dropMovedPowers),
+      // and on the main Mac no more than Ask (capMovedMode).
       dropMovedPowers(rec);
+      if (this.movedInAtMostAsk?.()) {
+        const was = capMovedMode(rec);
+        if (was) placed.leftBehind.push(cappedNote(was, placed.fromName));
+      }
       rec.cwd = placed.cwd;
       rec.accountId = account.id;
       delete rec.poolId;
@@ -383,7 +414,11 @@ export const movesPart = {
     const recFile = path.join(dest, 'thread.json');
     try {
       const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
-      if (dropMovedPowers(rec)) fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
+      const dropped = dropMovedPowers(rec);
+      // Placed by a runner from before the cap, adopted after it updated.
+      const was = this.movedInAtMostAsk?.() ? capMovedMode(rec) : undefined;
+      if (was) placed.leftBehind.push(cappedNote(was, placed.fromName));
+      if (dropped || was) fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
     } catch {
       // No record to read: adopt says the thread didn't load.
     }

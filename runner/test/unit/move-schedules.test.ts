@@ -133,3 +133,53 @@ test('a record placed by a runner from before the filter loses its Always allow 
   assert.equal((await t.runner.adoptMoved(r)).adopted, true);
   assert.equal(t.runner.threads.get(id)!.rec.allowRules, undefined);
 });
+
+// Mike, 10 Nov 2026: a thread moved to the main Mac from another runner
+// arrives with at most Ask, as its mode is the other runner's word.
+for (const mode of ['full', 'auto'] as const) {
+  test(`the main Mac takes ${mode === 'auto' ? 'an' : 'a'} ${mode} thread from another runner in Ask, and says so; another runner keeps its mode`, async () => {
+    for (const main of [true, false]) {
+      const s = machine([{ id: 'claude-main', provider: 'claude', title: 'S', configDir: tmpDir() }]);
+      const t = machine([{ id: 'claude-1', provider: 'claude', title: 'T', configDir: tmpDir() }]);
+      t.runner.movedInAtMostAsk = () => main;
+      const id = s.runner.create({ text: 'x', accountId: 'claude-main', cwd: tmpDir('tb-move-work-'), permissionMode: mode }).thread.id;
+      s.adapter.last.init();
+      s.adapter.last.result('completed');
+      await tick();
+      const r: MoveRow = { moveId: main ? 'aa11bb22cc33' : 'dd44ee55ff66', threadId: id, from: 'S1', to: 'T1', state: 'unpacking', createdAt: 1, updatedAt: 1, info: (await s.runner.describeForMove(id, 0))! };
+      const plan = await t.runner.planMove(r);
+      if ('problem' in plan) assert.fail(plan.problem);
+      r.plan = plan;
+      await t.runner.placeMove(r, (await s.runner.packForMove(id, r)).entries);
+      await t.runner.adoptMoved(r);
+      const rec = t.runner.threads.get(id)!.rec;
+      assert.equal(rec.permissionMode, main ? 'ask' : mode);
+      const notes = t.store.log(id).read(1, t.store.log(id).lastSeq).filter((e: any) => e.type === 'system.note').map((e: any) => e.text).join(' ');
+      if (main) assert.match(notes, new RegExp(`It had ${mode === 'full' ? 'Full access' : 'Auto'} on S1, so it asks before tools run here`));
+      else assert.doesNotMatch(notes, /asks before tools run here/);
+    }
+  });
+}
+
+test("the main Mac caps the mode Plan first goes back to, and a record placed before the cap as it's adopted", async () => {
+  const s = machine([{ id: 'claude-main', provider: 'claude', title: 'S', configDir: tmpDir() }]);
+  const t = machine([{ id: 'claude-1', provider: 'claude', title: 'T', configDir: tmpDir() }]);
+  const id = s.runner.create({ text: 'x', accountId: 'claude-main', cwd: tmpDir('tb-move-work-') }).thread.id;
+  s.adapter.last.init();
+  s.adapter.last.result('completed');
+  await tick();
+  const r: MoveRow = { moveId: 'ab12ab12ab12', threadId: id, from: 'S1', to: 'T1', state: 'unpacking', createdAt: 1, updatedAt: 1, info: (await s.runner.describeForMove(id, 0))! };
+  const plan = await t.runner.planMove(r);
+  if ('problem' in plan) assert.fail(plan.problem);
+  r.plan = plan;
+  // Placed by a runner from before the cap...
+  await t.runner.placeMove(r, (await s.runner.packForMove(id, r)).entries);
+  const recFile = path.join(t.home, 'moves', r.moveId, 'thread', 'thread.json');
+  fs.writeFileSync(recFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(recFile, 'utf8')), permissionMode: 'plan', modeBeforePlan: 'full' }));
+  // ...and adopted after it updated.
+  t.runner.movedInAtMostAsk = () => true;
+  await t.runner.adoptMoved(r);
+  const rec = t.runner.threads.get(id)!.rec;
+  assert.equal(rec.permissionMode, 'plan');
+  assert.equal(rec.modeBeforePlan, 'ask');
+});
