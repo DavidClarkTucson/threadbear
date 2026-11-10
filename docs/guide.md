@@ -1500,6 +1500,12 @@ left it alone for a while with nothing typed. The window stays where it is
 while it does: the new version opens the same thread underneath and takes
 over, so you shouldn't see it go.
 
+Whatever's typed in a message box and not sent is kept through a quit or a
+restart. A message you send while the runner is restarting waits under its
+bubble and goes once the new one is up. If one can't be sent, its words go
+back in that thread's box and a note above the thread says which thread,
+until you dismiss it.
+
 A runner update lets a job a thread left running in the background finish, for
 up to about 4 hours after the thread's last turn. If one goes on longer it's
 stopped, and the thread gets told and wakes by itself to check on it, so you'll

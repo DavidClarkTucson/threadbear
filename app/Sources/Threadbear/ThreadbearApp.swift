@@ -266,6 +266,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { Tour.shared.startIfNew() }
                 }
             }
+            // What was in each box when the app last quit (DraftStore).
+            // A handover's incoming app reads them only once the outgoing
+            // one has saved its own at "go" (Handover.takeDrafts).
+            if !perf && !screenshots {
+                let store = DraftStore(url: DraftStore.url(dataDir: app.dataDir))
+                if Handover.incomingFrom != nil {
+                    Handover.shared.pendingDraftStore = store
+                } else {
+                    store.restore(into: app)
+                    app.draftStore = store
+                }
+            }
             app.start()
             MouseNavigation.install(app: app)
             SwipeNavigation.shared.install(app: app)
@@ -297,6 +309,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             ActivityRecorder.shared.quit()
+            // A handover's outgoing app leaves the file to the incoming one,
+            // which has its drafts from "go" and may have had more typed.
+            let app = AppModel.shared
+            if !Handover.shared.isOutgoing { app.draftStore?.save(app, leaving: true) }
             AppUpdater.shared.applyAtQuit()
         }
     }

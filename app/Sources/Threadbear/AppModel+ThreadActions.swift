@@ -336,6 +336,20 @@ extension AppModel {
         session?.addPending(id: pendingId, text: text, images: images, answers: answers, summarySeq: threads[threadId]?.lastSeq ?? 0)
         // Before the Task, so a drop that comes first can't take it away.
         if client == nil { session?.holdForResend(pendingId) }
+        // Only a user.message after this can be it (PendingMessage.afterSeq).
+        let afterSeq = session?.pending.first { $0.id == pendingId }?.afterSeq ?? threads[threadId]?.lastSeq ?? 0
+        // Idle when sent, nothing on the runner could queue it: it either
+        // started a turn (its user.message is in the thread) or never got
+        // there. A busy thread's runner may hold it in a queue no one can
+        // see, so that one isn't sent twice on a guess.
+        // And it's the only one on its way here: with another just sent,
+        // the status may be stale (the runner queues this one behind it),
+        // two of the same words can't be told apart, and two cut off
+        // together could go again in the wrong order (Codex's review).
+        let wasIdle = threads[threadId]?.status.isBusy == false && (session?.pending.count ?? 0) == 1
+        // The connection drops as the old runner goes, and that can reach
+        // the session before this send hears of it.
+        if client != nil, wasIdle, !isRemote(threadId), restartUnderWay { session?.keepThroughDrop(pendingId) }
         Task {
             let send: @MainActor (RPCClient) async throws -> String? = { client in
                 session?.sendingAgain(pendingId)
@@ -343,12 +357,33 @@ extension AppModel {
             }
             do {
                 if let client {
-                    // Sent in the moment a restarting runner lets go of its
-                    // idle threads, before the new one is up, the old one
-                    // turns it away (Mike saw "Thread not found", 5 Nov). It
-                    // goes again, still showing as on its way through the
-                    // dropped connection, once the new runner is connected.
-                    _ = try await inRestartOrder(threadId, sentOn: client, waiting: { session?.holdForResend(pendingId) }, send)
+                    do {
+                        // Sent in the moment a restarting runner lets go of its
+                        // idle threads, before the new one is up, the old one
+                        // turns it away (Mike saw "Thread not found", 5 Nov). It
+                        // goes again, still showing as on its way through the
+                        // dropped connection, once the new runner is connected.
+                        _ = try await inRestartOrder(threadId, sentOn: client, waiting: { session?.holdForResend(pendingId) }, send)
+                    } catch RPCError.disconnected(_) where wasIdle && !isRemote(threadId) && restartUnderWay {
+                        // On its way as a handing-over runner closed its port,
+                        // so no answer came: a message sent at 02:36:54 on
+                        // 10 Nov went back in the box of a thread Mike had
+                        // left, and was gone with the next relaunch. It waits
+                        // for the new runner like one sent while it's down,
+                        // and goes unless the thread shows it arrived.
+                        session?.holdForResend(pendingId)
+                        _ = try await behindRestart { () async throws -> String? in
+                            guard let next = await self.clientAfterRestart(sentOn: client, wait: Self.restartHoldWait) else { throw RPCError.disconnected(nil) }
+                            let since = try await next.events(threadId: threadId, afterSeq: afterSeq)
+                            let mine = PendingMessage(id: pendingId, text: text, images: images, afterSeq: afterSeq)
+                            if since.events.contains(where: mine.isLanded(by:)) {
+                                AppLog.write("rpc", "a send the restart cut off had arrived: \(threadId)")
+                                return nil
+                            }
+                            AppLog.write("rpc", "sending again after the restart cut it off: \(threadId)")
+                            return try await send(next)
+                        }
+                    }
                 } else {
                     _ = try await whenRestarted(threadId, send)
                 }
@@ -367,8 +402,24 @@ extension AppModel {
             } catch {
                 session?.removePending(pendingId)
                 failed()
-                show(error)
+                showSendFailed(threadId, error)
             }
+        }
+    }
+
+    /// A send that didn't go, its words back in the thread's box. A lost
+    /// connection's banner goes once the app reconnects, seconds later, and
+    /// Mike may have moved on to another thread by then (10 Nov), so this
+    /// one names the thread and stays until he dismisses it.
+    func showSendFailed(_ threadId: String, _ error: Error) {
+        switch error as? RPCError {
+        case .disconnected?, .timeout?, .connectFailed?:
+            AppLog.write("rpc", "send failed: \(threadId): \(error.localizedDescription)")
+            let title = threads[threadId].map { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+            let name = title.isEmpty ? "this thread" : "“\(title)”"
+            showError("\(error.localizedDescription) Your message to \(name) wasn't sent. It's back in its box.", in: threadId, doing: nil)
+        default:
+            show(error)
         }
     }
 

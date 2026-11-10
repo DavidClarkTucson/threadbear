@@ -284,7 +284,12 @@ final class AppModel {
     /// id, or "new"): with threads open in several panels, only that one's.
     var focusRequests: [String: Int] = [:]
     var now = Date()
-    var drafts: [String: Draft] = [:]
+    var drafts: [String: Draft] = [:] {
+        // Kept on disk once the app has asked (DraftStore), so a quit or a
+        // relaunch can't take a message that never went (10 Nov).
+        didSet { draftStore?.changed(self) }
+    }
+    @ObservationIgnored var draftStore: DraftStore?
     /// Messages being edited, by thread id: the seq of the message the
     /// composer's draft will replace (docs/protocol.md, "Editing a
     /// message"), and whatever was in the box before, to put back after.
