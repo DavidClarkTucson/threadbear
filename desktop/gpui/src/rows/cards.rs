@@ -99,7 +99,7 @@ pub(crate) fn approval_payload(ix: usize, n: usize, request: &ApprovalRequest, r
     let label = style::label_text(cx);
     let input = &request.input;
     if let Some(command) = input.get("command").and_then(Value::as_str) {
-        let mut col = v_flex().child(mono(("cmd", ix * 100 + n), ApprovalText::shown(command), label, cx));
+        let mut col = v_flex().child(mono(("cmd", ix * 100 + n), ApprovalText::shown_exactly(command), label, cx));
         let extra = ApprovalText::shown_fields(&ToolPresentation::fields(input, true).into_iter().filter(|f| !matches!(f.key.as_str(), "command" | "description" | "reason")).collect::<Vec<_>>());
         if !extra.is_empty() {
             col = col.child(div().mt(px(4.)).child(work::fields_text(ix * 100 + n, &extra, cx)));
@@ -112,9 +112,10 @@ pub(crate) fn approval_payload(ix: usize, n: usize, request: &ApprovalRequest, r
             let call = ToolCall { item_id: request.approval_id.clone(), name: request.name.clone(), kind: if request.name == "Write" { ToolKind::Write } else { ToolKind::Edit }, title: request.title.clone(), input: input.clone() };
             if let Some(mut diff) = DiffBuilder::diff_for_tool(&call).filter(|d| !d.hunks.is_empty()) {
                 // What it writes, with any character that hides, breaks or
-                // reorders a line named, as for a command.
+                // reorders a line named, and tabs and spaces at a line's end
+                // shown, as for a command.
                 for hunk in &mut diff.hunks {
-                    hunk.lines = hunk.lines.iter().map(|l| ApprovalText::shown(l)).collect();
+                    hunk.lines = hunk.lines.iter().map(|l| ApprovalText::shown_exactly(l)).collect();
                 }
                 // Every line it writes, and every argument the diff doesn't
                 // draw: Allow allows all of it, so the card grows to fit, as

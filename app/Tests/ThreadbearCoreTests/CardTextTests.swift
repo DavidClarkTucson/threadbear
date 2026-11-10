@@ -68,6 +68,17 @@ final class CardTextTests: XCTestCase {
         XCTAssertEqual(ApprovalText.runnerReason(hidden), "Send\u{27E8}U+2028\u{27E9}it")
     }
 
+    /// Codex review of the 10 Nov fix: a tab drew as four spaces and spaces
+    /// at a line's end as nothing, so swapping them drew the same card.
+    func testApprovalTextShowsTabsAndTrailingSpaces() {
+        XCTAssertEqual(ApprovalText.shownExactly("    END"), "    END")
+        XCTAssertEqual(ApprovalText.shownExactly("\tEND"), "\u{21E5}   END")
+        XCTAssertEqual(ApprovalText.shownExactly("+END  \n+next"), "+END\u{B7}\u{B7}\n+next")
+        XCTAssertEqual(ApprovalText.shownExactly("a\u{2028}b"), "a\u{27E8}U+2028\u{27E9}b")
+        XCTAssertEqual(ApprovalText.fieldsBeyondDiff(.object(["file_path": .string("/etc/cron.d/x"), "content": .string("* * * * * root true\n")])).count, 0)
+        XCTAssertEqual(ApprovalText.fieldsBeyondDiff(.object(["file_path": .string("/etc/cron.d/x"), "content": .string("* * * * * root true")])).count, 1)
+    }
+
     func testAnswersReadInTheOrderTheQuestionsWereAsked() {
         let request = QuestionRequest(approvalId: "q1", questions: [
             Question(question: "Which colour?", options: [QuestionOption(label: "Blue")]),

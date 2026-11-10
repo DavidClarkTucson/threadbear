@@ -47,6 +47,20 @@ public enum ApprovalText {
         return title.isEmpty ? nil : shown(title)
     }
 
+    /// `shown`, with the whitespace a diff or a command can hide made
+    /// visible: a tab as `⇥` (it was drawn as four spaces, so swapping one
+    /// for the other drew nothing, and a `<<-` heredoc ends on one), and
+    /// spaces at a line's end as `·`. For what Allow runs or writes: a
+    /// command and an edit's lines (Codex review, 10 Nov 2026).
+    public static func shownExactly(_ text: String) -> String {
+        shown(text).split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let body = String(line)
+            var kept = body
+            while kept.hasSuffix(" ") { kept.removeLast() }
+            return kept.replacingOccurrences(of: "\t", with: "\u{21E5}   ") + String(repeating: "\u{B7}", count: body.count - kept.count)
+        }.joined(separator: "\n")
+    }
+
     /// What a file card's diff doesn't draw, which Allow allows too: every
     /// argument but the path and the text the diff shows (`replace_all`, a
     /// notebook cell's id and kind, an edit's own flags), named as for a
@@ -87,6 +101,10 @@ public enum ApprovalText {
             }
         }
         var out = [note("line break", input)].compactMap { $0 }
+        // A whole file that doesn't end with one (a cron entry needs it).
+        if let content = input["content"]?.stringValue, !content.isEmpty, !content.hasSuffix("\n") {
+            out.append(ToolPresentation.Field(key: "line break", value: "the file doesn't end with a line break"))
+        }
         if case .array(let edits)? = input["edits"] {
             out += edits.enumerated().compactMap { note("edit \($0.offset + 1) line break", $0.element) }
         }

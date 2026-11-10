@@ -135,8 +135,30 @@ impl ApprovalText {
             }
         }
         let mut out: Vec<Field> = note("line break".to_owned(), input).into_iter().collect();
+        // A whole file that doesn't end with one (a cron entry needs it).
+        if input.get("content").and_then(Value::as_str).is_some_and(|c| !c.is_empty() && !c.ends_with('\n')) {
+            out.push(Field { key: "line break".to_owned(), value: "the file doesn't end with a line break".to_owned() });
+        }
         if let Some(edits) = input.get("edits").and_then(Value::as_array) {
             out.extend(edits.iter().enumerate().filter_map(|(i, e)| note(format!("edit {} line break", i + 1), e)));
+        }
+        out
+    }
+
+    /// `shown`, with the whitespace a diff or a command can hide made
+    /// visible: a tab as `⇥` (it was drawn as four spaces, so swapping one
+    /// for the other drew nothing, and a `<<-` heredoc ends on one), and
+    /// spaces at a line's end as `·`. For what Allow runs or writes: a
+    /// command and an edit's lines (Codex review, 10 Nov 2026).
+    pub fn shown_exactly(text: &str) -> String {
+        let named = Self::shown(text);
+        let mut out = String::with_capacity(named.len() + 8);
+        for line in named.split_inclusive('\n') {
+            let (body, end) = line.strip_suffix('\n').map_or((line, ""), |b| (b, "\n"));
+            let kept = body.trim_end_matches(' ');
+            out.push_str(&kept.replace('\t', "\u{21E5}   "));
+            out.extend(std::iter::repeat('\u{B7}').take(body.len() - kept.len()));
+            out.push_str(end);
         }
         out
     }

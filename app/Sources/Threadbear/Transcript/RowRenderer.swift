@@ -1135,7 +1135,7 @@ enum RowRenderer {
             // are part of what Allow allows; a reason or description isn't.
             // Characters that hide, break or reorder text are named, not
             // drawn: the card shows what the shell will read (ApprovalText.shown).
-            let output = NSMutableAttributedString(attributedString: mono(ApprovalText.shown(command), .labelColor))
+            let output = NSMutableAttributedString(attributedString: mono(ApprovalText.shownExactly(command), .labelColor))
             let extra = ApprovalText.shown(ToolPresentation.fields(input, whole: true).filter { !["command", "description", "reason"].contains($0.key) })
             if !extra.isEmpty {
                 output.append(mono("\n", .labelColor))
@@ -1150,10 +1150,11 @@ enum RowRenderer {
                                 title: request.title, input: input)
             if var diff = DiffBuilder.diff(forTool: call), !diff.hunks.isEmpty {
                 // What it writes, with any character that hides, breaks or
-                // reorders a line named, as for a command.
+                // reorders a line named, and tabs and spaces at a line's end
+                // shown, as for a command.
                 diff.hunks = diff.hunks.map { hunk in
                     var hunk = hunk
-                    hunk.lines = hunk.lines.map(ApprovalText.shown)
+                    hunk.lines = hunk.lines.map(ApprovalText.shownExactly)
                     return hunk
                 }
                 // Every line it writes, and every argument the diff doesn't
