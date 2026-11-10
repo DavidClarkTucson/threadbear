@@ -3751,7 +3751,7 @@ export const TITLE_PROMPT = [
   'Message: hello there',
   'Title: Hello',
   '',
-  'A Jira ticket under the message: a few words of what the ticket is about, then what the message asks, without the ticket key.',
+  'A Jira ticket under the message: a few words of what the ticket is about, then always the words for what the message itself asks for (like tech design, code review, testing), without the ticket key.',
   '',
   'Message: MACG-3375 tech design',
   'Jira ticket MACG-3375: Force reclassification of URLs on demand',
