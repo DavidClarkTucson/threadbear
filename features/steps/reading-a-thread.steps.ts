@@ -111,8 +111,14 @@ Then('the transcript shows {int} rows of pictures', async function (this: Thread
   await this.until(`${count} picture rows`, (d) => d.transcript.rows.filter((r) => r.kind === 'images').length === count);
 });
 
+// The replies there before the stream, so the one it makes is told apart from
+// them: picking "the newest reply" raced the stream's first words, and on a
+// busy machine found an older reply, which never grows (10 Nov).
+const repliesBefore = new WeakMap<ThreadbearWorld, Set<string>>();
+
 When('a reply starts streaming in', async function (this: ThreadbearWorld) {
   const d = await this.app.dump();
+  repliesBefore.set(this, new Set(d.transcript.rows.filter((r) => r.kind === 'assistant').map((r) => r.id)));
   await this.app.do({ cmd: 'mock', method: 'stream', params: { threadId: d.selection?.id, hz: 40, seconds: 3 } });
 });
 
@@ -121,9 +127,9 @@ Then('the working line shows', async function (this: ThreadbearWorld) {
 });
 
 Then('the streaming reply grows', async function (this: ThreadbearWorld) {
-  // The newest reply: the thread has older ones that aren't changing.
-  const newest = (rows: Row[]) => [...rows].reverse().find((r) => r.kind === 'assistant' && r.text.length > 0);
-  const first = await this.until('a streaming reply', (d) => newest(d.transcript.rows));
+  const before = repliesBefore.get(this) ?? new Set<string>();
+  const streamed = (rows: Row[]) => rows.find((r) => r.kind === 'assistant' && r.text.length > 0 && !before.has(r.id));
+  const first = await this.until('a streaming reply', (d) => streamed(d.transcript.rows));
   await this.until('the reply getting longer', (d) => d.transcript.rows.some((r) => r.id === first.id && r.text.length > first.text.length));
 });
 
