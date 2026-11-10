@@ -3753,9 +3753,9 @@ export const TITLE_PROMPT = [
   '',
   'A Jira ticket under the message: a few words of what the ticket is about, then always the words for what the message itself asks for (like tech design, code review, testing), without the ticket key.',
   '',
-  'Message: MACG-3375 tech design',
-  'Jira ticket MACG-3375: Force reclassification of URLs on demand',
-  'Title: Force reclassifications tech design',
+  'Message: ABC-12 testing',
+  'Jira ticket ABC-12: Add a CSV export to the reports page',
+  'Title: CSV export for reports testing',
 ].join('\n');
 
 // A model's title, tidied: first line, no wrapping quotes or full stop,
