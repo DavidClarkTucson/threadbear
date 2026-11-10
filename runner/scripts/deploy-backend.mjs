@@ -38,7 +38,7 @@ const DEFAULT_HOME = path.join(os.homedir(), 'Library', 'Application Support', '
 // dependency's version, so they count for both.
 const FUNCTION_PATHS = ['convex', 'convex.json', 'package.json', 'package-lock.json'];
 const SITE_PATHS = ['web', 'package.json', 'package-lock.json'];
-const EXPORT_PATHS = ['convex', 'convex.json', 'web', 'package.json', 'package-lock.json'];
+const EXPORT_PATHS = ['convex', 'convex.json', 'web', 'package.json', 'package-lock.json', '.npmrc'];
 
 class Fail extends Error {}
 const say = (msg) => console.log(msg);
