@@ -5397,7 +5397,9 @@ again and carries on from the state.
   loads (for one placed by an older runner, from the worktree, ignored
   files included). A move whose uncommitted work brings anything under a
   `node_modules` folder fails: those files would be untracked on T, which
-  trust reads as installed packages and doesn't hash. A preview's description in the backend has no title or
+  trust reads as installed packages and doesn't hash (one an older runner
+  placed loses its untracked `node_modules` files at adopt, and setup
+  installs them again). A changed symlink unvouches the worktree too. A preview's description in the backend has no title or
   session either (an older main Mac sends them).
   Queued messages are sent. T's mirror sends the thread's whole history
   again (a thread new to it), which overwrites the same seqs.

