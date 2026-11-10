@@ -161,21 +161,23 @@ struct ThreadbearApp: App {
                     // ⌘1 to ⌘4 in the activity bar's order, as VS Code numbers
                     // its views. Hibernating and Archive are sections of the
                     // inbox now: these unfold them.
-                    Button("Show Inbox", systemImage: "tray") { app.sidebarMode = .inbox }
+                    // Each brings the Threads panel back if ⌘/ folded it
+                    // away, as the activity bar's icons do.
+                    Button("Show Inbox", systemImage: "tray") { app.threadsCollapsed = false; app.sidebarMode = .inbox }
                         .shortcut(.showInbox)
-                    Button("Show Scheduled", systemImage: "clock") { app.showSchedules() }
+                    Button("Show Scheduled", systemImage: "clock") { app.threadsCollapsed = false; app.showSchedules() }
                         .shortcut(.showScheduled)
                         .disabled(!app.schedulesSupported)
-                    Button("Show Projects", systemImage: "square.stack") { app.showProjects() }
+                    Button("Show Projects", systemImage: "square.stack") { app.threadsCollapsed = false; app.showProjects() }
                         .shortcut(.showProjects)
                         .disabled(!app.projectsSupported)
-                    Button("Show Librarian", systemImage: "books.vertical") { app.showLibrarian() }
+                    Button("Show Librarian", systemImage: "books.vertical") { app.threadsCollapsed = false; app.showLibrarian() }
                         .shortcut(.showLibrarian)
                         .disabled(!app.projectsSupported)
                     Divider()
-                    Button("Show Hibernating", systemImage: "moon.zzz") { app.showHibernating() }
+                    Button("Show Hibernating", systemImage: "moon.zzz") { app.threadsCollapsed = false; app.showHibernating() }
                         .shortcut(.showHibernating)
-                    Button("Show Archived", systemImage: "archivebox") { app.showArchive() }
+                    Button("Show Archived", systemImage: "archivebox") { app.threadsCollapsed = false; app.showArchive() }
                         .shortcut(.showArchived)
                 }
             }
