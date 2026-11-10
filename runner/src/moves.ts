@@ -17,6 +17,7 @@
 import type { PackEntry } from './move-pack.ts';
 import { archive, chunks, MAX_SEALED_BYTES, sealInfo, sha256, unarchive, biggest } from './move-pack.ts';
 import { sealBytes } from './secrets.ts';
+import { withoutCredentials } from './move-git.ts';
 
 export type MoveState = 'asking' | 'ready' | 'packing' | 'unpacking' | 'claimed' | 'done' | 'failed' | 'cancelled';
 
@@ -60,6 +61,87 @@ export function moveInfoFrom(raw: unknown): MoveInfo | undefined {
     if (v !== undefined) info[k] = v;
   }
   return info;
+}
+
+// The runner `asked` names for move_thread: its id, its whole name, or a
+// word in just one runner's name, or why none. A name is the runner's own
+// word (another Mac's heartbeat sets it, and can change it while a card
+// is up), so a word that's one runner's whole name and part of another's
+// is ambiguous rather than the whole-name one: "cloud" with "Hetzner
+// Cloud" and a runner that renamed itself "cloud" names neither. The move
+// then goes by the id this picks, never the name again (security review,
+// 10 Nov 2026).
+export function pickRunner(asked: string, all: readonly { id: string; name: string }[]): { id: string; name: string } | { problem: string } {
+  const want = asked.trim().toLowerCase();
+  const byId = all.find((r) => r.id === asked.trim());
+  if (byId) return byId;
+  const matches = want ? all.filter((r) => r.name.toLowerCase().includes(want)) : [];
+  const listed = all.map((r) => `${r.name} (${r.id})`).join(', ');
+  if (matches.length === 1) return matches[0]!;
+  if (!matches.length) return { problem: `No runner called ${asked}. There are: ${listed}.` };
+  return { problem: `${asked} could be ${matches.map((r) => `${r.name} (${r.id})`).join(' or ')}: name one by its id or its whole name, with no other runner's name containing it.` };
+}
+
+// The runner pickRunner chose, as the move goes: still there, under the
+// name the card showed, or it throws and nothing moves.
+export function stillRunner(runnerId: string, runnerName: string, all: readonly { id: string; name: string }[]): { id: string; name: string } {
+  const to = all.find((r) => r.id === runnerId);
+  if (!to) throw new Error(`The runner ${runnerName} (${runnerId}) isn't there any more, so the thread stays here.`);
+  if (to.name !== runnerName) throw new Error(`The runner ${runnerId} is called ${to.name} now, not ${runnerName} as it was when the move was asked for, so the thread stays here. Ask again if it's still the one.`);
+  return to;
+}
+
+// What T makes again of a moved thread's schedules (the bundle's
+// schedules.json): only when and what each sends, to the moved thread.
+// The bundle is the old runner's word, and that runner may be one of the
+// owner's extra Macs, so nothing that runs or approves anything comes
+// across: no shell check (Scheduler.create approves a check it's given
+// without a card), no folder, login, model or mode (a schedule that sends
+// to a thread runs on the thread's), no other runner. A check is set
+// again on the runner that runs it, with its own card (security review,
+// 10 Nov 2026). `dropped` counts the checks left off, for the thread's note.
+export type MovedSchedule = { text: string; title?: string; cron?: string; at?: string; timezone?: string; paused?: boolean; createdBy?: string };
+export function movedSchedules(raw: unknown, threadId: string): { schedules: MovedSchedule[]; dropped: number } {
+  const schedules: MovedSchedule[] = [];
+  let dropped = 0;
+  for (const item of Array.isArray(raw) ? raw.slice(0, 100) : []) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const o = item as Record<string, unknown>;
+    const str = (k: string, max: number) => (typeof o[k] === 'string' && (o[k] as string).trim() && (o[k] as string).length <= max ? (o[k] as string) : undefined);
+    if (o.check !== undefined || o.checkCard !== undefined) dropped++;
+    const text = str('text', 100_000);
+    const cron = str('cron', 200);
+    const at = str('at', 100);
+    if (!text || !cron === !at) continue;
+    const title = str('title', 200);
+    const timezone = str('timezone', 100);
+    schedules.push({ text, ...(title ? { title } : {}), ...(cron ? { cron } : { at: at! }), ...(timezone ? { timezone } : {}), ...(o.paused === true ? { paused: true } : {}), ...(o.createdBy === threadId ? { createdBy: threadId } : {}) });
+  }
+  return { schedules, dropped };
+}
+
+// What the main Mac sends the runner a preview asks (threads.movePreview,
+// a relay `moves.preview` call): only what planMove reads, and what a
+// runner from before this needs to read it (moveInfoFrom wants a title,
+// login and mode), scrubbed as sync scrubs. A relay command isn't scrubbed
+// on its way (the phone's words go as typed), so this is where (security
+// review, 10 Nov 2026).
+export function previewInfo(info: MoveInfo, scrub: <T>(v: T) => T): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    title: '',
+    cwd: info.cwd,
+    home: info.home,
+    provider: info.provider,
+    accountId: info.accountId,
+    permissionMode: info.permissionMode,
+    worktree: info.worktree,
+    schedules: 0,
+    ...(info.email ? { email: info.email } : {}),
+    ...(info.origin ? { origin: withoutCredentials(info.origin) } : {}),
+    ...(info.repoTop ? { repoTop: info.repoTop } : {}),
+    ...(info.subdir !== undefined ? { subdir: info.subdir } : {}),
+  };
+  return scrub(out);
 }
 
 // Where T will run it (moves:moveReady).

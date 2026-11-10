@@ -77,7 +77,7 @@ import { devicesMethods } from './devices.ts';
 import { flushSentry, reportException, reportLoggedError, reportLoggedWarning, startSentry } from './sentry.ts';
 import { ALWAYS_ASK_TOOLS, NEVER_ASK_TOOLS, RICH_BLOCKS_LINE, SERVER_NAME, buildThreadbearTools, threadbearMcpServer, type RemoteControl } from './threadbear-mcp.ts';
 import { CrossRunner } from './cross-runner.ts';
-import { FAILED_SHOWN_MS, Moves, moveInfoFrom, type ThreadMoving } from './moves.ts';
+import { FAILED_SHOWN_MS, Moves, moveInfoFrom, previewInfo, stillRunner, type ThreadMoving } from './moves.ts';
 import type { RemoteThreads } from './thread-index.ts';
 import { EFFORT_LEVELS, ErrorCode, RpcError, isPermissionMode, type EffortLevel, type PermissionMode } from './protocol.ts';
 
@@ -201,6 +201,7 @@ async function main(): Promise<void> {
     if (draining) return primaryLink ? (drainRemote ??= primaryRemote(primaryLink)) : undefined;
     const relay = relayRef;
     if (!relay || !sync.relaySource()) return undefined;
+    const everyRunner = () => [{ id: syncRunnerId, name: cfg.sync.name ?? defaultRunnerName() }, ...sync.remoteThreads().runners.map((r) => ({ id: r.id, name: r.name }))];
     return {
       list: async () => {
         let r = sync.remoteThreads();
@@ -214,13 +215,12 @@ async function main(): Promise<void> {
         return relay.overlay(r);
       },
       call: (threadId, method, params) => relay.call(threadId, method, { threadId, ...params }),
-      // move_thread with a runner: by name, a unique word of one, or id.
-      move: async ({ threadId, runner: asked, cwd, accountId }) => {
-        const want = asked.toLowerCase();
-        const all = [{ id: syncRunnerId, name: cfg.sync.name ?? defaultRunnerName() }, ...sync.remoteThreads().runners.map((r) => ({ id: r.id, name: r.name }))];
-        const partly = all.filter((r) => r.name.toLowerCase().includes(want));
-        const to = all.find((r) => r.id === asked) ?? all.find((r) => r.name.toLowerCase() === want) ?? (partly.length === 1 ? partly[0] : undefined);
-        if (!to) throw new Error(`No runner called ${asked}. There are: ${all.map((r) => r.name).join(', ')}.`);
+      // move_thread with a runner: picked in threadbear-mcp.ts (moves.ts
+      // pickRunner) from these, before any card, then moved by that id.
+      runners: async () => everyRunner(),
+      move: async ({ threadId, runnerId, runnerName, cwd, accountId }) => {
+        // Again as it goes: the card showed this runner by this name.
+        const to = stillRunner(runnerId, runnerName, everyRunner());
         const move = methods['threads.move'];
         if (!move) throw new Error("This runner can't move threads.");
         await move({ threadId, runnerId: to.id, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) });
@@ -837,8 +837,9 @@ async function main(): Promise<void> {
       place: (row, entries) => runner.placeMove(row, entries),
       async adopt(row) {
         const r = await runner.adoptMoved(row);
-        for (const sc of (r.schedules ?? []) as Record<string, unknown>[]) {
-          await scheduler.create({ ...(sc as { text: string }), threadId: row.threadId }).catch((e) => log.warn("couldn't make a moved thread's schedule again", { threadId: row.threadId, error: String(e) }));
+        // When and what each sends, nothing more (moves.ts movedSchedules).
+        for (const sc of r.schedules ?? []) {
+          await scheduler.create({ ...sc, threadId: row.threadId }).catch((e) => log.warn("couldn't make a moved thread's schedule again", { threadId: row.threadId, error: String(e) }));
         }
       },
       discard: (row) => runner.discardMove(row),
@@ -918,7 +919,10 @@ async function main(): Promise<void> {
         if (!parsed) throw new Error("The thread's runner didn't say enough about it.");
         return withThisEnd(await runner.previewMove({ info: parsed, self: syncRunnerId, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) }));
       }
-      return withThisEnd(await relay.previewMove(to, { info, ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) }));
+      // Through the relay: only what the target needs, scrubbed (moves.ts previewInfo).
+      const parsed = moveInfoFrom(info);
+      if (!parsed) throw new Error("The thread's runner didn't say enough about it.");
+      return withThisEnd(await relay.previewMove(to, { info: previewInfo(parsed, (v) => scrubber.doc(v)), ...(cwd ? { cwd } : {}), ...(accountId ? { accountId } : {}) }));
     } catch (e) {
       // A runner from before moves turns the call down by name.
       const older = /can't be asked of this runner/.test(said(e));

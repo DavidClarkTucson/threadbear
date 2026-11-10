@@ -18,8 +18,8 @@ import { providerName } from '../providers.ts';
 import { paths } from '../config.ts';
 import { isDirectory } from '../fsutil.ts';
 import { readTree, writeTree, type PackEntry } from '../move-pack.ts';
-import { changedFiles, cloneRepo, cloneableUrl, originUrl, packGit, repoKey, repoTop, unpackGit, type GitMeta } from '../move-git.ts';
-import type { MoveInfo, MovePlan, MovePreview, MoveRow, ThreadMoving } from '../moves.ts';
+import { changedFiles, cloneRepo, cloneableUrl, originUrl, packGit, repoKey, repoTop, unpackGit, withoutCredentials, type GitMeta } from '../move-git.ts';
+import { movedSchedules, type MoveInfo, type MovePlan, type MovePreview, type MoveRow, type MovedSchedule, type ThreadMoving } from '../moves.ts';
 import { projectDirName, sessionTranscriptPath } from '../transcripts.ts';
 import { findWorktreePatch } from '../patches.ts';
 import { cleanUpWorktree, makeWorktree, mainCheckoutOf, realpath, type WorktreeRecord } from '../worktrees.ts';
@@ -73,7 +73,9 @@ export const movesPart = {
     const account = this.accounts.list().find((a) => a.id === rec.accountId);
     const own = Boolean(rec.worktree && !rec.worktree.removedAt);
     const top = await repoTop(rec.cwd);
-    const origin = top ? await originUrl(top) : undefined;
+    // Which repo, never a password or token in its address (move-git.ts).
+    const raw = top ? await originUrl(top) : undefined;
+    const origin = raw ? withoutCredentials(raw) : undefined;
     const rel = top ? path.relative(top, rec.cwd) : '';
     return {
       title: rec.title,
@@ -261,8 +263,14 @@ export const movesPart = {
         // the old one says its own (the note read "Moved from 7928812d92c1").
         if (placed.fromName === row.from && typeof m.fromName === 'string' && m.fromName.trim()) placed.fromName = m.fromName.trim().slice(0, 80);
       }
+      // Only when and what each sends (moves.ts movedSchedules): nothing
+      // that runs or approves anything comes from the other runner.
       const schedules = entries.find((e) => e.path === 'schedules.json');
-      if (schedules) placed.schedules = JSON.parse(schedules.data.toString('utf8')) as unknown[];
+      if (schedules) {
+        const { schedules: kept, dropped } = movedSchedules(JSON.parse(schedules.data.toString('utf8')), row.threadId);
+        placed.schedules = kept;
+        if (dropped) placed.leftBehind.push(`${dropped === 1 ? "A schedule's shell check was" : `${dropped} schedules' shell checks were`} left off here: set ${dropped === 1 ? 'it' : 'them'} again if still wanted, with a card on this machine.`);
+      }
       if (plan.clone) {
         const cloned = await cloneRepo(plan.clone.url, plan.clone.to);
         if (!cloned.ok) throw new Error(cloned.reason);
@@ -312,8 +320,10 @@ export const movesPart = {
         rec.provider = account.provider;
         delete rec.model;
         delete rec.effort;
-        delete rec.allowRules;
       }
+      // "Always allow" rules were answers on the other machine, for its
+      // folder, and the record is that runner's word: asked again here.
+      delete rec.allowRules;
       rec.cwd = placed.cwd;
       rec.accountId = account.id;
       delete rec.poolId;
@@ -333,7 +343,7 @@ export const movesPart = {
 
   // T, after the switch: the staging folder joins the live threads. Safe to
   // call again (after a restart, say): once it's here there's nothing left.
-  async adoptMoved(this: Runner, row: MoveRow): Promise<{ adopted: boolean; schedules?: unknown[] }> {
+  async adoptMoved(this: Runner, row: MoveRow): Promise<{ adopted: boolean; schedules?: MovedSchedule[] }> {
     const stage = stageOf(this.cfg.home, row.moveId);
     const placedFile = path.join(stage, 'placed.json');
     if (!fs.existsSync(placedFile)) return { adopted: false };
@@ -355,7 +365,9 @@ export const movesPart = {
       if (patch) await this.setUpWorktree(st, { worktree: placed.worktree, patchFile: placed.patchFile }, patch);
     }
     this.log.info('took a moved thread in', { threadId: row.threadId, from: row.from });
-    return { adopted: true, ...(placed.schedules?.length ? { schedules: placed.schedules } : {}) };
+    // Through the same filter again: a placed.json from before it had one.
+    const schedules = movedSchedules(placed.schedules ?? [], row.threadId).schedules;
+    return { adopted: true, ...(schedules.length ? { schedules } : {}) };
   },
 
   // T: the move failed or was cancelled before the switch.

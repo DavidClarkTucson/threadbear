@@ -5233,7 +5233,14 @@ again and carries on from the state.
 - **S's info.** `{ title, cwd, home, provider, accountId, email?, model?,
   effort?, permissionMode, origin?, repoTop?, subdir?, worktree: boolean,
   sessionId?, schedules: number }`: what T needs to choose a folder and a
-  login (`home` is S's home folder, for swapping).
+  login (`home` is S's home folder, for swapping). `origin` never carries
+  a password or token (`withoutCredentials` in move-git.ts: an http(s)
+  address loses its user part, ssh:// its password, the query goes), and
+  the backend strips one an older runner sends (`moveInfo`, and a
+  `moves.preview` call's description). The preview sends T only what it
+  plans from (`previewInfo` in moves.ts: no title, model, session or
+  schedule count), scrubbed as sync scrubs, as a relay command isn't
+  scrubbed on its way.
 - **T's plan.** `{ cwd, accountId, model?, effort?, worktree?: { repo,
   subdir }, clone?: string, leftBehind: string[] }`. The folder is Mike's
   pick if he made one; else, for a thread with a worktree, a new one of
@@ -5258,6 +5265,14 @@ again and carries on from the state.
   secrets are (X25519, HKDF-SHA256 with info `threadbear move v1
   <moveId>`, AES-256-GCM), then cut into 9 MB chunks, uploaded as any
   runner file. Over 100 MB sealed, S fails the move saying what's big.
+  A runner key's chunk (`moveChunkUrl`, then `/runner/upload`) is stored
+  only while the move is `packing` and the key is S's, is charged to S's
+  stored bytes like a picture (with 120 MB of room on top of its 150 MB,
+  so one move's worth always fits) but not the hour's allowance (the
+  move's 24 tickets bound that), and is named with the move
+  (`storageOwners.moveId`): when the move ends, however it ends, every
+  upload made for it goes, listed in `movePacked` or not, and S gets its
+  bytes back.
 - **Git.** Only for a thread with a worktree of its own. `git.bundle` holds
   the branch from where it meets S's `origin/<default>` (so commits only
   on S's main come too), and one more commit, `refs/threadbear/move-wip`,
@@ -5294,7 +5309,13 @@ again and carries on from the state.
   It gets a `system.note` ("Moved from M5 to cloud, in <folder>."), plus
   what was left behind; its next turn resumes the same session (Claude;
   Codex starts afresh with the handoff note). The schedules are made again
-  on T for the thread, and S deletes its own once the move is `done`.
+  on T for the thread, and S deletes its own once the move is `done`. T
+  takes only when and what each sends (`text`, `title`, `cron` or `at`,
+  `timezone`, `paused`, and `createdBy` if it's the thread itself:
+  `movedSchedules` in moves.ts), as the bundle is S's word and S may be an
+  extra Mac: no shell check (and the thread's note says one was left
+  off), folder, login, mode or runner. The thread's `allowRules` ("Always
+  allow" answers) are dropped too: asked again on T.
   Queued messages are sent. T's mirror sends the thread's whole history
   again (a thread new to it), which overwrites the same seqs.
 
@@ -5315,7 +5336,13 @@ runner:
 
 What a tampered runner key can do: as T, it only ever gets threads Mike
 moved to it; as S, only its own. It can't start a move, read another
-move's chunks, or claim a move that isn't to it.
+move's chunks, or claim a move that isn't to it. A runner's name is its
+own word, so `move_thread` and `tb move --to` pick the runner before
+anything else (`pickRunner` in moves.ts: its id, its whole name, or a
+word in only one runner's name; a word that's one's whole name and part
+of another's picks neither), a thread that asks first shows that runner
+on its card by name and id, and the move goes to that id, refused if
+the runner has gone or changed its name since (`stillRunner`).
 
 ## Sync
 

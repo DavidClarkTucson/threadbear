@@ -348,8 +348,13 @@ export default defineSchema({
     at: v.number(),
     bytes: v.optional(v.number()),
     attachedAt: v.optional(v.number()),
+    // A move's chunk (moves.ts moveChunkUrl): charged to its runner like
+    // any upload, and deleted with the rest of the move's when it ends,
+    // whether or not movePacked ever named it.
+    moveId: v.optional(v.string()),
   })
     .index('by_storageId', ['storageId'])
+    .index('by_move', ['moveId'])
     // A runner's bytes uploaded in the last hour (sync:redeemUpload's cap).
     .index('by_runner_at', ['runnerId', 'at'])
     .index('by_unattached', ['attachedAt', 'at']),

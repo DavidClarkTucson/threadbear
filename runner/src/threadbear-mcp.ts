@@ -40,6 +40,7 @@ import type { SecretAnswer, SecretRequest } from './runner/approvals.ts';
 import type { StartRequest } from './cross-runner.ts';
 import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN } from './secrets.ts';
 import { cutSafely, firstLineSafely } from './safe-cut.ts';
+import { pickRunner } from './moves.ts';
 
 // What the tools drive: the Runner itself, or during a handover
 // (docs/protocol.md) a ThreadRouter (handover.ts) that reaches threads on
@@ -86,8 +87,13 @@ export type RemoteControl = {
   list: () => Promise<RemoteThreads>;
   call: (threadId: string, method: string, params: Record<string, unknown>) => Promise<unknown>;
   // move_thread with a runner: the whole thread to another machine, asked
-  // of the main Mac's runner (threads.move). Answers what to tell the agent.
-  move?: (p: { threadId: string; runner: string; cwd?: string; accountId?: string }) => Promise<string>;
+  // of the main Mac's runner (threads.move). `runners` names the runners
+  // to pick from (moves.ts pickRunner), so the card shows the one picked,
+  // by name and id, and `move` goes to that id: it checks again that the
+  // runner is still there under the name the card showed. Answers what to
+  // tell the agent.
+  runners?: () => Promise<{ id: string; name: string }[]>;
+  move?: (p: { threadId: string; runnerId: string; runnerName: string; cwd?: string; accountId?: string }) => Promise<string>;
 };
 
 export type ScheduleControl = Async<Scheduler, 'create' | 'list' | 'find' | 'update' | 'delete'>;
@@ -1856,18 +1862,24 @@ export function buildThreadbearTools(
       handle(async ({ folder: f, runner: to, threadId, id: alias, account: acc, then }, extra) => {
         const id = await resolve(threadId ?? alias);
         if (to?.trim()) {
-          const mover = opts.remote?.()?.move;
-          if (!mover) throw new Error("Moving a thread to another machine needs the main Mac's runner, connected to Threadbear's backend, with the moveToRunner experiment on.");
+          const remote = opts.remote?.();
+          const mover = remote?.move;
+          if (!mover || !remote.runners) throw new Error("Moving a thread to another machine needs the main Mac's runner, connected to Threadbear's backend, with the moveToRunner experiment on.");
           if (then?.trim()) throw new Error('`then` only goes with a folder move. Send the message after: it waits and moves with the thread.');
+          // The runner is picked now, before any card, and the move goes to
+          // that one by id: a name is another Mac's own word and can change
+          // while the card is up.
+          const dest = pickRunner(to, await remote.runners());
+          if ('problem' in dest) throw new Error(dest.problem);
           // It runs on another machine from then on: always the user's call
           // from a thread with less than full access.
           const caller = await restricted();
           if (caller) {
             const t = id === selfId ? undefined : await accessOf(id);
             const name = threadName(id, t?.title ?? '');
-            await confirm('move_thread', [`Move ${name} to the runner ${to.trim()}: it carries on there, on that machine`], { threadId: id, runner: to.trim(), ...(f ? { folder: f } : {}), ...(acc ? { account: acc } : {}) }, extra?.signal);
+            await confirm('move_thread', [`Move ${name} to the runner ${dest.name} (${dest.id}): it carries on there, on that machine`], { threadId: id, runner: dest.id, runnerName: dest.name, ...(f ? { folder: f } : {}), ...(acc ? { account: acc } : {}) }, extra?.signal);
           }
-          return mover({ threadId: id, runner: to.trim(), ...(f?.trim() ? { cwd: f.trim() } : {}), ...(acc?.trim() ? { accountId: acc.trim() } : {}) });
+          return mover({ threadId: id, runnerId: dest.id, runnerName: dest.name, ...(f?.trim() ? { cwd: f.trim() } : {}), ...(acc?.trim() ? { accountId: acc.trim() } : {}) });
         }
         if (!f?.trim()) throw new Error('folder is required (or runner, to move it to another machine).');
         // Raising access (above). A thread with more access than this one

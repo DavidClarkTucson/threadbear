@@ -68,14 +68,38 @@ export async function originUrl(cwd: string): Promise<string | undefined> {
   return (await out(cwd, ['remote', 'get-url', 'origin'])) || undefined;
 }
 
+/**
+ * `url` with nothing in it that could be a password or token: an http(s)
+ * address loses its whole user part (GitHub takes a token as the user
+ * alone), ssh:// its password, and the query and fragment go. What a move
+ * says about a thread's repo goes to the other runner and through the
+ * backend, which only need to know which repo it is (security review,
+ * 10 Nov 2026: `https://user:github_pat_...@github.com/...` went whole to
+ * the runner a preview asked). The runner it goes to clones with its own
+ * credentials.
+ */
+export function withoutCredentials(url: string): string {
+  const m = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*@)?([^?#]*)(?:[?#].*)?$/i.exec(url.trim());
+  if (!m) return url.trim();
+  const [, scheme, userinfo, rest] = m;
+  if (!userinfo) return `${scheme}${rest}`;
+  if (/^(https?|ftps?):\/\//i.test(scheme!)) return `${scheme}${rest}`;
+  const user = userinfo.slice(0, -1).split(':')[0];
+  return `${scheme}${user ? `${user}@` : ''}${rest}`;
+}
+
 // A repo T may clone for a moving thread: the URL is the old runner's
 // word, and that runner may be one of the owner's extra Macs, so only an
 // https or ssh address (as GitHub gives them) and never one git would read
 // as an option.
 export function cloneableUrl(url: string): boolean {
-  if (!url || url.length > 2000 || /[\s\0]/.test(url) || url.startsWith('-')) return false;
-  if (/^(https|ssh):\/\/[^/\-][^/]*\/./i.test(url)) return true;
-  return /^[A-Za-z0-9._~-]+@[A-Za-z0-9.-]+:(?!-)[^:]+$/.test(url) && !url.includes('::');
+  if (!url || url.length > 2000 || /[\s\0\\]/.test(url) || url.startsWith('-') || url.includes('::')) return false;
+  // scheme://[user@]host[:port]/path, each part plain, none starting with -.
+  const full = /^(https|ssh):\/\/(?:([A-Za-z0-9._~%+-]+)@)?([A-Za-z0-9.-]+)(?::(\d{1,5}))?\/[^/].*$/i.exec(url);
+  if (full) return !full[2]?.startsWith('-') && !full[3]!.startsWith('-') && !full[3]!.startsWith('.');
+  // user@host:path, as GitHub gives ssh ones.
+  const scp = /^([A-Za-z0-9._~+][A-Za-z0-9._~+-]*)@([A-Za-z0-9][A-Za-z0-9.-]*):([^:-][^:]*)$/.exec(url);
+  return !!scp;
 }
 
 /** Clones `url` to `to` (a folder that isn't there yet), as untrustedGit does. */
@@ -156,7 +180,7 @@ export async function packGit(worktree: string, cwd: string, bundleFile: string)
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
-  const meta: GitMeta = { branch, head, ...(wip ? { wip } : {}), ...(base ? { base } : {}), ...(origin ? { origin } : {}), subdir };
+  const meta: GitMeta = { branch, head, ...(wip ? { wip } : {}), ...(base ? { base } : {}), ...(origin ? { origin: withoutCredentials(origin) } : {}), subdir };
   if (base === head && !wip) return { ok: true, meta };
 
   // A bundle names refs, so the tips get ones of their own for as long as

@@ -76,7 +76,10 @@ export function untrustedGitSync(dir: string, args: readonly string[]): string {
 //   core.askPass, core.alternateRefsCommand) are the owner's own (system
 //   or global config) whatever the repo's says. A remote's uploadpack is
 //   the one setting where git takes the first it reads, not the last, so a
-//   fetch or clone is given git's own upload-pack on its command line.
+//   fetch or clone is given git's own upload-pack on its command line. A
+//   local origin's upload-pack reads that repo's config, but git takes
+//   its one program setting (uploadpack.packObjectsHook) only from the
+//   owner's own, and it doesn't lazy fetch (GIT_NO_LAZY_FETCH).
 // The config is read each time, just before the command, so what's
 // switched off is what that command would find. A live command's git
 // (shell-allowlist.ts liveCommandEnv) refuses a repo whose own config
@@ -128,7 +131,12 @@ function settable(key: string): string {
 export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote'): string[] {
   const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', 'core.hooksPath=/dev/null', ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
   const drivers = new Set<string>();
+  const allowed = network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [];
   for (const e of entries) {
+    // A protocol the repo names beats protocol.allow too (ftp, a helper's
+    // name for `foo::`), so each one it names is turned off by name.
+    const p = /^protocol\.(.+)\.allow$/.exec(e.key);
+    if (p && !allowed.includes(p[1]!) && !PROTOCOL_NAMES.includes(p[1]!)) out.push('-c', `${settable(e.key)}=never`);
     const f = /^filter\.(.+)\.[^.]+$/.exec(e.key);
     if (f) drivers.add(`filter.${f[1]}`);
     const d = /^diff\.(.+)\.(command|textconv)$/.exec(e.key);
@@ -168,8 +176,11 @@ function execGit(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, t
 // setting -c can't reach, runs nothing and fails.
 export async function untrustedGit(dir: string, args: readonly string[], opts: UntrustedGitOptions = {}): Promise<UntrustedGitResult> {
   // An empty GIT_ASKPASS stops git asking any program, core.askPass too.
-  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', ...(opts.network === 'remote' ? {} : { GIT_NO_LAZY_FETCH: '1' }), ...opts.env };
-  const timeout = opts.timeoutMs ?? 5 * 60_000;
+  // No lazy fetch even for a fetch: a local origin's upload-pack inherits
+  // it, and would otherwise fetch what it lacks through its own config.
+  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', ...opts.env };
+  // A clone or fetch of a big repo can take a while.
+  const timeout = opts.timeoutMs ?? (opts.network === 'remote' ? 30 * 60_000 : 5 * 60_000);
   const listed = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1' }, 10_000);
   // Outside a repo it still lists the owner's own config (empty is 0 too);
   // a config git can't parse fails the listing, and so this.

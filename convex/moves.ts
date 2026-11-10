@@ -15,7 +15,7 @@ import { ConvexError, v } from 'convex/values';
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
-import { checkRunnerId, forbidden, hasLiveKey, runnerAuth, sha256 } from './lib';
+import { checkRunnerId, forbidden, hasLiveKey, runnerAuth, sha256, withoutCredentials } from './lib';
 import { buryIndexRows, countBodyBytes, countMessageBytes, MAX_RUNNER_UPLOAD_BYTES, moveView, storedBytes } from './sync';
 import { docBytes, type Caller } from './runnerAccess';
 
@@ -82,11 +82,20 @@ async function runnerName(ctx: QueryCtx | MutationCtx, runnerId: string): Promis
   return (await ctx.db.query('runners').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId)).unique())?.name ?? runnerId;
 }
 
-// The chunks go whichever way a move ends: nothing else names them.
+// The chunks go whichever way a move ends: nothing else names them. Every
+// upload made for the move (sync.ts redeemUpload names each with it), not
+// just those movePacked listed, and each runner gets its bytes back.
 async function dropChunks(ctx: MutationCtx, m: Move): Promise<void> {
-  for (const id of m.chunks ?? []) {
+  const ids = new Set<Id<'_storage'>>(m.chunks ?? []);
+  for (const row of await ctx.db.query('storageOwners').withIndex('by_move', (q) => q.eq('moveId', m.moveId)).take(MOVE_TICKETS * 2)) ids.add(row.storageId);
+  for (const id of ids) {
     if (await ctx.db.system.get(id)) await ctx.storage.delete(id);
-    for (const row of await ctx.db.query('storageOwners').withIndex('by_storageId', (q) => q.eq('storageId', id)).collect()) await ctx.db.delete(row._id);
+    for (const row of await ctx.db.query('storageOwners').withIndex('by_storageId', (q) => q.eq('storageId', id)).collect()) {
+      await ctx.db.delete(row._id);
+      if (!row.bytes) continue;
+      const usage = await ctx.db.query('runnerStorage').withIndex('by_runnerId', (q) => q.eq('runnerId', row.runnerId)).unique();
+      if (usage) await ctx.db.patch(usage._id, { bytes: Math.max(0, usage.bytes - row.bytes) });
+    }
   }
 }
 
@@ -211,7 +220,11 @@ export const moveInfo = mutation({
     mustBeIn(m, ['asking'], 'be described');
     if (m.info !== undefined) return null;
     smallObject(info, 'info');
-    await ctx.db.patch(m._id, { info, updatedAt: Date.now() });
+    // Which repo, never a password or token in its address: T reads this
+    // (an older runner sends it whole).
+    const o = info as Record<string, unknown>;
+    const safe = typeof o.origin === 'string' ? { ...o, origin: withoutCredentials(o.origin) } : info;
+    await ctx.db.patch(m._id, { info: safe, updatedAt: Date.now() });
     return null;
   },
 });

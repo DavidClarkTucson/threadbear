@@ -163,7 +163,7 @@ test('the main Mac to Bruce: each step is its own runner’s, and the switch han
   assert.equal(moveOf(s, moveId).chunks, undefined);
 });
 
-test('Bruce to the main Mac: chunks come through /runner/upload outside Bruce’s picture allowances', async () => {
+test('Bruce to the main Mac: chunks come through /runner/upload, charged with a move’s worth of room on top of Bruce’s picture allowance', async () => {
   const s = await setup();
   await s.bruce.upsert(thread('T2', BRUCE));
   await s.bruce.append('T2', 'from bruce', 1);
@@ -171,12 +171,13 @@ test('Bruce to the main Mac: chunks come through /runner/upload outside Bruce’
   await s.bruce.info(moveId);
   await s.owner.ready(moveId);
   await s.bruce.frozen(moveId);
-  // Bruce's stored allowance is spent: a picture would wait, a chunk doesn't.
+  // Bruce's stored allowance is spent: a picture would wait, a chunk has
+  // a move's worth of room on top, and is charged while the move holds it.
   s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.bytes = 150 * 1024 * 1024;
   const url = await s.bruce.chunkUrl(moveId);
   assert.match(url, /^https:\/\/site\.example\/runner\/upload\?ticket=[0-9a-f]{48}$/);
   assert.equal(await s.uploadChunk(url, 'c1'), true);
-  assert.equal(s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.bytes, 150 * 1024 * 1024);
+  assert.equal(s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.bytes, 159 * 1024 * 1024);
   // Only its own uploads go on the move.
   const someoneElses = s.file('owners-file');
   assert.equal(await outcome(s.bruce.packed(moveId, [someoneElses])), 'forbidden');
@@ -195,6 +196,55 @@ test('Bruce to the main Mac: chunks come through /runner/upload outside Bruce’
   await s.owner.done(moveId);
   assert.ok(s.deleted.includes('c1'));
   assert.equal(s.rows('storageOwners').some((o) => o.storageId === 'c1'), false);
+  assert.equal(s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.bytes, 150 * 1024 * 1024, 'given back when the move ends');
+});
+
+// Security review, 10 Nov 2026: a move's uploads were stored with nothing
+// charged and nothing naming the move, so a runner could take its 24
+// tickets, upload 10 MB through each, fail the move before movePacked, and
+// keep 240 MB that no cleanup ever reached; a ticket also still worked
+// after the move ended.
+test('a move’s uploads are charged, and all of them go when it fails, listed or not', async () => {
+  const s = await setup();
+  await s.bruce.upsert(thread('T3', BRUCE));
+  const { moveId } = await s.owner.start('T3', M5);
+  await s.bruce.info(moveId);
+  await s.owner.ready(moveId);
+  await s.bruce.frozen(moveId);
+  const urls: string[] = [];
+  for (let i = 0; i < 24; i++) urls.push(await s.bruce.chunkUrl(moveId));
+  assert.equal(await outcome(s.bruce.chunkUrl(moveId)), 'tooMany');
+  for (let i = 0; i < 23; i++) assert.equal(await s.uploadChunk(urls[i]!, `x${i}`), true);
+  const charged = s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.bytes;
+  assert.equal(charged, 23 * 9 * 1024 * 1024);
+  await s.bruce.failed(moveId);
+  for (let i = 0; i < 23; i++) assert.ok(s.deleted.includes(`x${i}`), `x${i} deleted`);
+  assert.equal(s.rows('storageOwners').filter((o) => o.runnerId === BRUCE).length, 0);
+  assert.equal(s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.bytes, 0);
+  // The last ticket, from before it failed, stores nothing now.
+  const ticket = new URL(urls[23]!).searchParams.get('ticket')!;
+  assert.equal(await call(s.ctx, sync.uploadTicketOk as never, { ticket }), false);
+  s.file('late');
+  assert.equal(await call(s.ctx, sync.redeemUpload as never, { ticket, storageId: 'late', bytes: 1024 }), false);
+  assert.equal(s.rows('storageOwners').some((o) => o.storageId === 'late'), false);
+});
+
+test('a move’s ticket stores nothing once the move is packed, and the move’s room has a limit', async () => {
+  const s = await setup();
+  await s.bruce.upsert(thread('T4', BRUCE));
+  const { moveId } = await s.owner.start('T4', M5);
+  await s.bruce.info(moveId);
+  await s.owner.ready(moveId);
+  await s.bruce.frozen(moveId);
+  const [a, b, c] = [await s.bruce.chunkUrl(moveId), await s.bruce.chunkUrl(moveId), await s.bruce.chunkUrl(moveId)];
+  // Already at its allowance and a move's room: this one waits.
+  await s.ctx.db.insert('runnerStorage', { runnerId: BRUCE, bytes: (150 + 120) * 1024 * 1024 - 1024 * 1024 });
+  assert.equal(await s.uploadChunk(a, 'full'), 'later');
+  s.rows('runnerStorage').find((r) => r.runnerId === BRUCE)!.bytes = 0;
+  assert.equal(await s.uploadChunk(b, 'p1'), true);
+  await s.bruce.packed(moveId, ['p1']);
+  assert.equal(await s.uploadChunk(c, 'after'), false);
+  assert.equal(s.rows('storageOwners').some((o) => o.storageId === 'after'), false);
 });
 
 test('a move fails or is cancelled only before the switch, and a stuck one fails by itself', async () => {

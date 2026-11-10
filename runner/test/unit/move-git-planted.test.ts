@@ -141,6 +141,11 @@ test("packing and unpacking a worktree run none of either repo's programs, and t
   git(sw, 'commit', '-qam', 'B');
   plant(s, prog);
   plant(t, prog);
+  // The local origin T fetches from, with programs of its own for its
+  // upload-pack to run.
+  const { origin } = { origin: path.join(root, 'origin.git') };
+  git(origin, 'config', 'uploadpack.packObjectsHook', prog('pack-objects-hook', 'exit 1'));
+  git(origin, 'config', 'core.fsmonitor', prog('origin-fsmonitor', 'exit 1'));
   write(sw, 'filtered.txt', 'uncommitted\n');
   write(sw, 'proc.txt', 'uncommitted\n');
   write(sw, 'new.txt', 'untracked\n');
@@ -212,9 +217,13 @@ test("the owner's own transport programs stay, the repo's are swapped for them",
   assert.ok(sets.includes('protocol.ext.allow=never') && sets.includes('protocol.https.allow=always'));
   // Without `remote`, the transport programs aren't touched: nothing fetches.
   assert.ok(!quiet.includes('core.sshcommand=ssh'));
+  // A protocol the repo turns on by name is turned off by name.
+  const named = repoProofConfig(parseConfigList(['local\0protocol.foo.allow\nalways', 'local\0protocol.ftp.allow\nalways', 'local\0protocol.https.allow\nnever', ''].join('\0')), 'remote').filter((_, i, a) => a[i - 1] === '-c');
+  assert.ok(named.includes('protocol.foo.allow=never') && named.includes('protocol.ftp.allow=never'));
+  assert.ok(named.indexOf('protocol.https.allow=always') >= 0);
 });
 
 test('a moving thread\'s repo is cloned only from an https or ssh address', () => {
-  for (const u of ['https://github.com/mikecann/threadbear.git', 'git@github.com:mikecann/threadbear.git', 'ssh://git@github.com/mikecann/threadbear']) assert.ok(cloneableUrl(u), u);
-  for (const u of ['--upload-pack=touch /tmp/x', '-uevil', 'ext::sh -c touch% /tmp/x', 'file:///etc', '/Users/mike/secret', 'git@github.com:-oProxyCommand=x', 'https://-oProxyCommand=x/y', 'fd::17', 'http://example.com/x', 'git@host:a b', '']) assert.equal(cloneableUrl(u), false, u);
+  for (const u of ['https://github.com/mikecann/threadbear.git', 'git@github.com:mikecann/threadbear.git', 'ssh://git@github.com/mikecann/threadbear', 'ssh://git@ssh.github.com:443/o/r.git', 'https://gitlab.example.com/group/sub/r']) assert.ok(cloneableUrl(u), u);
+  for (const u of ['--upload-pack=touch /tmp/x', '-uevil', 'ext::sh -c touch% /tmp/x', 'file:///etc', '/Users/mike/secret', 'git@github.com:-oProxyCommand=x', 'https://-oProxyCommand=x/y', 'ssh://git@-oProxyCommand=touch${IFS}/tmp/pwn/repo', 'ssh://-git@host/x', '-git@host:x', 'https://github.com', 'ssh://git@host:22/x\\y', 'fd::17', 'http://example.com/x', 'git@host:a b', '']) assert.equal(cloneableUrl(u), false, u);
 });
