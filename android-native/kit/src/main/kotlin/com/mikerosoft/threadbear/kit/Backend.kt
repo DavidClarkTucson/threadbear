@@ -165,6 +165,17 @@ class PhoneBackend(private val transport: ConvexTransport, private val token: St
         ),
     )
 
+    /** A secret card's answer (backend API 35): sealed to the runner's key, or declined. */
+    suspend fun secret(threadId: String, approvalId: String, answer: SecretAnswer): String {
+        val extra = when (answer) {
+            is SecretAnswer.Sealed -> "sealed" to buildJsonObject {
+                put("epk", answer.sealed.epk); put("nonce", answer.sealed.nonce); put("box", answer.sealed.box)
+            }
+            SecretAnswer.Decline -> "decline" to JsonPrimitive(true)
+        }
+        return command("phone:secret", args("threadId" to JsonPrimitive(threadId), "approvalId" to JsonPrimitive(approvalId), extra))
+    }
+
     suspend fun press(threadId: String, buttonId: String): String =
         command("phone:press", args("threadId" to JsonPrimitive(threadId), "buttonId" to JsonPrimitive(buttonId)))
 
