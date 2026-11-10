@@ -292,7 +292,11 @@ const devices = [
   { id: 'tok3', kind: 'browser', name: 'Safari', createdAt: '2026-07-01T08:00:00.000Z', expiresAt: '2026-09-29T08:00:00.000Z', expired: true },
 ];
 let deviceSeq = devices.length;
-const deviceList = () => ({ devices: [...devices], site: DEMO_SITE });
+// MOCK_LOCAL_ONLY=1: a backend on this Mac only (setup --self-hosted
+// --local, docs/self-hosting.md), so Settings › Phone & browser can be seen
+// saying why a phone can't pair.
+const LOCAL_ONLY = process.env.MOCK_LOCAL_ONLY === '1';
+const deviceList = () => ({ devices: [...devices], site: LOCAL_ONLY ? 'http://127.0.0.1:13211' : DEMO_SITE });
 
 let mockInstructions = { text: '' };
 const settings = {
@@ -596,7 +600,7 @@ async function dispatch(client, method, p) {
       if (!oldRunner) status.clis = clis;
       // Sync on, to the made-up deployment, so the website's links and
       // sharing show (their links open nothing).
-      if (!oldRunner) status.sync = { state: 'ok', url: DEMO_DEPLOYMENT };
+      if (!oldRunner) status.sync = LOCAL_ONLY ? { state: 'ok', url: 'http://127.0.0.1:13210', site: 'http://127.0.0.1:13211', pushOff: true } : { state: 'ok', url: DEMO_DEPLOYMENT };
       return status;
     }
     // The CLI requests only report and pretend: nothing is checked or
@@ -1441,6 +1445,7 @@ async function dispatch(client, method, p) {
     case 'devices.pair': {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (!['phone', 'browser'].includes(p.kind)) throw rpcError(-32602, 'kind must be one of phone, browser');
+      if (LOCAL_ONLY && p.kind === 'phone') throw rpcError(-32000, "Your backend is on this Mac only (setup --self-hosted --local), so a phone can't reach it.");
       const name = typeof p.name === 'string' && p.name.trim() ? p.name.trim() : p.kind === 'phone' ? 'iPhone' : 'Browser';
       const days = p.days ?? 90;
       const device = { id: `tok${++deviceSeq}`, kind: p.kind, name, createdAt: iso(), expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(), expired: false };

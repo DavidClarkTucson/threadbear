@@ -70,7 +70,9 @@ this Mac sleeps, and share links only opening on their tailnet
 (docs/self-hosting.md). If they still want it, check `docker info` works
 (**Ask** them to install and start Docker Desktop or OrbStack if not) and
 that `tailscale status` shows this Mac logged in (**Ask** them to install
-and log in to Tailscale if not). Then, in place of the commands above:
+and log in to Tailscale if not), to a tailnet of their own: setup puts the
+backend on whichever tailnet that is, so **Ask** if it looks like their
+work's. Then, in place of the commands above:
 
 ```sh
 ./threadbear setup --self-hosted --dry-run --yes
@@ -80,6 +82,23 @@ and log in to Tailscale if not). Then, in place of the commands above:
 No Convex login or team is needed. If it stops asking for HTTPS
 certificates or MagicDNS, **Ask** them to turn those on in the Tailscale
 admin console (DNS), then run it again.
+
+**If they won't use the phone, or can't use Tailscale** (their work keeps
+them on its own tailnet, and Tailscale only has one on at a time), add
+`--local`: the same backend on this Mac's 127.0.0.1 only, with no
+Tailscale at all. Say what that leaves out first: no iPhone app at all, no
+second Mac, and the website and share links only open on this Mac. Don't
+pick it for them because Tailscale is missing; ask which they want. Check
+`docker info` as above, then:
+
+```sh
+./threadbear setup --self-hosted --local --dry-run --yes
+./threadbear setup --self-hosted --local --yes
+```
+
+Running setup again later keeps it local. To move it onto a tailnet once
+they have Tailscale, `./threadbear setup --self-hosted --tailnet`; their
+threads stay.
 
 If your own permission check refuses to run setup (Claude Code's auto mode
 does: it's a script you've just downloaded), that's its job, so don't try to

@@ -1368,6 +1368,35 @@ can't reach it after a restart, run `./threadbear setup` again: it starts
 the backend, or makes it again on the same data. docs/self-hosting.md in the
 repo has how it's put together, backing up, upgrading and taking it out.
 
+### On this Mac only, without Tailscale
+
+If you won't use the phone, or you can't use Tailscale (your work keeps
+you on its tailnet, and Tailscale only has one on at a time), add
+`--local`:
+
+```sh
+./threadbear setup --self-hosted --local --yes
+```
+
+It's the same backend in Docker, on this Mac's `127.0.0.1` only: nothing
+on your network or any tailnet can reach it, and Tailscale isn't needed
+at all. That leaves out more:
+
+- **No iPhone app.** Nothing off this Mac can reach the backend, so
+  Settings › Phone & browser says why rather than showing a code, and
+  there are no notifications.
+- **No second Mac** joining this one.
+- **The website and share links only open on this Mac**, at
+  `http://127.0.0.1:13211`. "Anyone with the link" means anyone using
+  this Mac.
+- **Nothing works while your Mac sleeps** or Docker is stopped, as with
+  the tailnet one.
+
+The dashboard is at `http://127.0.0.1:16791`, with the same admin key.
+Running setup again keeps it local. If you get Tailscale later and want
+the phone, run `./threadbear setup --self-hosted --tailnet`: it moves the
+backend onto your tailnet and your threads stay. `--local` moves it back.
+
 ## Patches: your own buttons and panels
 <!-- slug: patches -->
 

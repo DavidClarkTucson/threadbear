@@ -5773,6 +5773,12 @@ type Device = {
   runner never logs it, never writes it to disk, and no `tb` command
   prints it, since a thread's transcript can command agents. The app
   shows the QR code or opens the link, then forgets it.
+- A backend on this Mac only (`sync.url` on loopback: `setup
+  --self-hosted --local`, docs/self-hosting.md) can't pair a phone:
+  `devices.pair` with `kind: "phone"` is `-32000` saying why, before any
+  token is issued. A browser still signs in, at the loopback `sync.site`.
+  The app reads the same from `runner.status`'s `sync.url` and shows the
+  reason in place of the button.
 - `devices.list` is the backend's live list (`sync:listTokens`), never
   revoked ones; expired ones stay until revoked, so the list says why a
   phone stopped working. Nothing is cached in the runner.

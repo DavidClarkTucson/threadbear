@@ -34,7 +34,10 @@ File references are where to look.
   your tailnet. The backend's admin key is in
   `secrets/convex-self-hosted.env`, and setup sets `PUSH_RELAY=off` on it,
   as the push relay only works with Convex cloud. runner.json gets
-  `sync.site`, the website's address.
+  `sync.site`, the website's address. With `--local` there's no
+  `tailscale serve` at all: the three stay on 127.0.0.1, the API and the
+  website on 13210 and 13211 inside the container as well as out, and
+  only this Mac can reach them.
 - **Apps:** `~/Applications/Threadbear.app` and
   `~/Applications/Threadbear Runner.app`, both built and signed on your Mac.
   If you turn on the `gpuiApp` experiment and run
