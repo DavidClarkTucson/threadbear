@@ -6,7 +6,7 @@
 import { execFileSync } from 'node:child_process';
 import { GpuiDriver } from '../support/gpui.ts';
 import { sleep } from '../support/driver.ts';
-import { swiftTool, windowFrame } from './real-screen.ts';
+import { assertInFront, swiftTool, windowFrame } from './real-screen.ts';
 
 const dragger = swiftTool('realdrag');
 
@@ -22,6 +22,10 @@ try {
   await app.do({ cmd: 'open', id });
   await sleep(1200);
   const frame = () => windowFrame(app.pid!);
+  {
+    const [x, y] = windowFrame(app.pid!);
+    assertInFront(app.pid!, [[x + 700, y + 480], [x + 24, y + 14], [x + 400, y + 14], [x + 1100, y + 14]]);
+  }
   // A click on a blank part of the transcript first, to make the window key.
   const [x0, y0, w0, h0] = frame();
   console.log(`window ${w0} x ${h0}`);
@@ -63,7 +67,10 @@ try {
   const renaming = (await app.dump()).header?.renaming === true;
   console.log(renaming ? 'a click on the title renames' : 'CLICK ON THE TITLE DID NOT RENAME');
   console.log(stayed === 0 && renaming ? 'PASS' : 'FAIL');
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
 } finally {
   await app.stop();
-  process.exit(0);
+  process.exit();
 }

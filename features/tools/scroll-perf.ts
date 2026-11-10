@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GpuiDriver } from '../support/gpui.ts';
 import { sleep } from '../support/driver.ts';
-import { swiftTool, windowFrame, work } from './real-screen.ts';
+import { assertInFront, swiftTool, windowFrame, work } from './real-screen.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 let fixtures = process.argv[2];
@@ -60,6 +60,7 @@ try {
 
   const [x, y, w, h] = windowFrame(app.pid!);
   console.log(`window ${w} x ${h}`);
+  assertInFront(app.pid!, [[x + 640, y + h - 50], [x + 620, y + Math.round(h / 2)]]);
   // In front and key: a click in the composer, which only focuses it.
   execFileSync(dragger, [String(x + 640), String(y + h - 50), String(x + 640), String(y + h - 50), '0', '']);
   await sleep(800);
@@ -88,7 +89,7 @@ try {
   await sampled;
   console.log(`\nCPU profile of the second round: ${profile}`);
 } catch (error) {
-  console.error(error);
+  console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 } finally {
   await app.stop();

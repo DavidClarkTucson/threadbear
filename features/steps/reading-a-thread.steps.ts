@@ -130,7 +130,12 @@ Then('the streaming reply grows', async function (this: ThreadbearWorld) {
   const before = repliesBefore.get(this) ?? new Set<string>();
   const streamed = (rows: Row[]) => rows.find((r) => r.kind === 'assistant' && r.text.length > 0 && !before.has(r.id));
   const first = await this.until('a streaming reply', (d) => streamed(d.transcript.rows));
-  await this.until('the reply getting longer', (d) => d.transcript.rows.some((r) => r.id === first.id && r.text.length > first.text.length));
+  // Longer, or taller as it wraps onto new lines: the dump's text is an
+  // excerpt (the GPUI app's stops at 100 characters), which a fast stream
+  // passes before a slow machine's first look, and then it never grows.
+  await this.until('the reply getting longer', (d) =>
+    d.transcript.rows.some((r) => r.id === first.id && (r.text.length > first.text.length || (r.height ?? 0) > (first.height ?? 0))),
+  );
 });
 
 When('I choose {string} from the menu of the reply starting {string}', async function (this: ThreadbearWorld, title: string, words: string) {
