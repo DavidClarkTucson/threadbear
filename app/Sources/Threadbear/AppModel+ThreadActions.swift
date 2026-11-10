@@ -1035,6 +1035,29 @@ extension AppModel {
         }
     }
 
+    /// Run on an ask card. Not through `pressReplyButton`: the card is
+    /// the only place this button lives, and it's what the runner checks a
+    /// press against, so there's nothing to go by here but its id.
+    func pressRunButton(_ id: String, threadId: String) {
+        let store = ReplyButtons.shared
+        if let known = store.known(id), known.button.pressed != nil || known.button.running != nil { return }
+        guard let client = client(for: threadId) else {
+            errorMessage = "Can't reach that thread's runner, so the command can't be run yet."
+            return
+        }
+        guard store.setPressing(id, true) else { return }
+        AppLog.write("buttons", "run \(id) in \(threadId)")
+        Task {
+            do {
+                let button = try await client.pressReplyButton(threadId: threadId, buttonId: id)
+                store.receive(button, threadId: threadId)
+            } catch {
+                show(error)
+            }
+            store.setPressing(id, false)
+        }
+    }
+
     func show(_ error: Error) {
         AppLog.write("rpc", "error: \(error.localizedDescription)")
         // Its description alone doesn't say which Mac it means.

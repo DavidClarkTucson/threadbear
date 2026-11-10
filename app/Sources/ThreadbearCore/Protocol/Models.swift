@@ -2021,6 +2021,25 @@ public enum ISO8601 {
 /// you"): the action, where he does it, and the words to send back. With
 /// options it's a decision: a line of why, the likely answers, and the
 /// agent's own pick (an index into options).
+/// An ask's command, with the id of the button that runs it once the
+/// runner has made the card. `running` and `failed` are the runner's own
+/// copy of the button's state, for a client that only has the card.
+public struct AskRun: Sendable, Hashable, Codable {
+    public var command: String
+    public var buttonId: String?
+    public var cwd: String?
+    public var running: Bool?
+    public var failed: String?
+
+    public init(command: String, buttonId: String? = nil, cwd: String? = nil, running: Bool? = nil, failed: String? = nil) {
+        self.command = command
+        self.buttonId = buttonId
+        self.cwd = cwd
+        self.running = running
+        self.failed = failed
+    }
+}
+
 public struct Ask: Sendable, Hashable, Codable {
     public var action: String
     public var where_: String?
@@ -2034,6 +2053,8 @@ public struct Ask: Sendable, Hashable, Codable {
     public var suggested: Int?
     /// Where to go to do it or judge it, shown as buttons on the card.
     public var links: [AskLink]
+    /// A command the card offers to run (docs/protocol.md, "Run on the card").
+    public var run: AskRun?
     /// Ticked on the open card (only in a summary's `asks`).
     public var ticked: Bool
 
@@ -2070,6 +2091,7 @@ public struct Ask: Sendable, Hashable, Codable {
         let pick = (try? c.decodeIfPresent(Int.self, forKey: .suggested)) ?? nil
         suggested = pick.flatMap { options.indices.contains($0) ? $0 : nil }
         links = c.lossyArray(AskLink.self, forKey: .links)
+        run = (try? c.decodeIfPresent(AskRun.self, forKey: .run)) ?? nil
         ticked = ((try? c.decodeIfPresent(Bool.self, forKey: .ticked)) ?? nil) ?? false
     }
 
@@ -2083,11 +2105,12 @@ public struct Ask: Sendable, Hashable, Codable {
         if !optionNotes.isEmpty { try c.encode(optionNotes, forKey: .optionNotes) }
         try c.encodeIfPresent(suggested, forKey: .suggested)
         if !links.isEmpty { try c.encode(links, forKey: .links) }
+        try c.encodeIfPresent(run, forKey: .run)
         if ticked { try c.encode(true, forKey: .ticked) }
     }
 
     enum CodingKeys: String, CodingKey {
-        case action, reply, ticked, why, options, optionNotes, suggested, links
+        case action, reply, ticked, why, options, optionNotes, suggested, links, run
         case where_ = "where"
     }
 }

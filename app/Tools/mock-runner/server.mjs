@@ -892,7 +892,21 @@ async function dispatch(client, method, p) {
       const t = need(p.threadId);
       const button = t.buttons?.get(p.buttonId);
       if (!button) throw rpcError(-32602, `Button not found: ${p.buttonId}`);
-      if (button.pressed) return { button: structuredClone(button) };
+      if (button.pressed || button.running) return { button: structuredClone(button) };
+      if (button.run) {
+        // Answers at once, running, then finishes, as the runner does.
+        const { failed: _failed, ...rest } = button;
+        const running = { ...rest, running: { at: iso() } };
+        t.buttons.set(running.id, running);
+        persist(t.summary.id, { type: 'button.updated', button: running });
+        setTimeout(() => {
+          const { running: _going, ...left } = running;
+          const done = { ...left, pressed: { at: iso(), threadId: t.summary.id }, ran: { ok: true, exitCode: 0, durationMs: 1500 } };
+          t.buttons.set(done.id, done);
+          persist(t.summary.id, { type: 'button.updated', button: done });
+        }, 1500 + slow.queueMs);
+        return { button: structuredClone(running) };
+      }
       await new Promise((resolve) => setTimeout(resolve, 600 + slow.queueMs));
       const from = `[Sent by the agent in the thread "${t.summary.title}" (${t.summary.id.slice(0, 8)})]\n\n`;
       let next;

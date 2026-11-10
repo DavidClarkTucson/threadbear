@@ -28,7 +28,7 @@ const RUNNER = 'bruce0000001';
 const END_TURN = 'mcp__threadbear__end_turn';
 
 // What a person sees of a thread, on any of the three: its card and its messages.
-export type Ask = { action: string; options?: string[]; optionNotes?: string[]; suggested?: number; links?: { title: string; url: string }[] };
+export type Ask = { action: string; options?: string[]; optionNotes?: string[]; suggested?: number; links?: { title: string; url: string }[]; run?: { command: string; buttonId?: string; cwd?: string } };
 export type View = {
   needs?: string;
   asks: Ask[];
@@ -46,6 +46,8 @@ export type Play = {
   send(text: string, images?: ImageRef[]): void;
   /** The librarian writes its note on the thread (with the recap box on). */
   librarianWrites(text: string, purpose: string): void;
+  /** Turns on Run on the card, for the next end_turn. */
+  runAsks(): void;
 };
 
 export async function threeWays(play: (p: Play) => void | Promise<void>) {
@@ -134,6 +136,11 @@ export async function playInto(post: Post, runner: { key: string; runnerId: stri
       send: (text, images = []) => {
         h.runner.send(thread.id, text, images, {});
         h.adapter.last.init();
+      },
+      runAsks: () => {
+        const file = path.join(h.cfg.home, 'runner.json');
+        const json = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+        fs.writeFileSync(file, JSON.stringify({ ...json, experiments: { ...json.experiments, runAsks: true } }));
       },
       librarianWrites: (text, purpose) => {
         const file = path.join(h.cfg.home, 'runner.json');

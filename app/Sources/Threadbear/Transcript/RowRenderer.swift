@@ -220,6 +220,7 @@ final class RenderCache: @unchecked Sendable {
     /// A reply that links a reply button renders again when a button
     /// changes (made, pressed, failed, a press on its way).
     static func buttonStamp(_ row: TranscriptRow) -> Int {
+        if case .asks(let card) = row.content { return card.asks.contains { $0.run != nil } ? ReplyButtons.shared.generation : -1 }
         guard case .assistant(let item) = row.content, ReplyButtons.mayHold(item.text) else { return -1 }
         return ReplyButtons.shared.generation
     }
@@ -1549,6 +1550,7 @@ enum RowRenderer {
                 output.append(NSAttributedString(string: "\n", attributes: [.font: small, .paragraphStyle: noteStyle]))
                 output.append(noteText(place, font: small, color: Theme.faintText, style: noteStyle, offset: noteOffset))
             }
+            if let run = ask.run { appendRun(run, ask: i, indent: indent, to: output) }
             // Links on a row of their own, over the answers: going to look
             // comes before answering.
             var links: [AskButton] = []
@@ -1594,6 +1596,44 @@ enum RowRenderer {
         return output
     }
 
+    /// An ask's command, whole and in a box, as what's shown is what Mike is
+    /// agreeing to; where it runs; and Run, which shows how the press is
+    /// going (docs/protocol.md, "Run on the card").
+    private static func appendRun(_ run: AskRun, ask i: Int, indent: CGFloat, to output: NSMutableAttributedString) {
+        let pad = MarkdownRenderer.codePad
+        let (box, boxOffset) = Theme.lines(Theme.codeLine, font: Theme.codeFont, spacing: pad + zoomed(6), before: pad + zoomed(8), head: indent + pad, tail: -pad)
+        box.lineBreakMode = .byCharWrapping
+        output.append(NSAttributedString(string: "\n", attributes: [.font: Theme.codeFont, .paragraphStyle: box]))
+        output.append(NSAttributedString(string: run.command.replacingOccurrences(of: "\n", with: "\u{2028}"), attributes: [
+            .font: Theme.codeFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: box, .baselineOffset: boxOffset,
+            .tbBlockBackground: Theme.codeBackground,
+        ]))
+        let small = Theme.smallFont
+        let (noteStyle, noteOffset) = Theme.lines(TypeScale.scaled(19), font: small, spacing: zoomed(2), head: indent)
+        let button = run.buttonId.flatMap { ReplyButtons.shared.known($0)?.button }
+        let failed = button.map { $0.failed?.error } ?? run.failed
+        var notes: [(String, NSColor)] = []
+        if let cwd = run.cwd { notes.append(("In " + (cwd as NSString).abbreviatingWithTildeInPath, Theme.faintText)) }
+        if let failed { notes.append((failed, .systemRed)) }
+        for (words, color) in notes {
+            output.append(NSAttributedString(string: "\n", attributes: [.font: small, .paragraphStyle: noteStyle]))
+            output.append(noteText(words, font: small, color: color, style: noteStyle, offset: noteOffset))
+        }
+        guard let id = run.buttonId else { return }
+        let font = Theme.labelFont
+        let (style, offset) = Theme.lines(TypeScale.scaled(38), font: font, before: zoomed(6), head: indent)
+        let pressing = ReplyButtons.shared.isPressing(id)
+        let item: AskButton
+        if button?.pressed != nil {
+            item = AskButton(title: "✓ Ran", action: "", style: .plain)
+        } else if pressing || button?.running != nil || (button == nil && run.running == true) {
+            item = AskButton(title: "Running…", action: "", style: .plain)
+        } else {
+            item = AskButton(title: failed == nil ? "▶ Run" : "▶ Run again", action: "run:\(i):0", style: .primary)
+        }
+        appendButtons([item], to: output, font: font, style: style, offset: offset)
+    }
+
     /// A line of the card's buttons: `.tbAction` runs that
     /// BackgroundLayoutManager draws as buttons.
     private static func appendButtons(_ row: [AskButton], to output: NSMutableAttributedString, font: NSFont, style: NSParagraphStyle, offset: CGFloat) {
@@ -1604,8 +1644,10 @@ enum RowRenderer {
             // no-break ones keep a short title from wrapping apart.
             var attributes: [NSAttributedString.Key: Any] = [
                 .font: font, .foregroundColor: item.style.textColor, .paragraphStyle: style, .baselineOffset: offset,
-                .tbAction: item.action, .tbButton: item.style.rawValue,
+                .tbButton: item.style.rawValue,
             ]
+            // No action: a button that's busy shows but can't be pressed.
+            if !item.action.isEmpty { attributes[.tbAction] = item.action }
             if let peek = item.peek { attributes[.tbPeek] = peek }
             output.append(NSAttributedString(string: "\u{00A0}\u{00A0}\u{00A0}" + item.title.replacingOccurrences(of: " ", with: "\u{00A0}") + "\u{00A0}\u{00A0}\u{00A0}", attributes: attributes))
         }

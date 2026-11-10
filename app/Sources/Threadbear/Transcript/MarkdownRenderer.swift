@@ -760,7 +760,9 @@ enum MarkdownRenderer {
         mutating func replyButton(_ id: String, words: String, _ context: Context) {
             var plain = context
             plain.link = nil
-            guard let known = ReplyButtons.shared.known(id) else {
+            // A run's button is only ever pressed from its card, which shows
+            // the command: a pill for one in a reply couldn't.
+            guard let known = ReplyButtons.shared.known(id), known.button.run == nil else {
                 append(words, plain)
                 return
             }

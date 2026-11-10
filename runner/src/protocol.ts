@@ -717,6 +717,9 @@ export type ReplyButtonStart = {
   why?: string;
 };
 export type ReplyButtonSend = { threadId: string; threadTitle: string; text: string };
+// A command on an ask card (end_turn's asks[].run): only the runner makes
+// one, from the ask, and its press runs the command once in `cwd`.
+export type ReplyButtonRun = { command: string; cwd: string };
 export type ReplyButton = {
   id: string;
   title: string;
@@ -724,6 +727,12 @@ export type ReplyButton = {
   turnId?: string;
   start?: ReplyButtonStart;
   send?: ReplyButtonSend;
+  run?: ReplyButtonRun;
+  // A run's command is going now.
+  running?: { at: string };
+  // How a run's command came out (with `pressed`). exitCode is absent when
+  // it was stopped, as a timeout does.
+  ran?: { ok: boolean; exitCode?: number; durationMs: number };
   pressed?: { at: string; threadId: string };
   failed?: { at: string; error: string };
 };
@@ -843,7 +852,10 @@ export type NeedsWho = 'you' | 'nothing';
 // (suggested, an index into options) marked; he can always write his own.
 // optionNotes: with one reply, what each option does if Mike picks it, in
 // the options' order ("" for none); the card draws them under the labels.
-export type Ask = { action: string; where?: string; reply?: string; why?: string; options?: string[]; optionNotes?: string[]; suggested?: number; links?: AskLink[] };
+// run: a command the card offers to run (docs/protocol.md, "Run on the card").
+export type Ask = { action: string; where?: string; reply?: string; why?: string; options?: string[]; optionNotes?: string[]; suggested?: number; links?: AskLink[]; run?: AskRun };
+// buttonId, cwd and the states are the runner's, added once the card is made.
+export type AskRun = { command: string; buttonId?: string; cwd?: string; running?: true; failed?: string };
 // Somewhere to go to do or judge an ask: a web page, or a file or folder
 // on this Mac (an absolute or ~ path). The app shows each as a button.
 export type AskLink = { title: string; url: string };

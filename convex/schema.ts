@@ -92,6 +92,8 @@ export const threadFields = {
         suggested: v.optional(v.number()),
         links: v.optional(v.array(v.object({ title: v.string(), url: v.string() }))),
         ticked: v.optional(v.boolean()),
+        // A command with a Run button, pressed like a reply button (phone:press). Since API 71.
+        run: v.optional(v.object({ command: v.string(), buttonId: v.string(), cwd: v.optional(v.string()), running: v.optional(v.boolean()), failed: v.optional(v.string()) })),
       }),
     ),
   ),

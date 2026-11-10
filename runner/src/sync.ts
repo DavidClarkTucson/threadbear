@@ -130,7 +130,7 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 70;
+export const BACKEND_API_VERSION = 71;
 // From this one sync:sharedThreads lists a runner's rows shared by link, which
 // it checks against its own threads on every start and every
 // SHARE_RECONCILE_MS (reconcileShares).
@@ -311,6 +311,8 @@ export const FOLLOW_PROBLEM_API_VERSION = 67;
 // librarian's recap for the recap box. An older backend's validator would
 // turn the row down, so it goes without.
 export const RECAP_API_VERSION = 70;
+// An ask's `run` (end_turn's asks[].run), the command and its Run button.
+export const RUN_ASKS_API_VERSION = 71;
 // How far back a start looks for pictures, as new ones go up as they come.
 // Reading a whole log for each thread is too much to do for all of them on
 // every start, and it's the threads in use that Mike opens on the phone.
@@ -417,7 +419,7 @@ export type ThreadDoc = {
 // An open ask as the phone sees it (convex/schema.ts): no `where`, which the
 // paragraph already says, and only web links, as a file on the Mac can't
 // be opened from the phone.
-export type PhoneAsk = { action: string; why?: string; reply?: string; options?: string[]; optionNotes?: string[]; suggested?: number; links?: { title: string; url: string }[]; ticked?: boolean };
+export type PhoneAsk = { action: string; why?: string; reply?: string; options?: string[]; optionNotes?: string[]; suggested?: number; links?: { title: string; url: string }[]; ticked?: boolean; run?: { command: string; buttonId: string; cwd?: string; running?: boolean; failed?: string } };
 
 // A text message, or one line for a tool call (role "tool", since backend
 // API 2): what the phone and the website show of a thread.
@@ -904,6 +906,9 @@ export function toPhoneAsk(a: OpenAsk): PhoneAsk {
   const links = a.links?.filter((l) => /^https?:\/\//i.test(l.url));
   if (links?.length) out.links = links.map((l) => ({ title: l.title, url: l.url }));
   if (a.ticked) out.ticked = true;
+  if (a.run?.buttonId) {
+    out.run = { command: a.run.command, buttonId: a.run.buttonId, ...(a.run.cwd ? { cwd: a.run.cwd } : {}), ...(a.run.running ? { running: true } : {}), ...(a.run.failed ? { failed: a.run.failed } : {}) };
+  }
   return out;
 }
 
@@ -926,7 +931,7 @@ function phoneAnswers(raw: unknown): AskAnswer[] | undefined {
 export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   const asks = d.asks !== undefined || d.asksSeq !== undefined || d.next !== undefined;
   const sections = d.needs !== undefined || d.pendingReviews !== undefined || d.waitingForRoom !== undefined;
-  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined)) return d;
+  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined)) return d;
   const out = { ...d };
   if (v < SECTIONS_API_VERSION) {
     delete out.needs;
@@ -950,6 +955,11 @@ export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
     // That backend's phones have no Starred section to show it in.
     delete out.starredAt;
     out.view = threadView(out, now);
+  }
+  // Without its command the ask is an ordinary one, which is what that
+  // backend's phones can draw.
+  if (v < RUN_ASKS_API_VERSION && out.asks?.some((a) => a.run)) {
+    out.asks = out.asks.map(({ run: _run, ...a }) => a);
   }
   if (v < OPTION_NOTES_API_VERSION && out.asks?.some((a) => a.optionNotes)) {
     out.asks = out.asks.map(({ optionNotes: _notes, ...a }) => a);
@@ -3161,7 +3171,8 @@ export class ConvexSync {
     } catch {
       return m;
     }
-    const buttons = ids.map((id) => all.find((b) => b.id === id)).filter((b): b is ReplyButton => Boolean(b)).map(messageButton);
+    // Not a run's: those are pressed from the card, which shows the command.
+    const buttons = ids.map((id) => all.find((b) => b.id === id)).filter((b): b is ReplyButton => Boolean(b) && !b?.run).map(messageButton);
     const { buttons: _old, wokeBy: _w, pagedAt: _p, ...plain } = m;
     for (const b of buttons) this.rememberButtonRow(`${m.threadId} ${b.id}`, plain);
     return buttons.length ? { ...m, buttons } : m;
