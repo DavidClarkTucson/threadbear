@@ -206,7 +206,7 @@ struct ThreadSettings {
     var provider: String { thread?.provider ?? (logins.account(account)?.provider ?? "claude") }
     var model: String? { thread == nil ? app.lastModels[provider] : thread?.model }
     var effort: String? { thread == nil ? app.lastEfforts[provider] : thread?.effort }
-    var permissionMode: PermissionMode { thread?.permissionMode ?? app.newThreadPermission(for: provider) }
+    var permissionMode: PermissionMode { thread?.permissionMode ?? app.newThreadPermission }
     /// A new thread for another runner: its folders are paths on that Mac.
     var draftRunnerId: String? { thread == nil ? app.newThreadRunnerId : nil }
     /// Another runner's thread, or a new one for another runner.
@@ -642,34 +642,13 @@ struct ThreadSettings {
 
     func permissionMenu() -> NSMenu {
         let menu = NSMenu()
-        // Auto is Claude Code's; Codex has nothing like it, so it's only offered
-        // for Claude (or if a thread is somehow on it already).
-        let modes: [PermissionMode] = provider == "claude" || permissionMode == .auto ? [.full, .auto, .ask, .plan] : [.full, .ask, .plan]
-        // A new Claude thread starts on its runner's default (Settings >
-        // Runners), set right here too and starred, as the runner menu's is.
-        // Codex drafts always start on Full access, so they have none.
-        let draftRunner = draftRunnerId
-        let byDefault = thread == nil && provider == "claude" ? app.defaultPermission(onRunner: draftRunner) : nil
+        // Auto needs a provider with its own judge of each action. Without one
+        // it's only there for a thread that is somehow on it already.
+        let modes: [PermissionMode] = Providers.info(provider).autoMode == "classifier" || permissionMode == .auto ? [.full, .auto, .ask, .plan] : [.full, .ask, .plan]
         for mode in modes {
             let item = ActionMenuItem(mode.composerTitle, symbol: mode.composerIcon, checked: permissionMode == mode) { setPermission(mode) }
             item.subtitle = mode.composerHelp
-            if byDefault == mode { item.markDefault() }
             menu.addItem(item)
-        }
-        if let byDefault {
-            menu.addItem(.separator())
-            let defaults = NSMenu()
-            // Plan first is for one thread at a time, not a default.
-            for mode in modes where mode != .plan {
-                defaults.addItem(ActionMenuItem(mode.composerTitle, symbol: mode.composerIcon, checked: byDefault == mode) {
-                    app.setDefaultPermission(mode, onRunner: draftRunner)
-                    app.newThreadPermissionPick = nil
-                })
-            }
-            let runnerTitle = draftRunner.flatMap { id in app.remoteRunners.first { $0.id == id }?.name } ?? "This Mac"
-            let defaultItem = NSMenuItem(title: "Default on \(runnerTitle)", symbol: "star", action: nil)
-            defaultItem.submenu = defaults
-            menu.addItem(defaultItem)
         }
         return menu
     }
@@ -722,6 +701,7 @@ private extension PermissionMode {
         case .ask: "Ask before edits"
         case .auto: "Auto"
         case .plan: "Plan first"
+        case .unknown: "Unknown mode"
         }
     }
 
@@ -731,6 +711,7 @@ private extension PermissionMode {
         case .ask: "lock"
         case .auto: "lock.shield"
         case .plan: "list.bullet.clipboard"
+        case .unknown: "questionmark.circle"
         }
     }
 
@@ -740,6 +721,7 @@ private extension PermissionMode {
         case .ask: "Asks before editing files or running commands"
         case .auto: "A safety check approves or blocks each action, and asks only when unsure"
         case .plan: "Reads and plans, and changes nothing until you approve its plan"
+        case .unknown: "A mode from a newer runner that this app doesn't know. Update the app to see it. Anything made from this thread here asks before edits"
         }
     }
 }
@@ -1146,7 +1128,9 @@ struct ModelPickerView: View {
                 .frame(maxHeight: Self.listMaxHeight(pools: pools))
                 .fixedSize(horizontal: false, vertical: true)
                 Divider()
-                EffortRow(levels: settings.effortLevels, chosen: settings.effectiveEffort) { settings.setEffort($0) }
+                if !settings.effortLevels.isEmpty {
+                    EffortRow(levels: settings.effortLevels, chosen: settings.effectiveEffort) { settings.setEffort($0) }
+                }
                 if pools, settings.pinnedLine != nil {
                     Divider()
                     PoolFooter(settings: settings, column: column, showPinned: { columnId = ThreadSettings.pinnedColumn },

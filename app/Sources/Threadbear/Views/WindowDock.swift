@@ -41,6 +41,9 @@ enum WindowDock {
     /// activity bar's Runners icon), open until Mike closes it.
     static let runners = "threadbear.runners"
     static let runnersSymbol = "server.rack"
+    /// The Terminal panel (TerminalPanel.swift), ⌘J.
+    static let terminal = "threadbear.terminal"
+    static let terminalSymbol = "terminal"
     static let layoutKey = "dockLayout"
     static let threadPanelPrefix = "threadbear.thread:"
 
@@ -82,7 +85,7 @@ enum WindowDock {
     /// A pane section's panel, or nil for the sidebar, the main panel and a
     /// thread's own panel.
     static func section(_ panel: PanelID) -> PaneSection? {
-        panel == threads || panel == main || panel == usage || panel == updates || panel == setup || panel == connectors || panel == runners || pinnedThread(panel) != nil ? nil : PaneSection(id: panel)
+        panel == threads || panel == main || panel == usage || panel == updates || panel == setup || panel == connectors || panel == runners || panel == terminal || pinnedThread(panel) != nil ? nil : PaneSection(id: panel)
     }
 
     @MainActor
@@ -101,6 +104,7 @@ enum WindowDock {
         case setup: return "Finish setting up"
         case connectors: return "Connectors"
         case runners: return "Runners"
+        case terminal: return "Terminal"
         default:
             break
         }
@@ -116,7 +120,6 @@ enum WindowDock {
         switch panel {
         case PaneSection.highlightsId: return "Highlights"
         case AgentBrowser.panelId: return "Browser"
-        case PaneSection.terminalId: return "Terminal"
         case BuiltinPanels.files: return "Files"
         case PaneSection.patchesId: return "Patches"
         default:
@@ -155,9 +158,9 @@ enum WindowDock {
         case setup: return setupSymbol
         case connectors: return connectorsSymbol
         case runners: return runnersSymbol
+        case terminal: return terminalSymbol
         case PaneSection.highlightsId: return "pin"
         case AgentBrowser.panelId: return "globe"
-        case PaneSection.terminalId: return "terminal"
         case BuiltinPanels.files: return "folder"
         case PaneSection.patchesId: return "square.dashed"
         default:
@@ -223,6 +226,57 @@ extension AppModel {
         set { setShownUnderThreads(WindowDock.runners, newValue) }
     }
 
+    /// The Terminal panel is up.
+    var terminalShown: Bool { dock.isShowing(WindowDock.terminal) }
+
+    /// ⌘J: hides the Terminal if it's showing, else brings it up under the
+    /// thread (a third of its height, as VS Code opens its own) and gives
+    /// it the keyboard.
+    func toggleTerminal() {
+        if terminalShown { return dock.close(WindowDock.terminal) }
+        bringUpTerminal()
+        Terminals.shared.open(TerminalTarget.for(selectedThread) { runnerName(of: $0) })
+    }
+
+    /// Whether a shell here would be in the showing thread's own folder.
+    /// Otherwise it's a shell on this Mac somewhere else (TerminalTarget's
+    /// note), which is no place to put a command the thread handed you.
+    var canPutInTerminal: Bool {
+        selectedThread != nil && TerminalTarget.for(selectedThread) { runnerName(of: $0) }.note == nil
+    }
+
+    /// A ```bash block's play icon: the command at the thread's prompt.
+    func putInTerminal(_ block: ShellBlock, done: @escaping @MainActor (Terminals.PutOutcome) -> Void) {
+        guard canPutInTerminal else { return }
+        if !terminalShown { bringUpTerminal() }
+        Terminals.shared.put(block, in: TerminalTarget.for(selectedThread) { runnerName(of: $0) }, done: done)
+    }
+
+    private func bringUpTerminal() {
+        if dock.layout.contains(WindowDock.terminal) {
+            dock.show(WindowDock.terminal)
+        } else if let main = dock.layout.group(containing: WindowDock.main) {
+            var layout = dock.layout
+            layout.add(WindowDock.terminal, .edge(group: main.id, .bottom))
+            if let split = Self.split(around: WindowDock.terminal, in: layout.root), split.children.count == 2 {
+                layout.setFractions(split: split.id, [0.68, 0.32])
+            }
+            dock.setLayout(layout)
+        } else {
+            dock.open(WindowDock.terminal, .window(.bottom))
+        }
+    }
+
+    /// The split a panel's group sits directly in.
+    private static func split(around panel: PanelID, in node: DockNode) -> DockSplit? {
+        guard case .split(let s) = node else { return nil }
+        for child in s.children {
+            if case .group(let g) = child, g.panels.contains(panel) { return s }
+            if let inner = split(around: panel, in: child) { return inner }
+        }
+        return nil
+    }
+
     /// Opens one of the activity bar's panels: as a tab beside another
     /// if one's open (Usage, Updates, Finish setting up, Connectors and Runners share the space under
     /// the threads), else under the threads list, else down the left if
@@ -264,6 +318,10 @@ struct RootView: View {
         .navigationTitle(windowTitle)
         .sheet(item: $app.scheduleEditor) { state in
             ScheduleEditor(state: state)
+        }
+        // Move to ▸ a runner (AppModel+Moves).
+        .sheet(item: $app.moveRequest) { request in
+            MoveSheet(request: request)
         }
         // The automation's `settings` opens the Settings window; only a
         // SwiftUI view can (AppKit's showSettingsWindow: does nothing now).
@@ -336,7 +394,7 @@ struct RootView: View {
                 return nil
             },
             accessory: { panel in
-                if panel == WindowDock.main { return AnyView(HStack(spacing: 0) { ShareButton(); ThreadMenuButton() }) }
+                if panel == WindowDock.main { return AnyView(HStack(spacing: 0) { HistoryButtons(); ShareButton(); ThreadMenuButton() }) }
                 if let id = WindowDock.pinnedThread(panel) { return AnyView(HStack(spacing: 0) { ShareButton(pinned: id); ThreadMenuButton(pinned: id) }) }
                 if let section = WindowDock.section(panel) { return AnyView(DockPaneButtons(section: section)) }
                 return nil
@@ -354,7 +412,6 @@ struct RootView: View {
                 switch WindowDock.section(panel) {
                 case .highlights: return app.openProject == nil
                 case .panel(AgentBrowser.panelId): return true
-                case .panel(PaneSection.terminalId): return app.openProject == nil
                 case .panel(BuiltinPanels.files): return app.openProject == nil
                 case .panel(let id): return thread.panels.contains { $0.id == id }
                 case .patches: return !thread.patches.isEmpty
@@ -369,6 +426,7 @@ struct RootView: View {
                 case WindowDock.setup: AnyView(SetupPanel().tourTarget(.setupPanel, withBar: true))
                 case WindowDock.connectors: AnyView(ConnectorsPanel().tourTarget(.panel("connectors"), withBar: true))
                 case WindowDock.runners: AnyView(RunnersPanel())
+                case WindowDock.terminal: AnyView(TerminalPanel())
                 case WindowDock.main: AnyView(DetailView().tourTarget(.mainPanel, withBar: true))
                 case let id where WindowDock.pinnedThread(id) != nil:
                     AnyView(PinnedThreadView(threadId: WindowDock.pinnedThread(id)!).id(id))

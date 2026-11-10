@@ -9,6 +9,7 @@
 //   - one that can't work here: answered with a note saying what does.
 // A path ("/Users/mike") isn't a command; a command neither CLI knows goes
 // to the model as words, as it did before.
+import { providerName } from './providers.ts';
 import type { Provider } from './protocol.ts';
 
 export type SlashCommandSource = 'cli' | 'skill' | 'threadbear';
@@ -129,7 +130,7 @@ export function planCommand(provider: Provider, cmd: ParsedCommand, skills: Read
   if (skills.has(cmd.name)) return { kind: 'cli' };
   if (name in ELSEWHERE) {
     const said = ELSEWHERE[name];
-    return { kind: 'note', text: `/${name} is part of Codex's terminal app and doesn't run in Threadbear.${said ? ` ${said}` : ''}` };
+    return { kind: 'note', text: `/${name} is part of ${providerName(provider)}'s terminal app and doesn't run in Threadbear.${said ? ` ${said}` : ''}` };
   }
   // Its adapter adds the skill when one has this name (the runner may not
   // have its list yet), else Codex gets it as words.

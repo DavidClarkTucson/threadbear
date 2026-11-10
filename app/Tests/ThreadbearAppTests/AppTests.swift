@@ -423,6 +423,19 @@ final class QuestionAnswerTests: XCTestCase {
         let answers = QuestionRowCell.answers(for: request, chosen: [:], typed: "Medium")
         XCTAssertEqual(answers, ["Which size?": "Medium"])
     }
+
+    /// A long option description wraps and the card grows to fit it,
+    /// rather than cutting it off at one line.
+    func testLongOptionDescriptionsWrap() {
+        func height(_ description: String) -> CGFloat {
+            let question = Question(question: "Which?", options: [QuestionOption(label: "Lean", description: description)])
+            let row = TranscriptRow(id: "q", seq: 1, content: .question(QuestionItem(request: QuestionRequest(approvalId: "q1", questions: [question]))))
+            return RowRenderer.render(row, expanded: false, tableWidth: 500, measurer: TextMeasurer()).height
+        }
+        let short = height("Keep the four.")
+        let long = height(String(repeating: "Keep the workflow skills and add the security check. ", count: 6))
+        XCTAssertGreaterThan(long, short + RowMetrics.optionDescription * 2)
+    }
 }
 
 /// Incremental measuring while a reply streams must give exactly the height
@@ -585,40 +598,18 @@ final class DraftTests: XCTestCase {
         XCTAssertEqual(app.errorMessage, "Busy")
     }
 
-    /// A new schedule runs its threads on the composer's mode: Auto by
-    /// default, or whatever was picked.
+    /// A new schedule runs its threads on the composer's mode, Auto
+    /// included, rather than Auto turning into Ask.
     func testNewScheduleTakesTheComposersPermission() {
         let app = AppModel()
+        app.newSchedule(from: nil)
+        XCTAssertEqual(app.scheduleEditor?.permissionMode, .full)
+        app.newThreadPermission = .auto
         app.newSchedule(from: nil)
         XCTAssertEqual(app.scheduleEditor?.permissionMode, .auto)
         app.newThreadPermission = .ask
         app.newSchedule(from: nil)
         XCTAssertEqual(app.scheduleEditor?.permissionMode, .ask)
-    }
-
-    /// Each runner has its own default mode for new Claude threads, kept
-    /// across launches; a pick on the composer beats it for that draft, and
-    /// Codex drafts start on Full access whatever the default says.
-    func testDefaultPermissionByRunner() {
-        defer { UserDefaults.standard.removeObject(forKey: AppModel.defaultPermissionsKey) }
-        UserDefaults.standard.removeObject(forKey: AppModel.defaultPermissionsKey)
-        let app = AppModel()
-        XCTAssertEqual(app.newThreadPermission, .auto, "Auto where none is set")
-        app.setDefaultPermission(.ask, onRunner: nil)
-        app.setDefaultPermission(.full, onRunner: "pi")
-        XCTAssertEqual(app.newThreadPermission(for: "claude"), .ask, "this Mac's default")
-        XCTAssertEqual(app.newThreadPermission(for: "codex"), .full, "Codex keeps Full access")
-        app.newThreadRunnerId = "pi"
-        XCTAssertEqual(app.newThreadPermission(for: "claude"), .full, "the other runner's default")
-        app.newThreadRunnerId = "elsewhere"
-        XCTAssertEqual(app.newThreadPermission(for: "claude"), .auto)
-        app.newThreadPermission = .ask
-        XCTAssertEqual(app.newThreadPermission(for: "claude"), .ask, "a pick beats the default")
-        XCTAssertEqual(app.newThreadPermission(for: "codex"), .ask, "and counts on Codex too")
-
-        let relaunched = AppModel()
-        XCTAssertEqual(relaunched.defaultPermission(onRunner: nil), .ask)
-        XCTAssertEqual(relaunched.defaultPermission(onRunner: "pi"), .full)
     }
 
     /// The folder, "Ask before edits" and a picked account were for the
@@ -649,8 +640,7 @@ final class DraftTests: XCTestCase {
         }
         XCTAssertEqual(app.selection, "th_new")
         XCTAssertNil(app.newThreadCwd)
-        XCTAssertEqual(app.newThreadPermission, .auto, "back on Auto")
-        XCTAssertEqual(app.newThreadPermission(for: "codex"), .full, "which Codex hasn't got")
+        XCTAssertEqual(app.newThreadPermission, .full)
         XCTAssertNil(app.newThreadAccount, "a picked account is for that draft only")
         XCTAssertEqual(app.lastAccountId, "claude-3")
         XCTAssertEqual(app.newThreadAccountId, "claude-3", "with no usage known, the last-used one")
@@ -663,6 +653,48 @@ final class DraftTests: XCTestCase {
         app.setModel("th_new", nil)
         XCTAssertEqual(AppModel().newThreadEffort, "max")
         XCTAssertNil(AppModel().newThreadModel)
+    }
+
+    /// The composer starts on the runner's default mode (Auto on a new
+    /// install), goes back to it after a send, and to Full access with a
+    /// runner that has none.
+    func testNewThreadStartsOnTheRunnersDefaultMode() async throws {
+        defer { UserDefaults.standard.removeObject(forKey: AppModel.lastAccountKey) }
+        let app = AppModel()
+        XCTAssertEqual(app.newThreadPermission, .full, "a runner with no default, or one that hasn't said")
+        app.defaults = RunnerDefaults(cwd: "/w", accountId: "claude-3", permissionMode: .auto)
+        XCTAssertEqual(app.newThreadPermission, .auto)
+        let transport = RefusingTransport()
+        transport.createdThread = true
+        let client = RPCClient(transport: transport)
+        try await client.start()
+        app.useClientForTesting(client)
+        app.newThreadPermission = .ask
+        XCTAssertEqual(app.newThreadRequest(text: "x", images: []).permissionMode, .ask)
+        app.drafts["new"] = Draft(text: "Start something")
+        app.send(threadId: nil)
+        for _ in 0..<200 where app.selection == nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(app.selection, "th_new")
+        XCTAssertEqual(app.newThreadPermission, .auto, "back to the runner's default")
+        XCTAssertNil(app.newThreadPermissionPick)
+        XCTAssertEqual(app.newThreadRequest(text: "x", images: []).permissionMode, .auto, "and that's what the next one sends")
+    }
+
+    /// A runner whose default mode this app doesn't know: the composer says
+    /// so rather than Full access, a new thread leaves the mode out so the
+    /// runner starts it on that default, and a schedule made from it asks.
+    func testUnknownRunnerDefaultModeIsNotFullAccess() {
+        defer { UserDefaults.standard.removeObject(forKey: AppModel.lastAccountKey) }
+        let app = AppModel()
+        app.defaults = try! JSONDecoder().decode(RunnerDefaults.self, from: Data(#"{"cwd":"/w","accountId":"claude-3","permissionMode":"sandboxed"}"#.utf8))
+        XCTAssertEqual(app.newThreadPermission, .unknown)
+        XCTAssertNil(app.newThreadRequest(text: "x", images: []).permissionMode)
+        app.newSchedule(from: nil)
+        XCTAssertEqual(app.scheduleEditor?.permissionMode.sent, .ask)
+        app.newThreadPermission = .full
+        XCTAssertEqual(app.newThreadRequest(text: "x", images: []).permissionMode, .full, "a mode picked is still sent")
     }
 
     /// A Codex pick doesn't become the next Claude thread's model, and the

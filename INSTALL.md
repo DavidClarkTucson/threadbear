@@ -161,8 +161,10 @@ Hetzner cloud server with 8 GB. Do this as an ordinary user with sudo, not root.
    commands run in the account's own shell, else bash. Set the account's full name, which agents are told:
    `sudo chfn -f "Their Name" $USER`. And a git identity, as on any machine
    that commits: `git config --global user.name` and `user.email`.
-2. **Node 24 with nvm**, at the path the scripts expect:
-   `nvm install 24.22.1` (else pass `--node` to the install script).
+2. **Node 24 or newer**, from nvm (`nvm install 24`), your package manager or
+   nodejs.org. The scripts take the `node` on PATH, else nvm's newest, so an
+   ssh session without nvm on its PATH still finds it; `--node` on the install
+   script, or `THREADBEAR_NODE`, picks one yourself.
 3. **The CLIs, logged in on this server:** Claude Code with its native
    installer (`curl -fsSL https://claude.ai/install.sh | bash`, which puts
    it in `~/.local/bin/claude`, where the runner looks), then
@@ -179,9 +181,11 @@ Hetzner cloud server with 8 GB. Do this as an ordinary user with sudo, not root.
    folder to the same place here (`~/Library/Application Support/Threadbear`;
    the folders keep their macOS names on Linux, so every path in these docs
    is the same) with `scp`, never by printing it, and `chmod 600` it. Then
-   write `runner.json` there: `port` 8797, and `sync` with `url` (the Mac's
+   write `runner.json` there: `port` 8797, `sync` with `url` (the Mac's
    `sync.url`), `name` (what the sidebar calls this machine) and `rpcUrl`
-   (`wss://<tailnet name>:8798/rpc`).
+   (`wss://<tailnet name>:8798/rpc`), and `defaults` with `permissionMode`
+   `"auto"`, as setup gives a new Mac (threads that name no mode start on
+   Auto).
 7. **Install:** `runner/scripts/install-runner.sh`. On Linux it writes a
    systemd user service, `~/.config/systemd/user/com.mikerosoft.threadbear.runner.service`,
    in place of the LaunchAgent. Turn on lingering once, or it stops when

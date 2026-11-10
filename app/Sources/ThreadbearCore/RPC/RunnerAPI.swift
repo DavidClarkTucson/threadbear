@@ -7,10 +7,7 @@ public extension RPCClient {
     /// (docs/protocol.md, "App restarts"). A dev build has none.
     func hello(client: String = "threadbear-mac", version: String, build: (commit: String, short: String, tree: String)? = nil) async throws -> HelloResult {
         var params: [String: JSONValue] = ["client": .string(client), "version": .string(version)]
-        if client == "threadbear-mac" {
-            params["browserPanel"] = .bool(true)
-            params["terminalPanel"] = .bool(true)
-        }
+        if client == "threadbear-mac" { params["browserPanel"] = .bool(true) }
         if let build {
             params["build"] = .object(["commit": .string(build.commit), "short": .string(build.short), "tree": .string(build.tree)])
         }
@@ -40,7 +37,7 @@ public extension RPCClient {
         if let poolId = request.poolId { params["poolId"] = .string(poolId) }
         if let model = request.model { params["model"] = .string(model) }
         if let effort = request.effort { params["effort"] = .string(effort) }
-        if let mode = request.permissionMode { params["permissionMode"] = .string(mode.rawValue) }
+        if let mode = request.permissionMode { params["permissionMode"] = .string(mode.sent.rawValue) }
         if let title = request.title { params["title"] = .string(title) }
         if let runnerId = request.runnerId { params["runnerId"] = .string(runnerId) }
         if !request.projectIds.isEmpty { params["projectIds"] = .array(request.projectIds.map { .string($0) }) }
@@ -452,7 +449,7 @@ public struct ThreadUpdate: Sendable, Hashable {
         if let accountId { params["accountId"] = .string(accountId) }
         if let model { params["model"] = model.map { .string($0) } ?? .null }
         if let effort { params["effort"] = effort.map { .string($0) } ?? .null }
-        if let permissionMode { params["permissionMode"] = .string(permissionMode.rawValue) }
+        if let permissionMode { params["permissionMode"] = .string(permissionMode.sent.rawValue) }
         if snoozeUntilRestart {
             params["snoozedUntil"] = .string("restart")
         } else if let snoozedUntil {
@@ -566,6 +563,30 @@ public extension RPCClient {
     /// The runners a schedule can be put on, this one first. A runner from
     /// before step 6 answers -32601, which means just itself: no choice to
     /// offer, so an empty list.
+    /// The Move sheet's guess (docs/protocol.md, "Moving a thread to
+    /// another runner"): where the thread would run on `runnerId` and on
+    /// which login, or, with `cwd` and `accountId`, whether those will do.
+    /// The target answers through Convex, so allow it time.
+    func movePreview(threadId: String, runnerId: String, cwd: String? = nil, accountId: String? = nil) async throws -> MovePreview {
+        var params: [String: JSONValue] = ["threadId": .string(threadId), "runnerId": .string(runnerId)]
+        if let cwd, !cwd.isEmpty { params["cwd"] = .string(cwd) }
+        if let accountId, !accountId.isEmpty { params["accountId"] = .string(accountId) }
+        return try await call("threads.movePreview", .object(params), as: MovePreview.self, timeout: .seconds(75))
+    }
+
+    /// Starts the move. It goes once the thread's turn ends; the row's
+    /// `moving` says how it's getting on.
+    func moveThread(threadId: String, runnerId: String, cwd: String?, accountId: String?) async throws {
+        var params: [String: JSONValue] = ["threadId": .string(threadId), "runnerId": .string(runnerId)]
+        if let cwd, !cwd.isEmpty { params["cwd"] = .string(cwd) }
+        if let accountId, !accountId.isEmpty { params["accountId"] = .string(accountId) }
+        _ = try await call("threads.move", .object(params), as: EmptyResult.self, timeout: .seconds(30))
+    }
+
+    func cancelMove(threadId: String) async throws {
+        _ = try await call("threads.moveCancel", .object(["threadId": .string(threadId)]), as: EmptyResult.self, timeout: .seconds(30))
+    }
+
     func listRunners() async throws -> [RunnerInfo] {
         do {
             return try await call("runners.list", .object([:]), as: RunnersResult.self).runners
@@ -679,7 +700,7 @@ public struct NewScheduleRequest: Sendable, Hashable {
             if let poolId { params["poolId"] = .string(poolId) } else if let accountId { params["accountId"] = .string(accountId) }
             if let model { params["model"] = .string(model) }
             if let effort { params["effort"] = .string(effort) }
-            if let permissionMode { params["permissionMode"] = .string(permissionMode.rawValue) }
+            if let permissionMode { params["permissionMode"] = .string(permissionMode.sent.rawValue) }
             if let runnerId { params["runnerId"] = .string(runnerId) }
         }
         return params
@@ -694,13 +715,19 @@ public struct ScheduleUpdate: Sendable, Hashable {
     public var when: ScheduleWhen?
     public var paused: Bool?
     public var cwd: String?
+    /// Left out: unchanged. `.some(nil)`: back to the default (sent as null).
+    public var model: String??
+    public var effort: String??
 
-    public init(title: String? = nil, text: String? = nil, when: ScheduleWhen? = nil, paused: Bool? = nil, cwd: String? = nil) {
+    public init(title: String? = nil, text: String? = nil, when: ScheduleWhen? = nil, paused: Bool? = nil, cwd: String? = nil,
+                model: String?? = .none, effort: String?? = .none) {
         self.title = title
         self.text = text
         self.when = when
         self.paused = paused
         self.cwd = cwd
+        self.model = model
+        self.effort = effort
     }
 
     public var params: [String: JSONValue] {
@@ -709,6 +736,8 @@ public struct ScheduleUpdate: Sendable, Hashable {
         if let text { params["text"] = .string(text) }
         if let paused { params["paused"] = .bool(paused) }
         if let cwd { params["cwd"] = .string(cwd) }
+        if case .some(let model) = model { params["model"] = model.map(JSONValue.string) ?? .null }
+        if case .some(let effort) = effort { params["effort"] = effort.map(JSONValue.string) ?? .null }
         return params
     }
 }
@@ -1035,44 +1064,5 @@ public enum SecretAnswer: Sendable, CustomStringConvertible, CustomDebugStringCo
     /// whitespace-only secret (-32602).
     public static func canSave(_ typed: String) -> Bool {
         !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-}
-
-// MARK: - The Terminal panel (docs/protocol.md, "The Terminal panel")
-
-public extension RPCClient {
-    /// Starts the thread's shell, or attaches to the one that's running.
-    /// The first open on a runner may compile its helper, so it gets longer.
-    func terminalOpen(threadId: String, cols: Int, rows: Int) async throws -> TerminalSession {
-        try await call("terminal.open", Self.terminalSizeParams(threadId: threadId, cols: cols, rows: rows), as: TerminalSession.self, timeout: .seconds(60))
-    }
-
-    /// A new shell, ending the old one first.
-    func terminalRestart(threadId: String, cols: Int, rows: Int) async throws -> TerminalSession {
-        try await call("terminal.restart", Self.terminalSizeParams(threadId: threadId, cols: cols, rows: rows), as: TerminalSession.self, timeout: .seconds(60))
-    }
-
-    /// At most 64 KB a call (TerminalInputBuffer).
-    func terminalInput(terminalId: String, data: Data) async throws {
-        _ = try await call("terminal.input", .object(["terminalId": .string(terminalId), "data": .string(data.base64EncodedString())]), as: EmptyResult.self)
-    }
-
-    func terminalResize(terminalId: String, cols: Int, rows: Int) async throws {
-        let size = TerminalSize.clamped(cols: cols, rows: rows)
-        _ = try await call("terminal.resize", .object(["terminalId": .string(terminalId), "cols": .number(Double(size.cols)), "rows": .number(Double(size.rows))]), as: EmptyResult.self)
-    }
-
-    /// Stops this connection's output; the shell keeps running.
-    func terminalDetach(terminalId: String) async throws {
-        _ = try await call("terminal.detach", .object(["terminalId": .string(terminalId)]), as: EmptyResult.self)
-    }
-
-    func terminalKill(terminalId: String) async throws {
-        _ = try await call("terminal.kill", .object(["terminalId": .string(terminalId)]), as: EmptyResult.self)
-    }
-
-    private static func terminalSizeParams(threadId: String, cols: Int, rows: Int) -> JSONValue {
-        let size = TerminalSize.clamped(cols: cols, rows: rows)
-        return .object(["threadId": .string(threadId), "cols": .number(Double(size.cols)), "rows": .number(Double(size.rows))])
     }
 }

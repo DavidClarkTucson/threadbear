@@ -6,9 +6,11 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaultHome, readToken, runnerUrl, type Config } from './config.ts';
+import { defaultHome, runnerUrl, type Config } from './config.ts';
+import { newTbClient } from './tb-connect.ts';
 import { RunnerClient, RpcClientError } from './client.ts';
 import { ErrorCode, type Account, type ImageRef, type PersistedEvent, type RunnerDefaults, type ThreadSummary } from './protocol.ts';
+import { providerName } from './providers.ts';
 import { pushFailingText } from './push-failing.ts';
 import type { RestartResult, RunnerStatus } from './restart.ts';
 import type { UpstreamStatus } from './upstream.ts';
@@ -447,6 +449,9 @@ export function formatStatus(s: RunnerStatus, threads: ThreadSummary[], now: num
   }
   const u = s.update;
   if (u) lines.push(formatUpdate(u, now));
+  // Said on its own line: it's the thing that sat unnoticed for three days.
+  if (u?.followProblem) lines.push(`Not following GitHub's main properly: ${u.followProblem}`);
+  for (const r of s.behindRunners ?? []) lines.push(`${r.name} isn't following GitHub's main properly: ${r.problem}`);
   if (s.upstream && (s.upstream.state !== 'off' || s.upstream.published)) lines.push(formatUpstream(s.upstream, now).split('\n')[0]);
   // A held release is the one thing here that wants doing something about.
   if (s.upstream?.held) lines.push(heldLine(s.upstream.held));
@@ -505,21 +510,22 @@ export function formatSecrets(y: NonNullable<NonNullable<RunnerStatus['sync']>['
 
 // The runner following main by itself (src/update.ts), one line.
 function formatUpdate(u: NonNullable<RunnerStatus['update']>, now: number): string {
+  const label = u.followsOrigin ? "Following GitHub's main" : 'Following main';
   const checked = u.checkedAt ? `, checked ${duration(now - Date.parse(u.checkedAt))} ago` : '';
   const at = u.commit ? ` at ${u.commit.slice(0, 7)}` : '';
   switch (u.state) {
     case 'off':
-      return `Following main: off${u.reason ? ` (${u.reason})` : ''}`;
+      return `${label}: off${u.reason ? ` (${u.reason})` : ''}`;
     case 'checking':
-      return `Following main: checking it now`;
+      return `${label}: checking it now`;
     case 'building':
-      return `Following main: building a release of main${at}`;
+      return `${label}: building a release of main${at}`;
     case 'waiting':
-      return `Following main: release ${u.release ?? '?'} of main${at} is built and starts on the pending restart`;
+      return `${label}: release ${u.release ?? '?'} of main${at} is built and starts on the pending restart`;
     case 'failed':
-      return `Following main: the build of main${at} failed${checked}: ${u.reason ?? 'unknown error'}${u.logFile ? ` (output in ${u.logFile})` : ''}`;
+      return `${label}: the build of main${at} failed${checked}: ${u.reason ?? 'unknown error'}${u.logFile ? ` (output in ${u.logFile})` : ''}`;
     default:
-      return `Following main: up to date${at}${checked}`;
+      return `${label}: up to date${at}${checked}`;
   }
 }
 
@@ -565,7 +571,7 @@ function access(t: ThreadSummary): string {
 // tb models: one row per model, the default starred, with its effort
 // levels; then what a new thread on the account runs on.
 export function formatModels(a: Account, defaults?: RunnerDefaults): string {
-  const lines = [`${a.id} (${a.provider === 'codex' ? 'Codex' : 'Claude'})`];
+  const lines = [`${a.id} (${providerName(a.provider)})`];
   const isDefault = (m: { id: string; model: string }) => a.defaultModel !== undefined && (m.id === a.defaultModel || m.model === a.defaultModel);
   if (!a.models?.length) lines.push("  The CLI hasn't been asked for its models yet.");
   for (const m of a.models ?? []) {
@@ -584,7 +590,7 @@ export function formatSelf(t: ThreadSummary): string {
     t.id,
     t.title,
     `Status: ${t.status}${t.live ? ', CLI live' : ''}`,
-    `Account: ${t.accountId} (${t.provider === 'codex' ? 'Codex' : 'Claude'}), ${t.model ? `model ${t.model}` : 'default model'}${t.modelInUse ? ` (${t.modelInUse})` : ''}, effort ${t.effort ?? 'default'}${t.effortInUse ? ` (${t.effortInUse})` : ''}, ${access(t)}`,
+    `Account: ${t.accountId} (${providerName(t.provider)}), ${t.model ? `model ${t.model}` : 'default model'}${t.modelInUse ? ` (${t.modelInUse})` : ''}, effort ${t.effort ?? 'default'}${t.effortInUse ? ` (${t.effortInUse})` : ''}, ${access(t)}`,
     `Folder: ${t.cwd}`,
     `Events: ${t.lastSeq}`,
   ];
@@ -862,7 +868,7 @@ async function runnerLogFile(cfg: Config): Promise<string | undefined> {
   let client: RunnerClient | undefined;
   let timer: NodeJS.Timeout | undefined;
   try {
-    client = new RunnerClient(url, readToken(cfg.home));
+    client = newTbClient(cfg, url);
     const c = client;
     const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('timeout')), 1500)));
     const s = await Promise.race([c.opened.then(() => c.call<RunnerStatus>('runner.status')), timeout]);

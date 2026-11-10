@@ -27,9 +27,6 @@ public enum PaneSection: Hashable, Sendable {
 
     public static let highlightsId = "threadbear.highlights"
     public static let patchesId = "threadbear.patches"
-    /// The built-in Terminal panel: a shell in the thread's folder, on the
-    /// runner that has the thread.
-    public static let terminalId = "threadbear.terminal"
 }
 
 /// Which section of the pane is showing, and how wide the pane is.
@@ -49,7 +46,6 @@ public enum PanelChoice {
         case .highlights: return .highlights
         case .patches: return hasPatches ? .patches : .highlights
         case .panel("threadbear.browser"): return .panel("threadbear.browser")
-        case .panel(PaneSection.terminalId): return .panel(PaneSection.terminalId)
         case .panel(let id): return panels.contains { $0.id == id } ? .panel(id) : .highlights
         }
     }

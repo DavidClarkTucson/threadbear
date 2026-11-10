@@ -32,9 +32,22 @@ struct SettingsView: View {
                 .tabItem { Label("Keyboard", systemImage: "keyboard") }
                 .tag(SettingsTab.keyboard)
         }
-        .frame(width: 540)
+        // Drag the window wider for more room; it opens a little wider than
+        // it was and never goes narrower than every tab's title needs.
+        .frame(minWidth: SettingsLayout.minWidth,
+               idealWidth: SettingsLayout.idealWidth,
+               maxWidth: .infinity)
         .background(SettingsWindowFinder())
     }
+}
+
+/// The Settings window's widths. A grouped Form stops its rows at about 700
+/// points of its own accord (macOS 26), so wider than that adds even sides.
+enum SettingsLayout {
+    /// Narrowest it goes: every tab's title still fits along the top.
+    static let minWidth: CGFloat = 540
+    /// What the window opens at.
+    static let idealWidth: CGFloat = 760
 }
 
 /// What the runner's settings tabs show until there are settings to show.
@@ -192,6 +205,22 @@ private struct GeneralSettings: View {
                             }
                         }
                         .tip("How often a thread starts to bring in Mike's new releases")
+                    }
+                }
+
+                // runner.json's `experiments`, so nobody has to edit it by
+                // hand. The list comes from the runner (each
+                // runner/src/experiments/<id>.md), so a new experiment shows
+                // here by itself, and each switch is read at its next use.
+                if !settings.experiments.isEmpty {
+                    SettingsSection("Experiments",
+                                    about: "New features still being tried out. Each starts off; turn one on to try it, and off again whenever you like. Once one has proved itself it becomes a standard part of Threadbear and its switch goes. The ⓘ beside each says what it does.",
+                                    ask: "explain an experiment, or turn one on or off for you.") {
+                        ForEach(settings.experiments) { experiment in
+                            ExperimentRow(experiment: experiment) { on in
+                                app.updateSettings(SettingsUpdate(experiments: [experiment.id: on]))
+                            }
+                        }
                     }
                 }
 
@@ -694,6 +723,23 @@ private struct LoginToggleRow: View {
     }
 }
 
+/// One experiment's switch in Settings > General, with what it does behind
+/// its ⓘ.
+private struct ExperimentRow: View {
+    let experiment: RunnerSettings.Experiment
+    let set: (Bool) -> Void
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { experiment.on }, set: set)) {
+            HStack(spacing: 6) {
+                Text(experiment.name)
+                if !experiment.does.isEmpty { InfoTip(SettingsText.experimentAbout(experiment.does)) }
+            }
+        }
+        .tip(experiment.on ? "Turn \(experiment.name) off" : "Try \(experiment.name)")
+    }
+}
+
 /// A section of settings: its title, and behind the ⓘ what it is and what to
 /// ask your agent. Agents can edit runner.json and the rest, so the window
 /// shows what's set with few controls, and every section says to ask your
@@ -730,16 +776,30 @@ struct SettingsSection<Content: View>: View {
 private struct SettingsWindowFinder: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { SettingsWindow.current = view.window }
+        DispatchQueue.main.async {
+            SettingsWindow.current = view.window
+            if let window = view.window { SettingsWindow.makeResizable(window) }
+        }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        if let window = nsView.window { SettingsWindow.current = window }
+        if let window = nsView.window {
+            SettingsWindow.current = window
+            SettingsWindow.makeResizable(window)
+        }
     }
 }
 
 @MainActor
 enum SettingsWindow {
     static weak var current: NSWindow?
+
+    /// A Settings scene's window comes fixed size; this one can be dragged
+    /// wider (each tab still sets its height).
+    static func makeResizable(_ window: NSWindow) {
+        guard !window.styleMask.contains(.resizable) else { return }
+        window.styleMask.insert(.resizable)
+        window.contentMinSize.width = SettingsLayout.minWidth
+    }
 }

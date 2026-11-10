@@ -37,7 +37,8 @@
 //   can do anything to the deployment. Its key comes from the first Mac:
 //   tb runner add <name> --ssh <this Mac> (docs/protocol.md, "Runner keys").
 //   6. runner.json: where the runner mirrors to, and the default folder for
-//      new threads (~/ThreadbearThreads, made here, unless --cwd; Settings changes it)
+//      new threads (~/ThreadbearThreads, made here, unless --cwd; Settings changes it).
+//      One this makes also starts new threads on Auto (defaults.permissionMode)
 //   7. the backend and the website, deployed
 //   8. the runner (its LaunchAgent, with Threadbear Runner.app as the
 //      program, so macOS's privacy prompts name it) and the Mac app, built
@@ -146,6 +147,37 @@ function readJson(file) {
   } catch {
     return {};
   }
+}
+// runner.json, or {} when there's none yet. One that's there but broken
+// stops setup, which writes back what it reads: reading it as {} rewrote
+// it with almost nothing in it, as the runner did before 9 Nov
+// (runner/src/config.ts, RunnerJsonError).
+function readRunnerJson() {
+  let text;
+  try {
+    text = fs.readFileSync(runnerJsonPath, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      // A link to a file that has gone is a runner.json that's there.
+      let link = false;
+      try {
+        link = fs.lstatSync(runnerJsonPath).isSymbolicLink();
+      } catch {
+        // no file and no link: a first run
+      }
+      if (link) throw new Fail(`${runnerJsonPath} is a link to a file that isn't there. Put the file back (or remove the link), then run setup again.`);
+      return {};
+    }
+    throw new Fail(`Couldn't read ${runnerJsonPath} (${e.code ?? e}). Setup won't change it until it can.`);
+  }
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    throw new Fail(`${runnerJsonPath} isn't valid JSON: ${text.trim() ? e.message : 'it is empty'}. Fix it by hand (or move it aside), then run setup again; it won't change it until then.`);
+  }
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Fail(`${runnerJsonPath} holds JSON, but not an object in { }. Fix it by hand (or move it aside), then run setup again.`);
+  return json;
 }
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -259,17 +291,46 @@ function yourCopy() {
   } else note("This copy has no git remote, so it won't hear about Mike's releases. Add his repo with: git remote add upstream " + MIKES_REPO);
 
   // The pinned copy is the one the runner trusts; a later change to the
-  // repo's copy never replaces it (runner/src/upstream.ts).
+  // repo's copy never adds a key to it (runner/src/upstream.ts). A new key
+  // comes only through a signed release (runner/src/release-keys.ts). A
+  // revoked one (scripts/release-keys-revoked) is never pinned, and comes
+  // out of a copy pinned before: taking a key away only ever narrows trust.
   const pinned = path.join(home, 'upstream-signers');
+  const revokedHome = path.join(home, 'upstream-revoked');
   const shipped = path.join(repo, 'scripts', 'release-signers');
+  const shippedRevoked = path.join(repo, 'scripts', 'release-keys-revoked');
   if (!fs.existsSync(shipped)) return note("this copy has no scripts/release-signers, so Mike's releases can't be checked");
+  const keyOf = (line) => {
+    const w = line.trim().split(/\s+/);
+    if (!w[0] || w[0].startsWith('#')) return undefined;
+    for (let i = 0; i + 1 < w.length; i++) if (/^(ssh-|ecdsa-sha2-|sk-)/.test(w[i]) && /^[A-Za-z0-9+/]+={0,2}$/.test(w[i + 1])) return `${w[i]} ${w[i + 1]}`;
+    return undefined;
+  };
+  const keysOf = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').map(keyOf).filter(Boolean) : []);
+  const revoked = new Set([...keysOf(revokedHome), ...keysOf(shippedRevoked)]);
+  const without = (text) => text.split('\n').filter((l) => l.trim() && !revoked.has(keyOf(l))).join('\n') + '\n';
+  // Kept whenever the repo lists one this install hadn't, pinned or not:
+  // one still waiting its week (runner/src/release-keys.ts) must never
+  // count either (Codex's review, 9 Nov 2026).
+  const keepRevoked = () => {
+    if (revoked.size > keysOf(revokedHome).length && !dry) fs.writeFileSync(revokedHome, [...revoked].join('\n') + '\n');
+  };
   if (fs.existsSync(pinned)) {
-    if (fs.readFileSync(pinned, 'utf8') !== fs.readFileSync(shipped, 'utf8')) note(`the release key in scripts/release-signers differs from the one pinned at ${pinned}; keeping the pinned one`);
+    const was = fs.readFileSync(pinned, 'utf8');
+    const now = without(was);
+    keepRevoked();
+    if (now !== was.split('\n').filter((l) => l.trim()).join('\n') + '\n') {
+      if (dry) return todo(`take revoked release keys out of ${pinned}`);
+      fs.writeFileSync(pinned, now);
+      note(`took a revoked release key out of ${pinned} (scripts/release-keys-revoked)`);
+    }
+    if (now !== without(fs.readFileSync(shipped, 'utf8'))) note(`the release keys in scripts/release-signers differ from the ones pinned at ${pinned}; keeping the pinned ones (a new key comes through a signed release)`);
     return ok("Mike's release key is pinned");
   }
   if (dry) return todo(`pin Mike's release key at ${pinned}`);
   fs.mkdirSync(home, { recursive: true });
-  fs.copyFileSync(shipped, pinned);
+  fs.writeFileSync(pinned, without(fs.readFileSync(shipped, 'utf8')));
+  keepRevoked();
   ok(`Mike's release key pinned at ${pinned}`);
 }
 
@@ -297,7 +358,7 @@ function convexLogin() {
 // The production deployment's URL. Read from runner.json when setup has
 // already run; otherwise made here.
 async function project() {
-  const json = readJson(runnerJsonPath);
+  const json = readRunnerJson();
   const key = deployKey();
   if (json.sync?.url && key) {
     ok(`using ${json.sync.url}`);
@@ -348,7 +409,7 @@ async function keys(urlFromProject) {
     }
   } else ok('deploy key');
   const key = selfHosted ? (dry ? undefined : admin()) : deployKey();
-  let url = urlFromProject ?? readJson(runnerJsonPath).sync?.url;
+  let url = urlFromProject ?? readRunnerJson().sync?.url;
   if (!url && key?.name) url = await findUrl(key.name);
   if (!dry && !url) throw new Fail("Couldn't work out the production deployment's URL. Put it in runner.json as sync.url and run setup again.");
   // The deployment's RUNNER_KEY is the main key, which can do everything:
@@ -629,7 +690,11 @@ async function selfHostedBackend() {
 
 async function runnerJson(url, site) {
   say('6. runner.json');
-  const json = readJson(runnerJsonPath);
+  // Only a runner.json this makes: one already there is an install from
+  // before, whose threads have started on Full access all along (unset
+  // means full), and it keeps that.
+  const fresh = !fs.existsSync(runnerJsonPath);
+  const json = readRunnerJson();
   const name = v.name ?? json.sync?.name ?? os.hostname().split('.')[0];
   // Not asked: it's in the Mac app's Settings, and each new thread can pick
   // its own folder anyway. --cwd sets it here. The default is a folder of its
@@ -647,11 +712,15 @@ async function runnerJson(url, site) {
   }
   const cwdPath = cwd.replace(/^~(?=$|\/)/, os.homedir());
   if (!dry && !fs.existsSync(cwdPath)) fs.mkdirSync(cwdPath, { recursive: true });
-  const next = { ...json, sync: { ...json.sync, ...(url ? { url } : {}), ...(site ? { site } : {}), name }, defaults: { ...json.defaults, cwd } };
+  // A new install's threads start on Auto: a safety check approves or
+  // blocks each action (Claude only; on Codex it's Ask before edits).
+  // Picking Full access in the composer, or "full" here, changes it.
+  const mode = fresh ? { permissionMode: 'auto' } : {};
+  const next = { ...json, sync: { ...json.sync, ...(url ? { url } : {}), ...(site ? { site } : {}), name }, defaults: { ...mode, ...json.defaults, cwd } };
   if (JSON.stringify(next) === JSON.stringify(json)) return ok(`${runnerJsonPath} as it was`);
-  if (dry) return todo(`write ${runnerJsonPath}: sync.url ${url ?? '(the new deployment)'}${site ? `, sync.site ${site}` : ''}, sync.name ${name}, defaults.cwd ${cwd}`);
+  if (dry) return todo(`write ${runnerJsonPath}: sync.url ${url ?? '(the new deployment)'}${site ? `, sync.site ${site}` : ''}, sync.name ${name}, defaults.cwd ${cwd}${fresh ? ', defaults.permissionMode auto' : ''}`);
   writeJson(runnerJsonPath, next);
-  ok(`mirrors to ${url} as ${name}; new threads start in ${cwd}`);
+  ok(`mirrors to ${url} as ${name}; new threads start in ${cwd}${fresh ? ', on Auto' : ''}`);
 }
 
 function backend() {
@@ -714,7 +783,7 @@ try {
   say();
   packages();
   say();
-  let url = readJson(runnerJsonPath).sync?.url;
+  let url = readRunnerJson().sync?.url;
   let sh;
   if (joining) {
     say('4. Convex: skipped (this Mac joins a Threadbear another Mac set up)');

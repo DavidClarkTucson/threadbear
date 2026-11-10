@@ -781,6 +781,38 @@ private struct NewThreadNote: View {
     }
 }
 
+#if DEBUG
+/// What the new-thread page shows, as `dump` reads it: the same words as
+/// NewThreadNote and its room cards, or nil with something else in the pane.
+@MainActor
+func newThreadPageDump(_ app: AppModel) -> AppDump.NewThreadInfo? {
+    guard app.selection == nil, app.openProject == nil, !app.showsHomePage else { return nil }
+    let logins = app.draftLogins
+    let runner = app.newThreadRunner
+    let cwd = app.newThreadCwd ?? logins.defaults.cwd
+    let account = app.newThreadAccountId
+    let pool = app.newThreadPoolId.flatMap(logins.pool)
+    let on = pool.map { "the \($0.title) pool" }
+        ?? (app.newThreadUsesPools ? AccountName.login(account, accounts: logins.accounts) : AccountName.short(account, accounts: logins.accounts))
+    let note: String
+    if let runner, app.newThreadLogins == nil {
+        note = "Starts on \(runner.name)"
+    } else if let runner {
+        note = "Starts in \(FolderName.short(cwd)) on \(runner.name), with \(on)"
+    } else {
+        note = "Starts in \(FolderName.short(cwd)) on \(on)"
+    }
+    let accounts = UsageGroups.byProvider(logins.accounts).flatMap(\.accounts)
+        .filter { item in pool.map { $0.accountIds.contains(item.id) } ?? true }
+    let rooms: [AppDump.RoomInfo] = accounts.count > 1 && accounts.contains(where: { $0.usage != nil }) ? accounts.map { item in
+        AppDump.RoomInfo(label: AccountName.label(item.id, accounts: logins.accounts), line: AccountUsageText.roomLine(item.usage) ?? "Nothing known yet",
+                         selected: pool == nil && item.id == account, note: item.note)
+    } : []
+    let project = app.newThreadProjectId.flatMap { id in app.projects.first { $0.id == id } }.map { "In \($0.title)" }
+    return AppDump.NewThreadInfo(heading: "What should we work on?", note: note, project: project, rooms: rooms)
+}
+#endif
+
 /// One account on the new-thread page: its name (the domain when two
 /// share the part before the @), a bar of the
 /// tighter window, and "5h 89% · week 78% left".
@@ -957,7 +989,7 @@ struct SignInBanner: View {
 
     var body: some View {
         if let account = app.signInAccount(for: thread) {
-            let name = account.provider == "codex" ? "Codex" : "Claude"
+            let name = Providers.info(account.provider).name
             HStack(spacing: zoomed(8)) {
                 Image(systemName: "person.crop.circle.badge.exclamationmark").foregroundStyle(.orange)
                 Text("\(name) needs you to sign in again.").lineLimit(1)
@@ -974,11 +1006,11 @@ struct SignInBanner: View {
             .overlay(alignment: .bottom) { Rectangle().fill(Color(nsColor: Theme.hairline)).frame(height: 0.5) }
         } else if let runner = app.remoteSignInRunner(for: thread) {
             // Another Mac's login: signed in on that Mac, not from here.
-            let name = thread.provider == "codex" ? "Codex" : "Claude"
+            let name = Providers.info(thread.provider).name
             HStack(spacing: zoomed(8)) {
                 Image(systemName: "person.crop.circle.badge.exclamationmark").foregroundStyle(.orange)
                 Text("\(name) on \(runner) needs you to sign in again.").lineLimit(1)
-                    .tip("Sign in on \(runner) itself: \(name == "Codex" ? "codex login" : "claude auth login") in its Terminal")
+                    .tip("Sign in on \(runner) itself: \(Providers.info(thread.provider).loginCommand) in its Terminal")
                 Spacer(minLength: zoomed(6))
                 Button("Send again") { app.sendAgain(thread.id) }
                     .tip("Send your last message again, once you've signed in")

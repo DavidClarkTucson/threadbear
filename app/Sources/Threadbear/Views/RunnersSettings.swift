@@ -29,15 +29,6 @@ struct RunnersSettings: View {
                 }
             }
 
-            SettingsSection("Default access",
-                            about: "The mode a new Claude thread starts on, for each machine it can run on. You can still change it on the composer before you send. Codex threads start on Full access, as Auto is Claude's.",
-                            ask: "explain the modes, or change the default for a machine.") {
-                PermissionDefaultRow(icon: app.selfRunnerIcon, name: "This Mac", runnerId: nil)
-                ForEach(app.remoteRunners) { runner in
-                    PermissionDefaultRow(icon: RunnerIcon.symbol(runner.icon), name: runner.name, runnerId: runner.id)
-                }
-            }
-
             SettingsSection("Runners",
                             about: canOrder
                                 ? "The machines your threads can run on, in your order. New threads from your phone start on the first one that's online. Drag a runner to change the order. Each runner is set up on its own machine."
@@ -131,36 +122,6 @@ private struct RunnerRow: View {
             Spacer(minLength: 8)
             Text(status)
                 .foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// A machine and the mode new Claude threads start on there.
-private struct PermissionDefaultRow: View {
-    @Environment(AppModel.self) private var app
-    let icon: String
-    let name: String
-    let runnerId: String?
-
-    var body: some View {
-        LabeledContent {
-            Picker(name, selection: Binding(get: { app.defaultPermission(onRunner: runnerId) },
-                                            set: { app.setDefaultPermission($0, onRunner: runnerId) })) {
-                Text("Full access").tag(PermissionMode.full)
-                Text("Auto").tag(PermissionMode.auto)
-                Text("Ask before edits").tag(PermissionMode.ask)
-            }
-            .labelsHidden()
-            .fixedSize()
-            .tip("The mode a new Claude thread on \(name) starts on")
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
-                    .accessibilityHidden(true)
-                Text(name)
-            }
         }
     }
 }

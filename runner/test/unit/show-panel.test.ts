@@ -22,15 +22,13 @@ test('a panel is named by its id or title in any case; the built-in ones by name
   assert.deepEqual(resolvePanel('Connectors', has), { id: 'connectors', title: 'Connectors' });
   assert.deepEqual(resolvePanel('Browser', has), { id: 'threadbear.browser', title: 'Browser' });
   assert.deepEqual(resolvePanel('threadbear.browser', has), { id: 'threadbear.browser', title: 'Browser' });
-  assert.deepEqual(resolvePanel('Terminal', has), { id: 'threadbear.terminal', title: 'Terminal' });
-  assert.deepEqual(resolvePanel('threadbear.terminal', has), { id: 'threadbear.terminal', title: 'Terminal' });
   assert.deepEqual(resolvePanel('Patches', has), { id: 'patches', title: 'Patches' });
   assert.deepEqual(resolvePanel('convex.dashboard', has), { id: 'convex.dashboard', title: 'Convex' });
   assert.deepEqual(resolvePanel('CONVEX', has), { id: 'convex.dashboard', title: 'Convex' });
   assert.deepEqual(resolvePanel('simulator', has), { id: 'xcode.simulator', title: 'Simulator' });
-  assert.throws(() => resolvePanel('storybook', has), /No panel called storybook\. This thread has highlights, patches, browser, terminal, convex\.dashboard \(Convex\), xcode\.simulator \(Simulator\), usage, updates and connectors\./);
+  assert.throws(() => resolvePanel('storybook', has), /No panel called storybook\. This thread has highlights, patches, browser, convex\.dashboard \(Convex\), xcode\.simulator \(Simulator\), usage, updates and connectors\./);
   // Patches is only a panel when the thread has patches.
-  assert.throws(() => resolvePanel('patches', { panels: [], hasPatches: false }), /This thread has highlights, browser, terminal, usage, updates and connectors\./);
+  assert.throws(() => resolvePanel('patches', { panels: [], hasPatches: false }), /This thread has highlights, browser, usage, updates and connectors\./);
   assert.throws(() => resolvePanel('  ', has), /Name a panel/);
 });
 
@@ -95,7 +93,7 @@ test('an unknown panel is an error that lists the thread\'s', async () => {
   const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-3', cwd: tmpDir() });
   const res = await showTool(h, thread.id)({ panel: 'storybook' });
   assert.equal(res.error, true);
-  assert.match(res.text, /No panel called storybook\. This thread has highlights, browser, terminal, usage, updates and connectors\./);
+  assert.match(res.text, /No panel called storybook\. This thread has highlights, browser, usage, updates and connectors\./);
   assert.equal(h.runner.get(thread.id).panelRequest, undefined);
 });
 

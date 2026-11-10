@@ -572,7 +572,15 @@ export function patchHash(file: string): PatchHash {
   const resolve = (dir: string, spec: string) => resolveHelper(dir, spec, reads);
   // The folder holding `.threadbear/`: where its commands run (a thread's
   // folder, or the worktree's root for setup), so `./setup.sh` is there.
-  const folder = path.dirname(path.dirname(path.dirname(root)));
+  // The folder holding the patch file as it's named, not its real one: for
+  // a patch file that's a link into another folder, its commands still run
+  // from beside the link (bindAutomatic, actions, live `sh`), so that's
+  // where the scripts they run, and theirs in turn, are followed from.
+  // From the real one, a script's own `./helper.sh` was followed in the
+  // other folder while the one beside the link ran, unhashed (Codex's
+  // review, 9 Nov). Its imports are still followed from the real file, as
+  // Node loads them.
+  const folder = realpath(path.dirname(path.dirname(path.dirname(path.resolve(file)))));
   const seen = new Set([root]);
   const deps: Dep[] = [];
   // The patch's import graph: what Node loads, served from these bytes.
@@ -928,6 +936,9 @@ function patchRoles(patch: AstNode, give: (n: AstNode, role: 'data' | 'worktree'
     if (PATCH_FIELDS.has(name)) list(value).forEach((v) => give(v, 'data'));
     else if (name === 'worktree' && value.type === 'ObjectExpression') {
       for (const [k, v] of fields(value)) {
+        // Not `teardown`: it runs in the thread's worktree as the agent left
+        // it, as the thread is archived, so what it reaches counts as code
+        // like any other command's.
         if (k === 'setup' || k === 'check') give(v, 'worktree');
         else if (k === 'keep') list(v).forEach((e) => give(e, 'data'));
       }

@@ -361,7 +361,7 @@ extension AppModel {
         }
         let accountId = newThreadAccountId.isEmpty ? nil : newThreadAccountId
         let cwd = newThreadCwd
-        let mode = newThreadPermission(for: newThreadProviderId)
+        let mode = newThreadPermission
         slashFetches[key] = Task { [weak self] in
             defer { self?.slashFetches[key] = nil }
             do {

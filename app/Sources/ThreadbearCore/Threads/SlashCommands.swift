@@ -70,7 +70,7 @@ public enum SlashPalette {
     }
 
     public static func cliName(_ provider: String) -> String {
-        provider == "codex" ? "Codex" : "Claude Code"
+        Providers.info(provider).cliName
     }
 
     /// A command being typed as the last word of the message: at its

@@ -69,7 +69,9 @@ extension AppModel {
     func newThreadRequest(text: String, images: [ImageRef]) -> NewThreadRequest {
         // This Mac's logins, or the chosen runner's for a draft on it.
         let logins = draftLogins
-        let ask = newThreadPermission
+        // `.unknown` is the runner's own default, a mode this app doesn't
+        // know: left out, the runner starts the thread on exactly that.
+        let ask: PermissionMode? = newThreadPermission == .unknown ? nil : newThreadPermission
         // Another runner that hasn't said hello yet: its own defaults,
         // in the folder typed for it if any (the runner checks it).
         if newThreadRunnerId != nil, newThreadLogins == nil {
@@ -83,12 +85,12 @@ extension AppModel {
                 model = logins.defaults.model(for: provider) ?? logins.account(newThreadAccountId)?.defaultModel
             }
             return NewThreadRequest(text: text, images: images, cwd: cwd, poolId: poolId, model: model,
-                                    effort: lastEfforts[provider], permissionMode: newThreadPermission(for: provider))
+                                    effort: lastEfforts[provider], permissionMode: ask)
         }
         let account = newThreadAccountId
         let provider = logins.account(account)?.provider ?? "claude"
         return NewThreadRequest(text: text, images: images, cwd: cwd, accountId: account,
-                                model: lastModels[provider], effort: lastEfforts[provider], permissionMode: newThreadPermission(for: provider))
+                                model: lastModels[provider], effort: lastEfforts[provider], permissionMode: ask)
     }
 
     /// A model picked in a pool's column of the picker. For a new thread

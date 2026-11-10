@@ -113,7 +113,7 @@ const PERSISTED: Record<string, (e: Obj) => string | null> = {
   'action.run': (e) =>
     isStr(e.actionId) && isStr(e.patch) && isStr(e.title) && isStr(e.command) && typeof e.ok === 'boolean' &&
     (e.exitCode === undefined || isNum(e.exitCode)) && isStr(e.text) && typeof e.truncated === 'boolean' && isNum(e.durationMs) &&
-    (e.trigger === undefined || e.trigger === 'turn.end' || e.trigger === 'worktree.setup')
+    (e.trigger === undefined || e.trigger === 'turn.end' || e.trigger === 'worktree.setup' || e.trigger === 'worktree.teardown')
       ? null
       : 'actionId, patch, title, command, ok, exitCode?, text, truncated, durationMs, trigger?',
   'thread.rewound': (e) =>
@@ -319,7 +319,7 @@ export function checkSummary(t: Obj): string[] {
     'lastActivityAt', 'snoozedUntil', 'snoozedUntilRestart', 'snoozedUntilRelease', 'archivedAt', 'archivedBy', 'archiveVerdict', 'starredAt', 'preview', 'lastSeq', 'lastSeenSeq', 'nativeSessionId', 'contextTokens', 'costUsd',
     'poolId', 'waitingForRoom', 'waitingForNetwork', 'wakeWhen', 'waitingOn',
     'effort', 'modelInUse', 'effortInUse', 'contextWindow', 'panels', 'actions', 'hooks', 'patches', 'background', 'subagents', 'projects', 'worktree',
-    'needs', 'asks', 'asksSeq', 'highlightsAt', 'panelRequest', 'share', 'startedBy', 'asked', 'looseEnds',
+    'needs', 'asks', 'asksSeq', 'highlightsAt', 'panelRequest', 'share', 'startedBy', 'asked', 'recap', 'looseEnds',
   ]);
   for (const k of Object.keys(t)) if (!allowed.has(k)) problems.push(`unexpected field ${k}`);
   return problems;

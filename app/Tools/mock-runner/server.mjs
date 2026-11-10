@@ -334,6 +334,8 @@ const BRUCE = 'runner_bruce';
 // runner passes on the backend's.
 // MOCK_MORE_RUNNERS=1 adds two more, for a list worth rearranging (only for
 // a look at Settings > Runners: the usual demo stays at two).
+// What threads.movePreview says won't come; empty and Move to skips the sheet.
+let moveLeftBehind = ['1 background job, which gets stopped'];
 const MORE_RUNNERS = process.env.MOCK_MORE_RUNNERS ? [
   { id: 'runner_cloud', name: 'Hetzner Cloud', icon: 'cloud', online: true, lastSeenAt: new Date().toISOString() },
   { id: 'runner_pixel', name: 'Pixel', icon: 'smartphone', online: true, lastSeenAt: new Date().toISOString() },
@@ -349,6 +351,16 @@ const BRUCE_FILES = {
 };
 const bruceModifiedAt = new Date(Date.now() - 3600_000).toISOString();
 if (!process.env.TB_MOCK_NO_REMOTE) addRemoteDemo();
+// One demo thread that has sat for three days with a librarian's recap, for
+// the recap box. Only when asked: it would move the thread down every list.
+if (process.env.TB_MOCK_QUIET) {
+  for (const s of threads.values()) {
+    const summary = s.summary ?? s;
+    if (summary.title !== 'Ship the beta to TestFlight') continue;
+    summary.lastActivityAt = new Date(Date.now() - 72 * 3_600_000).toISOString();
+    summary.recap = "Gets the first beta out to testers.\n- The build is uploaded and processing\n- Waiting on you to accept the agreement";
+  }
+}
 /** The schedules (docs/protocol.md, "Schedules"), soonest first. */
 let schedules = [];
 addDemoSchedules();
@@ -471,14 +483,27 @@ function onConnection(ws, request) {
 
 async function handle(client, { id, method, params = {} }) {
   // Each runner knows only its own threads: asking this one about one of
-  // bruce's (or bruce about this one's) is "Thread not found".
+  // bruce's (or bruce about this one's) is "Thread not found"...
+  let caller = client;
   if (typeof params?.threadId === 'string' && threads.has(params.threadId) && ownerOf(params.threadId) !== client.as) {
-    return reply(client, id, null, { code: -32004, message: 'Thread not found' });
+    // ...except that this runner answers for bruce's threads through the
+    // backend (docs/protocol.md, "Other runners' threads through the
+    // backend"), the app's default way in: here, that's bruce's own code
+    // answering, on the same connection and with the same shapes. Events
+    // come to whoever subscribed, whichever runner's connection they used.
+    if (client.as !== null || ownerOf(params.threadId) !== BRUCE) {
+      return reply(client, id, null, { code: -32004, message: 'Thread not found' });
+    }
+    caller = { ...client, as: BRUCE };
+  }
+  if (method === 'threads.create' && params?.runnerId === BRUCE && client.as === null) {
+    // A new thread on bruce through this runner, as the relay files it.
+    caller = { ...client, as: BRUCE };
   }
   if (slow.ms > 0 && ['threads.send', 'threads.create', 'threads.update'].includes(method)) {
     await new Promise((resolve) => setTimeout(resolve, slow.ms));
   }
-  const result = await dispatch(client, method, params);
+  const result = await dispatch(caller, method, params);
   if (id !== undefined && id !== null) reply(client, id, result ?? {});
   // Like the real runner: a client that says hello hears about a restart
   // that's waiting, straight after the hello result.
@@ -501,8 +526,42 @@ async function dispatch(client, method, p) {
       }
       return {
         runnerVersion, protocol: 1, accounts: publicAccounts(),
-        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools }),
+        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools, experiments: ['moveToRunner'] }),
       };
+    // Moving a thread to another runner (docs/protocol.md): a guess from
+    // "that runner", and a move that only marks the row, for the app's
+    // Move to menu and sheet.
+    case 'threads.movePreview': {
+      await sleep(500);
+      const runner = runners.concat(MORE_RUNNERS).find((r) => r.id === p.runnerId);
+      const home = runner?.name === 'bruce' ? '/Users/bruce' : '/home/mike';
+      return {
+        cwd: p.cwd || `${home}/dev/me/threadbear-threads/slot-4`,
+        accountId: p.accountId || 'claude-main',
+        accounts: [{ id: 'claude-main', provider: 'claude', title: 'Claude', email: 'mike.cann@gmail.com' }, { id: 'claude-1', provider: 'claude', title: 'Claude', email: 'mike@gangbusters.io' }],
+        leftBehind: moveLeftBehind,
+        sourceChecked: true,
+        problems: p.cwd && !String(p.cwd).startsWith(home) ? [`There's no folder ${p.cwd} on ${runner?.name ?? 'it'}.`] : [],
+        worktree: true,
+      };
+    }
+    case 'threads.move': {
+      const t = threads.get(p.threadId);
+      const runner = runners.concat(MORE_RUNNERS).find((r) => r.id === p.runnerId);
+      if (t) {
+        t.summary.moving = { moveId: 'mock-move', to: p.runnerId, toName: runner?.name ?? p.runnerId, state: 'ready' };
+        broadcastSummary(p.threadId);
+      }
+      return { moveId: 'mock-move' };
+    }
+    case 'threads.moveCancel': {
+      const t = threads.get(p.threadId);
+      if (t?.summary.moving) {
+        t.summary.moving = { ...t.summary.moving, state: 'cancelled' };
+        broadcastSummary(p.threadId);
+      }
+      return {};
+    }
     case 'files.read':
       // Slow enough on bruce that the app's loading state shows.
       if (client.as) await sleep(400);
@@ -833,7 +892,21 @@ async function dispatch(client, method, p) {
       const t = need(p.threadId);
       const button = t.buttons?.get(p.buttonId);
       if (!button) throw rpcError(-32602, `Button not found: ${p.buttonId}`);
-      if (button.pressed) return { button: structuredClone(button) };
+      if (button.pressed || button.running) return { button: structuredClone(button) };
+      if (button.run) {
+        // Answers at once, running, then finishes, as the runner does.
+        const { failed: _failed, ...rest } = button;
+        const running = { ...rest, running: { at: iso() } };
+        t.buttons.set(running.id, running);
+        persist(t.summary.id, { type: 'button.updated', button: running });
+        setTimeout(() => {
+          const { running: _going, ...left } = running;
+          const done = { ...left, pressed: { at: iso(), threadId: t.summary.id }, ran: { ok: true, exitCode: 0, durationMs: 1500 } };
+          t.buttons.set(done.id, done);
+          persist(t.summary.id, { type: 'button.updated', button: done });
+        }, 1500 + slow.queueMs);
+        return { button: structuredClone(running) };
+      }
       await new Promise((resolve) => setTimeout(resolve, 600 + slow.queueMs));
       const from = `[Sent by the agent in the thread "${t.summary.title}" (${t.summary.id.slice(0, 8)})]\n\n`;
       let next;
@@ -1156,6 +1229,13 @@ async function dispatch(client, method, p) {
     case 'remoteThreads.list':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       return remoteThreads(client);
+    case 'remoteThreads.logins': {
+      // That runner's logins through this one, from the backend (no pools,
+      // and its default folder), as bruce's own hello has them.
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      if (p.runnerId !== BRUCE) throw rpcError(-32000, `No logins known for ${p.runnerId}`);
+      return { accounts: publicAccounts().filter((a) => a.id === 'claude-main' || a.id === 'codex-main'), pools: [], defaults: { ...defaults, poolId: undefined, accountId: 'claude-main', cwd: '/Users/bruce/dev/me/misc' } };
+    }
     case 'runners.setOrder': {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (!Array.isArray(p.runnerIds) || !p.runnerIds.every((x) => typeof x === 'string')) throw rpcError(-32602, 'runnerIds must be a list of runner ids');
@@ -1333,6 +1413,9 @@ async function dispatch(client, method, p) {
       return deviceList();
     }
     // Mock-only helpers for perf runs, demos and screenshots.
+    case 'mock.moveLeftBehind':
+      moveLeftBehind = p.lines ?? [];
+      return { lines: moveLeftBehind };
     case 'mock.slow': {
       slow = { ms: Math.max(0, Number(p.ms ?? 0)), queueMs: Math.max(0, Number(p.queueMs ?? 0)) };
       return slow;
@@ -1385,6 +1468,24 @@ async function dispatch(client, method, p) {
       }
       broadcast('runner.updates', { updates });
       return { updates };
+    }
+    case 'mock.fillArchived': {
+      // More archived threads than the Archived section shows at first, for
+      // its Show more row: `count` of them, each archived a minute apart.
+      const count = Number(p.count) || 30;
+      const now = Date.now();
+      for (let i = 0; i < count; i++) {
+        const id = `th_archived_${i}`;
+        const ts = new Date(now - (i + 1) * 60_000 - 3_600_000).toISOString();
+        const summary = {
+          id, title: `Archived thread ${i + 1}`, cwd: defaults.cwd, accountId: 'claude-main', provider: 'claude',
+          permissionMode: 'full', status: 'idle', live: false, needsYou: false, createdAt: ts, updatedAt: ts, lastActivityAt: ts,
+          archivedAt: ts, preview: '', lastSeq: 0, lastSeenSeq: 0,
+        };
+        threads.set(id, { summary, events: [], inProgress: new Map(), timers: [] });
+        broadcastSummary(id);
+      }
+      return { count };
     }
     case 'mock.background': {
       // What a thread's CLI is running in the background, as the real
@@ -2035,7 +2136,7 @@ function bruceFile(file) {
 // files.read as the runner answers it (runner/src/files.ts): bruce's made-up
 // files for bruce's clients, real ones on this Mac for this runner's.
 function readFile(client, p) {
-  if (typeof p.path !== 'string' || !p.path.startsWith('/')) throw rpcError(-32602, `path must be absolute: ${p.path}`);
+  if (typeof p.path !== 'string' || !path.isAbsolute(p.path)) throw rpcError(-32602, `path must be absolute: ${p.path}`);
   let bytes;
   let modifiedAt;
   if (client.as === BRUCE) {
@@ -2067,7 +2168,7 @@ function readFile(client, p) {
 // folder for bruce's clients (each of bruce's files' folders holds it),
 // the real one on this Mac for this runner's.
 function listFolder(client, p) {
-  if (typeof p.path !== 'string' || !p.path.startsWith('/')) throw rpcError(-32602, `path must be absolute: ${p.path}`);
+  if (typeof p.path !== 'string' || !path.isAbsolute(p.path)) throw rpcError(-32602, `path must be absolute: ${p.path}`);
   if (client.as === BRUCE) {
     const files = Object.values(BRUCE_FILES);
     const within = files.filter((f) => f.startsWith(`${p.path.replace(/\/$/, '')}/`)).map((f) => f.slice(p.path.replace(/\/$/, '').length + 1));
@@ -2903,6 +3004,7 @@ The new hero is shorter, and every page now leads with what the app does.
 `);
     const before = file('screens/pricing-before.png', { copy: path.join(here, 'fixtures/demo-upload-resume/media/progress-before.png') });
     file('logs/docs-build.txt', 'Error: Could not resolve image /docs/hero.png\n  at src/pages/docs.astro:12\nBuild failed in 14.2s.\n');
+    file('src/hero.ts', '// The hero at the top of the home page.\nexport function hero(words: string): string {\n  return `<h1>${words}</h1>`;\n}\n');
     site.summary.cwd = root;
     const at = (seq) => site.events.find((e) => e.seq === seq)?.ts ?? iso();
     const h = (seq, fields) => ({ seq, lastSeq: seq, at: at(seq), ...fields });

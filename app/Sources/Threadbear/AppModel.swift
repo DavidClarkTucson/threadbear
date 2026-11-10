@@ -181,6 +181,8 @@ final class AppModel {
     @ObservationIgnored var archivesNotSent: Set<String> = []
     var threads: [String: ThreadSummary] = [:] {
         didSet {
+            // An archived thread's Terminal shell stops (TerminalPanel.swift).
+            Terminals.shared.stopArchived(in: threads)
             // A summary from another runner never says which runner it's on
             // (runnerId is this app's own marker), so one stored over a
             // remote thread's (markSeen's reply, a rename's, an archive's)
@@ -302,6 +304,8 @@ final class AppModel {
     /// The first thread list has arrived. Until then the sidebar list stays
     /// empty, so it's filled in one go.
     var threadsLoaded = false
+    /// How many archived threads the Archived section shows (`ArchiveRows`).
+    var archiveLimit = ArchiveRows.first
     /// New-thread settings shown on the composer. The model and effort
     /// start as whatever was picked last, on any thread, and are kept
     /// across launches; the folder and "Ask before edits" are for one
@@ -371,41 +375,15 @@ final class AppModel {
     /// kept across launches: a Codex model is no use to a Claude thread.
     private(set) var lastModels: [String: String] = AppModel.loadMemory(AppModel.lastModelKey)
     private(set) var lastEfforts: [String: String] = AppModel.loadMemory(AppModel.lastEffortKey)
-    /// The mode Mike picked on the composer for the next new thread, for
-    /// that draft only; nil starts it on the default for where it runs.
+    /// The mode picked in the new-thread composer, for that draft only.
+    /// Nil: the runner's default (`newThreadPermission`).
     var newThreadPermissionPick: PermissionMode?
-    /// The mode a new Claude thread starts on, by the runner it runs on
-    /// (Settings > Runners, and Default in the composer's mode menu): keyed
-    /// by runner id, `thisMacPermissionKey` for this Mac, Auto where none is
-    /// set. This Mac's own choice, kept across launches. Codex threads
-    /// start on Full access whatever it says (`newThreadPermission(for:)`).
-    private(set) var defaultPermissions: [String: PermissionMode] = AppModel.loadDefaultPermissions() {
-        didSet { UserDefaults.standard.set(defaultPermissions.mapValues(\.rawValue), forKey: Self.defaultPermissionsKey) }
-    }
-    static let defaultPermissionsKey = "defaultPermissions"
-    static let thisMacPermissionKey = "this-mac"
-    func defaultPermission(onRunner runnerId: String?) -> PermissionMode {
-        defaultPermissions[runnerId ?? Self.thisMacPermissionKey] ?? .auto
-    }
-    func setDefaultPermission(_ mode: PermissionMode, onRunner runnerId: String?) {
-        defaultPermissions[runnerId ?? Self.thisMacPermissionKey] = mode
-    }
-    private static func loadDefaultPermissions() -> [String: PermissionMode] {
-        let raw = UserDefaults.standard.dictionary(forKey: defaultPermissionsKey) as? [String: String] ?? [:]
-        return raw.compactMapValues(PermissionMode.init(rawValue:))
-    }
-    /// The draft's mode: Mike's pick, else the default for its runner.
+    /// The mode the next new thread starts on: the one picked, else its
+    /// runner's `defaults.permissionMode` (Auto on a new install), else Full
+    /// access, for a runner that has none, predates it, or hasn't said yet.
     var newThreadPermission: PermissionMode {
-        get { newThreadPermissionPick ?? defaultPermission(onRunner: newThreadRunnerId) }
+        get { newThreadPermissionPick ?? newThreadLogins?.defaults.permissionMode ?? .full }
         set { newThreadPermissionPick = newValue }
-    }
-    /// What a draft on `provider` shows and sends. The defaults are for
-    /// Claude only: a Codex draft starts on Full access unless Mike picked
-    /// Ask, since Auto is Claude Code's and acts like Ask on Codex.
-    func newThreadPermission(for provider: String) -> PermissionMode {
-        if provider == "claude" { return newThreadPermission }
-        let mode = newThreadPermissionPick ?? .full
-        return mode == .auto ? .full : mode
     }
     /// What the runner says about the Claude and Codex CLIs (`clis.list`,
     /// `clis.updated`). Empty until it's said anything.
@@ -440,6 +418,13 @@ final class AppModel {
     /// Empty from a runner before step 6, or before it answers: then
     /// there's no choice to offer and every schedule is this runner's.
     var runners: [RunnerInfo] = []
+    /// Asking for `runners` again after a failure (`retryRunners`).
+    @ObservationIgnored var runnersRetry: Task<Void, Never>?
+    @ObservationIgnored var runnersRetryDelay: Duration = .seconds(30)
+    /// The experiments on for this Mac's runner, from its hello.
+    var experiments: Set<String> = []
+    /// The Move sheet, while it's open.
+    var moveRequest: MoveRequest?
     /// Other runners, from this one (docs/protocol.md, "Other runners'
     /// threads"): their names, icons, whether they're online and how to
     /// reach them. Their threads are in `threads`, marked with `runnerId`
@@ -616,6 +601,11 @@ final class AppModel {
     var collapsedSections: Set<InboxSection> = AppModel.storedCollapsedSections() {
         didSet { UserDefaults.standard.set(collapsedSections.map(\.rawValue).sorted(), forKey: Self.collapsedSectionsKey) }
     }
+    /// Recap boxes put away with ×, by thread: the `lastActivityAt` each was
+    /// put away at, so the box comes back after the thread's next quiet spell.
+    var dismissedRecaps: [String: Double] = UserDefaults.standard.dictionary(forKey: AppModel.dismissedRecapsKey) as? [String: Double] ?? [:] {
+        didSet { UserDefaults.standard.set(dismissedRecaps, forKey: Self.dismissedRecapsKey) }
+    }
     /// The Scheduled list's folded headings, remembered like the inbox's.
     /// Done starts folded: one-offs that have run are there to look up.
     var collapsedScheduleSections: Set<ScheduleSection> = AppModel.storedCollapsedScheduleSections() {
@@ -738,8 +728,9 @@ final class AppModel {
     /// came along is still remembered; other providers add ".<provider>".
     static let lastModelKey = "lastModel"
     static let lastEffortKey = "lastEffort"
-    static let memoryProviders = ["claude", "codex"]
+    static let memoryProviders = ["claude", "codex", "cursor", "opencode"]
     static let collapsedSectionsKey = "collapsedSections"
+    static let dismissedRecapsKey = "dismissedRecaps"
     /// Set once Hibernating and Archive have been folded the first time.
     /// They came after collapsedSections did, so a saved list without them
     /// can't tell "never seen" from "opened".

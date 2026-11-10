@@ -1,454 +1,477 @@
 import AppKit
-import SwiftTerm
 import SwiftUI
+import SwiftTerm
 import ThreadbearCore
 
-/// The built-in Terminal panel (docs/protocol.md, "The Terminal panel"): a
-/// shell in the thread's folder, running on the runner that has the thread,
-/// drawn by SwiftTerm. One per thread (`.id(thread.id)`); the shell keeps
-/// going when the panel goes, and its replay redraws the screen next time.
-struct TerminalPanel: View {
-    @Environment(AppModel.self) private var app
-    @Environment(\.isDockGhost) private var isGhost
-    let thread: ThreadSummary
-    @State private var model: TerminalPanelModel
+/// The Terminal panel (⌘J, View > Show Terminal): a real terminal in the
+/// dock, as VS Code and T3 Code have under their editor. SwiftTerm draws it
+/// and runs your login shell in a pty, so colours, the cursor keys and
+/// full-screen programs (vim, htop, claude) work as in Terminal.
+///
+/// Each thread has a shell of its own, started in the thread's folder (its
+/// worktree when it has one) and kept running while you look at other
+/// threads, so switching back finds it as you left it. A thread on another
+/// Mac or the cloud gets a shell on this Mac in your home folder, with a
+/// line saying so, as its folder isn't here. With no thread open it's a
+/// shell in your home folder too.
+///
+/// A shell only starts when you ask for one: ⌘J, clicking the empty
+/// panel, or a ```bash block's play icon. Clicking through threads with the panel open, or launching with
+/// it left open, starts nothing, as each login shell reads your whole
+/// profile. A thread's shell stops when the thread is archived or deleted
+/// (a dev server left running there would otherwise keep going in a
+/// worktree the next thread gets), and every shell stops when the app quits.
+@MainActor
+@Observable
+final class Terminals {
+    static let shared = Terminals()
 
-    init(thread: ThreadSummary) {
-        self.thread = thread
-        _model = State(initialValue: TerminalPanelModel(threadId: thread.id))
+    @ObservationIgnored private var sessions: [String: TerminalSession] = [:]
+    /// Bumped to ask the showing terminal to take the keyboard.
+    private(set) var focusTick = 0
+
+    /// Bumped when a shell starts or stops, so the panel redraws (the
+    /// sessions themselves aren't observed).
+    private(set) var generation = 0
+
+    /// The target's shell, if one has been started.
+    func existing(for target: TerminalTarget) -> TerminalSession? {
+        _ = generation
+        return sessions[target.key]
     }
 
-    var body: some View {
-        if isGhost {
-            // The dock's drag picture: a second terminal would attach and
-            // take the shell's output from the real one.
-            Color(nsColor: .textBackgroundColor)
-        } else {
-            content
-                .onAppear { model.appear(app: app) }
-                .onDisappear { model.disappear() }
+    /// The target's shell, starting one if it has none, and gives it the
+    /// keyboard: ⌘J and a click on the empty panel.
+    @discardableResult
+    func open(_ target: TerminalTarget) -> TerminalSession {
+        defer { focusTick += 1 }
+        watchKeys()
+        if let s = sessions[target.key] { return s }
+        let s = TerminalSession(target: target)
+        sessions[target.key] = s
+        generation += 1
+        return s
+    }
+
+    /// Stops a thread's shell (the thread was archived or deleted).
+    func stop(threadId: String) {
+        guard let s = sessions.removeValue(forKey: threadId) else { return }
+        s.stop()
+        generation += 1
+    }
+
+    /// Called whenever the app's thread list changes: stops the shells of
+    /// threads that have been archived. Threads missing from the list are
+    /// left alone here, as the list can be briefly incomplete; a deleted
+    /// thread's shell is stopped from `forget`, or from `stopAll(except:)`
+    /// once the runner's full list comes back after a reconnect.
+    func stopArchived(in threads: [String: ThreadSummary]) {
+        for key in sessions.keys where threads[key]?.isArchived == true { stop(threadId: key) }
+    }
+
+    /// The runner's full thread list has come back (on connecting): any
+    /// thread's shell not in it belongs to a thread deleted while the app
+    /// wasn't listening, so it stops. The shared home shell stays.
+    func stopAll(except threadIds: some Collection<String>) {
+        let keep = Set(threadIds)
+        for key in sessions.keys where key != "home" && !keep.contains(key) { stop(threadId: key) }
+    }
+
+    enum PutOutcome { case typed, alreadyThere, busy }
+
+    /// Threads with a command on its way, so a second click while the shell
+    /// is still starting doesn't queue another.
+    @ObservationIgnored private var putting: Set<String> = []
+    @ObservationIgnored private var keyWatch: Any?
+
+    /// Keys are seen here, ahead of the terminal, as SwiftTerm's keyDown
+    /// can't be overridden from outside it.
+    private func watchKeys() {
+        guard keyWatch == nil else { return }
+        keyWatch = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated {
+                if let responder = event.window?.firstResponder, let session = self?.sessions.values.first(where: { $0.view === responder }) {
+                    session.noteKey(event)
+                }
+            }
+            return event
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        switch model.phase {
-        case .tooOld:
-            PaneNote(text: TerminalText.tooOld)
-        case .failed(let message):
-            VStack(spacing: zoomed(10)) {
-                PaneNote(text: message).fixedSize(horizontal: false, vertical: true)
-                Button("Try again") { model.open() }
-                    .tip("Start the shell again, or attach to the one that's running")
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .opening, .live, .ended:
-            VStack(spacing: 0) {
-                TerminalScreen(model: model)
-                    .padding(.leading, zoomed(6))
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .overlay {
-                        if case .opening = model.phase {
-                            VStack(spacing: zoomed(8)) {
-                                SpinnerMark(color: .secondaryLabelColor).frame(width: zoomed(16), height: zoomed(16))
-                                Text(TerminalText.starting)
-                                    .font(.system(size: TypeScale.label))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(nsColor: .textBackgroundColor))
-                        }
-                    }
-                if case .ended(let why) = model.phase {
-                    endedBar(why)
+    /// Types `block` at the target's prompt, starting a shell if it needs
+    /// one, and gives it the keyboard. Never presses Return: the command
+    /// came out of a reply, so a person gets to read it first.
+    func put(_ block: ShellBlock, in target: TerminalTarget, done: @escaping @MainActor (PutOutcome) -> Void) {
+        guard putting.insert(target.key).inserted else { return }
+        if sessions[target.key]?.exited == true { restart(target.key) }
+        let session = open(target)
+        Task { @MainActor [weak self] in
+            defer { self?.putting.remove(target.key) }
+            while true {
+                switch session.putStep(for: block) {
+                case .wait:
+                    try? await Task.sleep(for: .milliseconds(50))
+                case .type:
+                    session.put(block.command)
+                    return done(.typed)
+                case .replaceLast:
+                    guard await session.clearLastPut() else { return done(.busy) }
+                    session.put(block.command)
+                    return done(.typed)
+                case .alreadyThere:
+                    return done(.alreadyThere)
+                case .busy:
+                    return done(.busy)
                 }
             }
         }
     }
 
-    private func endedBar(_ why: String) -> some View {
-        HStack(spacing: zoomed(8)) {
-            Text(why)
-                .font(.system(size: TypeScale.label))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            Spacer(minLength: zoomed(8))
-            Button("New shell") { model.restart() }
-                .tip("Start a new shell in this thread's folder")
-                .busy(app.isBusy(BusyKey.terminalRestart(thread.id)))
-        }
-        .padding(.horizontal, zoomed(10))
-        .padding(.vertical, zoomed(6))
-        .background(.bar)
-        .overlay(alignment: .top) { Rectangle().fill(.separator).frame(height: 0.5) }
+    /// A new shell in place of one that has exited.
+    func restart(_ key: String) {
+        guard let old = sessions[key] else { return }
+        let fresh = TerminalSession(target: old.target)
+        sessions[key] = fresh
+        old.stop()
+        generation += 1
+        focusTick += 1
+    }
+
+    /// For the automation and `dump`: what's running where.
+    var debugSummary: [String] {
+        sessions.values.sorted { $0.target.key < $1.target.key }.map { "\($0.target.key) \($0.exited ? "exited" : "running") in \($0.target.cwd)" }
     }
 }
 
-// MARK: - The model
+/// The terminal view, saying when text reaches it without a key press.
+final class PromptWatchingTerminalView: LocalProcessTerminalView {
+    var onText: (() -> Void)?
 
-/// One panel's shell: opening or attaching, the bytes both ways, and why
-/// it ended. Output comes through `TerminalHub`, by thread.
-@MainActor
-@Observable
-final class TerminalPanelModel {
-    enum Phase: Equatable {
-        case opening
-        case live
-        /// Why, in plain words, with New shell under it.
-        case ended(String)
-        case tooOld
-        case failed(String)
+    override func paste(_ sender: Any) {
+        onText?()
+        super.paste(sender)
     }
 
-    let threadId: String
-    private(set) var phase: Phase = .opening
-
-    @ObservationIgnored private weak var app: AppModel?
-    @ObservationIgnored weak var view: ThreadTerminalView? {
-        didSet { if view != nil, let pending = pendingScreen { pendingScreen = nil; draw(pending) } }
-    }
-    /// The shell this panel shows, and the connection it was opened on.
-    @ObservationIgnored private var terminalId: String?
-    @ObservationIgnored private var client: RPCClient?
-    @ObservationIgnored private var showing = false
-    @ObservationIgnored private var opening = false
-    /// Output that came while the open was on its way, fed after the replay.
-    @ObservationIgnored private var early: [(terminalId: String, data: Data)] = []
-    /// A replay with no view yet to draw it in.
-    @ObservationIgnored private var pendingScreen: (replay: Data, after: [Data])?
-
-    @ObservationIgnored private var size = TerminalSize.fallback
-    @ObservationIgnored private var sizeKnown = false
-    @ObservationIgnored private var waitingForSize: Task<Void, Never>?
-    @ObservationIgnored private var resizeTask: Task<Void, Never>?
-
-    @ObservationIgnored private var input = TerminalInputBuffer()
-    @ObservationIgnored private var sending = false
-
-    init(threadId: String) {
-        self.threadId = threadId
-    }
-
-    // MARK: Showing
-
-    func appear(app: AppModel) {
-        self.app = app
-        showing = true
-        TerminalHub.shared.register(self)
-        // Open once the view has said its size, so the shell starts the
-        // width it's drawn at; a moment at most.
-        if sizeKnown {
-            open()
-        } else {
-            waitingForSize?.cancel()
-            waitingForSize = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(250))
-                guard let self, !Task.isCancelled, self.terminalId == nil, !self.opening else { return }
-                self.open()
-            }
-        }
-    }
-
-    func disappear() {
-        showing = false
-        waitingForSize?.cancel()
-        resizeTask?.cancel()
-        TerminalHub.shared.unregister(self)
-        guard let terminalId, let client else { return }
-        let rest = input.take()
-        self.terminalId = nil
-        self.client = nil
-        Task {
-            for piece in rest { _ = try? await client.terminalInput(terminalId: terminalId, data: piece) }
-            do {
-                try await client.terminalDetach(terminalId: terminalId)
-            } catch {
-                AppLog.write("terminal", "detach failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    // MARK: Opening
-
-    /// Starts the thread's shell, or attaches to the one that's running.
-    /// Shows "Starting the shell" with a spinner until it answers, except
-    /// `quietly`, attaching again after a reconnect, where the screen stays
-    /// as it was until the replay redraws it.
-    func open(quietly: Bool = false) {
-        guard let app, showing, !opening else { return }
-        waitingForSize?.cancel()
-        opening = true
-        if !quietly { phase = .opening }
-        early = []
-        Task {
-            defer { opening = false }
-            do {
-                let client = try await app.openClient(for: threadId)
-                let session = try await client.terminalOpen(threadId: threadId, cols: size.cols, rows: size.rows)
-                attach(session, on: client)
-            } catch {
-                fail(error)
-            }
-        }
-    }
-
-    /// New shell: the runner ends the old one first. The button spins
-    /// until it lands.
-    func restart() {
-        guard let app else { return }
-        let size = size
-        app.whileBusy(BusyKey.terminalRestart(threadId)) { [weak self, threadId] in
-            do {
-                let client = try await app.openClient(for: threadId)
-                let session = try await client.terminalRestart(threadId: threadId, cols: size.cols, rows: size.rows)
-                self?.attach(session, on: client)
-            } catch {
-                self?.fail(error)
-            }
-        }
-    }
-
-    /// The connection came back (this Mac's runner, or the thread's own on
-    /// the direct link): attach again, if it's a new one.
-    func reconnected() {
-        guard showing, !opening, let app else { return }
-        guard terminalId != nil || phase.isFailed else { return }
-        guard app.client(for: threadId) !== client else { return }
-        terminalId = nil
-        client = nil
-        open(quietly: !phase.isFailed)
-    }
-
-    private func attach(_ session: TerminalSession, on client: RPCClient) {
-        guard showing else {
-            Task { try? await client.terminalDetach(terminalId: session.terminalId) }
-            return
-        }
-        terminalId = session.terminalId
-        self.client = client
-        let after = early.filter { $0.terminalId == session.terminalId }.map(\.data)
-        early = []
-        draw((session.replayBytes, after))
-        phase = session.alive ? .live : .ended(TerminalText.ended(reason: session.reason, exitCode: session.exitCode))
-        if session.alive { view?.focusIfInFront() }
-        if !input.isEmpty { Task { await flush() } }
-    }
-
-    private func draw(_ screen: (replay: Data, after: [Data])) {
-        guard let view else { pendingScreen = screen; return }
-        AppLog.write("terminal", "drawing \(screen.replay.count) bytes of replay and \(screen.after.count) more into a frame of \(Int(view.frame.width))x\(Int(view.frame.height))")
-        view.resetToInitialState()
-        if !screen.replay.isEmpty { view.feed(byteArray: ArraySlice([UInt8](screen.replay))) }
-        for data in screen.after { view.feed(byteArray: ArraySlice([UInt8](data))) }
-    }
-
-    private func fail(_ error: Error) {
-        guard showing else { return }
-        if TerminalText.runnerTooOld(error) {
-            phase = .tooOld
-        } else {
-            AppLog.write("terminal", "couldn't open the shell: \(error.localizedDescription)")
-            phase = .failed(error.localizedDescription)
-        }
-    }
-
-    // MARK: From the runner (TerminalHub)
-
-    func output(terminalId: String, data: Data) {
-        if opening, self.terminalId == nil {
-            early.append((terminalId, data))
-            return
-        }
-        guard terminalId == self.terminalId else { return }
-        view?.feed(byteArray: ArraySlice([UInt8](data)))
-    }
-
-    func exited(_ exit: TerminalExit) {
-        guard exit.terminalId == terminalId else { return }
-        input = TerminalInputBuffer()
-        phase = .ended(TerminalText.ended(reason: exit.reason, exitCode: exit.exitCode))
-    }
-
-    // MARK: From the view
-
-    /// Keys and pastes, a few ms' worth at a time, and while one send is on
-    /// its way the next waits for it, so they reach the shell in order.
-    func type(_ bytes: Data) {
-        guard phase == .live || opening else { return }
-        guard input.append(bytes), !sending else { return }
-        Task {
-            try? await Task.sleep(for: .milliseconds(4))
-            await flush()
-        }
-    }
-
-    private func flush() async {
-        guard !sending, let terminalId, let client else { return }
-        let pieces = input.take()
-        guard !pieces.isEmpty else { return }
-        sending = true
-        for piece in pieces {
-            do {
-                try await client.terminalInput(terminalId: terminalId, data: piece)
-            } catch {
-                AppLog.write("terminal", "typing didn't reach the shell: \(error.localizedDescription)")
-                break
-            }
-        }
-        sending = false
-        if !input.isEmpty, self.terminalId == terminalId { await flush() }
-    }
-
-    func resized(cols: Int, rows: Int) {
-        let next = TerminalSize.clamped(cols: cols, rows: rows)
-        let first = !sizeKnown
-        sizeKnown = true
-        guard next != size || first else { return }
-        size = next
-        if first, showing, terminalId == nil, !opening, waitingForSize != nil {
-            return open()
-        }
-        resizeTask?.cancel()
-        resizeTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(100))
-            guard let self, !Task.isCancelled, let terminalId = self.terminalId, let client = self.client else { return }
-            do {
-                try await client.terminalResize(terminalId: terminalId, cols: self.size.cols, rows: self.size.rows)
-            } catch {
-                AppLog.write("terminal", "resize failed: \(error.localizedDescription)")
-            }
-        }
+    /// Dictation and input methods. A key that lands here has been seen
+    /// already (Terminals.watchKeys), and Return mustn't count as text.
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        let text = (string as? String) ?? (string as? NSAttributedString)?.string
+        if text != "\r", text != "\n" { onText?() }
+        super.insertText(string, replacementRange: replacementRange)
     }
 }
 
-private extension TerminalPanelModel.Phase {
-    var isFailed: Bool { if case .failed = self { true } else { false } }
-}
-
-// MARK: - Routing the runner's notifications
-
-/// Hands `terminal.output` and `terminal.exited` to the panel showing that
-/// thread's shell, from any runner connection, and tells panels when a
-/// connection comes back.
-@MainActor
-final class TerminalHub {
-    static let shared = TerminalHub()
-
-    private final class Weak { weak var model: TerminalPanelModel?; init(_ m: TerminalPanelModel) { model = m } }
-    private var models: [String: Weak] = [:]
-
-    func register(_ model: TerminalPanelModel) { models[model.threadId] = Weak(model) }
-
-    func unregister(_ model: TerminalPanelModel) {
-        if models[model.threadId]?.model === model { models[model.threadId] = nil }
-    }
-
-    func output(terminalId: String, threadId: String, data: Data) {
-        models[threadId]?.model?.output(terminalId: terminalId, data: data)
-    }
-
-    func exited(_ exit: TerminalExit) {
-        models[exit.threadId]?.model?.exited(exit)
-    }
-
-    func reconnected() {
-        for entry in models.values { entry.model?.reconnected() }
-    }
-}
-
-// MARK: - The screen
-
-/// SwiftTerm's AppKit view. It takes the keyboard when clicked, so typing
-/// goes to the shell and not the composer.
-final class ThreadTerminalView: TerminalView {
-    // Clicks count while Threadbear isn't the app in front (FirstClick.swift).
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
-        super.mouseDown(with: event)
-    }
-
-    /// SwiftTerm turns its colours into fixed ones when they're set, so
-    /// they're set again under the view's own appearance: when it joins the
-    /// window (before that it would get light mode's) and when Mike switches
-    /// between light and dark.
-    func applyColours() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            nativeForegroundColor = .textColor
-            nativeBackgroundColor = .textBackgroundColor
-            selectedTextBackgroundColor = .selectedTextBackgroundColor
-            caretColor = .controlAccentColor
-        }
-        needsDisplay = true
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil { applyColours() }
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColours()
-    }
-
-    /// After a shell starts, if nothing else in the window has the keyboard
-    /// that matters (the composer keeps it when Mike is typing there).
-    func focusIfInFront() {
-        guard let window, window.isKeyWindow else { return }
-        if window.firstResponder === window || window.firstResponder == nil { window.makeFirstResponder(self) }
-    }
-}
-
-private struct TerminalScreen: NSViewRepresentable {
-    let model: TerminalPanelModel
-
-    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
-
-    func makeNSView(context: Context) -> ThreadTerminalView {
-        let view = ThreadTerminalView(frame: .zero, font: Theme.codeFont)
-        view.terminalDelegate = context.coordinator
-        // Light and dark (applyColours, again once it's in the window).
-        view.applyColours()
-        // Option types the Mac's characters (# on a UK keyboard, accents).
-        view.optionAsMetaKey = false
-        model.view = view
-        return view
-    }
-
-    func updateNSView(_ view: ThreadTerminalView, context: Context) {
-        context.coordinator.model = model
-        if model.view !== view { model.view = view }
-        // The app's text size follows its zoom.
-        let font = Theme.codeFont
-        if view.font.pointSize != font.pointSize { view.font = font }
-    }
+/// Where a terminal runs: its key (the thread, or "home") and folder.
+struct TerminalTarget: Equatable {
+    var key: String
+    var cwd: String
+    /// Said above the terminal when its folder isn't the thread's.
+    var note: String?
 
     @MainActor
-    final class Coordinator: NSObject, TerminalViewDelegate {
-        var model: TerminalPanelModel
+    static func `for`(_ thread: ThreadSummary?, runnerName: (ThreadSummary) -> String?) -> TerminalTarget {
+        let home = NSHomeDirectory()
+        guard let thread else { return TerminalTarget(key: "home", cwd: home) }
+        // An archived thread's worktree may have been handed to a newer
+        // thread since (archive keeps it as a spare), so its folder could be
+        // someone else's checkout now. Its own shell was stopped on archive.
+        if thread.isArchived {
+            return TerminalTarget(key: "home", cwd: home, note: "This thread is archived, so this terminal is in your home folder.")
+        }
+        if thread.isRemote {
+            let where_ = runnerName(thread).map { "on \($0)" } ?? "on another machine"
+            return TerminalTarget(key: "home", cwd: home, note: "This thread runs \(where_), so this terminal is on this Mac, in your home folder.")
+        }
+        var isDir: ObjCBool = false
+        guard !thread.cwd.isEmpty, FileManager.default.fileExists(atPath: thread.cwd, isDirectory: &isDir), isDir.boolValue else {
+            return TerminalTarget(key: "home", cwd: home, note: "This thread's folder isn't on this Mac any more, so this terminal is in your home folder.")
+        }
+        return TerminalTarget(key: thread.id, cwd: thread.cwd)
+    }
+}
 
-        init(model: TerminalPanelModel) { self.model = model }
+/// One shell in one pty, and the view that draws it.
+@MainActor
+@Observable
+final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
+    let target: TerminalTarget
+    @ObservationIgnored let view: PromptWatchingTerminalView
+    private(set) var exited = false
+    private(set) var title = ""
+    @ObservationIgnored let startedAt = Date()
+    /// How long a new shell may take to reach its first prompt, after
+    /// which it's treated as busy and the command is copied.
+    static let startingFor: TimeInterval = 10
+    /// What's on the shell's prompt, as far as keys and play icons say.
+    private(set) var promptLine = TerminalPut.Line.empty
+    /// A command is waiting at the prompt for Return, so the panel says so.
+    var waitingForReturn: Bool {
+        if case .put = promptLine { return true }
+        return false
+    }
 
-        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-            model.resized(cols: newCols, rows: newRows)
+    init(target: TerminalTarget) {
+        self.target = target
+        view = PromptWatchingTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
+        super.init()
+        view.processDelegate = self
+        view.onText = { [weak self] in self?.noteText() }
+        view.font = TerminalStyle.font
+        TerminalStyle.apply(to: view)
+        start()
+    }
+
+    private func start() {
+        let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
+        // A login shell ("-zsh" as its name), so it reads your profile and
+        // has the PATH Terminal gives you, which an app's own doesn't.
+        let name = "-" + (shell as NSString).lastPathComponent
+        view.startProcess(executable: shell, args: [], environment: Self.environment(), execName: name, currentDirectory: target.cwd)
+    }
+
+    static func environment(from base: [String: String] = ProcessInfo.processInfo.environment) -> [String] {
+        var env = base
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "Threadbear"
+        if (env["LANG"] ?? "").isEmpty { env["LANG"] = "en_US.UTF-8" }
+        // Never a thread id: the runner reads it as "this is that thread's
+        // own agent" (runner/src/cli.ts), so `tb` typed here would refuse to
+        // archive the thread with a message meant for agents, and log what
+        // you do as the agent's doing. The app may have inherited either
+        // name if it was started from inside a thread.
+        env.removeValue(forKey: "THREADBEAR_THREAD_ID")
+        env.removeValue(forKey: "THREADBARE_THREAD_ID")
+        env.removeValue(forKey: "THREADBEAR_THREAD_KEY")
+        return env.map { "\($0.key)=\($0.value)" }
+    }
+
+    /// Ends the shell as closing a Terminal window does: SIGHUP, which an
+    /// interactive shell passes on to its jobs (SIGTERM, LocalProcess's
+    /// own terminate, is ignored by an interactive zsh). If it's still
+    /// there once the session is let go, LocalProcess's deinit kills it.
+    func stop() {
+        let pid = view.process?.shellPid ?? 0
+        if pid > 0, !exited { kill(pid, SIGHUP) }
+        view.removeFromSuperview()
+    }
+
+    /// What putting `block` in this shell should do now (TerminalPut).
+    func putStep(for block: ShellBlock, now: Date = Date()) -> TerminalPut.Step {
+        let state = view.terminalStateSnapshot()
+        return TerminalPut.step(for: block, shellInFront: shellInFront, bracketedPaste: state.bracketedPasteMode,
+                                starting: now.timeIntervalSince(startedAt) < Self.startingFor, line: promptLine)
+    }
+
+    /// Pasted as the terminal's own paste is: bracketed where the shell
+    /// asked for that, so a newline in it doesn't run anything.
+    func put(_ text: String) {
+        view.pasteText(text)
+        promptLine = .put(text)
+    }
+
+    /// Deletes the last command put here, which is known to be everything
+    /// on the prompt with the cursor at its end (TerminalPut.Line.put).
+    /// Ctrl-U clears a line in zsh, bash and fish, but zsh and fish take it
+    /// a line of a multi-line paste at a time, and fish needs a second go
+    /// to remove each newline; any extra ones land on an empty prompt and
+    /// do nothing. Says whether it went, so a shell with its keys rebound
+    /// doesn't end up with two commands run together.
+    func clearLastPut() async -> Bool {
+        guard case .put(let text) = promptLine else { return false }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
+        view.send(txt: String(repeating: "\u{15}", count: lines * 2))
+        for _ in 0..<30 {
+            try? await Task.sleep(for: .milliseconds(20))
+            let screen = view.terminalStateSnapshot().visibleRows.map(\.text).joined(separator: "\n")
+            if !TerminalPut.endsWith(screen, text) {
+                promptLine = .empty
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The shell owns the terminal, rather than a program it's running.
+    private var shellInFront: Bool {
+        let pid = view.process?.shellPid ?? 0
+        let fd = view.process?.childfd ?? -1
+        return pid > 0 && fd >= 0 && tcgetpgrp(fd) == pid
+    }
+
+    /// A key on its way to this terminal. Keys for a running program (vim's
+    /// `q`) say nothing about the shell's prompt.
+    func noteKey(_ event: NSEvent) {
+        guard shellInFront else { return }
+        let flags = event.modifierFlags
+        promptLine = TerminalPut.line(promptLine, afterKey: event.charactersIgnoringModifiers, control: flags.contains(.control),
+                                      option: flags.contains(.option), shift: flags.contains(.shift), command: flags.contains(.command))
+    }
+
+    /// Text that arrived some way other than a key: a paste or dictation.
+    func noteText() {
+        if shellInFront { promptLine = .edited }
+    }
+
+    /// Text typed into the shell, for the automation.
+    func type(_ text: String) {
+        view.send(txt: text)
+    }
+
+    // MARK: LocalProcessTerminalViewDelegate
+
+    nonisolated func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
+
+    nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+        MainActor.assumeIsolated { self.title = title }
+    }
+
+    nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+
+    nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) {
+        MainActor.assumeIsolated { self.exited = true }
+    }
+}
+
+/// The terminal's font and colours: the app's code font, on the transcript's
+/// own background, light or dark with the app.
+enum TerminalStyle {
+    @MainActor static var font: NSFont { .monospacedSystemFont(ofSize: Theme.codeSize + 1, weight: .regular) }
+
+    @MainActor
+    static func apply(to view: TerminalView) {
+        let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        view.nativeBackgroundColor = dark ? NSColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1) : NSColor(white: 1, alpha: 1)
+        view.nativeForegroundColor = dark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.12, alpha: 1)
+        view.caretColor = .controlAccentColor
+        view.selectedTextBackgroundColor = NSColor.selectedTextBackgroundColor
+    }
+}
+
+struct TerminalPanel: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
+        let session = Terminals.shared.existing(for: target)
+        VStack(spacing: 0) {
+            if let note = target.note {
+                Text(note)
+                    .font(.system(size: TypeScale.detail))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, zoomed(10))
+                    .padding(.vertical, zoomed(5))
+                    .tip(note)
+            }
+            if let session {
+                ZStack(alignment: .bottom) {
+                    TerminalHost(session: session, focusTick: Terminals.shared.focusTick)
+                        .dockDragDisabled()
+                    if session.waitingForReturn {
+                        Text("Return runs it")
+                            .font(.system(size: TypeScale.detail))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, zoomed(6))
+                            .padding(.vertical, zoomed(2))
+                            // Over whatever's in the terminal's top corner.
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: zoomed(4)))
+                            .padding(.horizontal, zoomed(6))
+                            .padding(.vertical, zoomed(5))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .allowsHitTesting(false)
+                    }
+                    if session.exited {
+                    HStack(spacing: zoomed(8)) {
+                        Text("The shell has exited.").foregroundStyle(.secondary)
+                        Button("New Shell") { Terminals.shared.restart(target.key) }
+                            .tip("Start a new shell in \((target.cwd as NSString).abbreviatingWithTildeInPath)")
+                    }
+                    .font(.system(size: TypeScale.label))
+                    .padding(zoomed(8))
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .padding(zoomed(10))
+                    }
+                }
+            } else {
+                // No shell for this thread yet: one starts on a click here
+                // or ⌘J, not just from looking.
+                Button { Terminals.shared.open(target) } label: {
+                    Label("Start a shell", systemImage: WindowDock.terminalSymbol)
+                        .font(.system(size: TypeScale.label))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .tip("Start your login shell in \((target.cwd as NSString).abbreviatingWithTildeInPath)")
+            }
+        }
+    }
+}
+
+/// Hosts the session's view, swapping it when the thread changes, and
+/// gives it the keyboard when asked (⌘J).
+private struct TerminalHost: NSViewRepresentable {
+    let session: TerminalSession
+    let focusTick: Int
+
+    /// Holds the terminal a little in from the panel's edges, on the
+    /// terminal's own background.
+    final class Container: NSView {
+        var focusTick = 0
+        static var inset: NSSize { NSSize(width: zoomed(10), height: zoomed(6)) }
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
         }
 
-        func send(source: TerminalView, data: ArraySlice<UInt8>) {
-            model.type(Data(data))
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func layout() {
+            super.layout()
+            let inset = Self.inset
+            for view in subviews { view.frame = bounds.insetBy(dx: inset.width, dy: inset.height) }
         }
 
-        func setTerminalTitle(source: TerminalView, title: String) {}
-        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-        func scrolled(source: TerminalView, position: Double) {}
-        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
-
-        /// A program copying (OSC 52) puts it on the pasteboard, as Terminal does.
-        func clipboardCopy(source: TerminalView, content: Data) {
-            guard let text = String(data: content, encoding: .utf8) else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            for case let view as TerminalView in subviews {
+                TerminalStyle.apply(to: view)
+                layer?.backgroundColor = view.nativeBackgroundColor.cgColor
+            }
         }
+    }
+
+    func makeNSView(context: Context) -> Container {
+        let c = Container()
+        c.focusTick = focusTick - 1
+        return c
+    }
+
+    func updateNSView(_ container: Container, context: Context) {
+        let view = session.view
+        if view.superview !== container {
+            container.subviews.forEach { $0.removeFromSuperview() }
+            view.removeFromSuperview()
+            view.autoresizingMask = []
+            container.addSubview(view)
+            container.needsLayout = true
+            TerminalStyle.apply(to: view)
+            container.layer?.backgroundColor = view.nativeBackgroundColor.cgColor
+        }
+        let font = TerminalStyle.font
+        if view.font.pointSize != font.pointSize { view.font = font }
+        if container.focusTick != focusTick {
+            container.focusTick = focusTick
+            DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
+        }
+    }
+
+    static func dismantleNSView(_ container: Container, coordinator: ()) {
+        // The session keeps the view (and its shell) for next time.
+        container.subviews.forEach { $0.removeFromSuperview() }
     }
 }

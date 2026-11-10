@@ -15,6 +15,8 @@ enum BusyKey {
     /// The same path on two Macs is two files.
     static func fetching(_ path: String, runner: String?, action: FileLinkAction) -> String { "fetching/\(action)/\(runner ?? "")/\(path)" }
     static func deleteThread(_ id: String) -> String { "deleteThread/\(id)" }
+    /// Move or Cancel on its way to the runner (AppModel+Moves).
+    static func moveThread(_ id: String) -> String { "moveThread/\(id)" }
     static func projectIcon(_ id: String) -> String { "projectIcon/\(id)" }
     static func projectTasks(_ id: String) -> String { "projectTasks/\(id)" }
     static func runSchedule(_ id: String) -> String { "runSchedule/\(id)" }
@@ -22,8 +24,6 @@ enum BusyKey {
     static func tickAsk(_ threadId: String, asksSeq: Int, index: Int) -> String { "tickAsk/\(threadId)/\(asksSeq)/\(index)" }
     static func runLibrarian(_ threadId: String?) -> String { "runLibrarian/\(threadId ?? "")" }
     static func updateCli(_ provider: String) -> String { "updateCli/\(provider)" }
-    /// New shell in a thread's Terminal panel.
-    static func terminalRestart(_ threadId: String) -> String { "terminalRestart/\(threadId)" }
     static func cliPolicy(_ provider: String) -> String { "cliPolicy/\(provider)" }
     static let newProject = "newProject"
     static let pauseLibrarian = "pauseLibrarian"

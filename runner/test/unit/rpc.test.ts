@@ -62,6 +62,10 @@ test('challenge auth, hello, and JSON-RPC errors', async () => {
   await assert.rejects(c.call('threads.create', { text: 'x', accountId: 'claude-42' }), (e: { code: number }) => e.code === -32010);
   await assert.rejects(c.call('threads.create', { text: 'x', effort: 'huge' }), (e: { code: number; message: string }) => e.code === -32602 && /effort must be one of/.test(e.message));
   await assert.rejects(c.call('nope.method'), (e: { code: number }) => e.code === -32601);
+  // A byline kind from a newer caller: the thread still starts, with none.
+  const bylined = await c.call('threads.create', { text: 'x', accountId: 'claude-3', startedBy: { kind: 'robot', label: 'R2' } });
+  assert.equal(bylined.thread.startedBy, undefined);
+  await assert.rejects(c.call('threads.create', { text: 'x', accountId: 'claude-3', startedBy: { kind: 7, label: 'R2' } }), (e: { code: number }) => e.code === -32602);
   c.close();
   await server.close();
 });
@@ -429,7 +433,9 @@ test('subscribe replays the gap then streams; thread.updated goes to everyone', 
   assert.equal(seen.thread.lastSeenSeq, page.lastSeq);
   const list = await b.call('threads.list', { include: ['inbox', 'snoozed', 'archived'] });
   assert.deepEqual(list.threads.map((t: { id: string }) => t.id), [id]);
-  await assert.rejects(b.call('threads.list', { include: ['bogus'] }), (e: { code: number }) => e.code === -32602);
+  // A bucket this runner doesn't know is left out, never a failed list.
+  assert.deepEqual((await b.call('threads.list', { include: ['inbox', 'pinned'] })).threads.map((t: { id: string }) => t.id), [id]);
+  assert.deepEqual((await b.call('threads.list', { include: ['pinned'] })).threads, []);
   await assert.rejects(b.call('threads.send', { threadId: id, text: 'x', answers: [{ action: 'a' }] }), (e: { code: number }) => e.code === -32602);
   // A phone command the primary passed on keeps its origin; nothing else
   // can be claimed.
@@ -669,9 +675,6 @@ test('every request about a thread reaches the draining runner that has it', asy
   }
   // Only this connection's own subscription list; nothing to pass on.
   named.delete('threads.unsubscribe');
-  // A shell runs where the thread is; its terminal isn't passed on ("The Terminal panel").
-  named.delete('terminal.open');
-  named.delete('terminal.restart');
   assert.ok(named.has('patches.trust') && named.has('actions.run'), [...named].join(', '));
   const calls: string[] = [];
   const remote = { owns: (id: string) => id === 'away-3', call: async (_id: string, method: string) => { calls.push(method); return {}; }, summaries: () => [], search: async () => [] };
@@ -805,51 +808,4 @@ test("the agent tools resolve a whole thread id without listing every thread", a
   assert.equal(lists, 1);
   const missing = await read.handler({ threadId: '00000000-0000-0000-0000-000000000000' } as never, {} as never);
   assert.equal(missing.isError, true);
-});
-
-test('terminal.*: output reaches only the connection that opened it; another runner\'s thread is refused; without terminals it is -32601', async () => {
-  const { TerminalManager } = await import('../../src/terminals.ts');
-  const { EventEmitter } = await import('node:events');
-  const stdout = new EventEmitter();
-  const written: Buffer[] = [];
-  const proc = Object.assign(new EventEmitter(), { stdout, stderr: new EventEmitter(), stdin: { write: (b: Buffer) => written.push(b), end: () => {} }, kill: () => {} });
-  const terminals = new TerminalManager({
-    home: '/nowhere',
-    thread: () => ({ cwd: '/tmp', env: {} }),
-    helper: async () => '/fake',
-    spawn: () => proc as never,
-    flushMs: 1,
-  });
-  const remote = { owns: (id: string) => id === 'away', call: async () => ({}), summaries: () => [], search: async () => [] };
-  const { h, server, url } = await serve({ terminals, remote });
-  const a = await RunnerClient.connect(url, TOKEN);
-  const b = await RunnerClient.connect(url, TOKEN);
-  const seen: { a: string[]; b: string[] } = { a: [], b: [] };
-  a.onNotification((m) => seen.a.push(m));
-  b.onNotification((m) => seen.b.push(m));
-  try {
-    const { thread } = h.runner.create({ text: 'Terminal', accountId: 'claude-3' });
-    const opened = await a.call('terminal.open', { threadId: thread.id, cols: 80, rows: 24 }) as { terminalId: string; alive: boolean };
-    assert.equal(opened.alive, true);
-    stdout.emit('data', Buffer.from('hi'));
-    await patiently(() => seen.a.includes('terminal.output'));
-    assert.ok(seen.a.includes('terminal.output'));
-    assert.ok(!seen.b.includes('terminal.output'));
-    await a.call('terminal.input', { terminalId: opened.terminalId, data: Buffer.from('x').toString('base64') });
-    assert.equal(written.length, 1, 'the input (a new shell gets its size as arguments)');
-    await assert.rejects(a.call('terminal.open', { threadId: 'away', cols: 80, rows: 24 }), /another Mac/);
-    await assert.rejects(a.call('terminal.open', { threadId: 'nope', cols: 80, rows: 24 }), (e: RpcError) => e.code === -32004);
-  } finally {
-    a.close();
-    b.close();
-    await server.close();
-  }
-  const bare = await serve();
-  const c = await RunnerClient.connect(bare.url, TOKEN);
-  try {
-    await assert.rejects(c.call('terminal.open', { threadId: 'x', cols: 80, rows: 24 }), (e: RpcError) => e.code === -32601);
-  } finally {
-    c.close();
-    await bare.server.close();
-  }
 });
