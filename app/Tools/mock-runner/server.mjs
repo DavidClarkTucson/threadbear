@@ -1157,10 +1157,13 @@ async function dispatch(client, method, p) {
         },
       };
     }
+    case 'folders.commands':
     case 'threads.commands': {
       // The palette's list (docs/protocol.md, "Slash commands"): Threadbear's
       // own, the CLI's, then skills, as a real Claude thread lists them.
-      const t = need(p.threadId);
+      // folders.commands is a new thread's box asking before there's a
+      // thread: the same list for the folder it would start in.
+      const t = method === 'folders.commands' ? { summary: { provider: 'claude', cwd: p.cwd ?? os.homedir() } } : need(p.threadId);
       const codex = t.summary.provider === 'codex';
       const own = [
         { name: 'model', description: "Switch this thread's model", argumentHint: '[model]', source: 'threadbear' },

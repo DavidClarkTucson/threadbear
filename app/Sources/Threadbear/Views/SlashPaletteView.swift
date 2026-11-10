@@ -280,7 +280,10 @@ extension SlashPaletteView {
 
     /// The list's: the longest name, its row's padding and the scroller.
     static func listWidth(_ commands: [SlashCommand]) -> Double {
-        let longest = commands.map { textWidth("/\($0.name)") }.max() ?? 0
+        // With none (still loading, or a new thread on a runner that
+        // can't list them yet) it holds the placeholder, which wrapped a
+        // letter a line at the width of no name at all.
+        guard let longest = commands.map({ textWidth("/\($0.name)") }).max() else { return zoomed(220) }
         return longest + zoomed(14) * 2 + zoomed(14)
     }
 
