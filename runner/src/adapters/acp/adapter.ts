@@ -28,6 +28,11 @@ import { AcpExitedError, AcpProcess, AcpRpcError, AUTH_REQUIRED, type AcpTimings
 import { AcpMcpServer } from './mcp-http.ts';
 import { AcpNormalizer, absolutePath, isPlainEdit, isPlainObject, requestPaths, writesFiles, type AcpToolCall } from './normalize.ts';
 
+// Where an execute call can say it runs (OpenCode's bash tool: workdir).
+const FOLDER_KEYS = ['workdir', 'cwd', 'workingDirectory', 'directory', 'dir'];
+// What an execute call can carry that doesn't change what runs or where.
+const BENIGN_KEYS = new Set(['description', 'timeout']);
+
 export type AcpAdapterDeps = {
   agent: AcpAgent;
   // Read for every process: runner.json's path, or wherever it's installed.
@@ -399,9 +404,15 @@ export class AcpSession implements AgentSession {
     const argv = command ? shellWords(command) : null;
     // A tool can name its own folder (OpenCode's workdir): the rule and the
     // card go by where the command really runs.
-    const said = [input.workdir, input.cwd, input.workingDirectory, input.directory, input.dir].find((d): d is string => typeof d === 'string' && d !== '');
-    const where = said ? absolutePath(said, this.opts.cwd) : this.opts.cwd;
-    const rule = argv?.length && ruleMayCover(argv) ? commandRule(argv, where) : null;
+    const said = [...new Set(FOLDER_KEYS.map((k) => input[k]).filter((d): d is string => typeof d === 'string' && d !== '').map((d) => absolutePath(d, this.opts.cwd)))];
+    const where = said[0] ?? this.opts.cwd;
+    // A saved rule is for this command in this folder and nothing else. Two
+    // folders that disagree, or anything else the call carries that could
+    // change what runs (an env, a shell, a folder under a name not listed
+    // here), and it can't be known which applies: no rule covers it, Always
+    // allow isn't offered, and the card shows the lot (Daybreak, 10 Nov).
+    const exact = Boolean(command) && said.length <= 1 && Object.entries(input).every(([k, v]) => k === 'command' || BENIGN_KEYS.has(k) || (FOLDER_KEYS.includes(k) && (typeof v === 'string' || v === undefined)));
+    const rule = exact && argv?.length && ruleMayCover(argv) ? commandRule(argv, where) : null;
 
     let code: CodeWrite = false;
     if (writesFiles(kind)) {
@@ -421,8 +432,8 @@ export class AcpSession implements AgentSession {
       : writesFiles(kind) && paths.length === 1
         ? `Edit ${displayPath(paths[0], this.opts.cwd)}`
         : firstLineSafely(seen.title || kind || 'Use a tool', 200, '…');
-    const shown: Record<string, unknown> = command ? { command, cwd: where } : writesFiles(kind) ? { paths } : input;
-    const card = cardInput(shown, command ? ['command', 'cwd'] : writesFiles(kind) ? ['paths'] : 'all');
+    const shown: Record<string, unknown> = command ? (exact ? { command, cwd: where } : { ...input, command, ...(FOLDER_KEYS.some((k) => k in input) ? {} : { cwd: where }) }) : writesFiles(kind) ? { paths } : input;
+    const card = cardInput(shown, command ? (exact ? ['command', 'cwd'] : 'all') : writesFiles(kind) ? ['paths'] : 'all');
     if (card.tooLong) {
       this.sink.output({ kind: 'event', event: { type: 'system.note', text: tooLongForCard(card.tooLong) } });
       return this.answer(id, options, false);

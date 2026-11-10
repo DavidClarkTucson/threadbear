@@ -112,6 +112,14 @@ export const raises = (to: PermissionMode, from: PermissionMode): boolean => ACC
 export type Authority = { mode: PermissionMode; confined: boolean };
 // More than the caller has: a higher mode, or out of the caller's sandbox.
 export const above = (t: Authority, caller: Authority): boolean => raises(t.mode, caller.mode) || (caller.confined && !t.confined);
+// A new_thread schedule's mode for the access checks: its own, or what it
+// inherits (Schedule.defaultMode). One whose inherited mode isn't known here
+// (another runner's default) counts as the least for raising it and the most
+// for what its runs reach, so neither check is passed by guessing.
+export function scheduleModes(sc: Pick<Schedule, 'permissionMode' | 'defaultMode'>): { floor: PermissionMode; ceiling: PermissionMode } {
+  const known = sc.permissionMode ?? sc.defaultMode;
+  return known ? { floor: known, ceiling: known } : { floor: 'ask', ceiling: 'full' };
+}
 const accessName = (t: Authority, caller: Authority): string => `${MODE_NAMES[t.mode]}${caller.confined && !t.confined ? ' outside the sandbox' : ''}`;
 // Asked about every time, even in a thread with full access: deleting is
 // the one thing here that's hard to take back.
@@ -892,8 +900,9 @@ export function buildThreadbearTools(
         if (caller) {
           // What its runs reach: the thread it sends to, or new threads the
           // runner starts (outside any sandbox this caller is in).
-          const was: Authority = current.threadId ? await accessOf(current.threadId) : { mode: current.permissionMode ?? 'full', confined: false };
-          const raised = !current.threadId && permissionMode !== undefined && raises(permissionMode, was.mode);
+          const modes = scheduleModes(current);
+          const was: Authority = current.threadId ? await accessOf(current.threadId) : { mode: modes.ceiling, confined: false };
+          const raised = !current.threadId && permissionMode !== undefined && raises(permissionMode, modes.floor);
           const will: Authority = raised ? { mode: permissionMode!, confined: false } : was;
           // What it sends (its title goes into the message too), where, or
           // that it runs again; not its login, model or zone, and not pausing it.
@@ -910,7 +919,9 @@ export function buildThreadbearTools(
           ];
           // Setting the mode it already has is left out, so a write that
           // lands after someone else lowers it can't raise it back.
-          if (permissionMode !== undefined && !current.threadId && permissionMode === was.mode) permissionMode = undefined;
+          // Only a mode it has itself: one it inherits is set, so the runs keep
+          // it if the default changes.
+          if (permissionMode !== undefined && !current.threadId && permissionMode === current.permissionMode) permissionMode = undefined;
           // Moving it re-approves its check there too (Scheduler.update).
           const checkNow = typeof check === 'string' ? check : newFolder !== undefined ? current.check : undefined;
           card = checkGuard(checkNow, current.threadId ? await threadFolder(current.threadId) : (newFolder ?? (current.cwd ? path.resolve(expandHome(current.cwd)) : undefined)), caller);

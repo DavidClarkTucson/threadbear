@@ -921,6 +921,12 @@ export type Schedule = {
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
+  // Set by the runner when there's no permissionMode: the mode its runs start
+  // with, this runner's default (runner.json's defaults.permissionMode, else
+  // full). Absent for another runner's schedule, whose default isn't known
+  // here. Raising a schedule's mode is checked against it (threadbear-mcp.ts,
+  // scheduleModes); never stored.
+  defaultMode?: PermissionMode;
   // A shell command run first, in its folder; a run whose check prints
   // nothing is skipped (experiment scheduleChecks, schedule-check.ts).
   check?: string;

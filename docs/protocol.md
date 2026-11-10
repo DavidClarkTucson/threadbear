@@ -651,6 +651,14 @@ type Schedule = {
   effort?: EffortLevel
   permissionMode?: "full" | "ask" | "auto" // absent: the runner's
                         // defaults.permissionMode when it runs, else full
+  defaultMode?: "full" | "ask" | "auto" | "plan" // set by the runner on a
+                        // new-thread one with no permissionMode that runs
+                        // here: the mode it inherits. Absent for another
+                        // runner's, whose default isn't known here. An Ask or
+                        // Auto thread raising a schedule's mode is checked
+                        // against this; one not known counts as Ask for
+                        // raising it and Full for what its runs reach.
+                        // Never stored.
   paused: boolean
   createdAt: string
   updatedAt: string
@@ -957,6 +965,15 @@ and `failed` so the phone can draw them. A press that can't start is
 `failed` and can be pressed again; so is one a restart cut off, which says
 it may have partly run, and the agent is told.
 
+A press is by id, so it runs the command as the runner has it, not as a
+client showed it. So an ask whose `command` or `cwd` the sync's scrub would
+change (a secret in it, or comment lines dressed as a PEM key around a
+statement) goes up with no `run`, its `why` saying it can only be run in the
+Mac app connected straight to the runner, and a `press` command for a run
+whose command or folder the runner's scrub changes, checked again when it
+comes, fails with that. The Mac app connected straight to the runner shows
+the command unscrubbed and presses it as before.
+
 On the phone and the website (Sync, backend API 59), pressing calls
 `phone:press({ threadId, buttonId })`, which queues a `press` command with
 `{ buttonId }` for the thread's runner; the runner calls `buttons.press`
@@ -1188,7 +1205,12 @@ one process per live thread, over stdio. With it off no account, pool or
   session opens. Each request is answered from the thread's mode when it comes
   (Full: allow; otherwise the card). Only the once options are ever chosen, as
   an agent remembers "always" past the thread; "Always allow" is the runner's
-  rule (`acp:edit`, or the exact plain command). An edit of a file that runs as
+  rule (`acp:edit`, or the exact plain command in the folder it runs in: the
+  call's `workdir`, `cwd`, `workingDirectory`, `directory` or `dir`, else the
+  thread's). A command call naming two different folders, or carrying anything
+  but those, `command`, `description` and `timeout` (an env, a shell), isn't
+  covered by a rule and can't be always allowed, and its card shows all of it.
+  An edit of a file that runs as
   code asks every time, and so does an edit whose arguments aren't the plain file
   tools' (nothing can say where else it writes). Auto acts like Ask.
 - **Cursor** can't be told to always ask (its allow-list and a folder's

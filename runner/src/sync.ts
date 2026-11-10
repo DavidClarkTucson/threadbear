@@ -33,7 +33,7 @@ import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
 import { agentsStillWorking, ARCHIVE_VERDICTS, ErrorCode, isEffortLevel, remoteCreateModeOf } from './protocol.ts';
 import type { Account, ArchiveVerdict, ApprovalDecision, ApprovalOption, AskAnswer, EffortLevel, ImageRef, OpenAsk, PermissionMode, PersistedEvent, Project, Question, ReplyButton, Schedule, ThreadSummary } from './protocol.ts';
-import { REMOTE_ALLOW_REFUSED, remoteCardShowsAll, summaryField } from './tools.ts';
+import { REMOTE_ALLOW_REFUSED, REMOTE_RUN_REFUSED, remoteCardShowsAll, summaryField } from './tools.ts';
 import type { Notification } from './runner.ts';
 import type { ScheduleBackend, StoredSchedule } from './schedules.ts';
 import { followSchedules } from './schedule-follow.ts';
@@ -867,7 +867,7 @@ export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pen
   // "off" goes up too, so Mike's own page for the link can offer Share again.
   if (t.share) doc.share = { access: t.share.access, slug: t.share.slug };
   if (t.asks?.length && t.asksSeq !== undefined) {
-    doc.asks = t.asks.map(toPhoneAsk);
+    doc.asks = t.asks.map((a) => toPhoneAsk(a, scrub));
     doc.asksSeq = t.asksSeq;
   }
   if (next?.length) doc.next = next;
@@ -893,7 +893,22 @@ function steadyDigest(row: ThreadDoc): string {
   return digest(JSON.stringify(rest));
 }
 
-export function toPhoneAsk(a: OpenAsk): PhoneAsk {
+// Whether a card's command and folder go up as they'd run: unchanged by the
+// scrub. Without a scrub (the backend's pass is the same rules), only a
+// test's row, which nothing presses.
+export function runShowsAll(run: { command: string; cwd?: string }, scrub: ((text: string) => string) | undefined): boolean {
+  if (!scrub) return true;
+  try {
+    return scrub(run.command) === run.command && (run.cwd === undefined || scrub(run.cwd) === run.cwd);
+  } catch {
+    return false;
+  }
+}
+
+// `scrub`: as toThreadDoc's. A Run the scrub would change goes up without
+// its button (REMOTE_RUN_REFUSED), so the phone and website can't run what
+// they can't show; the press command checks again.
+export function toPhoneAsk(a: OpenAsk, scrub?: (text: string) => string): PhoneAsk {
   const out: PhoneAsk = { action: a.action };
   if (a.why) out.why = a.why;
   if (a.reply) out.reply = a.reply;
@@ -906,7 +921,9 @@ export function toPhoneAsk(a: OpenAsk): PhoneAsk {
   const links = a.links?.filter((l) => /^https?:\/\//i.test(l.url));
   if (links?.length) out.links = links.map((l) => ({ title: l.title, url: l.url }));
   if (a.ticked) out.ticked = true;
-  if (a.run?.buttonId) {
+  if (a.run?.buttonId && !runShowsAll(a.run, scrub)) {
+    out.why = out.why ? `${out.why} ${REMOTE_RUN_REFUSED}` : REMOTE_RUN_REFUSED;
+  } else if (a.run?.buttonId) {
     out.run = { command: a.run.command, buttonId: a.run.buttonId, ...(a.run.cwd ? { cwd: a.run.cwd } : {}), ...(a.run.running ? { running: true } : {}), ...(a.run.failed ? { failed: a.run.failed } : {}) };
   }
   return out;
@@ -4085,6 +4102,14 @@ export class ConvexSync {
         // button comes back as it is (buttons.ts pressButton).
         if (!host.pressButton) throw new Error("This runner can't press a button from the phone.");
         if (typeof a.buttonId !== 'string' || !/^[a-z0-9]{8}$/.test(a.buttonId)) throw new Error('no button');
+        // A Run is pressed by its id alone, so it runs what's on this Mac,
+        // never what the phone showed: refused when the scrub would change
+        // that, whatever the row that went up said (Daybreak, 10 Nov). Looked
+        // up here, as a thread on a draining runner is pressed over the link.
+        // Without the list there's no telling, so no press at all.
+        if (!this.deps.runner.buttons) throw new Error("This runner can't check a button from the phone.");
+        const run = this.deps.runner.buttons(needThread()).find((b) => b.id === a.buttonId)?.run;
+        if (run && !runShowsAll(run, this.scrubber.safeText)) throw new Error(REMOTE_RUN_REFUSED);
         const r = (await host.pressButton(needThread(), a.buttonId)) as { button?: ReplyButton } | undefined;
         // The thread it started or messaged, so the phone can open it once
         // the press is done (its row goes up first, as a create's does).

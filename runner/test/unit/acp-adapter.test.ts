@@ -570,6 +570,51 @@ test('a saved command rule covers its own folder only, and the card says which',
   assert.equal((r.cards[0].input as { cwd: string }).cwd, '/elsewhere/project');
 });
 
+// Daybreak, 10 Nov (finding 69): an Always allow for a command in the
+// thread's folder covered the same command anywhere. A rule is for that
+// command in the folder it really runs in; a call that names two folders, or
+// carries anything else that could change what runs, isn't covered by one.
+test('a saved command rule covers that folder only: another, two at once, or anything else that changes what runs asks, showing it', async () => {
+  const r = rig({ mode: 'ask', deny: true });
+  const s = r.start();
+  await s.setPermissionMode('ask');
+  const command = 'rm -rf generated';
+  (s as unknown as { rules: Set<string> }).rules.add(commandRule(['rm', '-rf', 'generated'], r.cwd));
+  await ready(r, s);
+  const allowed = { outcome: { outcome: 'selected', optionId: 'once' } };
+  // Its own folder, unnamed or named: the rule answers, no card.
+  for (const [id, rawInput] of [['a1', { command, description: 'clean up' }], ['a2', { command, workdir: r.cwd, timeout: 60 }], ['a3', { command, cwd: '.' }]] as const) {
+    const replies = fakeRequest(r, s, { toolCallId: id, kind: 'execute', rawInput });
+    await until(() => replies.length === 1);
+    assert.deepEqual(replies[0], allowed, id);
+  }
+  assert.equal(r.cards.length, 0);
+  // Another folder inside the project: a card, saying where.
+  const other = path.join(r.cwd, 'packages', 'app');
+  const b = fakeRequest(r, s, { toolCallId: 'b', kind: 'execute', rawInput: { command, workdir: other } });
+  await until(() => b.length === 1);
+  assert.equal(r.cards.length, 1);
+  assert.equal((r.cards[0].input as { cwd: string }).cwd, other);
+  assert.equal(r.cards[0].canAlwaysAllow, true, 'a rule for that folder can be saved');
+  // Two folders that disagree: which one it runs in can't be known.
+  const c = fakeRequest(r, s, { toolCallId: 'c', kind: 'execute', rawInput: { command, workdir: r.cwd, cwd: '/elsewhere' } });
+  await until(() => c.length === 1);
+  assert.equal(r.cards.length, 2);
+  assert.equal(r.cards[1].canAlwaysAllow, false);
+  assert.deepEqual(r.cards[1].input, { command, workdir: r.cwd, cwd: '/elsewhere' });
+  // Anything else that could change what runs: an env, a folder by another name.
+  for (const [id, extra] of [['d1', { env: { PATH: '/tmp/evil' } }], ['d2', { path: '/elsewhere' }], ['d3', { workdir: ['/a'] }]] as const) {
+    const before: number = r.cards.length;
+    const replies = fakeRequest(r, s, { toolCallId: id, kind: 'execute', rawInput: { command, ...extra } });
+    await until(() => replies.length === 1);
+    assert.notDeepEqual(replies[0], allowed, id);
+    assert.equal(r.cards.length, before + 1, id);
+    const card = r.cards.at(-1)!;
+    assert.equal(card.canAlwaysAllow, false, id);
+    for (const k of Object.keys(extra)) assert.ok(k in card.input, `${id}: ${k} on the card`);
+  }
+});
+
 test('a saved command rule does not cover a file that runs as code', async () => {
   const r = rig({ mode: 'ask', deny: true });
   const s = r.start();
