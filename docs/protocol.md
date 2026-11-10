@@ -6130,12 +6130,13 @@ anyone's); "any runner" is any good key. Anything not sorted is owner only.
 | `moveInfo` | its own | the move's old runner: what the thread is (folder, repo, login), once |
 | `moveReady` | its own | the move's new runner: its plan and sealing key |
 | `moveFrozen` | its own | the move's old runner: the thread is frozen |
-| `moveChunkUrl` | its own | the move's old runner: an upload URL for one chunk, outside its picture allowances, 24 a move at most |
+| `moveChunkUrl` | its own | the move's old runner: an upload URL for one chunk, charged to its stored bytes with a move's worth of room, usable only while the move is packing, 24 a move at most |
 | `movePacked` | its own | the move's old runner: its own uploads, 12 at most |
 | `moveChunks` | its own | the move's new runner: the chunks' URLs |
 | `moveClaim` | its own | the move's new runner: the switch |
 | `moveDone` | its own | the move's new runner |
 | `moveFailed` | its own | either of the move's runners, before the switch |
+| `moveDropChunks` | owner only | the main Mac's own chunks for a move that ended before it was packed: deletes those no going move names and nothing else uses |
 
 `sync:uploadTicketOk` and `sync:redeemUpload` are internal, for
 `/runner/upload`; `moves:rehomeRows` (a moved thread's rows to its new
