@@ -5319,7 +5319,10 @@ again and carries on from the state.
   `movedSchedules` in moves.ts), as the bundle is S's word and S may be an
   extra Mac: no shell check (and the thread's note says one was left
   off), folder, login, mode or runner. The thread's `allowRules` ("Always
-  allow" answers) are dropped too: asked again on T.
+  allow" answers), its reply buttons and an open card's commands are
+  dropped too (as it's placed, and again as it's adopted): asked or made
+  again on T. A preview's description in the backend has no title or
+  session either (an older main Mac sends them).
   Queued messages are sent. T's mirror sends the thread's whole history
   again (a thread new to it), which overwrites the same seqs.
 

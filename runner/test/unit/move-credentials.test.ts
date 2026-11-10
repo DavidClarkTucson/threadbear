@@ -107,4 +107,8 @@ test("the backend strips a credential from a preview's description an older main
   const { commandArgs } = load('relay') as { commandArgs: (kind: string, a: unknown) => Record<string, unknown> };
   const out = commandArgs('call', { method: 'moves.preview', params: { info: { title: 't', cwd: '/c', home: '/h', provider: 'claude', accountId: 'a', permissionMode: 'full', origin: `https://user:${TOKEN}@github.com/o/p.git` } } }) as { params: { info: { origin: string } } };
   assert.equal(out.params.info.origin, 'https://github.com/o/p.git');
+  // Nor the title (made from the first message) or the session.
+  const more = commandArgs('call', { method: 'moves.preview', params: { info: { title: 'my password is hunter2', sessionId: 's1', cwd: '/c', home: '/h', provider: 'claude', accountId: 'a', permissionMode: 'full' } } }) as { params: { info: Record<string, unknown> } };
+  assert.equal(more.params.info.title, '');
+  assert.equal(more.params.info.sessionId, undefined);
 });

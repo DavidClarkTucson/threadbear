@@ -59,7 +59,15 @@ test("a compromised old runner's schedule check and Always allow rules don't rea
   const marker = path.join(t.home, 'pwned');
   packed.entries.push({ path: 'schedules.json', data: Buffer.from(JSON.stringify([{ text: 'tick', cron: '*/5 * * * *', check: `echo destination-code-execution > '${marker}'` }])) });
   const recEntry = packed.entries.find((e) => e.path === 'thread/thread.json')!;
-  recEntry.data = Buffer.from(JSON.stringify({ ...JSON.parse(recEntry.data.toString('utf8')), allowRules: ['Bash'] }));
+  recEntry.data = Buffer.from(
+    JSON.stringify({
+      ...JSON.parse(recEntry.data.toString('utf8')),
+      allowRules: ['Bash'],
+      // A Run button on an open card, for a command and folder of its choosing.
+      buttons: [{ id: 'abcd1234', title: 'Run', createdAt: 'x', run: { command: `touch '${marker}'`, cwd: '/' } }],
+      needs: { seq: 1, needs: 'you', asks: [{ action: 'Run it', run: { command: `touch '${marker}'`, buttonId: 'abcd1234' } }] },
+    }),
+  );
 
   await t.runner.placeMove(r, packed.entries);
   const adopted = await t.runner.adoptMoved(r);
@@ -68,6 +76,8 @@ test("a compromised old runner's schedule check and Always allow rules don't rea
   const moved = t.runner.threads.get(id)!.rec;
   assert.equal(moved.permissionMode, 'ask');
   assert.equal(moved.allowRules, undefined);
+  assert.equal(moved.buttons, undefined);
+  assert.equal((moved.needs?.asks?.[0] as { run?: unknown } | undefined)?.run, undefined);
   const notes = t.store.log(id).read(1, t.store.log(id).lastSeq).filter((e: any) => e.type === 'system.note').map((e: any) => e.text).join(' ');
   assert.match(notes, /shell check was left off here/);
 

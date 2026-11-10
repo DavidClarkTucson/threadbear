@@ -44,6 +44,31 @@ function swapHome(p: string, fromHome: string): string {
   return p;
 }
 
+// What the moved record (the old runner's word, and that runner may be an
+// extra Mac) may not bring: anything that runs or approves something here.
+// "Always allow" rules were answers on the other machine, for its folder;
+// reply buttons (a command to run, a thread to start with its own mode, a
+// message to send) and an open card's commands were made there, for
+// there. They're asked or made again on this machine. True if it changed.
+function dropMovedPowers(rec: Record<string, any>): boolean {
+  let changed = false;
+  if (rec.allowRules !== undefined) {
+    delete rec.allowRules;
+    changed = true;
+  }
+  if (rec.buttons !== undefined) {
+    delete rec.buttons;
+    changed = true;
+  }
+  for (const ask of Array.isArray(rec.needs?.asks) ? rec.needs.asks : []) {
+    if (ask && typeof ask === 'object' && 'run' in ask) {
+      delete ask.run;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 export const movesPart = {
   // ThreadSummary.moving, and while it's set no turn starts: messages wait
   // in the queue, which moves with the thread. Cleared, the queue goes on.
@@ -321,9 +346,8 @@ export const movesPart = {
         delete rec.model;
         delete rec.effort;
       }
-      // "Always allow" rules were answers on the other machine, for its
-      // folder, and the record is that runner's word: asked again here.
-      delete rec.allowRules;
+      // Nothing that runs or approves anything comes (dropMovedPowers).
+      dropMovedPowers(rec);
       rec.cwd = placed.cwd;
       rec.accountId = account.id;
       delete rec.poolId;
@@ -353,16 +377,13 @@ export const movesPart = {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.renameSync(path.join(stage, 'thread'), dest);
     }
-    // The record as placeMove leaves it has no "Always allow" rules, but
-    // one placed by a runner from before that (and adopted after it
-    // updated) still might: dropped here too, before anything starts.
+    // The record as placeMove leaves it has none of that, but one placed
+    // by a runner from before (and adopted after it updated) still might:
+    // dropped here too, before anything starts.
     const recFile = path.join(dest, 'thread.json');
     try {
       const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
-      if (rec.allowRules !== undefined) {
-        delete rec.allowRules;
-        fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
-      }
+      if (dropMovedPowers(rec)) fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
     } catch {
       // No record to read: adopt says the thread didn't load.
     }

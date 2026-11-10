@@ -95,10 +95,10 @@ export function withoutCredentials(url: string): string {
 export function cloneableUrl(url: string): boolean {
   if (!url || url.length > 2000 || /[\s\0\\]/.test(url) || url.startsWith('-') || url.includes('::')) return false;
   // scheme://[user@]host[:port]/path, each part plain, none starting with -.
-  const full = /^(https|ssh):\/\/(?:([A-Za-z0-9._~%+-]+)@)?([A-Za-z0-9.-]+)(?::(\d{1,5}))?\/[^/].*$/i.exec(url);
+  const full = /^(https|ssh):\/\/(?:([A-Za-z0-9._~%+-]+)@)?([A-Za-z0-9._-]+)(?::(\d{1,5}))?\/[^/].*$/i.exec(url);
   if (full) return !full[2]?.startsWith('-') && !full[3]!.startsWith('-') && !full[3]!.startsWith('.');
   // user@host:path, as GitHub gives ssh ones.
-  const scp = /^([A-Za-z0-9._~+][A-Za-z0-9._~+-]*)@([A-Za-z0-9][A-Za-z0-9.-]*):([^:-][^:]*)$/.exec(url);
+  const scp = /^([A-Za-z0-9._~+][A-Za-z0-9._~+-]*)@([A-Za-z0-9][A-Za-z0-9._-]*):([^:-][^:]*)$/.exec(url);
   return !!scp;
 }
 
