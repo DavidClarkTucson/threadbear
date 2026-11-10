@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { untrustedGitArgs } from './safe-git.ts';
+import { untrustedGit } from './safe-git.ts';
 
 export type GitMeta = {
   branch: string; // as it was, "HEAD" when detached
@@ -29,16 +29,13 @@ const MOVE_REFS = 'refs/threadbear/move/';
 
 type Run = { ok: boolean; stdout: string; stderr: string };
 
-// git in `cwd`, with only the variables we give it pointing it anywhere,
-// and no fsmonitor program from the repo's own config (safe-git.ts).
-function run(cwd: string, args: string[], env: Record<string, string> = {}): Promise<Run> {
-  const base: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX']) delete base[k];
-  return new Promise((resolve) => {
-    execFile('git', untrustedGitArgs(cwd, args), { env: { ...base, ...env }, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) });
-    });
-  });
+// git in `cwd` that the repo's own config can't make run anything: no
+// filters, hooks, fsmonitor, signing or diff programs, no fetching but
+// where a step fetches on purpose (safe-git.ts untrustedGit). The repo a
+// thread works in may have come from an archive with its own .git/config,
+// and a move's preview reads it before anything is trusted.
+function run(cwd: string, args: string[], env: Record<string, string> = {}, network?: 'bundle' | 'remote'): Promise<Run> {
+  return untrustedGit(cwd, args, { env, ...(network ? { network } : {}) });
 }
 
 async function out(cwd: string, args: string[], env?: Record<string, string>): Promise<string | undefined> {
@@ -71,6 +68,23 @@ export async function originUrl(cwd: string): Promise<string | undefined> {
   return (await out(cwd, ['remote', 'get-url', 'origin'])) || undefined;
 }
 
+// A repo T may clone for a moving thread: the URL is the old runner's
+// word, and that runner may be one of the owner's extra Macs, so only an
+// https or ssh address (as GitHub gives them) and never one git would read
+// as an option.
+export function cloneableUrl(url: string): boolean {
+  if (!url || url.length > 2000 || /[\s\0]/.test(url) || url.startsWith('-')) return false;
+  if (/^(https|ssh):\/\/[^/\-][^/]*\/./i.test(url)) return true;
+  return /^[A-Za-z0-9._~-]+@[A-Za-z0-9.-]+:(?!-)[^:]+$/.test(url) && !url.includes('::');
+}
+
+/** Clones `url` to `to` (a folder that isn't there yet), as untrustedGit does. */
+export async function cloneRepo(url: string, to: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!cloneableUrl(url)) return { ok: false, reason: `Threadbear only clones a moving thread's repo from an https or ssh address, not ${JSON.stringify(url.slice(0, 200))}.` };
+  const r = await untrustedGit(path.dirname(to), ['clone', '--quiet', '--no-recurse-submodules', '--', url, to], { network: 'remote' });
+  return r.ok ? { ok: true } : { ok: false, reason: `Couldn't clone ${url} to ${to}: ${why(r)}` };
+}
+
 /**
  * The same repo on two machines, from their `origin` URLs:
  * git@github.com:mikecann/threadbear.git, https://github.com/mikecann/threadbear
@@ -96,7 +110,8 @@ async function originDefault(cwd: string): Promise<string | undefined> {
 /** Files changed in a checkout, as `git status` names them (for what stays behind). */
 export async function changedFiles(cwd: string, max = 20): Promise<string[]> {
   // Not trimmed: the first line's leading space is part of its status.
-  const r = await run(cwd, ['status', '--porcelain=v1', '--untracked-files=all']);
+  // A submodule's own config isn't read, so git doesn't look inside one.
+  const r = await run(cwd, ['status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=all']);
   if (!r.ok) return [];
   return r.stdout
     .split('\n')
@@ -166,17 +181,17 @@ export async function packGit(worktree: string, cwd: string, bundleFile: string)
  * leaves `wip`'s changes uncommitted.
  */
 export async function unpackGit(worktree: string, meta: GitMeta, bundleFile?: string): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const fetchBundle = () => run(worktree, ['fetch', '--quiet', '--no-tags', bundleFile!, `+${MOVE_REFS}*:${MOVE_REFS}*`]);
+  const fetchBundle = () => run(worktree, ['fetch', '--quiet', '--no-tags', bundleFile!, `+${MOVE_REFS}*:${MOVE_REFS}*`], {}, 'bundle');
   if (bundleFile) {
     let r = await fetchBundle();
     if (!r.ok) {
       // Most likely the commits it starts from: they're on origin.
-      await run(worktree, ['fetch', '--quiet', 'origin']);
+      await run(worktree, ['fetch', '--quiet', 'origin'], {}, 'remote');
       r = await fetchBundle();
     }
     if (!r.ok) return { ok: false, reason: `Couldn't bring the git work in: ${why(r)}` };
   } else if (!(await out(worktree, ['rev-parse', '--verify', '--quiet', `${meta.head}^{commit}`]))) {
-    await run(worktree, ['fetch', '--quiet', 'origin']);
+    await run(worktree, ['fetch', '--quiet', 'origin'], {}, 'remote');
   }
   try {
     if (!(await out(worktree, ['rev-parse', '--verify', '--quiet', `${meta.head}^{commit}`]))) return { ok: false, reason: `This machine's copy of the repo doesn't have ${meta.head.slice(0, 12)}, and origin didn't either.` };

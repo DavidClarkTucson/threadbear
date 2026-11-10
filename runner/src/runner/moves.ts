@@ -12,14 +12,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
 import type { Runner } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import { providerName } from '../providers.ts';
 import { paths } from '../config.ts';
 import { isDirectory } from '../fsutil.ts';
 import { readTree, writeTree, type PackEntry } from '../move-pack.ts';
-import { changedFiles, originUrl, packGit, repoKey, repoTop, unpackGit, type GitMeta } from '../move-git.ts';
+import { changedFiles, cloneRepo, cloneableUrl, originUrl, packGit, repoKey, repoTop, unpackGit, type GitMeta } from '../move-git.ts';
 import type { MoveInfo, MovePlan, MovePreview, MoveRow, ThreadMoving } from '../moves.ts';
 import { projectDirName, sessionTranscriptPath } from '../transcripts.ts';
 import { findWorktreePatch } from '../patches.ts';
@@ -43,12 +42,6 @@ function swapHome(p: string, fromHome: string): string {
   if (p === fromHome) return home;
   if (fromHome && p.startsWith(fromHome.endsWith('/') ? fromHome : `${fromHome}/`)) return path.join(home, p.slice(fromHome.length));
   return p;
-}
-
-function clone(url: string, to: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile('git', ['clone', '--quiet', url, to], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (err, _out, stderr) => (err ? reject(new Error(`Couldn't clone ${url} to ${to}: ${String(stderr).trim().split('\n').pop() || err.message}`)) : resolve()));
-  });
 }
 
 export const movesPart = {
@@ -226,7 +219,10 @@ export const movesPart = {
       let cloneTo: { url: string; to: string } | undefined;
       if (!repo && info.repoTop) {
         const to = swapHome(info.repoTop, info.home);
-        if (!fs.existsSync(to) && isDirectory(path.dirname(to))) {
+        // Both are the old runner's word: a clone only from an address git
+        // can't read as an option, into a new folder named in full.
+        const plain = path.isAbsolute(to) && path.resolve(to) === to;
+        if (plain && cloneableUrl(info.origin) && !fs.existsSync(to) && isDirectory(path.dirname(to))) {
           cloneTo = { url: info.origin, to };
           repo = to;
         }
@@ -267,7 +263,10 @@ export const movesPart = {
       }
       const schedules = entries.find((e) => e.path === 'schedules.json');
       if (schedules) placed.schedules = JSON.parse(schedules.data.toString('utf8')) as unknown[];
-      if (plan.clone) await clone(plan.clone.url, plan.clone.to);
+      if (plan.clone) {
+        const cloned = await cloneRepo(plan.clone.url, plan.clone.to);
+        if (!cloned.ok) throw new Error(cloned.reason);
+      }
 
       if (plan.worktree) {
         const patch = await findWorktreePatch(plan.worktree.repo, this.panelsRoot, this.patchCache, undefined, this.patchTrust);

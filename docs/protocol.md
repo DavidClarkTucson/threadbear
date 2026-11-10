@@ -3577,7 +3577,8 @@ committed files under `node_modules`, the patch isn't loaded at all
 (`error`). git runs with `core.fsmonitor` off, so a folder's own
 `.git/config` can't make that run anything; so does every other git the
 runner runs in a thread's folder (the Claude settings check's listing of
-skills, worktrees, moves), all through `runner/src/safe-git.ts`. A cached hash holds only while every file it was
+skills, worktrees, moves), all through `runner/src/safe-git.ts`. A move's
+git goes further (`untrustedGit`, below under "Moving a thread", Git). A cached hash holds only while every file it was
 made from has the same inode, size, mode, mtime and ctime (a write
 can't put ctime back), every path to one still leads to the same real
 file, and nothing that was missing has turned up. A hook or `setup`
@@ -5266,7 +5267,19 @@ again and carries on from the state.
   `thread/<id8>`, its own slot, setup), fetches the bundle into it, checks
   out the branch at `head`, then puts `wip`'s changes back as uncommitted.
   A thread in a shared checkout moves to the same repo there without its
-  changes, and `leftBehind` names the files.
+  changes, and `leftBehind` names the files. Every git a move runs, on S
+  and T, the preview's look for uncommitted changes included, goes through
+  `untrustedGit` (runner/src/safe-git.ts): the repo's config is read first,
+  and every filter driver it or yours names is switched off (clean, smudge
+  and process blank, not required), with no hooks, fsmonitor, signing,
+  diff programs, submodule recursion or auto gc, and no fetching at all
+  but the bundle (file only) and T's fetch of `origin` (https, ssh or
+  file, git's own upload-pack, and only your own credential helpers, ssh
+  command and alternates command). A repo with a filter name git's `-c`
+  can't carry (one with `=`) fails the step rather than running git.
+  Files cross as the disk has them, so a git-lfs file goes as its content.
+  T clones only from an `https`, `ssh` or `user@host:path` origin, into a
+  path named in full.
 - **The switch.** `moves:moveClaim` is the one mutation where the thread
   changes hands. It sets the thread row's `runnerId` to T (clearing any
   card on it), hands T its Pocket cards on the thread and its share link,
