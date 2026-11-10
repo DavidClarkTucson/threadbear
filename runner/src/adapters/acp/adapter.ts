@@ -33,6 +33,14 @@ const FOLDER_KEYS = ['workdir', 'cwd', 'workingDirectory', 'directory', 'dir'];
 // What an execute call can carry that doesn't change what runs or where.
 const BENIGN_KEYS = new Set(['description', 'timeout']);
 
+function realFolder(p: string): string | undefined {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return undefined;
+  }
+}
+
 export type AcpAdapterDeps = {
   agent: AcpAgent;
   // Read for every process: runner.json's path, or wherever it's installed.
@@ -404,14 +412,26 @@ export class AcpSession implements AgentSession {
     const argv = command ? shellWords(command) : null;
     // A tool can name its own folder (OpenCode's workdir): the rule and the
     // card go by where the command really runs.
-    const said = [...new Set(FOLDER_KEYS.map((k) => input[k]).filter((d): d is string => typeof d === 'string' && d !== '').map((d) => absolutePath(d, this.opts.cwd)))];
-    const where = said[0] ?? this.opts.cwd;
+    // Each as the disk has it (realpath(3): a link followed before any "..",
+    // as chdir does), bound to the rule that way, so `link/..` or a link
+    // pointed somewhere new isn't the folder a rule was saved for. One that
+    // can't be resolved, or that reads differently taken as written (as a CLI
+    // that tidies the path first would use it), is somewhere unknown (Codex's
+    // review, 10 Nov).
+    const named = FOLDER_KEYS.map((k) => input[k]).filter((d): d is string => typeof d === 'string' && d !== '');
+    const places = named.map((d) => {
+      const disk = realFolder(path.isAbsolute(d) ? d : `${this.opts.cwd}/${d}`);
+      return disk !== undefined && disk === realFolder(absolutePath(d, this.opts.cwd)) ? disk : undefined;
+    });
+    const said = [...new Set(places.filter((d): d is string => d !== undefined))];
+    const unknownPlace = places.includes(undefined);
+    const where = said[0] ?? (named[0] !== undefined ? absolutePath(named[0], this.opts.cwd) : (realFolder(this.opts.cwd) ?? this.opts.cwd));
     // A saved rule is for this command in this folder and nothing else. Two
     // folders that disagree, or anything else the call carries that could
     // change what runs (an env, a shell, a folder under a name not listed
     // here), and it can't be known which applies: no rule covers it, Always
     // allow isn't offered, and the card shows the lot (Daybreak, 10 Nov).
-    const exact = Boolean(command) && said.length <= 1 && Object.entries(input).every(([k, v]) => k === 'command' || BENIGN_KEYS.has(k) || (FOLDER_KEYS.includes(k) && (typeof v === 'string' || v === undefined)));
+    const exact = Boolean(command) && !unknownPlace && said.length <= 1 && Object.entries(input).every(([k, v]) => k === 'command' || BENIGN_KEYS.has(k) || (FOLDER_KEYS.includes(k) && (typeof v === 'string' || v === undefined)));
     const rule = exact && argv?.length && ruleMayCover(argv) ? commandRule(argv, where) : null;
 
     let code: CodeWrite = false;

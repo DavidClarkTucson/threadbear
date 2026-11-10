@@ -565,9 +565,16 @@ test('a saved command rule covers its own folder only, and the card says which',
   const r = rig({ mode: 'ask', deny: true });
   const s = r.start();
   await ready(r, s);
-  fakeRequest(r, s, { kind: 'execute', rawInput: { command: 'ls -la', workdir: '/elsewhere/project' } });
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-acp-elsewhere-')));
+  fakeRequest(r, s, { kind: 'execute', rawInput: { command: 'ls -la', workdir: project } });
   await until(() => r.cards.length === 1);
-  assert.equal((r.cards[0].input as { cwd: string }).cwd, '/elsewhere/project');
+  assert.equal((r.cards[0].input as { cwd: string }).cwd, project);
+  // One that isn't there can't be bound to anything: shown as given, never always allowed.
+  fakeRequest(r, s, { toolCallId: 'y', kind: 'execute', rawInput: { command: 'ls -la', workdir: '/elsewhere/project' } });
+  await until(() => r.cards.length === 2);
+  assert.equal((r.cards[1].input as { workdir: string }).workdir, '/elsewhere/project');
+  assert.equal(r.cards[1].canAlwaysAllow, false);
+  fs.rmSync(project, { recursive: true, force: true });
 });
 
 // Daybreak, 10 Nov (finding 69): an Always allow for a command in the
@@ -579,7 +586,9 @@ test('a saved command rule covers that folder only: another, two at once, or any
   const s = r.start();
   await s.setPermissionMode('ask');
   const command = 'rm -rf generated';
-  (s as unknown as { rules: Set<string> }).rules.add(commandRule(['rm', '-rf', 'generated'], r.cwd));
+  // Rules are kept for the folder as the disk has it (tmp is under a link on macOS).
+  const home = fs.realpathSync(r.cwd);
+  (s as unknown as { rules: Set<string> }).rules.add(commandRule(['rm', '-rf', 'generated'], home));
   await ready(r, s);
   const allowed = { outcome: { outcome: 'selected', optionId: 'once' } };
   // Its own folder, unnamed or named: the rule answers, no card.
@@ -590,7 +599,8 @@ test('a saved command rule covers that folder only: another, two at once, or any
   }
   assert.equal(r.cards.length, 0);
   // Another folder inside the project: a card, saying where.
-  const other = path.join(r.cwd, 'packages', 'app');
+  const other = path.join(home, 'packages', 'app');
+  fs.mkdirSync(path.join(other, 'deep'), { recursive: true });
   const b = fakeRequest(r, s, { toolCallId: 'b', kind: 'execute', rawInput: { command, workdir: other } });
   await until(() => b.length === 1);
   assert.equal(r.cards.length, 1);
@@ -602,6 +612,27 @@ test('a saved command rule covers that folder only: another, two at once, or any
   assert.equal(r.cards.length, 2);
   assert.equal(r.cards[1].canAlwaysAllow, false);
   assert.deepEqual(r.cards[1].input, { command, workdir: r.cwd, cwd: '/elsewhere' });
+  // Through a link: `link/..` is packages/app on the disk, though it reads as
+  // the thread's folder, so the rule doesn't cover it (Codex's review, 10 Nov).
+  fs.symlinkSync(path.join(other, 'deep'), path.join(home, 'link'));
+  for (const [id, workdir] of [['l1', path.join(r.cwd, 'link') + '/..'], ['l2', 'link/..']] as const) {
+    const before: number = r.cards.length;
+    const replies = fakeRequest(r, s, { toolCallId: id, kind: 'execute', rawInput: { command, workdir } });
+    await until(() => replies.length === 1);
+    assert.notDeepEqual(replies[0], allowed, id);
+    assert.equal(r.cards.length, before + 1, id);
+    assert.equal(r.cards.at(-1)!.canAlwaysAllow, false, `${id}: which folder it is depends on who reads the path`);
+  }
+  // A rule saved for a link's folder doesn't follow the link somewhere new.
+  (s as unknown as { rules: Set<string> }).rules.add(commandRule(['rm', '-rf', 'generated'], path.join(other, 'deep')));
+  const viaLink = fakeRequest(r, s, { toolCallId: 'l3', kind: 'execute', rawInput: { command, workdir: path.join(home, 'link') } });
+  await until(() => viaLink.length === 1);
+  assert.deepEqual(viaLink[0], allowed, 'the link, where it points now, is the folder the rule is for');
+  fs.rmSync(path.join(home, 'link'));
+  fs.symlinkSync(path.join(home, 'packages'), path.join(home, 'link'));
+  const moved = fakeRequest(r, s, { toolCallId: 'l4', kind: 'execute', rawInput: { command, workdir: path.join(home, 'link') } });
+  await until(() => moved.length === 1);
+  assert.notDeepEqual(moved[0], allowed, 'pointed somewhere new, it asks');
   // Anything else that could change what runs: an env, a folder by another name.
   for (const [id, extra] of [['d1', { env: { PATH: '/tmp/evil' } }], ['d2', { path: '/elsewhere' }], ['d3', { workdir: ['/a'] }]] as const) {
     const before: number = r.cards.length;

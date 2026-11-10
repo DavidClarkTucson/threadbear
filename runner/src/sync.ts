@@ -557,6 +557,9 @@ export type CommandHost = {
   schedule?: (p: { scheduleId: string; action: 'pause' | 'resume' | 'run' }) => unknown;
   // A reply button's press from the phone or website (API 59), buttons.press.
   pressButton?: (threadId: string, buttonId: string) => unknown;
+  // The thread's buttons (buttons.list), wherever the thread is now: a
+  // press checks a Run against them first.
+  listButtons?: (threadId: string) => unknown;
   // The phone's slash command palette (API 62): threads.commands.
   threadCommands?: (threadId: string) => unknown;
   // The Mac's Move sheet (`moves.describe` and `moves.preview` calls).
@@ -4105,10 +4108,13 @@ export class ConvexSync {
         // A Run is pressed by its id alone, so it runs what's on this Mac,
         // never what the phone showed: refused when the scrub would change
         // that, whatever the row that went up said (Daybreak, 10 Nov). Looked
-        // up here, as a thread on a draining runner is pressed over the link.
-        // Without the list there's no telling, so no press at all.
-        if (!this.deps.runner.buttons) throw new Error("This runner can't check a button from the phone.");
-        const run = this.deps.runner.buttons(needThread()).find((b) => b.id === a.buttonId)?.run;
+        // up where the thread is now (a draining runner's over the link, as
+        // the press goes). Without a list there's no telling, so no press.
+        const listed = host.listButtons
+          ? ((await host.listButtons(needThread())) as { buttons?: ReplyButton[] } | undefined)?.buttons
+          : this.deps.runner.buttons?.(needThread());
+        if (!Array.isArray(listed)) throw new Error("This runner can't check a button from the phone.");
+        const run = listed.find((b) => b.id === a.buttonId)?.run;
         if (run && !runShowsAll(run, this.scrubber.safeText)) throw new Error(REMOTE_RUN_REFUSED);
         const r = (await host.pressButton(needThread(), a.buttonId)) as { button?: ReplyButton } | undefined;
         // The thread it started or messaged, so the phone can open it once

@@ -19,3 +19,11 @@ test('the canary declares every top-level const and let before it exits', () => 
   assert.deepEqual(late, []);
   assert.ok(lines.slice(0, exit).some((l) => l.startsWith('const BLIP = ')), 'BLIP is up top');
 });
+
+// Codex's review, 10 Nov: the canary prints other runners' names and their
+// followProblem too, so its lines go through forTerminal as tb status's do.
+test("the canary's lines reach the terminal through forTerminal", () => {
+  const text = fs.readFileSync(file, 'utf8');
+  assert.match(text, /console\.log\(`\$\{ok \? 'ok  ' : 'FAIL'\} \$\{forTerminal\(line\)/);
+  assert.equal(text.match(/console\.(log|error)\(/g)?.length, 1, 'say is the only place it prints');
+});

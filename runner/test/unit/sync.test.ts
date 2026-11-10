@@ -499,6 +499,8 @@ function setupFull(opts: { heads?: { threadId: string; lastSeq: number }[]; take
         applied.push(`press ${id} ${buttonId}`);
         return h.runner.pressButton(id, buttonId);
       },
+      // As handover.ts's phoneCommands has it: where the thread is now.
+      listButtons: (id) => h.runner.listButtons(id),
       schedule: (p) => {
         applied.push(`schedule ${p.scheduleId} ${p.action}`);
       },

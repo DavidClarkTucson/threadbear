@@ -1207,7 +1207,10 @@ one process per live thread, over stdio. With it off no account, pool or
   an agent remembers "always" past the thread; "Always allow" is the runner's
   rule (`acp:edit`, or the exact plain command in the folder it runs in: the
   call's `workdir`, `cwd`, `workingDirectory`, `directory` or `dir`, else the
-  thread's). A command call naming two different folders, or carrying anything
+  thread's, as the disk has it: links followed before any `..`, so a link
+  pointed somewhere new isn't the folder its rule was for). A folder that
+  isn't there, or that reads differently tidied first (`link/..`), isn't
+  covered by a rule either. A command call naming two different folders, or carrying anything
   but those, `command`, `description` and `timeout` (an env, a shell), isn't
   covered by a rule and can't be always allowed, and its card shows all of it.
   An edit of a file that runs as

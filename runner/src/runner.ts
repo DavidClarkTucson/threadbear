@@ -128,7 +128,7 @@ import {
   projectPatchFiles,
   webPage,
 } from './patches.ts';
-import { cutSafely, firstLineSafely, isSafeSlice } from './safe-cut.ts';
+import { cutSafely, firstLineSafely, isSafeSlice, safeEndOfPartial } from './safe-cut.ts';
 import { FolderCache } from './folder-cache.ts';
 import { worktreesPart, type WorktreesPart } from './runner/worktrees.ts';
 import { networkPart, type NetworkPart } from './runner/network.ts';
@@ -3639,8 +3639,19 @@ const AWAY_MS = 12 * 3_600_000;
 
 // What the recap box says: the sentence on what the thread is for, on a line
 // of its own above the librarian's bullets.
+// The most setBrief keeps of each (runner/titles.ts).
+export const RECAP_PURPOSE_CHARS = 200;
+export const RECAP_BRIEF_CHARS = 600;
 export function recapText(brief: { text: string; purpose?: string }): string {
-  return brief.purpose ? `${brief.purpose}\n${brief.text}` : brief.text;
+  // Before 10 Nov setBrief cut both with a plain slice, and those records
+  // are still about: one at its limit may end partway through a secret
+  // whose end was never kept, which the purpose, now mid-recap, would carry
+  // past the scrub. So one that long has its last unseen run dropped, as
+  // text read only up to a limit does (Codex's review of Daybreak's 75).
+  const whole = (t: string, max: number) => (t.length >= max ? t.slice(0, safeEndOfPartial(t, t.length)).trimEnd() : t);
+  const text = whole(brief.text, RECAP_BRIEF_CHARS);
+  const purpose = brief.purpose ? whole(brief.purpose, RECAP_PURPOSE_CHARS) : '';
+  return purpose ? `${purpose}\n${text}` : text;
 }
 
 // "14 hours ago", "3 days ago": rounded, as it's only there to say how long.

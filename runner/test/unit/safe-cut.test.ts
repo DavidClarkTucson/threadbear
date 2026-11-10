@@ -314,3 +314,30 @@ test("the recap: neither the librarian's purpose nor its brief is cut through a 
     for (const sent of [scrubText(recap2), scrubText(`${known.safeText(recap2)}\n- more`)]) assert.ok(!leaks(sent), `brief, shift ${shift}: ${sent.slice(-80)}`);
   }
 });
+
+// Codex's review of the fix: a record cut the old way is still about after
+// the upgrade, and loading it doesn't cut it again. The recap drops what
+// such a record's last run may hold of a secret.
+test("the recap: a purpose or brief cut the old way, through a secret, doesn't carry it", () => {
+  const h = makeHarness();
+  const { thread } = h.runner.create({ text: 'Go', accountId: 'claude-3' });
+  const file = path.join(h.cfg.home, 'runner.json');
+  const json = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  fs.writeFileSync(file, JSON.stringify({ ...json, experiments: { recapBox: true } }));
+  h.clock.advance(6000);
+  const st = (h.runner as any).threads.get(thread.id);
+  const at = URL.indexOf('@');
+  for (let shift = -3; shift <= 0; shift++) {
+    // What slice(0, 200) and slice(0, 600) left: the cut at or before the "@".
+    const purpose = `${'p'.repeat(200 - at + shift - 1)} ${URL} is where it lives`.slice(0, 200);
+    const text = `${'b'.repeat(600 - at + shift - 1)} ${URL} and more`.slice(0, 600);
+    st.rec.brief = { text, purpose, at: new Date(0).toISOString() };
+    const recap = h.runner.get(thread.id).recap!;
+    assert.ok(recap.startsWith('ppp'), 'still a recap');
+    assert.ok(!leaks(scrubText(recap)), `shift ${shift}: ${recap.slice(150, 260)}`);
+    assert.ok(!leaks(scrubText(`${recap}\n- more`)), `shift ${shift}, mid-text`);
+  }
+  // A short one is left as it is.
+  st.rec.brief = { text: '- Built it', purpose: 'Cheffy guides people.', at: new Date(0).toISOString() };
+  assert.equal(h.runner.get(thread.id).recap, 'Cheffy guides people.\n- Built it');
+});

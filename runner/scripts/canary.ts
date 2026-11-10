@@ -23,6 +23,7 @@ import { parseArgs } from 'node:util';
 import { RunnerClient } from '../src/client.ts';
 import { loadConfig, readToken, runnerUrl } from '../src/config.ts';
 import { makePng } from '../test/helpers/png.ts';
+import { forTerminal } from '../src/terminal-text.ts';
 
 type Ev = { seq: number; type: string; text?: string; asks?: { action: string; options?: string[]; optionNotes?: string[] }[] };
 type Runner = { id: string; name: string; online: boolean };
@@ -45,7 +46,10 @@ const { values } = parseArgs({ options: { runner: { type: 'string' } } });
 const results: { ok: boolean; line: string }[] = [];
 const say = (ok: boolean, line: string) => {
   results.push({ ok, line });
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${line}`);
+  // Its lines hold what other runners wrote (their names, followProblem,
+  // threads' replies): no escape sequences reach the terminal (tb status's
+  // rule, terminal-text.ts), and each check is one line.
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${forTerminal(line).replace(/\s+/g, ' ')}`);
 };
 
 const cfg = loadConfig(process.env, { readOnly: true });
