@@ -27,14 +27,7 @@ struct SettingsView: View {
             pane(app.settingsTab)
                 .navigationTitle(app.settingsTab.title)
         }
-        // Drag the window wider or taller for more room; it opens at a size
-        // that fits a laptop screen, and General's rows scroll past that.
-        .frame(minWidth: SettingsLayout.minWidth,
-               idealWidth: SettingsLayout.idealWidth,
-               maxWidth: .infinity,
-               minHeight: SettingsLayout.minHeight,
-               idealHeight: SettingsLayout.idealHeight,
-               maxHeight: .infinity)
+        .settingsSizes()
         .background(SettingsWindowFinder())
     }
 
@@ -146,6 +139,23 @@ enum SettingsLayout {
     static let minHeight: CGFloat = 420
     /// Short enough for a laptop screen with room for the Dock.
     static let idealHeight: CGFloat = 620
+    /// Largest it goes, either way: bigger than any screen, but not infinite.
+    /// SwiftUI makes the window's largest size the content's, and an
+    /// unbounded one gave it an infinite size, which a Settings window can
+    /// have as SwiftUI never lets one be resized (SettingsWindow.makeResizable
+    /// does). Dragging its edge on macOS 27 then worked out an infinite frame,
+    /// and AppKit threw, crashing the app (THREADBEAR-1S, 10 Nov).
+    static let maxSide: CGFloat = 10_000
+}
+
+extension View {
+    /// The Settings window's size: drag it wider or taller for more room; it
+    /// opens at a size that fits a laptop screen, and General's rows scroll
+    /// past that.
+    func settingsSizes() -> some View {
+        frame(minWidth: SettingsLayout.minWidth, idealWidth: SettingsLayout.idealWidth, maxWidth: SettingsLayout.maxSide,
+              minHeight: SettingsLayout.minHeight, idealHeight: SettingsLayout.idealHeight, maxHeight: SettingsLayout.maxSide)
+    }
 }
 
 /// What the runner's settings tabs show until there are settings to show.
