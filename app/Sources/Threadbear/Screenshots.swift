@@ -41,7 +41,10 @@ enum ScreenshotRunner {
         try? await Task.sleep(for: .milliseconds(500))
 
         let only = arguments.firstIndex(of: "--only").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
-        func wanted(_ name: String) -> Bool { only == nil || name.hasPrefix(only!) }
+        // Groups are gated by their number ("12") and take each shot's
+        // full name too ("12c"), so --only 12c runs group 12 rather than
+        // matching nothing and saving no shots at all.
+        func wanted(_ name: String) -> Bool { only == nil || name.hasPrefix(only!) || only!.hasPrefix(name) }
 
         // 1. The demo thread at the bottom: images, a footer and an approval card.
         let demo = "demo_upload_resume"
