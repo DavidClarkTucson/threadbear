@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-108 of 326 features have a spec so far, across 194 scenarios.
+109 of 326 features have a spec so far, across 195 scenarios.
 
-Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linux: 192 of 194.
+Scenarios passing: Swift: 188 of 195, Mac: 192 of 195, Windows: 192 of 195, Linux: 192 of 195.
 
 
 ### 0. Foundations everything else needs
@@ -28,6 +28,7 @@ Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linu
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `dock.layout` Layout tree | pass | pass | pass | pass |
+| `dock.titlebar` No title bar | pending | pending | pending | pending |
 | `dock.frame` Window frame memory | pending | pending | pending | pending |
 | `dock.reset` Default layout and Reset | pass | pass | pass | pass |
 
@@ -224,6 +225,35 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: `cargo test --workspace` on Tinker Desk (macOS, with the Launch
   Services code); the open policy's own tests and the source scan on Linux;
   the whole spec suite on Linux (see the report for the run).
+### 2026-11-10 Dragging the window, and smooth scrolling at 120 Hz
+
+- Mike couldn't move the installed app's window by its top. The strips that
+  start the OS's window drag on the press worked; the panels' bars and the
+  thread's title didn't, as they only know it's a drag once the pointer moves,
+  and AppKit won't start a window drag from a move event. On the Mac those now
+  move the window by hand, as Swift's dock does (`platform::grab_window`), and
+  a drag from the title no longer starts a rename (`DockView::press_moved`).
+- Scrolling: every frame rebuilt the whole window, thread list included. The
+  Threads panel and the side pane are cached views now, the Inbox sorts by
+  keys worked out once, and the menu bar and the Inbox badge are worked out
+  only when the app changes. Tinker Desk (M2, 60 Hz), 6,000 rows and 60
+  threads, real flings: work per frame 7.8 ms in the middle, 13.4 at 90% and
+  21.8 at 99% before; 6.3, 7.9 and 9.7 after (28 late frames to 1).
+- View > Show Frame Rate in the installed build (`frame-stats`, GPUI's frame
+  profiler) shows frames a second, late frames and the slowest frame.
+- Files: `desktop/dock/src/{platform,view,windows}.rs`, `desktop/gpui/src/
+  {frame_stats,sidebar,shell,app,rails,header,composer_chips}.rs`,
+  `desktop/core/src/inbox.rs`, `features/tools/{window-drag,scroll-perf,
+  real-screen}.ts`.
+- Remaining: the root, the dock's bars and the thread pane still draw again on
+  every frame of a scroll (the dock would have to hand out its bars as views).
+- Verification: `features/tools/window-drag.ts` on Tinker Desk's desktop,
+  every part of the top moves the window and a click on the title renames;
+  `features/tools/scroll-perf.ts` for the numbers above; specs 192 of 192 on
+  Tinker Desk's Mac and 191 of 192 on Linux (`cloud`). The one was a step
+  that took an older reply for the streaming one when the stream was slow to
+  start; it now tells them apart, and passes 4 of 4 on Linux and on both apps
+  on the Mac.
 
 ### 2026-11-10 Every spec on real Windows
 
