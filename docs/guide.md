@@ -1020,7 +1020,9 @@ first read takes a minute or so after the runner updates.
 Below that, each pool is a card, with each login in it: what it's spent
 today, and its weekly window (plus the 5-hour one where the login has it).
 The weekly one has a small chart
-of the week so far, with your current pace dashed on to the reset. Under
+of the last seven days, rolling, with the days along the bottom: last
+week's readings stay on it after a reset, and your current pace is dashed
+on to the next reset. Under
 each window is what that pace means: in orange, when it runs out and how
 long before the reset; in green, how much of the week will go unused, so
 it's worth leaning on that login; otherwise that it's on track, or when it

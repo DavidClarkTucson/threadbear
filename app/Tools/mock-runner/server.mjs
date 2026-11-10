@@ -109,7 +109,16 @@ let accounts = [
   {
     id: 'claude-2', provider: 'claude', title: 'work@example.com', configDir: `${tokenStatsAccounts}/claude-2`,
     defaultModel: 'claude-fable-5-1', models, email: 'work@example.com', plan: 'Team', note: 'Convex work only',
-    usage: usage(95, 90, { notice: couldntCheck, more: [{ kind: 'weekly_model', title: 'Weekly Fable', remainingPercent: 97, resetsAt: hoursFromNow(70) }] }),
+    // A week not started since its reset: full, and no reset time until
+    // it's used. The chart still shows the week before.
+    usage: usage(95, 100, {
+      notice: couldntCheck,
+      windows: [
+        { kind: 'five_hour', title: '5-hour', remainingPercent: 95, resetsAt: hoursFromNow(2) },
+        { kind: 'weekly', title: 'Weekly', remainingPercent: 100 },
+        { kind: 'weekly_model', title: 'Weekly Fable', remainingPercent: 97, resetsAt: hoursFromNow(70) },
+      ],
+    }),
   },
   {
     id: 'claude-3', provider: 'claude', title: 'mike+3@example.com', configDir: `${tokenStatsAccounts}/claude-3`,
@@ -179,10 +188,11 @@ function mockUsageStats(days) {
     const charted = (a.usage?.windows ?? []).filter((x) => ['weekly', 'five_hour', 'weekly_model'].includes(x.kind));
     for (const w of charted) {
       const kind = w.kind;
-      if (!w?.resetsAt) continue;
       const week = kind !== 'five_hour';
+      // A week with no reset time yet reset 20 hours ago and hasn't been used.
+      if (!w?.resetsAt && !week) continue;
       const length = (week ? 168 : 5) * HOUR;
-      const reset = Date.parse(w.resetsAt);
+      const reset = w.resetsAt ? Date.parse(w.resetsAt) : now - 20 * HOUR + length;
       // Walk back from now, one window at a time: each goes from 100 down
       // to where it ended, the current one to what it says now.
       const samples = [];
