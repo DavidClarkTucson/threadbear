@@ -22,7 +22,8 @@ import { changedFiles, cloneRepo, cloneableUrl, originUrl, packGit, repoKey, rep
 import { movedSchedules, type MoveInfo, type MovePlan, type MovePreview, type MoveRow, type MovedSchedule, type ThreadMoving } from '../moves.ts';
 import { projectDirName, sessionTranscriptPath } from '../transcripts.ts';
 import { findWorktreePatch } from '../patches.ts';
-import { patchHash } from '../patch-trust.ts';
+import { isPatchFile, patchHash } from '../patch-trust.ts';
+import { claudeCommands } from '../claude-trust.ts';
 import { untrustedGit } from '../safe-git.ts';
 import { isPermissionMode } from '../protocol.ts';
 import { cleanUpWorktree, makeWorktree, mainCheckoutOf, realpath, type WorktreeRecord } from '../worktrees.ts';
@@ -142,7 +143,9 @@ function sanitizeMoved(rec: Record<string, any>, atMostAsk: boolean, from: strin
 // setup script running here (Codex's review, 10 Nov 2026). Says why, or
 // undefined when setup can run.
 export async function setupChangedByMove(w: WorktreeRecord, patchFile: string): Promise<string | undefined> {
-  const copy = path.join(w.path, patchFile);
+  // placeMove keeps the absolute path (makeWorktree's patchFile); the
+  // record's own is relative to the worktree.
+  const copy = path.isAbsolute(patchFile) ? patchFile : path.join(w.path, patchFile);
   let reached: string[];
   try {
     const h = patchHash(copy);
@@ -168,6 +171,44 @@ export async function setupChangedByMove(w: WorktreeRecord, patchFile: string): 
     if (!same.ok) return `the moved work changes ${rel}, which it runs`;
   }
   return undefined;
+}
+
+// Whether the moved git work changed anything patch or Claude settings
+// trust covers in the worktree, from the commit T made it from: a file
+// under any .threadbear or .claude folder, a .mcp.json, or a file a patch
+// there or the Claude settings reach. Threadbear's own checkout is always
+// trusted, and its worktrees with it, so without this the old runner's
+// patches would load and its Claude hooks run here (Codex's review, 10 Nov
+// 2026). True when it did, or when it can't tell.
+export async function trustTouchedByMove(w: WorktreeRecord, home: string): Promise<boolean> {
+  const diff = await untrustedGit(w.path, ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', w.base]);
+  const extra = await untrustedGit(w.path, ['ls-files', '-z', '--others', '--exclude-standard']);
+  if (!diff.ok || !extra.ok) return true;
+  const changed = [...diff.stdout.split('\0'), ...extra.stdout.split('\0')].filter(Boolean);
+  if (!changed.length) return false;
+  if (changed.some((f) => f.split('/').some((part) => part === '.threadbear' || part === '.claude') || path.posix.basename(f) === '.mcp.json')) return true;
+  const root = realpath(w.path);
+  const touched = new Set(changed.map((f) => path.join(root, ...f.split('/'))));
+  const hit = (file: string) => touched.has(realpath(path.isAbsolute(file) ? file : path.join(root, file)));
+  // What the patches already there reach (a patch file itself changing
+  // was caught above).
+  const patches = await untrustedGit(w.path, ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ':(glob)**/.threadbear/patches/*']);
+  if (!patches.ok) return true;
+  for (const rel of patches.stdout.split('\0').filter(Boolean)) {
+    const file = path.join(root, ...rel.split('/'));
+    if (!isPatchFile(file)) continue;
+    try {
+      const h = patchHash(file);
+      if (h.incomplete) return true;
+      const near = (p: string) => (path.isAbsolute(p) ? p : path.resolve(path.dirname(file), p));
+      if ([...h.deps.map((d) => d.path), ...h.unnamed, ...h.code.keys()].some((p) => hit(near(p)))) return true;
+    } catch {
+      return true;
+    }
+  }
+  const claude = claudeCommands(w.path, home);
+  if (claude && (claude.incomplete || [...claude.files, ...claude.named].some(hit))) return true;
+  return false;
 }
 
 export const movesPart = {
@@ -421,6 +462,13 @@ export const movesPart = {
           const r = await unpackGit(made.worktree.path, meta, bundle ? bundleFile : undefined);
           fs.rmSync(bundleFile, { force: true });
           if (!r.ok) throw new Error(r.reason);
+          // Patches and Claude settings it changed are held to the stored
+          // hashes here, even in an always-trusted checkout.
+          if (await trustTouchedByMove(made.worktree, os.homedir())) {
+            placed.worktree = { ...made.worktree, unvouched: true };
+            placed.leftBehind.push("Its worktree's work changes this repo's patches or Claude Code settings, so they wait for you to trust them in Patches here.");
+            save();
+          }
         }
       }
 

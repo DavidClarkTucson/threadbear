@@ -5381,7 +5381,13 @@ again and carries on from the state.
   changed the patch's copy or any file its setup reaches (from the commit
   T made the worktree from): Threadbear's own checkout is always trusted,
   so nothing else would stop the old runner's script running on T. The
-  thread's note says so, and the setup can be run by hand after a look. A preview's description in the backend has no title or
+  thread's note says so, and the setup can be run by hand after a look.
+  For the same reason, a worktree whose moved work changed anything
+  patch or Claude settings trust covers (a file under any `.threadbear`
+  or `.claude` folder, a `.mcp.json`, or a file a patch there or the
+  Claude settings reach) is marked `unvouched` in its WorktreeRecord: an
+  always-trusted checkout's trust doesn't reach it, so its patches and
+  Claude settings wait to be trusted in Patches like any folder's. A preview's description in the backend has no title or
   session either (an older main Mac sends them).
   Queued messages are sent. T's mirror sends the thread's whole history
   again (a thread new to it), which overwrites the same seqs.

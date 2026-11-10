@@ -141,6 +141,8 @@ export interface PatchGate {
 // What the runner keeps: the gate, and the ways in.
 export interface PatchTrustStore extends PatchGate {
   readonly existed: boolean;
+  // Worktrees an always-trusted checkout's trust doesn't reach (PatchTrust).
+  unvouched?: () => readonly string[];
   trust(file: string, hash: string): boolean;
   // As they are now, unasked: the first start's seeding.
   trustCurrent(files: string[]): string[];
@@ -233,6 +235,23 @@ export class PatchTrust implements PatchTrustStore {
     this.existed = this.load() !== 'missing';
   }
 
+  // Worktrees `always` doesn't reach though their main checkout is in it:
+  // a thread's worktree that came from another runner with changes to
+  // what trust covers (runner/moves.ts), so the old runner's patches and
+  // Claude settings are held to the stored hashes like any folder's
+  // (Codex's review, 10 Nov 2026). The runner says which (main.ts).
+  unvouched?: () => readonly string[];
+
+  // `always` for this key, unless `actual` (the real file or folder) is in
+  // a worktree it doesn't reach.
+  private alwaysFor(key: string, actual: string): boolean {
+    if (!this.always.some((d) => isInside(key, d))) return false;
+    const dirs = this.unvouched?.() ?? [];
+    if (!dirs.length) return true;
+    const real = realpath(path.resolve(actual));
+    return !dirs.some((d) => isInside(real, realpath(path.resolve(d))));
+  }
+
   // Reads the file again when another runner (one finishing turns after a
   // handover) has written it since. A missing file is a first start; an
   // unreadable one trusts nothing, and isn't seeded over: a broken file
@@ -272,7 +291,7 @@ export class PatchTrust implements PatchTrustStore {
   async check(file: string, mtimeMs: number): Promise<TrustVerdict> {
     this.load();
     const key = folderKey(file);
-    if (this.always.some((d) => isInside(key, d))) return { trusted: true };
+    if (this.alwaysFor(key, file)) return { trusted: true };
     void mtimeMs;
     const entry = this.hashOf(file);
     const { hash, deps } = entry;
@@ -292,7 +311,7 @@ export class PatchTrust implements PatchTrustStore {
   checkClaude(cwd: string, opts: ClaudeOptions = {}): ClaudeVerdict {
     this.load();
     const key = folderKeyOfDir(cwd);
-    if (this.always.some((d) => isInside(key, d))) return { trusted: true };
+    if (this.alwaysFor(key, cwd)) return { trusted: true };
     const found = claudeCommands(cwd, this.claudeHome, opts);
     if (!found) return { trusted: true };
     const known = (this.folders.get(key) ?? []).filter((h) => h.startsWith(CLAUDE_PREFIX));
@@ -378,7 +397,7 @@ export class PatchTrust implements PatchTrustStore {
   // Threadbear's own checkout runs whatever it holds, so there only the
   // command is bound, not what it reaches, or every landing would ask.
   private digestOf(command: string, cwd: string): CheckDigest {
-    return checkDigest(command, cwd, this.always.some((d) => isInside(folderKeyOfDir(cwd), d)));
+    return checkDigest(command, cwd, this.alwaysFor(folderKeyOfDir(cwd), cwd));
   }
 
   // Trusts one version of a patch file, by the hash the app showed. False
@@ -426,7 +445,7 @@ export class PatchTrust implements PatchTrustStore {
 
   loadsUnhashed(dir: string): boolean {
     const key = folderKeyOfDir(path.dirname(path.dirname(path.resolve(dir))));
-    return this.always.some((d) => isInside(key, d));
+    return this.alwaysFor(key, dir);
   }
 
   // Without case, as macOS names a file either way: a wider match only asks more.
@@ -440,7 +459,7 @@ export class PatchTrust implements PatchTrustStore {
 
   verify(file: string, hash: string): boolean {
     this.load();
-    if (this.always.some((d) => isInside(folderKey(file), d))) return true;
+    if (this.alwaysFor(folderKey(file), file)) return true;
     try {
       const fresh = patchHash(file);
       return !fresh.incomplete && fresh.hash === hash;
