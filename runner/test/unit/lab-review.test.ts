@@ -522,3 +522,55 @@ test('labReview: a scheduled run that woke an archived thread goes back once its
   assert.ok(t.archivedAt, 'back in the archive once the run is really over');
   assert.equal(t.archivedBy, 'mike');
 });
+
+// Daybreak, 10 Nov 2026 ("Default-on reviews drop sandbox confinement"): a
+// Full thread shut in a sandbox got a Full Codex reviewer on the host, in
+// the same checkout, told it may run the tests there.
+function boxed() {
+  const root = fs.realpathSync(tmpDir('tb-box-'));
+  const box = path.join(root, 'sandboxed');
+  const demo = path.join(box, 'demo');
+  fs.mkdirSync(demo, { recursive: true });
+  const h = setup({ cfg: { sandbox: { folders: [box], image: 'threadbear-sandbox', docker: 'docker' } } });
+  const { thread } = h.runner.create({ text: 'Fix the login bug', accountId: 'claude-main', cwd: demo, permissionMode: 'full' });
+  h.adapter.last.init();
+  assert.equal(h.runner.threads.get(thread.id)!.rec.confined, true);
+  return { h, id: thread.id, demo };
+}
+
+test("labReview: the scan's attack: a sandboxed Full thread's review runs in the sandbox, on Claude, never on Codex outside it", () => {
+  const { h, id, demo } = boxed();
+  turn(h, id, { diffs: [codeDiff()] });
+  const reviewId = h.runner.get(id).waitingOn![0].threadId;
+  const review = h.runner.threads.get(reviewId)!.rec;
+  assert.equal(review.provider, 'claude', 'Codex never runs in the sandbox');
+  assert.equal(review.confined, true, 'shut in, as the thread it reviews');
+  assert.equal(review.permissionMode, 'full');
+  assert.equal(review.cwd, demo);
+  assert.equal(h.codex.sessions.length, 0, 'no Codex session at all');
+  assert.equal(h.adapter.sessions.find((s) => s.opts.threadId === reviewId)?.opts.confined, true, 'its CLI is told to run in the sandbox');
+  assert.ok(h.events(id).some((e) => e.type === 'system.note' && /in the sandbox\. It isn't another lab: this thread runs in a sandbox/.test(e.text)));
+});
+
+test("labReview: a sandboxed thread whose folder isn't in a sandbox any more isn't reviewed, and says why", () => {
+  const { h, id } = boxed();
+  // Taken out of runner.json since: the review can't be shut in, so none.
+  (h.runner.cfg as { sandbox?: unknown }).sandbox = undefined;
+  turn(h, id, { diffs: [codeDiff()] });
+  assert.equal(h.runner.get(id).waitingOn, undefined);
+  assert.equal(h.runner.list().filter((t) => t.title.startsWith('Review:')).length, 0, 'no review thread');
+  assert.equal(h.codex.sessions.length, 0);
+  assert.ok(h.events(id).some((e) => e.type === 'system.note' && /^Not reviewed: the review thread couldn't start .*sandbox/.test(e.text)));
+});
+
+test('labReview: the review login for a sandboxed thread is only ever one that runs in the sandbox', () => {
+  const { h, id } = boxed();
+  const rec = h.runner.threads.get(id)!.rec;
+  assert.equal(h.runner.reviewLogin(rec, { confined: true })?.account.provider, 'claude');
+  assert.equal(h.runner.reviewLogin(rec, { confined: true })?.boxed, true);
+  assert.equal(h.runner.reviewLogin(rec)?.account.provider, 'codex', 'outside a sandbox, the other lab as before');
+  // A Codex thread in a sandbox folder (Mike's to start; Codex isn't shut
+  // in) still gets Claude, which runs in the sandbox there.
+  const codexRec = { ...rec, provider: 'codex' as const, accountId: 'codex-main' };
+  assert.equal(h.runner.reviewLogin(codexRec, { confined: true })?.account.provider, 'claude');
+});

@@ -1728,7 +1728,9 @@ export function buildThreadbearTools(
           text: head + text,
           title: title?.trim() || firstLineSafely(text, 200) || undefined,
           cwd: cwd!,
-          ...(confined ? { confined } : {}),
+          // From a sandboxed thread: shut in, or out with the user's yes on
+          // the card above (ask() asks whenever it wouldn't be shut in).
+          ...(confined ? { confined } : caller?.confined ? { unconfine: true } : {}),
           accountId: await account(acc),
           ...(p !== undefined && !acc ? { poolId: pool(p) } : {}),
           model,

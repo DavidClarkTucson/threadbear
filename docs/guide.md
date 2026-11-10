@@ -1040,7 +1040,9 @@ of your inbox; the link in the note opens it. A thread gets at most two
 reviews between your messages.
 
 With no login of another provider, a fresh session of the same one
-reviews, and the note says it isn't another lab. A folder a pool is kept
+reviews, and the note says it isn't another lab. A thread shut in a sandbox
+is reviewed in the sandbox too, so its review is always a fresh Claude
+session (Codex can't run there), or none, with a note saying why. A folder a pool is kept
 for is only ever reviewed on that pool's logins. Reviews cost tokens on the
 reviewing login, so if you'd rather not have them, turn off Settings >
 General > Code review (`"labReview": false` in `runner.json`).

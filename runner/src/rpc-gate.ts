@@ -130,7 +130,9 @@ export class CallerGate {
         const mode = (p.permissionMode ?? caller.mode) as PermissionMode;
         if (above({ mode, confined: false }, caller)) throw needs(`starting a thread with ${MODE_NAMES[mode] ?? mode}`, 'create_thread');
         const given = p.startedBy && typeof p.startedBy === 'object' ? (p.startedBy as Params) : {};
-        return { ...p, permissionMode: mode, startedBy: { ...given, kind: 'thread', threadId, label: typeof given.label === 'string' && given.label ? given.label : 'Agent' } };
+        // Never out of a sandbox from here.
+        const { unconfine: _u, ...rest } = p;
+        return { ...rest, permissionMode: mode, startedBy: { ...given, kind: 'thread', threadId, label: typeof given.label === 'string' && given.label ? given.label : 'Agent' } };
       }
       case 'threads.send': {
         const id = str(p, 'threadId');

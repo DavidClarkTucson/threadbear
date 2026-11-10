@@ -617,6 +617,11 @@ export class RpcServer {
           // Only ever narrows (a draining runner passing on a sandboxed
           // agent's create_thread), so any client may ask for it.
           ...(p.confined === true ? { confined: true } : {}),
+          // A thread named in startedBy that's shut in a sandbox shuts this
+          // one in too unless this says the user allowed otherwise (a
+          // draining runner passing on a create_thread card's yes). The
+          // caller gate takes it out of any thread's own call.
+          ...(p.unconfine === true ? { unconfine: true } : {}),
           ...optStartedBy(p),
           ...optProjectIds(p),
         });
