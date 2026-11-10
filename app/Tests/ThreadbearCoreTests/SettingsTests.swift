@@ -45,6 +45,12 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(RunnerSettings.self, from: Data("{}".utf8)).experiments, [], "an older runner sends none")
     }
 
+    func testKeepAwakeShowsOnlyWhenTheRunnerSendsIt() throws {
+        XCTAssertNil(try JSONDecoder().decode(RunnerSettings.self, from: Data("{}".utf8)).keepAwake, "not a Mac, or an older runner: no switch")
+        XCTAssertEqual(try JSONDecoder().decode(RunnerSettings.self, from: Data(#"{"keepAwake":true}"#.utf8)).keepAwake, true)
+        XCTAssertEqual(SettingsUpdate(keepAwake: false).params, ["keepAwake": .bool(false)])
+    }
+
     func testUpdateSendsOnlyWhatChanged() {
         XCTAssertEqual(SettingsUpdate(idleMinutes: 20).params, ["idleMinutes": .number(20)])
         XCTAssertEqual(SettingsUpdate(followMain: false, pool: "claude").params,

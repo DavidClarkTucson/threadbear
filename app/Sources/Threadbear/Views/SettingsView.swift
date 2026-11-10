@@ -207,6 +207,19 @@ private struct GeneralSettings: View {
                         .tip("Note what you click and open in this app")
                 }
 
+                // On by default (an experiment on Mike's Mac, 6 to 10 Nov);
+                // Mike wanted a switch for anyone who'd rather it slept.
+                // Only a Mac runner sends it.
+                if let keepAwake = settings.keepAwake {
+                    SettingsSection("Sleep",
+                                    about: "While any thread is working, and for three minutes after, your Mac won't go to sleep on its own, so a long turn, or one you started from your phone, isn't cut off halfway. The screen still dims and locks as usual. It stops below 15% battery when you're not plugged in, and closing the lid on battery still puts the Mac to sleep.",
+                                    ask: "check whether it's holding your Mac awake right now.") {
+                        Toggle("Keep the Mac awake while threads work",
+                               isOn: Binding(get: { keepAwake }, set: { app.updateSettings(SettingsUpdate(keepAwake: $0)) }))
+                            .tip("Stop your Mac sleeping on its own while a thread is working")
+                    }
+                }
+
                 // Only on someone's fork: Mike's own copy has nothing to
                 // bring in (its upstream check is off).
                 if settings.bringInSupported, let upstream = app.runnerUpdates?.upstream, upstream.state != "off" {

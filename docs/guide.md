@@ -1555,6 +1555,15 @@ Threadbear's data folder, a file a day, and each file is deleted after 30
 days. Threadbear never sends it anywhere, though once an agent has read
 some of it, that's part of its thread like anything else it reads.
 
+### Keeping the Mac awake
+
+While any thread is working, and for three minutes after, your Mac won't
+go to sleep on its own, so a long turn, or one you started from your
+phone, isn't cut off halfway. The screen still dims and locks as usual.
+It stops below 15% battery when you're not plugged in, and closing the
+lid on battery still puts the Mac to sleep. It's on unless you turn off
+Keep the Mac awake while threads work in Settings (⌘,) > General > Sleep.
+
 ## Privacy
 <!-- slug: privacy -->
 

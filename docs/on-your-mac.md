@@ -184,8 +184,9 @@ File references are where to look.
   beside it what the check last printed (`<id>.<hash>.kept.json`, readable
   only by you) until a run carrying it has been sent, and, while a check
   runs, which runner process is running it (`<id>.running.json`).
-- **Keeping the Mac awake** (`runner/src/keep-awake.ts`, experiment
-  `keepAwake`, off by default): while a thread is working and for 3
+- **Keeping the Mac awake** (`runner/src/keep-awake.ts`, on unless
+  Settings > General > Sleep or `"keepAwake": false` in `runner.json`
+  turns it off): while a thread is working and for 3
   minutes after, the runner runs macOS's `/usr/bin/caffeinate -i -w
   <runner pid>`, which stops idle sleep only (the display still sleeps
   and the screen still locks). While it does, it reads `pmset -g batt`

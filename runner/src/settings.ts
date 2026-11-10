@@ -30,6 +30,9 @@ export type Settings = {
   oneReply: boolean;
   // Review by another lab (runner/lab-review.ts).
   labReview: boolean;
+  // Keep the Mac awake while threads work (keep-awake.ts). Only on a Mac:
+  // left out elsewhere, so Settings shows no switch for it.
+  keepAwake?: boolean;
   // How often a fork's runner starts a thread to bring in Mike's releases
   // (bring-in.ts): every so many days, 'important' or 'off'.
   bringIn: BringInSetting;
@@ -49,6 +52,7 @@ export type SettingsUpdate = {
   bulletReplies?: boolean;
   oneReply?: boolean;
   labReview?: boolean;
+  keepAwake?: boolean;
   bringIn?: BringInSetting;
   models?: { pool?: string | null; privateFolders?: string[] };
   // Experiment id to on or off, saved under runner.json `experiments`.
@@ -79,6 +83,7 @@ export class SettingsService {
       bulletReplies: this.cfg.bulletReplies,
       oneReply: this.cfg.oneReply,
       labReview: this.cfg.labReview,
+      ...(process.platform === 'darwin' ? { keepAwake: this.cfg.keepAwake } : {}),
       bringIn: bringInSetting(this.cfg.home),
       models: {
         pool: this.cfg.models.pool,
@@ -128,6 +133,7 @@ export class SettingsService {
     if (u.bulletReplies !== undefined) json.bulletReplies = this.cfg.bulletReplies = u.bulletReplies;
     if (u.oneReply !== undefined) json.oneReply = this.cfg.oneReply = u.oneReply;
     if (u.labReview !== undefined) json.labReview = this.cfg.labReview = u.labReview;
+    if (u.keepAwake !== undefined) json.keepAwake = this.cfg.keepAwake = u.keepAwake;
     // Read each time it's needed (bring-in.ts), so this takes effect at once.
     if (u.bringIn !== undefined) json.releases = { ...json.releases, bringIn: u.bringIn };
     if (folders !== undefined || pool !== undefined) {
@@ -171,6 +177,10 @@ export function settingsMethods(s: SettingsService): Record<string, (p: Record<s
       if (p.labReview !== undefined) {
         if (typeof p.labReview !== 'boolean') throw bad('labReview must be a boolean');
         u.labReview = p.labReview;
+      }
+      if (p.keepAwake !== undefined) {
+        if (typeof p.keepAwake !== 'boolean') throw bad('keepAwake must be a boolean');
+        u.keepAwake = p.keepAwake;
       }
       if (p.bringIn !== undefined) {
         const b = parseBringIn(p.bringIn);
