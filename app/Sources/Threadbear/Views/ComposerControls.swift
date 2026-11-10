@@ -956,7 +956,10 @@ extension AppModel {
                 self?.contextUsage[threadId] = answer
             } catch {
                 // An older runner (-32601), or another Mac's thread through
-                // the backend: the popover keeps to the totals.
+                // the backend: the popover keeps to the totals. A breakdown
+                // kept from before (the thread was on this Mac's runner
+                // until it moved) goes, as nobody can bring it up to date.
+                self?.contextUsage[threadId] = nil
                 AppLog.write("rpc", "threads.contextUsage failed: \(error.localizedDescription)")
             }
             self?.contextUsageLoading.remove(threadId)

@@ -158,3 +158,27 @@ test("claudeContextUsage keeps the rows and totals, and what the app doesn't kno
     ],
   });
 });
+
+test('an answer that comes after the thread was deleted brings nothing back', async () => {
+  const h = harness();
+  const { thread, s } = liveThread(h);
+  let answer!: (u: Omit<ContextUsage, 'at'>) => void;
+  s.contextUsage = () => new Promise((r) => (answer = r));
+  const asked = h.runner.contextUsage(thread.id);
+  h.runner.delete(thread.id);
+  answer(breakdown(500));
+  assert.deepEqual(await asked, { live: false });
+  assert.equal(h.store.load(thread.id), undefined, 'no thread.json written back');
+});
+
+test('a thread moved to Codex shows no Claude breakdown, nor one waiting on a move', async () => {
+  const h = harness();
+  const { thread } = liveThread(h);
+  await h.runner.contextUsage(thread.id);
+  h.runner.update({ threadId: thread.id, accountId: 'claude-3' });
+  h.clock.advance(30 * MIN);
+  await tick();
+  assert.equal((await h.runner.contextUsage(thread.id)).usage, undefined, 'a move to another login is waiting');
+  h.runner.update({ threadId: thread.id, accountId: 'codex-main' });
+  assert.deepEqual(await h.runner.contextUsage(thread.id), { live: false });
+});

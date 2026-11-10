@@ -22,9 +22,12 @@ export const contextUsagePart = {
     // Only for the native session it was asked of: /clear or a move to
     // another login or provider starts a new one, and the old rows are
     // another conversation's.
+    // A move to another login waiting (handoff) starts a new session with
+    // the next message, so the kept rows are already the past; an edit
+    // that cuts the conversation back drops them (runner/editing.ts).
     const kept = (): ContextUsage | undefined => {
       const k = rec.contextUsage;
-      if (!k || k.sessionId !== rec.nativeSessionId) return undefined;
+      if (!k || k.sessionId !== rec.nativeSessionId || rec.handoff) return undefined;
       const { sessionId: _, ...usage } = k;
       return usage;
     };
@@ -35,7 +38,9 @@ export const contextUsagePart = {
     const session = rt.session;
     // Going away (released, or /clear's old session waiting to go): it
     // would describe a conversation the thread has left.
-    if (!session?.contextUsage || rt.closing || rt.releaseWhenIdle || rec.provider !== 'claude') return keptOnly(false);
+    // Only Claude's CLI says: a thread moved to Codex has nothing to show.
+    if (rec.provider !== 'claude') return { live: false };
+    if (!session?.contextUsage || rt.closing || rt.releaseWhenIdle) return keptOnly(false);
     const already = this.contextAsks.get(threadId);
     if (already) return already;
     const sessionId = rec.nativeSessionId;
@@ -48,8 +53,11 @@ export const contextUsagePart = {
         });
         const got = await Promise.race([session.contextUsage!(), timeout]).finally(() => clearTimeout(timer));
         if (!got) return keptOnly(false);
+        // Deleted, handed over or moved to another runner while it asked:
+        // saving would bring its thread.json back (Codex review).
+        if (rt.deleted || this.threads.get(threadId) !== st) return { live: false };
         // The thread moved on to another session while it asked.
-        if (!sessionId || rec.nativeSessionId !== sessionId) return keptOnly(Boolean(rt.session));
+        if (!sessionId || rec.nativeSessionId !== sessionId || rec.handoff) return keptOnly(Boolean(rt.session));
         const usage: ContextUsage = { ...got, at: new Date(this.clock.now()).toISOString() };
         rec.contextUsage = { ...usage, sessionId };
         // Straight to thread.json, not markDirty: nothing in the summary

@@ -2330,7 +2330,8 @@ whether the thread has a running CLI to ask. Without one (an idle CLI stops
 after 30 minutes and is resumed by the next message), the answer is the
 kept breakdown with its `at`, or no `usage`; no CLI is started for it.
 A kept breakdown belongs to the native session it was asked of, so after
-`/clear` or a move to another login it's gone. When the CLI fails to
+`/clear`, a move to another login or provider, or an edit that cuts the
+conversation back, it's gone. When the CLI fails to
 answer (20 seconds), `note` says so and `usage` is the kept one. Codex
 says nothing like this: `{ live: false }`. Another runner's thread through
 the backend is refused (`-32000`, the relay doesn't carry it), and the app
