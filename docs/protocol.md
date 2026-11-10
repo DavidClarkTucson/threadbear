@@ -5215,7 +5215,7 @@ ended in the last day) and acts on the state:
 | `packing` | S packs, seals, uploads: `moves:movePacked { moveId, chunks, sha256, bytes }` | `unpacking` |
 | `unpacking` | T downloads (`moves:moveChunks`, T only, the chunks' URLs), checks, opens and unpacks into staging, then `moves:moveClaim` | `claimed` |
 | `claimed` | T adopts the thread and mirrors it: `moves:moveDone` | `done` |
-| `done` | S puts its copy away (`<home>/moved/<id>`, kept 7 days) | |
+| `done` | S puts its copy away (`<home>/moved/<id>`, kept 7 days), unless a later move has brought the thread back | |
 
 Any state before `claimed` can go to `failed` (`moves:moveFailed { moveId,
 note }`, by S or T, with what went wrong in a line Mike can read) or
@@ -5272,7 +5272,11 @@ again and carries on from the state.
   move's 24 tickets bound that), and is named with the move
   (`storageOwners.moveId`): when the move ends, however it ends, every
   upload made for it goes, listed in `movePacked` or not, and S gets its
-  bytes back.
+  bytes back. The main Mac's own chunks are Convex uploads with no such
+  record, so when its `movePacked` (or a chunk) fails because the move
+  ended meanwhile, its runner names them in `moves:moveDropChunks {
+  moveId, chunks }` (owner only, once the move has ended), which deletes
+  each one no going move names and nothing else uses.
 - **Git.** Only for a thread with a worktree of its own. `git.bundle` holds
   the branch from where it meets S's `origin/<default>` (so commits only
   on S's main come too), and one more commit, `refs/threadbear/move-wip`,

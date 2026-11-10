@@ -104,3 +104,22 @@ test('a placed.json from before the filter is filtered as it is adopted', async 
   fs.writeFileSync(placedFile, JSON.stringify({ ...placed, schedules: [{ text: 'tick', cron: '* * * * *', check: 'touch /tmp/x' }] }));
   assert.deepEqual((await t.runner.adoptMoved(r)).schedules, [{ text: 'tick', cron: '* * * * *' }]);
 });
+
+test('a record placed by a runner from before the filter loses its Always allow rules as it is adopted', async () => {
+  const t = machine([{ id: 'claude-1', provider: 'claude', title: 'T', configDir: tmpDir() }]);
+  const s = machine([{ id: 'claude-main', provider: 'claude', title: 'S', configDir: tmpDir() }]);
+  const work = tmpDir('tb-move-work-');
+  const id = s.runner.create({ text: 'x', accountId: 'claude-main', cwd: work, permissionMode: 'ask' }).thread.id;
+  s.adapter.last.init();
+  s.adapter.last.result('completed');
+  await tick();
+  const r: MoveRow = { moveId: 'ef56ab12cd34', threadId: id, from: 'S1', to: 'T1', state: 'unpacking', createdAt: 1, updatedAt: 1, info: (await s.runner.describeForMove(id, 0))! };
+  const plan = await t.runner.planMove(r);
+  if ('problem' in plan) assert.fail(plan.problem);
+  r.plan = plan;
+  await t.runner.placeMove(r, (await s.runner.packForMove(id, r)).entries);
+  const recFile = path.join(t.home, 'moves', r.moveId, 'thread', 'thread.json');
+  fs.writeFileSync(recFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(recFile, 'utf8')), allowRules: ['Bash'] }));
+  assert.equal((await t.runner.adoptMoved(r)).adopted, true);
+  assert.equal(t.runner.threads.get(id)!.rec.allowRules, undefined);
+});

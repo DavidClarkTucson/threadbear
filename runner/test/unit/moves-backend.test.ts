@@ -304,3 +304,30 @@ test('the switch fails the move if the thread left its runner meanwhile', async 
   assert.equal(moveOf(s, moveId).state, 'failed');
   assert.ok(s.deleted.includes('c6'));
 });
+
+// Codex's review, 10 Nov 2026: the main Mac's own chunks go up as Convex
+// uploads with no record, so a target that failed the move while they
+// went up left them for good. Its runner now names them once it's over.
+test('the main Mac drops its own chunks for a move that ended before it was packed', async () => {
+  const s = await setup();
+  await s.owner.upsert(thread('T5', M5));
+  const { moveId } = await s.owner.start('T5', BRUCE);
+  await s.owner.info(moveId);
+  await s.bruce.ready(moveId);
+  await s.owner.frozen(moveId);
+  const mine = s.file('mine1');
+  const drop = (key: string, chunks: string[]) => call(s.ctx, moves.moveDropChunks as never, { key, moveId, chunks });
+  assert.equal(await outcome(drop(OWNER, [mine])), 'conflict', 'not while it goes');
+  await s.bruce.failed(moveId, 'gone away');
+  assert.equal(await outcome(s.owner.packed(moveId, [mine])), 'conflict');
+  assert.equal(await outcome(drop(BRUCE_KEY, [mine])), 'forbidden');
+  // A file something else uses, or one a runner key uploaded, stays.
+  const used = s.file('used1');
+  await s.ctx.db.insert('replyImages', { threadId: 'T5', seq: 1, path: 'a.png', storageId: used, mediaType: 'image/png' });
+  const theirs = s.file('theirs1');
+  await s.ctx.db.insert('storageOwners', { storageId: theirs, runnerId: BRUCE, at: 1, bytes: 1 });
+  await drop(OWNER, [mine, used, theirs]);
+  assert.ok(s.deleted.includes('mine1'));
+  assert.ok(!s.deleted.includes('used1'));
+  assert.ok(!s.deleted.includes('theirs1'));
+});

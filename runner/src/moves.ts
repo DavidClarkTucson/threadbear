@@ -194,7 +194,7 @@ export type ThreadMoving = { moveId: string; to: string; toName: string; state: 
 export type MovesBackend = {
   // Every update of the moves this runner is in (moves:moves).
   watch(onMoves: (rows: MoveRow[]) => void, onError: (e: unknown) => void): () => void;
-  call(fn: 'moveInfo' | 'moveReady' | 'moveFrozen' | 'moveChunkUrl' | 'movePacked' | 'moveChunks' | 'moveClaim' | 'moveDone' | 'moveFailed', args: Record<string, unknown>): Promise<unknown>;
+  call(fn: 'moveInfo' | 'moveReady' | 'moveFrozen' | 'moveChunkUrl' | 'movePacked' | 'moveChunks' | 'moveClaim' | 'moveDone' | 'moveFailed' | 'moveDropChunks', args: Record<string, unknown>): Promise<unknown>;
   upload(url: string, bytes: Buffer): Promise<string>;
   download(url: string): Promise<Buffer>;
 };
@@ -273,10 +273,22 @@ export class Moves {
   }
 
   // Threads leaving this runner whose rows it must no longer write: past
-  // the switch they're the other runner's.
+  // the switch they're the other runner's. Only the thread's latest move
+  // past its switch counts, so one moved away and back again is this
+  // runner's again.
   gone(threadId: string): boolean {
-    for (const m of this.rows.values()) if (m.threadId === threadId && m.from === this.d.self() && (m.state === 'claimed' || m.state === 'done')) return true;
-    return false;
+    const last = this.lastSwitched(threadId);
+    return !!last && last.from === this.d.self();
+  }
+
+  // A thread's latest move that got past its switch, of those heard of.
+  private lastSwitched(threadId: string): MoveRow | undefined {
+    let last: MoveRow | undefined;
+    for (const m of this.rows.values()) {
+      if (m.threadId !== threadId || (m.state !== 'claimed' && m.state !== 'done')) continue;
+      if (!last || m.createdAt > last.createdAt) last = m;
+    }
+    return last;
   }
 
   // The move a thread here is in, for ThreadSummary.moving.
@@ -357,11 +369,20 @@ export class Moves {
         if (sealed.length > MAX_SEALED_BYTES) throw new Error(`The thread is too big to move (${Math.round(sealed.length / 1024 / 1024)} MB, over 100): most of it is ${biggest(entries)}.`);
         const backend = this.backend();
         const ids: string[] = [];
-        for (const part of chunks(sealed)) {
-          const url = (await backend.call('moveChunkUrl', { moveId: row.moveId })) as string;
-          ids.push(await backend.upload(url, part));
+        try {
+          for (const part of chunks(sealed)) {
+            const url = (await backend.call('moveChunkUrl', { moveId: row.moveId })) as string;
+            ids.push(await backend.upload(url, part));
+          }
+          await backend.call('movePacked', { moveId: row.moveId, chunks: ids, sha256: sha256(sealed), bytes: sealed.length });
+        } catch (e) {
+          // The move ended meanwhile (the other runner failed it, say): the
+          // main Mac's uploads have no record the backend's cleanup could
+          // find, so it asks for them to go (a runner key's go with the move
+          // by themselves; the backend refuses this for them).
+          if (ids.length) await backend.call('moveDropChunks', { moveId: row.moveId, chunks: ids }).catch(() => undefined);
+          throw e;
         }
-        await backend.call('movePacked', { moveId: row.moveId, chunks: ids, sha256: sha256(sealed), bytes: sealed.length });
         return;
       }
       case 'unpacking':
@@ -369,7 +390,9 @@ export class Moves {
         host.setMoving(id, this.moving(row));
         return;
       case 'done':
-        if (host.has(id)) await host.putAway(id, row);
+        // Not if it has come back since (a later move to here): heard again
+        // after a restart, an old move's done would put the thread away.
+        if (host.has(id) && this.lastSwitched(id)?.moveId === row.moveId) await host.putAway(id, row);
         return;
       case 'failed':
       case 'cancelled': {

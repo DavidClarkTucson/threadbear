@@ -16,7 +16,7 @@ import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } fr
 import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import { checkRunnerId, forbidden, hasLiveKey, runnerAuth, sha256, withoutCredentials } from './lib';
-import { buryIndexRows, countBodyBytes, countMessageBytes, MAX_RUNNER_UPLOAD_BYTES, moveView, storedBytes } from './sync';
+import { buryIndexRows, countBodyBytes, countMessageBytes, MAX_RUNNER_UPLOAD_BYTES, moveView, storageInUse, storedBytes } from './sync';
 import { docBytes, type Caller } from './runnerAccess';
 
 // A runner heard from this recently is online (as phone.ts has it).
@@ -311,6 +311,35 @@ export const movePacked = mutation({
       }
     }
     await ctx.db.patch(m._id, { state: 'unpacking', chunks: a.chunks, sha256: a.sha256, bytes: a.bytes, updatedAt: Date.now() });
+    return null;
+  },
+});
+
+/**
+ * The main Mac's uploads for a move that ended before movePacked named
+ * them (the other runner failed it while they went up): its own uploads
+ * are Convex's, with no record dropChunks could find, so its runner names
+ * them. Only once the move has ended, only files no move still going
+ * names, and nothing else uses.
+ */
+export const moveDropChunks = mutation({
+  args: { key: v.string(), moveId: v.string(), chunks: v.array(v.id('_storage')) },
+  returns: v.null(),
+  handler: async (ctx, { key, moveId, chunks }) => {
+    await runnerAuth(ctx, key, 'moveDropChunks');
+    const m = await moveRow(ctx, moveId);
+    if (GOING.includes(m.state)) throw conflict(`The move is ${m.state}, so its chunks stay.`);
+    if (chunks.length > MOVE_TICKETS) throw bad(`at most ${MOVE_TICKETS} chunks`);
+    for (const id of chunks) {
+      if (!(await ctx.db.system.get(id))) continue;
+      if (await ctx.db.query('storageOwners').withIndex('by_storageId', (q) => q.eq('storageId', id)).first()) continue;
+      if (await storageInUse(ctx, id)) continue;
+      let named = false;
+      for (const state of GOING) {
+        for (const other of await ctx.db.query('threadMoves').withIndex('by_state', (q) => q.eq('state', state)).take(100)) if (other.chunks?.includes(id)) named = true;
+      }
+      if (!named) await ctx.storage.delete(id);
+    }
     return null;
   },
 });

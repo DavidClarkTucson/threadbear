@@ -353,6 +353,19 @@ export const movesPart = {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.renameSync(path.join(stage, 'thread'), dest);
     }
+    // The record as placeMove leaves it has no "Always allow" rules, but
+    // one placed by a runner from before that (and adopted after it
+    // updated) still might: dropped here too, before anything starts.
+    const recFile = path.join(dest, 'thread.json');
+    try {
+      const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
+      if (rec.allowRules !== undefined) {
+        delete rec.allowRules;
+        fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
+      }
+    } catch {
+      // No record to read: adopt says the thread didn't load.
+    }
     this.adopt(row.threadId);
     const st = this.threads.get(row.threadId);
     if (!st) throw new Error("The moved thread didn't load.");
