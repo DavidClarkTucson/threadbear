@@ -7,6 +7,7 @@ import type { CodeWrite } from '../code-writes.ts';
 import type {
   Account,
   BackgroundKind,
+  ContextUsage,
   DeltaBody,
   EffortLevel,
   EventBody,
@@ -247,6 +248,10 @@ export interface AgentSession {
   // The slash commands this session's CLI offers (skills included), for
   // the composer's picker.
   commands?(): Promise<SlashCommand[]>;
+  // What fills the session's context, in the CLI's own words, asked of the
+  // running CLI (threads.contextUsage). Undefined once it has exited. Only
+  // Claude's CLI says.
+  contextUsage?(): Promise<Omit<ContextUsage, 'at'> | undefined>;
   // Ends the input so the CLI finishes and exits. Resolves once it has.
   // With hard set it stops the CLI straight away instead (background work
   // it is waiting for would otherwise keep it alive).

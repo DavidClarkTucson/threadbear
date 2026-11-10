@@ -231,7 +231,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `composer.account` | Account chip | When not using pools | `Popover`. | kit | M | `ComposerControls` (`AccountPickerView`) |
 | `composer.modelpicker` | Model picker | Search, provider rail, logos, Older, Effort, Speed, Unpin | Custom content in a `Popover`, with `Input` for search. | build | L | `ComposerControls` (`ModelPickerView`), `ModelPicker` |
 | `composer.permission` | Permission chip | Full access, Ask, Auto, Plan | gpui-kit menu. | kit | S | `ComposerControls` (`permissionMenu`) |
-| `composer.contextring` | Context ring | Fill ring, orange near full, popover with tokens, login, cost | Drawn ring and `Popover`. | build | S | `ComposerControls` (`ContextRing`, `ContextPopover`) |
+| `composer.contextring` | Context ring | Fill ring, orange near full, popover with tokens, login, cost; on a Claude thread, Claude's breakdown of what fills it (`threads.contextUsage`: stacked bar, a row per category, deferred tools, its age and a refresh button) | Drawn ring and `Popover`. | build | S | `ComposerControls` (`ContextRing`, `ContextPopover`) |
 | `composer.send` | Send and Stop | Send, Stop (⌘.), spinner when starting | Drawn button with the busy pattern. | build | S | `ComposerControls` (`SendButton`) |
 | `composer.schedulefromsend` | Schedule from send | Right-click Send | gpui-kit menu. | kit | S | `ComposerControls` |
 | `composer.editing` | Editing banner | Cancel returns the old draft | Drawn. | build | S | `ComposerView` (`EditingBanner`) |

@@ -29,6 +29,7 @@ export const GATED_READS: ReadonlySet<string> = new Set([
   'threads.subagent',
   'threads.highlights',
   'threads.commands',
+  'threads.contextUsage',
   'buttons.list',
   'reviews.list',
   'reviews.get',

@@ -1121,6 +1121,42 @@ async function dispatch(client, method, p) {
       if (p.question) return { answer: `About "${sel}": ${p.question} That's the mock runner's answer to a follow-up.`, model: 'mock' };
       return { answer: `**${sel}** is what the agent called this step. It means the smallest piece to move first, so the rest can follow.\n\n- It's in \`runner/src/explain.ts\`\n- Nothing here goes into the thread`, model: 'mock' };
     }
+    case 'threads.contextUsage': {
+      // What fills the context (docs/protocol.md, "Context breakdown"), the
+      // rows Ghostex showed on 9 Nov, scaled to the thread's own total. A
+      // moment's wait, like the CLI's count; Codex threads have none.
+      const t = need(p.threadId);
+      if (t.summary.provider === 'codex' || !t.summary.contextTokens) return { live: false };
+      await new Promise((r) => setTimeout(r, 700));
+      const max = t.summary.contextWindow ?? 1_000_000;
+      const fixed = { system_prompt: 4_500, system_tools: 2_300, mcp_instructions: 596, mcp_tools: 1_700, memory_files: 15_000, skills: 8_100 };
+      const messages = Math.max(0, t.summary.contextTokens - Object.values(fixed).reduce((a, b) => a + b, 0));
+      const buffer = 33_000;
+      const used = messages + Object.values(fixed).reduce((a, b) => a + b, 0);
+      const row = (id, name, tokens, kind = 'used') => ({ id, name, tokens, kind });
+      return {
+        live: true,
+        usage: {
+          at: new Date().toISOString(),
+          model: 'claude-opus-5-5',
+          totalTokens: used,
+          maxTokens: max,
+          categories: [
+            row('system_prompt', 'System prompt', fixed.system_prompt),
+            row('system_tools', 'System tools', fixed.system_tools),
+            row('mcp_instructions', 'MCP server instructions', fixed.mcp_instructions),
+            row('mcp_tools', 'MCP tools', fixed.mcp_tools),
+            row('mcp_tools_deferred', 'MCP tools (deferred)', 173_000, 'deferred'),
+            row('system_tools_deferred', 'System tools (deferred)', 16_000, 'deferred'),
+            row('memory_files', 'Memory files', fixed.memory_files),
+            row('skills', 'Skills', fixed.skills),
+            row('messages', 'Messages', messages),
+            row('autocompact_buffer', 'Autocompact buffer', buffer, 'buffer'),
+            row('free_space', 'Free space', Math.max(0, max - used - buffer), 'free'),
+          ],
+        },
+      };
+    }
     case 'threads.commands': {
       // The palette's list (docs/protocol.md, "Slash commands"): Threadbear's
       // own, the CLI's, then skills, as a real Claude thread lists them.

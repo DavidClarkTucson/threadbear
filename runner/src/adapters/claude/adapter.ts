@@ -3,8 +3,8 @@ import { denySecrets } from '../../secrets-guard.ts';
 import { CONFINED_NO_SANDBOX, sandboxSpawner, type SandboxConfig } from '../../sandbox.ts';
 import os from 'node:os';
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
-import type { HookInput, McpServerConfig, ModelInfo, Options, PermissionResult, Query, SDKUserMessage, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
-import type { Account, EffortLevel, ModelChoice, PermissionMode, Question, QueuedAnswers, QueuedCall } from '../../protocol.ts';
+import type { HookInput, McpServerConfig, ModelInfo, Options, PermissionResult, Query, SDKControlGetContextUsageResponse, SDKUserMessage, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
+import type { Account, ContextUsage, EffortLevel, ModelChoice, PermissionMode, Question, QueuedAnswers, QueuedCall } from '../../protocol.ts';
 import { isEffortLevel } from '../../protocol.ts';
 import fs from 'node:fs';
 import type { AgentAdapter, AgentSession, RewindRequest, RewindResult, SessionSink, StartSessionOptions, UserInput } from '../types.ts';
@@ -971,6 +971,14 @@ class ClaudeSession implements AgentSession {
     return claudeCommands(await this.q.supportedCommands(), { cwd: this.opts.cwd, configDir: this.opts.account.configDir });
   }
 
+  // The /context breakdown. 'full' counts each row with the token-count
+  // API (about a second on a warm CLI, and no model turn), so the rows
+  // match what the CLI itself would say.
+  async contextUsage(): Promise<Omit<ContextUsage, 'at'> | undefined> {
+    if (this.exited) return undefined;
+    return claudeContextUsage(await this.q.getContextUsage({ detail: 'full' }));
+  }
+
   async setModel(model: string | undefined): Promise<void> {
     if (this.exited) return;
     await this.q.setModel(model);
@@ -1024,6 +1032,24 @@ class ClaudeSession implements AgentSession {
     }
     this.abort.abort();
   }
+}
+
+// getContextUsage's answer as the protocol's ContextUsage: the rows and
+// totals, without the grid, per-file and per-tool lists (about 50 KB on a
+// busy login) the popover doesn't show. A row that isn't a name and a
+// number is left out rather than failing the lot.
+export function claudeContextUsage(r: SDKControlGetContextUsageResponse): Omit<ContextUsage, 'at'> {
+  const categories: ContextUsage['categories'] = [];
+  for (const c of Array.isArray(r.categories) ? r.categories : []) {
+    if (typeof c?.name !== 'string' || typeof c.tokens !== 'number' || !Number.isFinite(c.tokens)) continue;
+    categories.push({ ...(typeof c.id === 'string' ? { id: c.id } : {}), name: c.name, tokens: c.tokens, kind: typeof c.kind === 'string' ? c.kind : c.isDeferred ? 'deferred' : 'used' });
+  }
+  return {
+    ...(typeof r.model === 'string' ? { model: r.model } : {}),
+    totalTokens: Number(r.totalTokens) || 0,
+    maxTokens: Number(r.maxTokens) || 0,
+    categories,
+  };
 }
 
 // The SDK's list, as the picker's. Claude Code's own are marked builtin;

@@ -1098,6 +1098,7 @@ the summary and then the reply.
 | `panels.convexKey` | `{ threadId, panelId, deployment?: string, renew?: boolean }` | `{ deployment, deploymentUrl, adminKey }`, a deploy key for a panel with `convex`, for Convex's embedded dashboard. `deployment` defaults to the panel's configured deployment; any other name must be one returned by `panels.convexDeployments` for this panel's project. The runner makes it the first time (`convex deployment token create` in the project's folder, with the runner's own Convex CLI, so an older `convex` package in the project doesn't matter, on Mike's Convex CLI login) and keeps it in `secrets/convex-panels/<deployment>.json`; `renew` deletes that one from Convex and makes a fresh one. A kept key is first checked with the deployment's `/api/check_admin_key` (only at its own `<name>[.<region>].convex.cloud` address), and one Convex says no to (revoked) is replaced the same way; an unclear answer keeps it. Slow the first time. `-32602` for a panel the thread doesn't have or one without `convex`; `-32040` when the runner's Convex CLI isn't signed in (or its login expired), `-32041` when its login can't reach the deployment, otherwise `-32000` with the CLI's message, each in plain words |
 | `panels.convexLogin` | `{ threadId, panelId, check?: boolean, force?: boolean }` | `{ state: "idle" \| "waiting" \| "done" \| "failed", url?, code?, message? }`. Signs the runner's Convex CLI in (`convex login --no-open --login-flow poll`), for a panel that got `-32040` (or `-32041`, with `force`, to switch accounts). Answers once the CLI prints its device page: `url` to open in the browser on the Mac the person is at (any browser can approve it, so a remote runner's sign-in works from here), `code` what that page shows. A call while one is waiting joins it. `check` only reports: poll it until `done` (then the deployment list is fetched afresh) or `failed` (`message` says why, or that it wasn't approved within the code's five minutes) |
 | `threads.commands` | `{ threadId }` | `{ commands: SlashCommand[] }`: what the composer's picker offers for the thread (see Slash commands) |
+| `threads.contextUsage` | `{ threadId }` | `{ usage?: ContextUsage, live: boolean, note?: string }`: what fills the thread's context, in Claude's own words, for the composer ring's popover (see Context breakdown). Asked of the thread's running CLI; never starts one. Fast (about a second) |
 | `folders.commands` | `{ cwd?: string, accountId?: string, permissionMode?: PermissionMode }` | `{ commands: SlashCommand[] }`: the same list for a new thread's box, before the thread exists: the login and folder it would start on, each defaulting as `threads.create` does. `-32010` for an unknown login |
 | `threads.highlights` | `{ threadId }` | `ThreadHighlights` (see Highlights): what the thread has made, shared and pinned, read from its events since the last call and kept with the thread |
 | `threads.explain` | `{ threadId, selection: string, message?: string, question?: string, earlier?: { question?: string, answer: string }[] }` | `{ answer: string, model: string }`. Explains words Mike selected in the transcript, on the small model (see Explain). `message` is the whole message they came from, as the app shows it; `earlier` and `question` are a follow-up. Writes nothing to the thread. `-32000` with the reason when no model answers |
@@ -2292,6 +2293,52 @@ looks for the file: `skills/<name>/SKILL.md`, then `commands/<name>.md`
 (a `:` in the name is a folder), under the login's config folder for
 `user` and the thread's folder's `.claude` for `project`. Codex's
 `skills/list` gives the path and scope itself (`repo` is `project`).
+
+## Context breakdown
+
+The composer's context ring shows `contextTokens` out of `contextWindow`.
+Its popover also shows what fills that context, as Claude's `/context`
+does: `threads.contextUsage`, asked when the popover opens and when its
+refresh button is clicked, never on a timer.
+
+```ts
+type ContextUsage = {
+  at: string;          // when Claude answered
+  model?: string;
+  totalTokens: number; // in the window now
+  maxTokens: number;   // the window it's measured against
+  categories: {
+    id?: string;       // 'messages', 'memory_files', 'skills', 'custom_agents',
+                       // 'system_tools', 'system_prompt', 'mcp_instructions',
+                       // 'mcp_tools', 'autocompact_buffer', 'compact_buffer',
+                       // 'free_space', 'mcp_tools_deferred',
+                       // 'system_tools_deferred'; a later CLI may add more,
+                       // and one that predates ids sends none
+    name: string;      // the CLI's own words for the row
+    tokens: number;
+    kind: string;      // 'used' (in the window), 'buffer' (kept free for
+                       // compacting), 'free', 'deferred' (tool schemas kept
+                       // out of the window until loaded: not counted)
+  }[];
+};
+```
+
+The runner asks the thread's live Claude CLI (the Agent SDK's
+`getContextUsage`, which counts each row with the token-count API and runs
+no turn) and keeps the answer in the thread's `thread.json`. `live` says
+whether the thread has a running CLI to ask. Without one (an idle CLI stops
+after 30 minutes and is resumed by the next message), the answer is the
+kept breakdown with its `at`, or no `usage`; no CLI is started for it.
+A kept breakdown belongs to the native session it was asked of, so after
+`/clear` or a move to another login it's gone. When the CLI fails to
+answer (20 seconds), `note` says so and `usage` is the kept one. Codex
+says nothing like this: `{ live: false }`. Another runner's thread through
+the backend is refused (`-32000`, the relay doesn't carry it), and the app
+shows the totals only.
+
+Both sides ignore fields they don't know; the app leaves out a row whose
+`kind` it doesn't know, and draws a row whose `id` it doesn't know in grey
+after the ones it does.
 
 ## Editing a message
 

@@ -635,7 +635,15 @@ extension Automation {
             // The context ring's popover; only on a thread that has one.
             guard let thread = app.selectedThread, let meter = ContextMeter(thread) else { return "error no context meter on this thread" }
             if c["show"] as? Bool == true { return show { app.contextMeterRequest += 1 } }
-            return "ok " + json([meter.amount, "\(meter.percent)%"])
+            // Then the popover's breakdown, once the runner has answered
+            // (opening the popover asks): "Messages 610k 61%".
+            var lines = [meter.amount, "\(meter.percent)%"]
+            if let b = ContextBreakdown(app.contextUsage[thread.id]?.usage) {
+                lines.append("\(b.headline) \(b.amount)")
+                lines += b.rows.map { [$0.name, $0.tokenText, $0.percentText].compactMap { $0 }.joined(separator: " ") }
+                if let at = b.at { lines.append("Breakdown from \(ContextBreakdown.age(at, now: Date()))") }
+            }
+            return "ok " + json(lines)
         case "account":
             // An account by its email (as the picker shows it) or its id.
             if let title = c["click"] as? String {

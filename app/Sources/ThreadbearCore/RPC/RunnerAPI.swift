@@ -139,6 +139,14 @@ public extension RPCClient {
         try await call("threads.commands", .object(["threadId": .string(threadId)]), as: SlashCommandList.self, timeout: .seconds(30)).commands
     }
 
+    /// What fills the thread's context, in Claude's own words, for the
+    /// composer ring's popover (docs/protocol.md, "Context breakdown").
+    /// Asked of the thread's running CLI, about a second; without one, the
+    /// breakdown the runner kept. Codex threads have none.
+    func contextUsage(threadId: String) async throws -> ContextUsageAnswer {
+        try await call("threads.contextUsage", .object(["threadId": .string(threadId)]), as: ContextUsageAnswer.self, timeout: .seconds(30))
+    }
+
     /// The same list for a new thread's box, before the thread exists: the
     /// login, folder and mode it would start with (`folders.commands`).
     /// Nil ones default as `threads.create` does.

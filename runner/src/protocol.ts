@@ -193,6 +193,20 @@ export type ArchivedBy = 'mike' | 'agent' | 'threadbear';
 export type ArchiveVerdict = 'worked' | 'didntWork' | 'notNeeded';
 export const ARCHIVE_VERDICTS: readonly ArchiveVerdict[] = ['worked', 'didntWork', 'notNeeded'];
 
+// What fills a thread's context, in Claude's own words (threads.contextUsage,
+// docs/protocol.md "Context breakdown"). Rows are the CLI's /context rows:
+// `id` names a row (absent from a CLI that predates it, and a later CLI may
+// add ids), `kind` says whether it counts: 'used' is in the window, 'buffer'
+// the autocompact reserve, 'free' the rest, 'deferred' tool schemas kept out
+// of the window until loaded.
+export type ContextUsage = {
+  at: string; // when Claude answered
+  model?: string;
+  totalTokens: number; // in the window now
+  maxTokens: number; // the window it's measured against
+  categories: { id?: string; name: string; tokens: number; kind: string }[];
+};
+
 export type ThreadSummary = {
   id: string;
   title: string;

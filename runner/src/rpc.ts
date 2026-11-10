@@ -85,6 +85,7 @@ export const THREAD_METHODS = new Set([
   'threads.markSeen',
   'threads.highlights',
   'threads.commands',
+  'threads.contextUsage',
   'threads.explain',
   'threads.hibernateWhen',
   'threads.removeHighlight',
@@ -730,6 +731,8 @@ export class RpcServer {
       }
       case 'threads.commands':
         return r.threadCommands(reqString(p, 'threadId'));
+      case 'threads.contextUsage':
+        return r.contextUsage(reqString(p, 'threadId'));
       case 'folders.commands':
         return r.folderCommands({
           cwd: p.cwd === undefined ? undefined : reqString(p, 'cwd'),

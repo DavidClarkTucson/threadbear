@@ -927,7 +927,14 @@ how full its context is: how much of the model's window the conversation
 takes up. It turns orange when it's nearly full, as Claude and Codex
 compact the conversation by themselves soon after. Click it for the
 tokens used out of the window, the model and login the thread really ran
-on, and what it has cost so far.
+on, and what it has cost so far. On a Claude thread it also shows what
+fills the context, as Claude's `/context` counts it: the conversation,
+memory files, skills, tools, the system prompt, MCP servers, the room
+Claude keeps for compacting and what's free, with the tool definitions it
+loads only when needed listed below. Claude is asked when you open it and
+when you click its refresh button. Once a thread has sat idle for half an
+hour its Claude has stopped, so it shows the last breakdown and how old
+it is until your next message.
 
 To add another login, such as a second Claude subscription, give it a
 folder of its own under `accounts` in Threadbear's data folder, named

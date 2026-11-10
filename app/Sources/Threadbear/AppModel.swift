@@ -642,6 +642,11 @@ final class AppModel {
     /// (SlashPalette.swift), for the composer's palette.
     var slashCommands: [String: [SlashCommand]] = [:]
     @ObservationIgnored var slashFetches: [String: Task<Void, Never>] = [:]
+    /// Each thread's last `threads.contextUsage` answer, for the context
+    /// ring's popover, and the threads it's being asked for (its refresh
+    /// button spins meanwhile).
+    var contextUsage: [String: ContextUsageAnswer] = [:]
+    var contextUsageLoading: Set<String> = []
     /// The sizes Mike dragged the palette and its columns to, kept for
     /// next time.
     var slashPaletteLayout: SlashPalette.Layout = (UserDefaults.standard.data(forKey: "slashPaletteLayout")).flatMap { try? JSONDecoder().decode(SlashPalette.Layout.self, from: $0) } ?? SlashPalette.Layout() {
