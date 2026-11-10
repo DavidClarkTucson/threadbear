@@ -71,6 +71,53 @@ import Testing
         #expect(try answer(#"{ "live": false }"#).usage == nil)
     }
 
+    /// Daybreak, 10 Nov 2026: a paired runner's answer crashed the app when
+    /// the popover opened. Two rows of 5e18 tokens overflowed the sum, and
+    /// a total of 1e18 in a window of 1 overflowed the percentage. Counts
+    /// outside 0...countLimit are read as none, and nothing traps.
+    @Test func aRunnersHugeCountsAreRefusedNotCrashed() throws {
+        let sum = try answer("""
+        { "live": true, "usage": { "totalTokens": 100, "maxTokens": 200000, "categories": [
+          { "id": "messages", "name": "Messages", "tokens": 5000000000000000000, "kind": "used" },
+          { "id": "skills", "name": "Skills", "tokens": 5000000000000000000, "kind": "used" },
+          { "id": "system_prompt", "name": "System prompt", "tokens": -9000000000000000000, "kind": "used" },
+          { "id": "memory_files", "name": "Memory files", "tokens": 100, "kind": "used" }
+        ] } }
+        """)
+        #expect(sum.usage?.categories.map(\.name) == ["Memory files"])
+        let b = try #require(ContextBreakdown(sum.usage))
+        #expect(b.headline == "0% used")
+
+        let percent = try answer(#"{ "live": true, "usage": { "totalTokens": 1000000000000000000, "maxTokens": 1, "categories": [] } }"#)
+        #expect(percent.usage?.totalTokens == 0)
+        #expect(percent.usage?.maxTokens == 1)
+        #expect(ContextBreakdown(percent.usage)?.headline == "0% used")
+        let max = try answer(#"{ "live": true, "usage": { "totalTokens": 9223372036854775807, "maxTokens": 9223372036854775807, "categories": [] } }"#)
+        #expect(ContextBreakdown(max.usage) == nil, "neither count is one, so there's no window")
+        #expect(try answer(#"{ "live": true, "usage": { "totalTokens": 5, "maxTokens": 1099511627777, "categories": [] } }"#).usage?.maxTokens == 0)
+    }
+
+    /// Made in code with any Int (not through the decoder), the presenter
+    /// still saturates and clamps rather than trapping.
+    @Test func thePresenterNeverTraps() throws {
+        let big = ContextUsage(at: nil, totalTokens: Int.max, maxTokens: 1, categories: [
+            .init(id: "messages", name: "Messages", tokens: Int.max, kind: "used"),
+            .init(id: "skills", name: "Skills", tokens: Int.max, kind: "used"),
+        ])
+        let b = try #require(ContextBreakdown(big))
+        #expect(b.headline == "9999% used")
+        #expect(b.rows.first?.percentText == "9999%")
+        let unwindowed = try #require(ContextBreakdown(ContextUsage(at: nil, totalTokens: Int.max, maxTokens: 0, categories: [
+            .init(id: "messages", name: "Messages", tokens: Int.max, kind: "used"),
+            .init(id: "skills", name: "Skills", tokens: Int.max, kind: "used"),
+        ])))
+        #expect(unwindowed.window == Int.max, "the sum saturates")
+        #expect(unwindowed.headline == "100% used")
+        #expect(ContextBreakdown.share(.infinity) == "9999%")
+        #expect(ContextBreakdown.share(.nan) == "0%")
+        #expect(ContextBreakdown.share(-.infinity) == "0%")
+    }
+
     @Test func shareWords() {
         #expect(ContextBreakdown.share(0.29) == "29%")
         #expect(ContextBreakdown.share(0.015) == "1.5%")

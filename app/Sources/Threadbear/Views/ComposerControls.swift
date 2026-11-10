@@ -1018,8 +1018,9 @@ private struct BreakdownView: View {
         GeometryReader { geo in
             let width = geo.size.width
             let size = { (row: ContextBreakdown.Row) -> CGFloat in
-                // A sliver for a small row, so it still shows.
-                max(1.5, width * CGFloat(row.fraction ?? 0))
+                // A sliver for a small row, so it still shows; never wider
+                // than the bar, whatever count a runner sent.
+                max(1.5, width * CGFloat(min(1, max(0, row.fraction ?? 0))))
             }
             ZStack(alignment: .leading) {
                 Rectangle().fill(Swatch.color(.free))

@@ -4,7 +4,24 @@ import Foundation
 /// (`threads.contextUsage`, docs/protocol.md "Context breakdown"), as the
 /// runner kept it. Read leniently: a row that isn't a name and a number is
 /// left out rather than losing the lot.
+///
+/// The numbers come from whichever runner has the thread, which may be
+/// another Mac's, so nothing in them may crash this one: a count outside
+/// 0...`countLimit` is read as no count (a row is left out), and the
+/// breakdown below adds and divides without trapping (Daybreak, 10 Nov
+/// 2026: two rows of 5e18 tokens overflowed the sum, and a total of 1e18
+/// in a window of 1 overflowed the percentage).
 public struct ContextUsage: Sendable, Equatable, Decodable {
+    /// Far above any model's window (a few million today), and far below
+    /// where adding a few hundred rows of it could overflow.
+    public static let countLimit = 1 << 40
+
+    /// A count as sent, if it's one.
+    static func count(_ n: Int?) -> Int? {
+        guard let n, (0...countLimit).contains(n) else { return nil }
+        return n
+    }
+
     public struct Category: Sendable, Equatable, Decodable {
         /// "messages", "memory_files"...; absent from an older CLI, and a
         /// newer one may add ids this app doesn't know.
@@ -19,6 +36,19 @@ public struct ContextUsage: Sendable, Equatable, Decodable {
             self.name = name
             self.tokens = tokens
             self.kind = kind
+        }
+
+        private enum CodingKeys: String, CodingKey { case id, name, tokens, kind }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decodeIfPresent(String.self, forKey: .id)
+            name = try c.decode(String.self, forKey: .name)
+            kind = try c.decode(String.self, forKey: .kind)
+            guard let tokens = ContextUsage.count(try c.decode(Int.self, forKey: .tokens)) else {
+                throw DecodingError.dataCorruptedError(forKey: .tokens, in: c, debugDescription: "not a token count")
+            }
+            self.tokens = tokens
         }
     }
 
@@ -40,8 +70,8 @@ public struct ContextUsage: Sendable, Equatable, Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         at = ((try? c.decodeIfPresent(String.self, forKey: .at)) ?? nil).flatMap(ISO8601.parse)
         model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? nil
-        totalTokens = (try? c.decode(Int.self, forKey: .totalTokens)) ?? 0
-        maxTokens = (try? c.decode(Int.self, forKey: .maxTokens)) ?? 0
+        totalTokens = Self.count(try? c.decode(Int.self, forKey: .totalTokens)) ?? 0
+        maxTokens = Self.count(try? c.decode(Int.self, forKey: .maxTokens)) ?? 0
         categories = ((try? c.decode([Lenient].self, forKey: .categories)) ?? []).compactMap(\.category)
     }
 
@@ -127,7 +157,12 @@ public struct ContextBreakdown: Equatable, Sendable {
 
     public init?(_ usage: ContextUsage?) {
         guard let usage else { return nil }
-        let counted = usage.categories.filter { $0.kind != "deferred" }.reduce(0) { $0 + max(0, $1.tokens) }
+        // Saturating, as the memberwise init takes any Int: the decoder's
+        // limit keeps a runner's answer far from here, but nothing traps.
+        let counted = usage.categories.filter { $0.kind != "deferred" }.reduce(0) { sum, c in
+            let (next, over) = sum.addingReportingOverflow(max(0, c.tokens))
+            return over ? Int.max : next
+        }
         let window = usage.maxTokens > 0 ? usage.maxTokens : counted
         guard window > 0 else { return nil }
         func rows(_ kind: String) -> [Row] {
@@ -151,7 +186,7 @@ public struct ContextBreakdown: Equatable, Sendable {
     }
 
     /// "32% used".
-    public var headline: String { "\(Int((Double(used) / Double(window) * 100).rounded()))% used" }
+    public var headline: String { "\(Self.wholePercent(Double(used) / Double(window)))% used" }
     /// "323k / 1M".
     public var amount: String { "\(ContextMeter.tokens(used)) / \(ContextMeter.tokens(window))" }
     /// The bar's pieces, left to right: what's used, then the buffer.
@@ -161,12 +196,20 @@ public struct ContextBreakdown: Equatable, Sendable {
     /// below, so the small rows don't all read 0%.
     public static func share(_ fraction: Double) -> String {
         let p = fraction * 100
-        if p <= 0 { return "0%" }
-        if p >= 10 { return "\(Int(p.rounded()))%" }
+        // Not `p <= 0`: NaN is neither.
+        if !(p > 0) { return "0%" }
+        if p >= 10 { return "\(wholePercent(fraction))%" }
         let tenth = (p * 10).rounded() / 10
         if tenth < 0.1 { return "<0.1%" }
         let s = String(format: "%.1f", tenth)
         return (s.hasSuffix(".0") ? String(s.dropLast(2)) : s) + "%"
+    }
+
+    /// A fraction as a whole percentage, held to 0...9999 first: a Double
+    /// past Int's range (or NaN) traps when it's made an Int.
+    static func wholePercent(_ fraction: Double) -> Int {
+        guard !fraction.isNaN else { return 0 }
+        return Int((min(max(fraction, 0), 99.99) * 100).rounded())
     }
 
     /// "just now", "5 min ago", "3 hours ago", "2 days ago".
