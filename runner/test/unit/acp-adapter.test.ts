@@ -646,6 +646,36 @@ test('a saved command rule covers that folder only: another, two at once, or any
   }
 });
 
+// Codex's second look, 10 Nov: the card shows the folder a link resolves to,
+// so a link pointed somewhere else while the card waits isn't allowed there.
+test('a folder that changes while its card waits is refused, and the card shows the link as given', async () => {
+  let swap = () => {};
+  const r = rig({ mode: 'ask', answer: async () => (swap(), { decision: 'allowAlways' }) });
+  const s = r.start();
+  await s.setPermissionMode('ask');
+  await ready(r, s);
+  const home = fs.realpathSync(r.cwd);
+  fs.mkdirSync(path.join(home, 'safe'));
+  fs.mkdirSync(path.join(home, 'valuable'));
+  const link = path.join(home, 'link');
+  fs.symlinkSync(path.join(home, 'safe'), link);
+  swap = () => {
+    fs.rmSync(link);
+    fs.symlinkSync(path.join(home, 'valuable'), link);
+  };
+  const replies = fakeRequest(r, s, { toolCallId: 't1', kind: 'execute', rawInput: { command: 'rm -rf generated', workdir: link } });
+  await until(() => replies.length === 1);
+  assert.deepEqual(r.cards[0].input, { command: 'rm -rf generated', cwd: path.join(home, 'safe'), workdir: link });
+  assert.deepEqual(replies[0], { outcome: { outcome: 'selected', optionId: 'reject' } });
+  assert.ok(r.outputs.some((o: any) => o.kind === 'event' && o.event.type === 'system.note' && /changed while it waited/.test(o.event.text)));
+  assert.equal((s as unknown as { rules: Set<string> }).rules.size, 0, 'no rule saved for it');
+  // Left alone, the same answer allows it.
+  swap = () => {};
+  const again = fakeRequest(r, s, { toolCallId: 't2', kind: 'execute', rawInput: { command: 'rm -rf generated', workdir: link } });
+  await until(() => again.length === 1);
+  assert.deepEqual(again[0], { outcome: { outcome: 'selected', optionId: 'once' } });
+});
+
 test('a saved command rule does not cover a file that runs as code', async () => {
   const r = rig({ mode: 'ask', deny: true });
   const s = r.start();

@@ -3639,18 +3639,20 @@ const AWAY_MS = 12 * 3_600_000;
 
 // What the recap box says: the sentence on what the thread is for, on a line
 // of its own above the librarian's bullets.
-// The most setBrief keeps of each (runner/titles.ts).
-export const RECAP_PURPOSE_CHARS = 200;
+// The most setBrief keeps of each (runner/titles.ts). Before 10 Nov it cut
+// both to 200 and 600 with a plain slice, and those records are still about.
+export const RECAP_PURPOSE_CHARS = 199;
 export const RECAP_BRIEF_CHARS = 600;
 export function recapText(brief: { text: string; purpose?: string }): string {
-  // Before 10 Nov setBrief cut both with a plain slice, and those records
-  // are still about: one at its limit may end partway through a secret
-  // whose end was never kept, which the purpose, now mid-recap, would carry
-  // past the scrub. So one that long has its last unseen run dropped, as
-  // text read only up to a limit does (Codex's review of Daybreak's 75).
-  const whole = (t: string, max: number) => (t.length >= max ? t.slice(0, safeEndOfPartial(t, t.length)).trimEnd() : t);
-  const text = whole(brief.text, RECAP_BRIEF_CHARS);
-  const purpose = brief.purpose ? whole(brief.purpose, RECAP_PURPOSE_CHARS) : '';
+  // An old purpose of 200 may have been cut partway through a secret whose
+  // end (a URL's "@", a closing quote) was never kept, and mid-recap the
+  // scrub can't tell. What's left of it can't be found either (a quoted
+  // password with a space in it), so one that long is left out: a new one is
+  // never more than 199 (Codex's review of Daybreak's 75). The brief comes
+  // last, where the scrub's rules for a value cut off at the end apply, and
+  // loses its last unseen run too, as text read up to a limit does.
+  const purpose = brief.purpose && brief.purpose.length <= RECAP_PURPOSE_CHARS ? brief.purpose : '';
+  const text = brief.text.length >= RECAP_BRIEF_CHARS ? brief.text.slice(0, safeEndOfPartial(brief.text, brief.text.length)).trimEnd() : brief.text;
   return purpose ? `${purpose}\n${text}` : text;
 }
 

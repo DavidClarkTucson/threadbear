@@ -306,7 +306,7 @@ test("the recap: neither the librarian's purpose nor its brief is cut through a 
     h.runner.setBrief(thread.id, `- Built it ${shift}`, purpose);
     const recap = h.runner.get(thread.id).recap!;
     assert.ok(recap, 'a recap');
-    assert.ok(recap.split('\n')[0]!.length <= 200, 'the purpose is still at most 200');
+    assert.ok(recap.split('\n')[0]!.length <= 199, 'the purpose is at most 199');
     for (const sent of [scrubText(recap), scrubText(known.safeText(recap))]) assert.ok(!leaks(sent), `purpose, shift ${shift}: ${sent.slice(150, 260)}`);
     h.runner.setBrief(thread.id, brief, `A purpose ${shift}`);
     const recap2 = h.runner.get(thread.id).recap!;
@@ -333,10 +333,19 @@ test("the recap: a purpose or brief cut the old way, through a secret, doesn't c
     const text = `${'b'.repeat(600 - at + shift - 1)} ${URL} and more`.slice(0, 600);
     st.rec.brief = { text, purpose, at: new Date(0).toISOString() };
     const recap = h.runner.get(thread.id).recap!;
-    assert.ok(recap.startsWith('ppp'), 'still a recap');
+    assert.ok(recap.startsWith('bbb'), 'the old purpose is left out, the brief stays');
     assert.ok(!leaks(scrubText(recap)), `shift ${shift}: ${recap.slice(150, 260)}`);
     assert.ok(!leaks(scrubText(`${recap}\n- more`)), `shift ${shift}, mid-text`);
   }
+  // Codex's second look: a quoted password with a space in it, its closing
+  // quote cut off, can't be found in what's left, so the purpose goes whole.
+  const quoted = 'alphaBravoSecret betaDeltaSecret';
+  st.rec.brief = { text: '- Built it', purpose: `${'p'.repeat(160)} {"password": "${quoted}"}`.slice(0, 200), at: new Date(0).toISOString() };
+  assert.equal(h.runner.get(thread.id).recap, '- Built it');
+  // A new one is never that long, so it's never left out.
+  h.runner.setBrief(thread.id, '- Built it', 'w'.repeat(250));
+  assert.equal(h.runner.get(thread.id).recap!.split('\n')[0]!.length <= 199, true);
+  assert.ok(h.runner.get(thread.id).recap!.startsWith('w'));
   // A short one is left as it is.
   st.rec.brief = { text: '- Built it', purpose: 'Cheffy guides people.', at: new Date(0).toISOString() };
   assert.equal(h.runner.get(thread.id).recap, 'Cheffy guides people.\n- Built it');

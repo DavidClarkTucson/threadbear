@@ -419,10 +419,12 @@ export class AcpSession implements AgentSession {
     // that tidies the path first would use it), is somewhere unknown (Codex's
     // review, 10 Nov).
     const named = FOLDER_KEYS.map((k) => input[k]).filter((d): d is string => typeof d === 'string' && d !== '');
-    const places = named.map((d) => {
-      const disk = realFolder(path.isAbsolute(d) ? d : `${this.opts.cwd}/${d}`);
-      return disk !== undefined && disk === realFolder(absolutePath(d, this.opts.cwd)) ? disk : undefined;
-    });
+    const resolve = () =>
+      named.map((d) => {
+        const disk = realFolder(path.isAbsolute(d) ? d : `${this.opts.cwd}/${d}`);
+        return disk !== undefined && disk === realFolder(absolutePath(d, this.opts.cwd)) ? disk : undefined;
+      });
+    const places = resolve();
     const said = [...new Set(places.filter((d): d is string => d !== undefined))];
     const unknownPlace = places.includes(undefined);
     const where = said[0] ?? (named[0] !== undefined ? absolutePath(named[0], this.opts.cwd) : (realFolder(this.opts.cwd) ?? this.opts.cwd));
@@ -452,8 +454,12 @@ export class AcpSession implements AgentSession {
       : writesFiles(kind) && paths.length === 1
         ? `Edit ${displayPath(paths[0], this.opts.cwd)}`
         : firstLineSafely(seen.title || kind || 'Use a tool', 200, '…');
-    const shown: Record<string, unknown> = command ? (exact ? { command, cwd: where } : { ...input, command, ...(FOLDER_KEYS.some((k) => k in input) ? {} : { cwd: where }) }) : writesFiles(kind) ? { paths } : input;
-    const card = cardInput(shown, command ? (exact ? ['command', 'cwd'] : 'all') : writesFiles(kind) ? ['paths'] : 'all');
+    // The folder as the agent gave it goes on the card too when it reads
+    // differently (a link): what the card says it resolved to is checked
+    // again once it's answered, below.
+    const given = Object.fromEntries(FOLDER_KEYS.filter((k) => typeof input[k] === 'string' && input[k] !== where).map((k) => [k, input[k]]));
+    const shown: Record<string, unknown> = command ? (exact ? { command, cwd: where, ...given } : { ...input, command, ...(FOLDER_KEYS.some((k) => k in input) ? {} : { cwd: where }) }) : writesFiles(kind) ? { paths } : input;
+    const card = cardInput(shown, command ? 'all' : writesFiles(kind) ? ['paths'] : 'all');
     if (card.tooLong) {
       this.sink.output({ kind: 'event', event: { type: 'system.note', text: tooLongForCard(card.tooLong) } });
       return this.answer(id, options, false);
@@ -482,6 +488,12 @@ export class AcpSession implements AgentSession {
     if (!this.pending.delete(id)) return;
     if (a.decision === 'expired') return void this.proc.respond(id, { outcome: { outcome: 'cancelled' } });
     const allow = a.decision === 'allow' || a.decision === 'allowAlways';
+    // A link pointed somewhere else while the card waited: what was allowed
+    // isn't where it would run now (Codex's second look, 10 Nov).
+    if (allow && named.length && JSON.stringify(resolve()) !== JSON.stringify(places)) {
+      this.sink.output({ kind: 'event', event: { type: 'system.note', text: `The folder for "${firstLineSafely(command, 80, '…')}" changed while it waited for an answer, so it wasn't run. The agent can ask again.` } });
+      return this.answer(id, options, false);
+    }
     if (a.decision === 'allowAlways' && !code) {
       if (editRule) this.addRules([EDIT_RULE]);
       else if (rule) this.addRules([rule]);

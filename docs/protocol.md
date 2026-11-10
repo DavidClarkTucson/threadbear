@@ -1210,7 +1210,9 @@ one process per live thread, over stdio. With it off no account, pool or
   thread's, as the disk has it: links followed before any `..`, so a link
   pointed somewhere new isn't the folder its rule was for). A folder that
   isn't there, or that reads differently tidied first (`link/..`), isn't
-  covered by a rule either. A command call naming two different folders, or carrying anything
+  covered by a rule either. The card shows the folder resolved, and as the call
+  gave it when that differs, and an allow is refused if it resolves somewhere
+  else by the time it's answered. A command call naming two different folders, or carrying anything
   but those, `command`, `description` and `timeout` (an env, a shell), isn't
   covered by a rule and can't be always allowed, and its card shows all of it.
   An edit of a file that runs as
