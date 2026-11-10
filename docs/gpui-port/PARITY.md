@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-109 of 326 features have a spec so far, across 195 scenarios.
+114 of 329 features have a spec so far, across 202 scenarios.
 
-Scenarios passing: Swift: 188 of 195, Mac: 192 of 195, Windows: 192 of 195, Linux: 192 of 195.
+Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linux: 193 of 202.
 
 
 ### 0. Foundations everything else needs
@@ -73,6 +73,7 @@ Scenarios passing: Swift: 188 of 195, Mac: 192 of 195, Windows: 192 of 195, Linu
 | `header.more` ... menu | pass | pass | pass | pass |
 | `banner.connection` Connection banner | pass | pass | pass | pass |
 | `banner.error` Error banner | pass | pass | pass | pass |
+| `banner.limit` Limit banner | pass | pass | pending | pass |
 | `toast.archived` Archived toast | pass | pass | pass | pass |
 | `toast.inboxend` Inbox end toast | pass | pass | pass | pass |
 | `thread.newpage` New-thread page | pass | pass | pass | pass |
@@ -116,7 +117,7 @@ Scenarios passing: Swift: 188 of 195, Mac: 192 of 195, Windows: 192 of 195, Linu
 | `composer.runner` Runner chip | pass | pass | pass | pass |
 | `composer.modelpicker` Model picker | pass | pass | pass | pass |
 | `composer.permission` Permission chip | pass | pass | pass | pass |
-| `composer.contextring` Context ring | pass | pass | pass | pass |
+| `composer.contextring` Context ring | pass | partly | partly | partly |
 | `composer.send` Send and Stop | pass | pass | pass | pass |
 | `composer.starting` Starting state | pass | pass | pass | pass |
 | `composer.slash` Slash palette | pass | pass | pass | pass |
@@ -127,6 +128,7 @@ Scenarios passing: Swift: 188 of 195, Mac: 192 of 195, Windows: 192 of 195, Linu
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `card.done` Done card | pass | pass | pass | pass |
+| `composer.recap` Recap box | pass | pending | pending | pending |
 | `card.needsyou` Needs you card | pass | pass | pass | pass |
 | `card.collapse` Collapse | pass | pass | pass | pass |
 | `card.somethingelse` Something else box | pass | pass | pass | pass |
@@ -169,6 +171,14 @@ Scenarios passing: Swift: 188 of 195, Mac: 192 of 195, Windows: 192 of 195, Linu
 | `folder.pathbar` Path bar | pass | pass | pass | pass |
 | `folder.menu` Folder menu | pass | pass | pass | pass |
 | `folder.filespanel` Files panel | pass | pass | pass | pass |
+
+### 13. Terminal
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `terminal.panel` Terminal panel | pending | pending | pending | pending |
+| `cards.run` Run on the card | pending | pending | pending | pending |
+| `terminal.putcommand` Put a command in the Terminal | pending | pending | pending | pending |
 
 ### 17. Navigation, shortcuts, main menu
 
@@ -225,6 +235,45 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: `cargo test --workspace` on Tinker Desk (macOS, with the Launch
   Services code); the open policy's own tests and the source scan on Linux;
   the whole spec suite on Linux (see the report for the run).
+### 2026-11-10 Looking like the Swift app, and the pool limit line
+
+- Found by putting both apps' pictures of every demo thread side by side
+  (`features/tools/compare.ts`, which Mike's "a number of things that are
+  off" asked for).
+- Dark mode was near-black: gpui-kit's own dark theme is #0a0a0a, where the
+  Swift app draws on the system's window colour (#1e1e1e on macOS 26 and 27).
+  The GPUI themes now take NSColor.windowBackgroundColor from AppKit on the
+  Mac, and those values elsewhere (`style::install_window_colours`). Menus
+  and popovers sit a little lighter, as macOS's do.
+- Scroll bars show only while scrolling, as the Swift transcript sets them,
+  whatever the system's setting. The side pane's second "Highlights" title
+  under the dock's is gone. Rows name their Mac ("• m5") once there's
+  another, as Swift's have since 9 Nov, and a long status gives way before
+  the folder does. The thread's bar shows the project's own icon, not its
+  letter.
+- A thread waiting on a permission card counts as busy, as Swift's
+  `isBusy` has it, so the composer offers Stop.
+- `banner.limit`: a pool thread out of room says "Every login in Evenings is
+  out of room. It carries on by itself at …" with a quiet clock and "Pin to
+  mike (78% left)"; an account at its limit names its short login, when it
+  resets, and the login with most room. The model chip says "Limit reached"
+  (or "· 12%" running low) when every login in its pool is, and the account
+  chip for its login. Ported from Swift's `limitAdvice`, `Pools.chipBadge`,
+  `AccountUsageText.switchTarget` and `switchTitle` into `desktop/core`.
+- Files: `desktop/gpui/src/{style,app,header,highlights,sidebar,remote,
+  composer_chips,automation}.rs`, `desktop/core/src/{inbox,new_thread,
+  logins,sidebar}.rs`, `AppDump.swift` (`limit`, `composer.chipBadge`),
+  `features/header.feature`.
+- Remaining from the pictures: reply buttons drawn as pills, the thread chips
+  bar ("Review design options"), the rail's Connectors, Runners, Updates and
+  Setup buttons and the Librarian's count, the providers' logos on the model
+  chip, and the Swift wording of the account-limit line when a turn failed on
+  it (`failedOnLimit`).
+- Verification: `features/tools/compare.ts` pictures of the changed threads
+  beside the Swift app's; specs 193 of 193 on Tinker Desk's Mac and on Linux
+  (`cloud`), the Swift app 191 of 191 there, the new `banner.limit` scenario
+  passing on both apps; `cargo test -p threadbear-core` 163 of 163.
+
 ### 2026-11-10 Dragging the window, and smooth scrolling at 120 Hz
 
 - Mike couldn't move the installed app's window by its top. The strips that
