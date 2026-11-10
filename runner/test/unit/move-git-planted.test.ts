@@ -227,3 +227,22 @@ test('a moving thread\'s repo is cloned only from an https or ssh address', () =
   for (const u of ['https://github.com/mikecann/threadbear.git', 'git@github.com:mikecann/threadbear.git', 'ssh://git@github.com/mikecann/threadbear', 'ssh://git@ssh.github.com:443/o/r.git', 'https://gitlab.example.com/group/sub/r', 'git@github_work:mikecann/x.git']) assert.ok(cloneableUrl(u), u);
   for (const u of ['--upload-pack=touch /tmp/x', '-uevil', 'ext::sh -c touch% /tmp/x', 'file:///etc', '/Users/mike/secret', 'git@github.com:-oProxyCommand=x', 'https://-oProxyCommand=x/y', 'ssh://git@-oProxyCommand=touch${IFS}/tmp/pwn/repo', 'ssh://-git@host/x', '-git@host:x', 'https://github.com', 'ssh://git@host:22/x\\y', 'fd::17', 'http://example.com/x', 'git@host:a b', '']) assert.equal(cloneableUrl(u), false, u);
 });
+
+// Codex's review, 10 Nov 2026: packages in a move's uncommitted work would
+// be untracked here, which trust reads as installed and doesn't hash.
+test("a move whose uncommitted work brings files under node_modules doesn't unpack", async () => {
+  const { root, s, t } = repos();
+  const sw = path.join(root, 's-threads/slot-1');
+  git(s, 'worktree', 'add', '-q', '-b', 'thread/abcd1234', sw, 'main');
+  const tw = path.join(root, 't-threads/slot-1');
+  git(t, 'worktree', 'add', '-q', '-b', 'thread/abcd1234', tw, 'main');
+  write(sw, 'node_modules/p/index.js', 'evil()\n');
+  write(sw, 'plain.txt', 'changed\n');
+  const packed = await packGit(sw, sw, path.join(root, 'move.bundle'));
+  assert.ok(packed.ok, !packed.ok ? packed.reason : '');
+  if (!packed.ok) return;
+  const r = await unpackGit(tw, packed.meta, packed.bundle);
+  assert.equal(r.ok, false);
+  assert.match(!r.ok ? r.reason : '', /node_modules\/p\/index\.js, under node_modules/);
+  assert.equal(fs.existsSync(path.join(tw, 'node_modules', 'p', 'index.js')), false);
+});

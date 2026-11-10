@@ -120,7 +120,7 @@ export const HASHES_KEPT = 200;
 // whatever a pull had put there: Daybreak, 5 Nov.) Old hashes stay in the
 // list until HASHES_KEPT pushes them out, matching nothing. A `legacy`
 // list a runner from then wrote is ignored, and goes on the next save.
-type TrustFile = { version: 1 | 2 | 3; folders: Record<string, string[]>; unvouched?: string[] };
+type TrustFile = { version: 1 | 2 | 3; folders: Record<string, string[]> };
 
 // In front of every patch hash, the helper-less ones too, so no version's
 // hash can match another's, nor one patch's text another's whole hash.
@@ -245,23 +245,59 @@ export class PatchTrust implements PatchTrustStore {
   // through the thread's delete and cleanup (which reads the teardown
   // patch) and in whatever's left of the folder, until a worktree is made
   // there afresh (vouch).
+  // In a file of its own beside the trust file (patch-trust-unvouched.json),
+  // as an older runner still finishing turns after a handover rewrites the
+  // trust file with only what it knows (Codex's review).
   private unvouchedDirs = new Set<string>();
+  private unvouchedMtime?: number;
+
+  private get unvouchedFile(): string | undefined {
+    return this.file ? this.file.replace(/\.json$/, '') + '-unvouched.json' : undefined;
+  }
+
+  private loadUnvouched(): void {
+    const file = this.unvouchedFile;
+    if (!file) return;
+    let mtime: number | undefined;
+    try {
+      mtime = fs.statSync(file).mtimeMs;
+    } catch {
+      mtime = undefined;
+    }
+    if (mtime === this.unvouchedMtime) return;
+    this.unvouchedMtime = mtime;
+    if (mtime === undefined) return void this.unvouchedDirs.clear();
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { unvouched?: unknown };
+      this.unvouchedDirs = new Set((Array.isArray(raw.unvouched) ? raw.unvouched : []).filter((d): d is string => typeof d === 'string'));
+    } catch {
+      // Unreadable: keep what's known rather than trust everything again.
+    }
+  }
+
+  private saveUnvouched(): void {
+    const file = this.unvouchedFile;
+    if (!file) return;
+    atomicWriteFileSync(file, JSON.stringify({ unvouched: [...this.unvouchedDirs] }, null, 2) + '\n');
+    this.unvouchedMtime = fs.statSync(file).mtimeMs;
+  }
 
   unvouch(dir: string): void {
-    this.load();
+    this.loadUnvouched();
     this.unvouchedDirs.add(realpath(path.resolve(dir)));
-    this.save();
+    this.saveUnvouched();
   }
 
   vouch(dir: string): void {
-    this.load();
-    if (this.unvouchedDirs.delete(realpath(path.resolve(dir)))) this.save();
+    this.loadUnvouched();
+    if (this.unvouchedDirs.delete(realpath(path.resolve(dir)))) this.saveUnvouched();
   }
 
   // `always` for this key, unless `actual` (the real file or folder) is in
   // a worktree it doesn't reach.
   private alwaysFor(key: string, actual: string): boolean {
     if (!this.always.some((d) => isInside(key, d))) return false;
+    this.loadUnvouched();
     if (!this.unvouchedDirs.size) return true;
     const real = realpath(path.resolve(actual));
     return ![...this.unvouchedDirs].some((d) => isInside(real, d));
@@ -292,7 +328,6 @@ export class PatchTrust implements PatchTrustStore {
       // folder had something trusted ("changed").
       const legacy = typeof raw.version !== 'number' || raw.version < 3;
       this.folders.clear();
-      this.unvouchedDirs = new Set((Array.isArray(raw.unvouched) ? raw.unvouched : []).filter((d): d is string => typeof d === 'string'));
       for (const [key, list] of Object.entries(raw.folders ?? {})) {
         if (!Array.isArray(list)) continue;
         const hashes = list.filter((h): h is string => typeof h === 'string');
@@ -540,7 +575,7 @@ export class PatchTrust implements PatchTrustStore {
   // next start doesn't seed again.
   save(): void {
     if (!this.file) return;
-    const out: TrustFile = { version: 3, folders: Object.fromEntries(this.folders), ...(this.unvouchedDirs.size ? { unvouched: [...this.unvouchedDirs] } : {}) };
+    const out: TrustFile = { version: 3, folders: Object.fromEntries(this.folders) };
     atomicWriteFileSync(this.file, JSON.stringify(out, null, 2) + '\n');
     this.loadedMtime = fs.statSync(this.file).mtimeMs;
   }

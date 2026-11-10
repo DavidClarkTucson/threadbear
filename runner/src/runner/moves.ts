@@ -185,7 +185,7 @@ export async function setupChangedByMove(w: WorktreeRecord, patchFile: string): 
 // or not (a file this machine ignores is still written, untracked). Without
 // them (one placed by a runner from before), the worktree as it is, every
 // untracked file included.
-export async function trustTouchedByMove(w: WorktreeRecord, home: string, tips?: readonly string[]): Promise<boolean> {
+export async function trustTouchedByMove(w: WorktreeRecord, home: string, tips?: readonly string[], cwd?: string): Promise<boolean> {
   const lists: { ok: boolean; stdout: string }[] = [];
   if (tips?.length) {
     for (const tip of tips) lists.push(await untrustedGit(w.path, ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', w.base, tip]));
@@ -198,7 +198,8 @@ export async function trustTouchedByMove(w: WorktreeRecord, home: string, tips?:
   if (!changed.length) return false;
   // Without case: on the Mac .CLAUDE is .claude, and a name from a
   // case-sensitive machine can be either.
-  if (changed.some((f) => f.toLowerCase().split('/').some((part) => part === '.threadbear' || part === '.claude') || path.posix.basename(f).toLowerCase() === '.mcp.json')) return true;
+  // node_modules too: a committed package is code a patch may import.
+  if (changed.some((f) => f.toLowerCase().split('/').some((part) => part === '.threadbear' || part === '.claude' || part === 'node_modules') || path.posix.basename(f).toLowerCase() === '.mcp.json')) return true;
   const touchedLower = new Set(changed.map((f) => path.join(realpath(w.path), ...f.split('/')).toLowerCase()));
   const root = realpath(w.path);
   const touched = new Set(changed.map((f) => path.join(root, ...f.split('/'))));
@@ -223,9 +224,13 @@ export async function trustTouchedByMove(w: WorktreeRecord, home: string, tips?:
     }
   }
   // What runs, and what lets tools run unasked (a permissions allow).
-  for (const grants of [false, true]) {
-    const claude = claudeCommands(w.path, home, { grants });
-    if (claude && (claude.incomplete || [...claude.files, ...claude.named].some(hit))) return true;
+  // From the worktree's top and from the folder Claude starts in (a thread
+  // in a subfolder), as Claude reads the settings above where it starts.
+  for (const dir of new Set([w.path, ...(cwd ? [cwd] : [])])) {
+    for (const grants of [false, true]) {
+      const claude = claudeCommands(dir, home, { grants });
+      if (claude && (claude.incomplete || [...claude.files, ...claude.named].some(hit))) return true;
+    }
   }
   return false;
 }
@@ -486,7 +491,7 @@ export const movesPart = {
           // Patches and Claude settings it changed are held to the stored
           // hashes here, even in an always-trusted checkout.
           placed.gitTips = [meta.head, ...(meta.wip ? [meta.wip] : [])];
-          if (await trustTouchedByMove(made.worktree, os.homedir(), placed.gitTips)) {
+          if (await trustTouchedByMove(made.worktree, os.homedir(), placed.gitTips, plan.worktree.subdir ? path.join(made.worktree.path, ...plan.worktree.subdir.split('/')) : made.worktree.path)) {
             this.patchTrust.unvouch?.(made.worktree.path);
             placed.leftBehind.push(UNVOUCHED_NOTE);
             save();
@@ -561,9 +566,9 @@ export const movesPart = {
     // Worked out again here: one placed by a runner from before this
     // never was (trustTouchedByMove), and it must be before anything loads
     // the worktree's patches or starts its CLI.
-    if (placed.worktree && !placed.leftBehind.includes(UNVOUCHED_NOTE) && (await trustTouchedByMove(placed.worktree, os.homedir(), placed.gitTips))) {
+    if (placed.worktree && (await trustTouchedByMove(placed.worktree, os.homedir(), placed.gitTips, placed.cwd))) {
       this.patchTrust.unvouch?.(placed.worktree.path);
-      placed.leftBehind.push(UNVOUCHED_NOTE);
+      if (!placed.leftBehind.includes(UNVOUCHED_NOTE)) placed.leftBehind.push(UNVOUCHED_NOTE);
     }
     if (!fs.existsSync(dest)) {
       clean(path.join(stage, 'thread', 'thread.json'));

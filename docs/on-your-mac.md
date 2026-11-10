@@ -263,7 +263,10 @@ File references are where to look.
   held back the same way (`runner/src/claude-trust.ts`): the runner reads
   those files and the scripts they reach to hash them, runs `git ls-files`
   in the folder to find skills in folders under it, and keeps what you
-  trusted in the same `patch-trust.json`.
+  trusted in the same `patch-trust.json`. Beside it,
+  `patch-trust-unvouched.json` lists worktrees a thread moved from another
+  Mac changed the patches or Claude settings of, which Threadbear's own
+  checkout's standing trust doesn't reach.
 - **Menus on macOS 27.2** (`app/Sources/Threadbear/DragSpace.swift`): every
   5 seconds, and before a button opens a menu, the app asks the window
   server which Spaces its own windows are on, and takes them off the drag

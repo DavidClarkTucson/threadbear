@@ -222,6 +222,15 @@ export async function unpackGit(worktree: string, meta: GitMeta, bundleFile?: st
     let r = await run(worktree, ['reset', '--quiet', '--hard', meta.head]);
     if (!r.ok) return { ok: false, reason: `Couldn't put the branch where it was: ${why(r)}` };
     if (meta.wip) {
+      // What the uncommitted work brings under a node_modules folder would
+      // be untracked here, which trust reads as installed packages and
+      // doesn't hash, so a trusted patch could import them unchecked. The
+      // old runner's `add -A` leaves ignored files behind, so an honest
+      // move never has any (Codex's review, 10 Nov 2026).
+      const brought = await run(worktree, ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', meta.head, meta.wip]);
+      if (!brought.ok) return { ok: false, reason: `Couldn't read the uncommitted changes: ${why(brought)}` };
+      const packaged = brought.stdout.split('\0').find((f) => f.split('/').some((part) => part.toLowerCase() === 'node_modules'));
+      if (packaged) return { ok: false, reason: `Its uncommitted changes include ${packaged}, under node_modules, which a move doesn't carry: installed packages are set up again on this machine.` };
       // The worktree as the wip commit has it, then the index back at head:
       // its changes are uncommitted again, new files untracked again.
       r = await run(worktree, ['read-tree', '-u', '--reset', meta.wip]);

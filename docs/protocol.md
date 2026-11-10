@@ -5387,12 +5387,17 @@ again and carries on from the state.
   or `.claude` folder or a `.mcp.json`, any case, or a file a patch there
   or the Claude settings reach, commands or grants), worked out from the
   move's own commits so an ignored file counts, is unvouched: listed in
-  `patch-trust.json` (`unvouched`), where an always-trusted checkout's
+  `patch-trust-unvouched.json` beside `patch-trust.json` (a file of its
+  own, as an older runner finishing turns rewrites the trust file with
+  only what it knows), where an always-trusted checkout's
   trust doesn't reach it, so its patches and Claude settings wait to be
   trusted in Patches like any folder's. It stays so through the thread's
   delete and cleanup and across restarts, until a worktree is made there
-  afresh. A move placed by an older runner is worked out again as it's
-  adopted, before anything loads. A preview's description in the backend has no title or
+  afresh. It's worked out again as the move is adopted, before anything
+  loads (for one placed by an older runner, from the worktree, ignored
+  files included). A move whose uncommitted work brings anything under a
+  `node_modules` folder fails: those files would be untracked on T, which
+  trust reads as installed packages and doesn't hash. A preview's description in the backend has no title or
   session either (an older main Mac sends them).
   Queued messages are sent. T's mirror sends the thread's whole history
   again (a thread new to it), which overwrites the same seqs.
