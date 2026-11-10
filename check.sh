@@ -175,10 +175,11 @@ skip() {
 # Swift's test modules (XCTest, Testing) come with Xcode, not the Command
 # Line Tools: with only those, swift test can't build a test target, so its
 # steps are skipped and say why (the app's build still runs).
-case "${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}" in
-  */CommandLineTools|"") NO_XCODE=1 ;;
-  *) NO_XCODE="" ;;
-esac
+# (An if, not a case: patch trust follows check.sh, and it reads no case.)
+XCODE_DIR="${DEVELOPER_DIR:-}"
+if [ -z "$XCODE_DIR" ]; then XCODE_DIR="$(xcode-select -p 2>/dev/null || true)"; fi
+NO_XCODE=""
+if [ -z "$XCODE_DIR" ] || [ "${XCODE_DIR%/CommandLineTools}" != "$XCODE_DIR" ]; then NO_XCODE=1; fi
 swift_test_step() {
   if [ -n "$NO_XCODE" ]; then
     printf 'skip  %-20s (needs Xcode; only the Command Line Tools are here)\n' "$1"
