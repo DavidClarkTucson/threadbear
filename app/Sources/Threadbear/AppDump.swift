@@ -1086,18 +1086,25 @@ struct AppDump: Encodable {
 
     /// The open card as lines (`composer.card`): "Done" with a "[x]" or
     /// "[ ]" line per follow-up, "(?)" on one asked about; or "Needs you"
-    /// ("(collapsed)" when folded) with a line per ask.
+    /// ("(collapsed)" when folded) with a line per ask, and under an ask
+    /// with a command to run, "    $ <command>" (a line of its own, so a
+    /// spec matching an ask's line by its end still finds it).
     @MainActor
     private static func cardLines(_ app: AppModel, key: String) -> [String]? {
         guard let row = app.sessions[key]?.openCard, case .asks(let card) = row.content else { return nil }
+        return cardLines(card, collapsed: app.collapsedCards[key] == row.seq)
+    }
+
+    static func cardLines(_ card: AsksCard, collapsed: Bool) -> [String] {
         if card.isDone {
             return ["Done"] + card.next.enumerated().map { i, text in
                 (card.pickedNext.contains(i) ? "[x] " : "[ ] ") + text + (card.explainNext.contains(i) ? " (?)" : "")
             }
         }
-        var lines = [app.collapsedCards[key] == row.seq ? "Needs you (collapsed)" : "Needs you"]
+        var lines = [collapsed ? "Needs you (collapsed)" : "Needs you"]
         for (i, ask) in card.asks.enumerated() {
             lines.append((card.picks[i] != nil ? "[x] " : "[ ] ") + "\(i + 1). \(ask.action)")
+            if let run = ask.run { lines.append("    $ " + run.command) }
         }
         return lines
     }
