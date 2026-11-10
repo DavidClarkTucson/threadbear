@@ -294,7 +294,7 @@ export async function runnerKeysCommand(cfg: Pick<Config, 'home' | 'sync'>, args
 }
 
 async function add(name: string | undefined, f: Flags, call: (kind: 'query' | 'mutation', fn: string, a: Record<string, unknown>) => Promise<unknown>, ssh: Ssh, print: (s: string) => void, fail: (s: string) => number, url: string, ownId: string | undefined, site?: string): Promise<number> {
-  if (!name?.trim()) return fail('tb runner add <name>: what to call the runner ("bruce").');
+  if (!name?.trim()) return fail('tb runner add <name>: what to call the runner ("mac-mini").');
   if (Boolean(f.ssh) === Boolean(f.out)) return fail('Say where the key goes: --ssh <host> writes it into that Mac\'s secrets/convex-key, --out <file> into a file of your own. It is never printed.');
   if (!ownId) return fail("This Mac has no sync.runnerId in runner.json yet (its runner makes one when it starts), so it can't tell its own id from another Mac's. Start it, then run this again.");
   const asked = f.id?.trim();

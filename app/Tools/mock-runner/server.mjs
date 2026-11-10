@@ -546,7 +546,7 @@ async function dispatch(client, method, p) {
       return {
         cwd: p.cwd || `${home}/dev/me/threadbear-threads/slot-4`,
         accountId: p.accountId || 'claude-main',
-        accounts: [{ id: 'claude-main', provider: 'claude', title: 'Claude', email: 'mike.cann@gmail.com' }, { id: 'claude-1', provider: 'claude', title: 'Claude', email: 'mike@gangbusters.io' }],
+        accounts: [{ id: 'claude-main', provider: 'claude', title: 'Claude', email: 'mike@example.com' }, { id: 'claude-1', provider: 'claude', title: 'Claude', email: 'mike@work.example.com' }],
         leftBehind: moveLeftBehind,
         sourceChecked: true,
         problems: p.cwd && !String(p.cwd).startsWith(home) ? [`There's no folder ${p.cwd} on ${runner?.name ?? 'it'}.`] : [],
