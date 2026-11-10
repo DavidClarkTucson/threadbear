@@ -361,7 +361,8 @@ extension AppModel {
         }
         let accountId = newThreadAccountId.isEmpty ? nil : newThreadAccountId
         let cwd = newThreadCwd
-        let mode = newThreadPermission(for: newThreadProviderId)
+        // As the new thread would be started with (PoolsModel).
+        let mode: PermissionMode? = newThreadPermission == .unknown ? nil : newThreadPermission
         slashFetches[key] = Task { [weak self] in
             defer { self?.slashFetches[key] = nil }
             do {

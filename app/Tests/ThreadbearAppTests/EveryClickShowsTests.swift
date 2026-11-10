@@ -12,7 +12,7 @@ final class EveryClickShowsTests: XCTestCase {
     /// RunnerAPI's calls that only read, or that nobody clicks for.
     private static let quiet: Set<String> = [
         "hello", "listThreads", "searchThreads", "samples", "renderPanel", "convexPanelDeployments",
-        "convexPanelLogin", "convexPanelKey", "threadHighlights", "threadCommands", "explain", "panelShown",
+        "convexPanelLogin", "convexPanelKey", "threadHighlights", "threadCommands", "folderCommands", "explain", "panelShown",
         "events", "subscribe", "subagent", "unsubscribe", "markSeen", "startRequest", "importMedia", "usageStats",
         "listClis", "listSchedules", "listRunners", "remoteLogins", "remoteThreads", "previewSchedule",
         "movePreview", "listProjects", "getProject", "refreshProjectTasks", "librarianStatus", "connectorsStatus", "listPools",
