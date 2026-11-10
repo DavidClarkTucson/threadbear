@@ -455,7 +455,7 @@ Size is `none` throughout: the planning docs don't size these, and work the app 
 | `planned.connectors.google` | Google in connectors | A guided step for Google in the connectors flow | A step in `connectors.panel` (status of this work not checked). | build | none | none |
 | `planned.sync.remotebodies` | Other machines' tool output | Tool output, diffs and pictures stay on that Mac for now | `transcript.heldback` fetches them today, and `sync.full` lifts the limit. | build | none | none |
 | `planned.exp.labreview` | Lab review (`labReview`) | Another provider reviews code changes | No new UI: the thread hibernates and a note row links the review. | build | none | none |
-| `planned.exp.richblocks` | Rich blocks (`richBlocks`) | Agents are told about mermaid and html blocks | Needs `rich.mermaid` and `rich.html` in the web runtime and their sandbox. | web | none | none |
+| `planned.exp.richblocks` | Rich blocks | Agents are told about mermaid and html blocks (standard since 10 Nov) | Needs `rich.mermaid` and `rich.html` in the web runtime and their sandbox. | web | none | none |
 | `planned.exp.schedulechecks` | Schedule checks (`scheduleChecks`) | A shell check gates a schedule run | Agents write the `check` field, and `schedule.editor` must keep it on save (unverified how saves treat a missing field). | build | none | none |
 | `planned.exp.looseends` | Loose ends (`looseEnds`) | "Still open" and "Coming back" on the done card | Added sections in `card.done`. | build | none | none |
 | `planned.exp.replybuttons` | Reply buttons (`replyButtons`) | Pills in replies that agents create and update | `rich.replybuttons`, gated on the experiment. | build | none | none |
