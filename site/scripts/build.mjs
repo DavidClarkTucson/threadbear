@@ -8,6 +8,8 @@
 // for an iPhone one, {{icon <name>}} for a Phosphor icon, {{fork}} and {{appStoreBadge}} for the
 // two ways to get it, and {{commits}} / {{firstDay}} for the repo's own numbers.
 //
+// The changelog (/changelog) isn't in src either: scripts/changelog.mjs makes it from git log.
+//
 // The docs pages (/docs and /docs/<slug>) aren't in src: scripts/docs.mjs makes them from the
 // repo's docs/guide.md, a page per `## ` section, in the same layout.
 //
@@ -20,6 +22,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_STORE_LIVE, APP_STORE_URL, GITHUB_PUBLIC, GITHUB_URL, LAUNCH_VIDEO_ID, SITE_URL } from "../site.mjs";
 import { markdown, readGuide, summary } from "./docs.mjs";
+import { changelogPage, publishedRef, readCommits } from "./changelog.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "src");
@@ -351,6 +354,7 @@ function writePage(name, page, content, label = `${name}.html`) {
     homeCurrent: name === "index" ? ' aria-current="page"' : "",
     privacyCurrent: name === "privacy" ? ' aria-current="page"' : "",
     supportCurrent: name === "support" ? ' aria-current="page"' : "",
+    changelogCurrent: name === "changelog" ? ' aria-current="page"' : "",
     // Every docs page is under Docs in the nav, so it's marked there too (the index only in
     // the docs list, where it's the page itself).
     docsCurrent: inDocs ? ' aria-current="page"' : "",
@@ -431,6 +435,14 @@ ${markdown(body, docSlugs)}
       </article>
     </div>`, `docs/${slug} (docs/guide.md)`);
 });
+
+// The changelog (scripts/changelog.mjs): every published commit, grouped by day.
+const changelogCommits = readCommits(root, publishedRef(root));
+writePage("changelog", {
+  title: "Changelog · Threadbear",
+  description: "Everything that's gone into Threadbear, newest first, a commit a line.",
+  path: "/changelog",
+}, changelogPage({ commits: changelogCommits, githubUrl: GITHUB_URL, repo: new URL(GITHUB_URL).pathname.slice(1) }));
 
 // Every link and image that stays on the site has to land somewhere: a page, a file, and the
 // #anchor on it if there is one.

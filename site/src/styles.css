@@ -521,3 +521,38 @@ a.video-card:hover .video-play { scale: 1.06; }
 .lost img { width: 120px; height: auto; margin-bottom: var(--s-300); }
 .lost .lede { margin-left: auto; margin-right: auto; }
 .lost .btn { margin-top: var(--s-400); }
+
+/* The changelog (/changelog, made from git log by scripts/changelog.mjs): a day a section, its
+   heading sticking under the nav while you scroll through it, and a commit a row with its area as
+   a quiet chip and the short sha at the end. Wider than the privacy page so most rows fit on one
+   line. After Wayne Sutton's profile page changelog in his fork. */
+.changelog { max-width: 880px; }
+.cl-days { margin-top: var(--s-400); }
+.cl-day + .cl-day { margin-top: var(--s-400); }
+.cl-day h2 {
+  position: sticky; top: var(--s-800); z-index: 1; display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-200);
+  margin: 0 calc(var(--s-200) * -1); padding: var(--s-75) var(--s-200); background: var(--card); border-bottom: 1px solid var(--line);
+  font-size: 18px; line-height: 28px;
+}
+.cl-day h2 a { color: var(--ink); text-decoration: none; }
+.cl-day h2 a:hover { color: var(--honey-d); }
+.cl-count { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-faint); white-space: nowrap; }
+.cl-day ul { list-style: none; margin-top: var(--s-75); }
+.cl-day li { display: flex; align-items: baseline; gap: var(--s-100); padding: var(--s-50) 0; font-size: 14px; line-height: 20px; color: var(--body); }
+.cl-area { flex: none; padding: 0 var(--s-75); border-radius: var(--r-md); background: var(--well); color: var(--ink-soft); font-weight: 500; white-space: nowrap; }
+.cl-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cl-sha { flex: none; font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--ink-faint); text-decoration: none; }
+.cl-sha:hover { color: var(--honey-d); }
+/* Rows site.js adds from GitHub, newer than the build, fade in rather than pop. */
+.cl-day li.cl-new { animation: cl-in 500ms var(--ease); }
+@keyframes cl-in { from { opacity: 0; transform: translateY(calc(var(--s-50) * -1)); } }
+@media (prefers-reduced-motion: reduce) { .cl-day li.cl-new { animation: none; } }
+/* On a phone a row is one flowing paragraph (chip, text, then the sha) rather than columns, and
+   the day heading drops its weekday and sticks below the taller nav. */
+@media (max-width: 860px) {
+  .cl-day h2 { top: var(--s-900); font-size: 16px; line-height: 24px; }
+  .cl-weekday { display: none; }
+  .cl-day li { display: block; padding: var(--s-75) 0; }
+  .cl-area { margin-right: var(--s-75); }
+  .cl-sha { margin-left: var(--s-75); }
+}

@@ -241,3 +241,98 @@ for (const card of document.querySelectorAll(".video-card[data-video]")) {
     card.replaceWith(box);
   });
 }
+
+// The changelog (/changelog): the page is built from git when the site's deployed, which is by
+// hand, so here it asks GitHub's public API for anything that's landed on main since (data-since)
+// and adds it in the same markup as scripts/changelog.mjs. Unauthenticated, so 60 asks an hour
+// per visitor; one a page view, and if it fails the page is just as it was built.
+const changelog = document.querySelector(".changelog[data-since]");
+if (changelog?.dataset.since) void topUpChangelog(changelog);
+
+async function topUpChangelog(page) {
+  const { repo, since, commitUrl } = page.dataset;
+  // A hundred a page, and main can get a couple of hundred a day, so it follows the pages, up to
+  // ten (a thousand commits, over a week stale). Nothing's added unless every page came back, so
+  // the page never shows newer days with a hole between them and the build's.
+  const commits = [];
+  let url = `https://api.github.com/repos/${repo}/commits?sha=main&per_page=100&since=${encodeURIComponent(since)}`;
+  try {
+    for (let page = 0; url && page < 10; page++) {
+      const response = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
+      if (!response.ok) return;
+      const batch = await response.json();
+      if (!Array.isArray(batch)) return;
+      commits.push(...batch);
+      url = /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1];
+    }
+  } catch {
+    return;
+  }
+  if (url) return;
+  const shown = new Set([...page.querySelectorAll(".cl-sha")].map((a) => a.getAttribute("href").split("/").pop()));
+  const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Perth", year: "numeric", month: "2-digit", day: "2-digit" });
+  const days = page.querySelector(".cl-days");
+  // GitHub answers newest first; going oldest first and prepending keeps that order on the page.
+  for (const c of commits.slice().reverse()) {
+    const sha = typeof c?.sha === "string" && /^[0-9a-f]{40}$/.test(c.sha) ? c.sha : "";
+    const date = c?.commit?.committer?.date;
+    const subject = typeof c?.commit?.message === "string" ? c.commit.message.split("\n")[0].trim() : "";
+    if (!sha || shown.has(sha) || !date || !subject || (Array.isArray(c.parents) && c.parents.length > 1)) continue;
+    shown.add(sha);
+    const day = dayOf.format(new Date(date));
+    let section = document.getElementById(day);
+    if (!section) section = days.insertBefore(daySection(day), days.firstElementChild);
+    section.querySelector("ul").prepend(changeRow(sha, subject, commitUrl));
+    const count = section.querySelectorAll("li").length;
+    section.querySelector(".cl-count").textContent = `${count.toLocaleString("en-AU")} change${count === 1 ? "" : "s"}`;
+  }
+}
+
+function daySection(day) {
+  const section = document.createElement("section");
+  section.className = "cl-day";
+  section.id = day;
+  section.setAttribute("aria-labelledby", `d-${day}`);
+  const heading = document.createElement("h2");
+  heading.id = `d-${day}`;
+  const link = document.createElement("a");
+  link.href = `#${day}`;
+  const time = document.createElement("time");
+  time.dateTime = day;
+  const date = new Date(`${day}T12:00:00Z`);
+  const weekday = document.createElement("span");
+  weekday.className = "cl-weekday";
+  weekday.textContent = `${date.toLocaleDateString("en-AU", { weekday: "long", timeZone: "UTC" })} `;
+  time.append(weekday, date.toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }));
+  link.append(time);
+  const count = document.createElement("span");
+  count.className = "cl-count";
+  heading.append(link, count);
+  section.append(heading, document.createElement("ul"));
+  return section;
+}
+
+// The same split as scripts/changelog.mjs's splitSubject: a short plain "Area:" becomes the chip.
+function changeRow(sha, subject, commitUrl) {
+  const li = document.createElement("li");
+  li.className = "cl-new";
+  const m = /^([^:()[\]`{}]{2,32}):\s+(\S.*)$/.exec(subject);
+  let text = subject;
+  if (m && !/https?$/i.test(m[1])) {
+    const area = document.createElement("span");
+    area.className = "cl-area";
+    area.textContent = m[1].trim();
+    li.append(area);
+    text = m[2].charAt(0).toUpperCase() + m[2].slice(1);
+  }
+  const span = document.createElement("span");
+  span.className = "cl-text";
+  span.textContent = text;
+  const link = document.createElement("a");
+  link.className = "cl-sha";
+  link.href = `${commitUrl}${sha}`;
+  link.textContent = sha.slice(0, 7);
+  link.setAttribute("aria-label", `Commit ${sha.slice(0, 7)} on GitHub`);
+  li.append(span, link);
+  return li;
+}
