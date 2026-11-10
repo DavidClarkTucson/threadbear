@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hunk, PlanEntry, ToolKind } from './protocol.ts';
-import { MAYBE_RUNS_AS_CODE, RUNS_AS_CODE } from './code-writes.ts';
+import { MAYBE_RUNS_AS_CODE, RUNS_AS_CODE, type CodeWrite } from './code-writes.ts';
 import { LIMITS } from './protocol.ts';
 import { applyReplace, diffLines } from './diff.ts';
 import { firstLineSafely, safeEnd } from './safe-cut.ts';
@@ -213,13 +213,22 @@ export function truncateInput(input: unknown): Record<string, unknown> {
   return r && typeof r === 'object' && !Array.isArray(r) ? (r as Record<string, unknown>) : { value: r };
 }
 
+// Which of a call's strings its approval card must show whole
+// (`cardInput`'s `decisive`): every argument of an MCP tool or a file edit,
+// and the command of anything else. A file edit's content is what Allow
+// writes: cut at 16 KB, a Write showed harmless comments and `[truncated]`
+// while Allow wrote the rest (Codex review, 10 Nov 2026), so one too long to
+// show is refused like a command, and the agent writes it in smaller steps.
+export function cardDecisive(name: string, code: CodeWrite = false): readonly string[] | 'all' {
+  return name.startsWith('mcp__') || code !== false || EDIT_TOOLS.has(name) || name === 'NotebookEdit' ? 'all' : ['command'];
+}
+
 // What an approval card shows of a call's input. The strings that decide
-// what Mike is allowing (`decisive`: a command, or every string of a call
-// that acts for the agent elsewhere) go whole, never cut: Allow on a card
-// that shows the start of a command runs all of it (Daybreak, 7 Nov 2026).
-// One longer than an event takes (LIMITS.toolInputString) is `tooLong`, and
-// the caller refuses the call with no card. The rest are cut as
-// truncateInput cuts them (a Write's content shows as a diff anyway).
+// what Mike is allowing (`decisive`, from cardDecisive) go whole, never cut:
+// Allow on a card that shows the start of a command runs all of it
+// (Daybreak, 7 Nov 2026). One longer than an event takes
+// (LIMITS.toolInputString) is `tooLong`, and the caller refuses the call
+// with no card. The rest are cut as truncateInput cuts them.
 export function cardInput(input: Record<string, unknown>, decisive: readonly string[] | 'all'): { input: Record<string, unknown>; tooLong?: string } {
   let tooLong: string | undefined;
   const whole = (v: unknown, where: string, depth: number): unknown => {

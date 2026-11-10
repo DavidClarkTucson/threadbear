@@ -1168,8 +1168,8 @@ enum RowRenderer {
                 }
                 return output
             }
-            // Nothing a diff can draw (a notebook cell, say): every field, below.
-            let fields = ApprovalText.shown(ToolPresentation.fields(input, whole: true))
+            // Nothing a diff can draw (a notebook cell, say): every field.
+            let fields = ApprovalText.shown(ToolPresentation.fields(input, whole: true)) + ApprovalText.lineBreakNotes(input)
             if !fields.isEmpty { return fieldsText(fields) }
         }
         if !request.name.hasPrefix("mcp__"), let url = input["url"]?.stringValue {

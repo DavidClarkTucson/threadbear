@@ -132,7 +132,10 @@ pub(crate) fn approval_payload(ix: usize, n: usize, request: &ApprovalRequest, r
             return mono(("url", ix * 100 + n), ApprovalText::shown(url), label, cx).into_any_element();
         }
     }
-    let fields = ApprovalText::shown_fields(&ToolPresentation::fields(input, true));
+    let mut fields = ApprovalText::shown_fields(&ToolPresentation::fields(input, true));
+    if !is_mcp && ApprovalText::file_path(request).is_some() {
+        fields.extend(ApprovalText::line_break_notes(input));
+    }
     if fields.is_empty() {
         return mono(("title", ix * 100 + n), request.title.clone(), label, cx).into_any_element();
     }

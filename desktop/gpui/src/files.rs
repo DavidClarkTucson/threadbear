@@ -124,12 +124,6 @@ pub(crate) fn open_web(url: &str, cx: &mut App) {
     crate::open_gate::open_web(url, cx);
 }
 
-/// A path as a `file://` URL, with `#`, `?`, spaces and the like
-/// percent-encoded (`open_policy::file_url`).
-pub(crate) fn file_url(path: &str) -> String {
-    threadbear_core::open_policy::file_url(path)
-}
-
 /// A file on this runner in its own app, through the open gate: a document
 /// opens, a program asks first (OpenGate's rule).
 pub(crate) fn open_file_in_app(path: &str, origin: crate::open_gate::Origin, cx: &mut App) {

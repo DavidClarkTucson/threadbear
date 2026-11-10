@@ -17,7 +17,7 @@ import { ClaudeNormalizer, fileContext } from './normalize.ts';
 import { groupSpawner, type ProcessRegistry } from '../../proc.ts';
 import { prepareImageForModel } from '../../media.ts';
 import { placePictures } from '../../pictures.ts';
-import { EDIT_TOOLS, cardInput, toolTitle, tooLongForCard } from '../../tools.ts';
+import { EDIT_TOOLS, cardDecisive, cardInput, toolTitle, tooLongForCard } from '../../tools.ts';
 import { codeWriteNote, codeWriteReason, runsAsCodeByName, type CodeWrite } from '../../code-writes.ts';
 import path from 'node:path';
 import { RUNNER_VERSION } from '../../config.ts';
@@ -645,7 +645,7 @@ class ClaudeSession implements AgentSession {
       if (!after || shown?.has(id) || this.queuedAnswers.has(id) || this.checkedCalls.has(id) || !this.wouldAsk(call.name, call.input)) continue;
       const target = EDIT_TOOLS.has(call.name) ? this.editTarget(call.input) : undefined;
       const code: CodeWrite = target !== undefined && this.runsAsCode(target);
-      const card = cardInput(call.input, call.name.startsWith('mcp__') || code ? 'all' : ['command']);
+      const card = cardInput(call.input, cardDecisive(call.name, code));
       if (card.tooLong) continue;
       const title = toolTitle(call.name, call.input, this.opts.cwd);
       grants.set(id, { name: call.name, input: JSON.stringify(call.input), code });
@@ -845,11 +845,11 @@ class ClaudeSession implements AgentSession {
     // the card says why (code-writes.ts).
     const target = EDIT_TOOLS.has(name) ? this.editTarget(input) : undefined;
     const code: CodeWrite = (target !== undefined && this.runsAsCode(target)) || this.codeWrites.has(o.toolUseID);
-    // The card shows the whole command, or every argument of an MCP tool
-    // (what it does elsewhere is in them); one too long for that is refused
-    // rather than allowed from its start (tools.ts, cardInput).
-    // An edit of a file that runs as code shows all it writes, too (Codex review).
-    const card = cardInput(input, name.startsWith('mcp__') || code ? 'all' : ['command']);
+    // The card shows the whole command, every argument of an MCP tool (what
+    // it does elsewhere is in them), and all an edit writes; one too long
+    // for that is refused rather than allowed from its start (tools.ts,
+    // cardDecisive and cardInput).
+    const card = cardInput(input, cardDecisive(name, code));
     if (card.tooLong) return { behavior: 'deny', message: tooLongForCard(card.tooLong), toolUseID: o.toolUseID };
     if (!sub) for (const out of this.normalizer.beforeApproval(o.toolUseID, name, input)) this.sink.output(out);
     const title = toolTitle(name, input, this.opts.cwd);

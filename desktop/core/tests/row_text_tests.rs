@@ -327,6 +327,14 @@ fn file_cards_list_what_the_diff_doesnt_draw() {
     assert_eq!(keys(json!({"file_path": "/w/a", "content": "x"})), Vec::<String>::new());
     assert_eq!(keys(json!({"file_path": "/w/a", "edits": [{"old_string": "a", "new_string": "b"}, {"old_string": "c", "new_string": "d", "replace_all": true}]})), ["edit 2={\"replace_all\":true}"]);
     assert_eq!(keys(json!({"notebook_path": "/w/n.ipynb", "cell_id": "c1", "new_source": "x"})), ["cell_id=c1", "new_source=x"]);
+    // A line break the diff can't draw: the commented-out `rm` after it
+    // would start a line of its own.
+    let adds = keys(json!({"file_path": "/w/build.sh", "old_string": "# original comment\n# Disabled: ", "new_string": "# updated comment\n# Disabled: \n"}));
+    assert_eq!(adds.len(), 1);
+    assert!(adds[0].starts_with("line break=the new text adds a line break"), "{adds:?}");
+    assert!(keys(json!({"file_path": "/w/build.sh", "old_string": "# original comment\n# Disabled: ", "new_string": "# updated comment\n# Disabled: "})).is_empty());
+    let drops = keys(json!({"file_path": "/w/a", "edits": [{"old_string": "a\n", "new_string": "b"}]}));
+    assert!(drops[0].starts_with("edit 1 line break=the new text drops"), "{drops:?}");
 }
 
 /// A character that hides, breaks or reorders text is named on the card,

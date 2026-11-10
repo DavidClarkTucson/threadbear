@@ -212,8 +212,9 @@ built parsers and gates with no launch of the app, which is the trap.)
   previewed Markdown file to another file previews in the pane.
 - Threadbear's own approval cards show the runner's words under the title
   (`ApprovalText::runner_reason`), in both apps. File cards show every line
-  of the diff and any argument it doesn't draw (`replace_all`, a notebook
-  cell), in both apps, and Return on a stacked card allows only the ticked
+  of the diff, any argument it doesn't draw (`replace_all`, a notebook cell)
+  and a line break at an edit's end in words, in both apps (and the runner
+  sends an edit's card whole, refusing one too long to show), and Return on a stacked card allows only the ticked
   calls, as its Allow button does.
 - Pasted pictures are staged in a fresh 0700 folder (`XDG_RUNTIME_DIR` when
   there is one), written 0600, and removed once the runner has its copy.

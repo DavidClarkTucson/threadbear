@@ -117,7 +117,28 @@ impl ApprovalText {
                 }
             }
         }
+        out.extend(Self::line_break_notes(input));
         Self::shown_fields(&out)
+    }
+
+    /// Whether an edit's new text ends with a line break where its old text
+    /// doesn't, or the other way round: a diff drawn by lines can't show it,
+    /// and it moves the next line of the file (a commented-out `rm` onto a
+    /// line of its own, Codex review, 10 Nov 2026).
+    pub fn line_break_notes(input: &Value) -> Vec<Field> {
+        fn note(key: String, edit: &Value) -> Option<Field> {
+            let ends = |k: &str| edit.get(k).and_then(Value::as_str).map(|s| s.ends_with('\n'));
+            match (ends("old_string"), ends("new_string")) {
+                (Some(false), Some(true)) => Some(Field { key, value: "the new text adds a line break at its end, so what follows it starts a new line".to_owned() }),
+                (Some(true), Some(false)) => Some(Field { key, value: "the new text drops the line break at its end, so what follows it joins its last line".to_owned() }),
+                _ => None,
+            }
+        }
+        let mut out: Vec<Field> = note("line break".to_owned(), input).into_iter().collect();
+        if let Some(edits) = input.get("edits").and_then(Value::as_array) {
+            out.extend(edits.iter().enumerate().filter_map(|(i, e)| note(format!("edit {} line break", i + 1), e)));
+        }
+        out
     }
 
     /// The same for a card's fields, keys and values.

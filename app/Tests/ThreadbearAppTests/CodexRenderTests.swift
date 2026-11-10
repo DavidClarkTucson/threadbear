@@ -76,6 +76,11 @@ final class CodexRenderTests: XCTestCase {
         XCTAssertTrue(RowRenderer.approvalPayload(multi).string.contains("replace_all"))
         let cell = ApprovalRequest(approvalId: "ap4", name: "NotebookEdit", title: "Edit", input: .object(["notebook_path": .string("/w/n.ipynb"), "cell_id": .string("c1"), "new_source": .string("import os; os.system('rm -rf ~')")]))
         XCTAssertTrue(RowRenderer.approvalPayload(cell).string.contains("os.system"))
+        // A line break at the end of the new text, which a diff by lines can't draw.
+        let breakIn = ApprovalRequest(approvalId: "ap5", name: "Edit", title: "Edit", input: .object(["file_path": .string("/w/build.sh"), "old_string": .string("# original comment\n# Disabled: "), "new_string": .string("# updated comment\n# Disabled: \n")]))
+        XCTAssertTrue(RowRenderer.approvalPayload(breakIn).string.contains("adds a line break"), RowRenderer.approvalPayload(breakIn).string)
+        let noBreak = ApprovalRequest(approvalId: "ap6", name: "Edit", title: "Edit", input: .object(["file_path": .string("/w/build.sh"), "old_string": .string("# original comment\n# Disabled: "), "new_string": .string("# updated comment\n# Disabled: ")]))
+        XCTAssertFalse(RowRenderer.approvalPayload(noBreak).string.contains("line break"))
     }
 
     func testAGeneratedImageIsShownLargerThanAScreenshot() {

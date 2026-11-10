@@ -69,7 +69,28 @@ public enum ApprovalText {
                 }
             }
         }
+        out += lineBreakNotes(input)
         return shown(out)
+    }
+
+    /// Whether an edit's new text ends with a line break where its old text
+    /// doesn't, or the other way round: a diff drawn by lines can't show it,
+    /// and it moves the next line of the file (a commented-out `rm` onto a
+    /// line of its own, Codex review, 10 Nov 2026).
+    public static func lineBreakNotes(_ input: JSONValue) -> [ToolPresentation.Field] {
+        func note(_ key: String, _ edit: JSONValue) -> ToolPresentation.Field? {
+            guard let old = edit["old_string"]?.stringValue, let new = edit["new_string"]?.stringValue else { return nil }
+            switch (old.hasSuffix("\n"), new.hasSuffix("\n")) {
+            case (false, true): return ToolPresentation.Field(key: key, value: "the new text adds a line break at its end, so what follows it starts a new line")
+            case (true, false): return ToolPresentation.Field(key: key, value: "the new text drops the line break at its end, so what follows it joins its last line")
+            default: return nil
+            }
+        }
+        var out = [note("line break", input)].compactMap { $0 }
+        if case .array(let edits)? = input["edits"] {
+            out += edits.enumerated().compactMap { note("edit \($0.offset + 1) line break", $0.element) }
+        }
+        return out
     }
 
     /// The decision in a word or two.
