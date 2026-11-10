@@ -662,8 +662,15 @@ already running in that shell, or you've typed on its prompt, nothing gets
 added: the command goes on the clipboard and a bubble says so (a shell
 without bracketed paste, like macOS's old bash, always copies). Play isn't there on a thread
 on another Mac or the cloud, or an archived one, as this Mac's shell
-wouldn't be in the right place; Copy still is. It's on the Mac app only.
+wouldn't be in the right place; Copy still is. Nor is it on a thread open
+in a panel of its own, as the Terminal shows the main panel's thread's
+shell: open the thread in the main panel to use it. It's on the Mac app only.
 A block with control or invisible characters in it has no play icon.
+
+A link in the Terminal (one a program prints, or a path you click) opens
+the way a link in a reply does: a web page in your browser, a document in
+its app, and anything that would run something, or start another app,
+only once you've said yes.
 
 ## Highlights
 <!-- slug: highlights -->

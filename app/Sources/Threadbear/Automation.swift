@@ -1449,7 +1449,7 @@ enum Automation {
             if c["toggle"] as? Bool == true { app.toggleTerminal() }
             let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
             if let text = c["type"] as? String { Terminals.shared.open(target).type(text) }
-            if let command = c["put"] as? String { app.putInTerminal(ShellBlock(command: command)) { _ in } }
+            if let command = c["put"] as? String { app.putInTerminal(ShellBlock(command: command), from: app.selection) { _ in } }
             if let ms = c["wait"] as? Int { try? await Task.sleep(for: .milliseconds(ms)) }
             let focused = (NSApp.mainWindow?.firstResponder as? NSView).map { String(describing: type(of: $0)) } ?? "none"
             return "ok shown=\(app.terminalShown) focus=\(focused) cwd=\(target.cwd) shells=\(Terminals.shared.debugSummary)"

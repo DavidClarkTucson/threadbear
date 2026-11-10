@@ -238,18 +238,31 @@ extension AppModel {
         Terminals.shared.open(TerminalTarget.for(selectedThread) { runnerName(of: $0) })
     }
 
-    /// Whether a shell here would be in the showing thread's own folder.
-    /// Otherwise it's a shell on this Mac somewhere else (TerminalTarget's
-    /// note), which is no place to put a command the thread handed you.
-    var canPutInTerminal: Bool {
-        selectedThread != nil && TerminalTarget.for(selectedThread) { runnerName(of: $0) }.note == nil
+    /// Whether a ```bash block in `threadId`'s transcript may put its
+    /// command in the Terminal: only when that thread is the one the main
+    /// panel shows (so the Terminal panel is its shell, in front of Mike),
+    /// and its shell is in its own folder on this Mac. Never for a thread
+    /// on another runner, an archived one or one whose folder has gone
+    /// (TerminalTarget's note), and never for text that isn't in a thread.
+    ///
+    /// Asked of the thread the block is in, never the selection alone: a
+    /// thread in a panel of its own isn't the selection, and a block in
+    /// another runner's thread there got a play icon from a local thread
+    /// being selected, then pasted into that thread's shell (Daybreak, 10
+    /// Nov).
+    func canPutInTerminal(from threadId: String?) -> Bool {
+        guard let threadId, threadId == selection, let thread = threads[threadId] else { return false }
+        return TerminalTarget.for(thread) { runnerName(of: $0) }.note == nil
     }
 
-    /// A ```bash block's play icon: the command at the thread's prompt.
-    func putInTerminal(_ block: ShellBlock, done: @escaping @MainActor (Terminals.PutOutcome) -> Void) {
-        guard canPutInTerminal else { return }
+    /// A ```bash block's play icon: the command at its thread's prompt,
+    /// checked again here against the thread it came from.
+    func putInTerminal(_ block: ShellBlock, from threadId: String?, done: @escaping @MainActor (Terminals.PutOutcome) -> Void) {
+        guard canPutInTerminal(from: threadId), let threadId, let thread = threads[threadId] else { return }
+        let target = TerminalTarget.for(thread) { runnerName(of: $0) }
+        guard target.key == .thread(threadId) else { return }
         if !terminalShown { bringUpTerminal() }
-        Terminals.shared.put(block, in: TerminalTarget.for(selectedThread) { runnerName(of: $0) }, done: done)
+        Terminals.shared.put(block, in: target, done: done)
     }
 
     private func bringUpTerminal() {
