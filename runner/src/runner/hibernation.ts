@@ -203,9 +203,21 @@ export const hibernationPart = {
   // draining runner. A thread not here (still on that runner) waits.
   reconcileWaits(this: Runner): void {
     if (this.holdWaits) return;
+    // One thread at a time: a wait another runner wrote wrong (a moved
+    // record's waitingOn) costs that thread, not the others or the start.
     for (const st of this.threads.values()) {
+      try {
+        this.reconcileWaitsOf(st);
+      } catch (e) {
+        this.recoveryFailed(st, e);
+      }
+    }
+  },
+
+  reconcileWaitsOf(this: Runner, st: ThreadState): void {
+    {
       const waits = st.rec.waitingOn;
-      if (!waits || st.rt.deleted || st.rec.archivedAt || this.bucket(st.rec) !== 'snoozed') continue;
+      if (!waits || st.rt.deleted || st.rec.archivedAt || this.bucket(st.rec) !== 'snoozed') return;
       for (const w of waits) {
         if (w.done) continue;
         const t = this.threads.get(w.threadId);

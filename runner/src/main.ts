@@ -1025,15 +1025,25 @@ async function main(): Promise<void> {
   });
   // Only once listening: a runner that can't listen exits, and the next
   // one should still find the resume.
-  restarter.resumeAfterRestart();
-  runner.tellStoppedWork();
-  runner.carryOnStopped();
+  // Each step on its own: one that throws (a thread's record another runner
+  // wrote wrong, past the boundaries each has per thread) is logged rather
+  // than ending the start (security review, 11 Nov 2026, finding 96).
+  const step = (name: string, fn: () => void) => {
+    try {
+      fn();
+    } catch (e) {
+      log.error(`startup step failed: ${name}`, { error: String(e) });
+    }
+  };
+  step('resume after restart', () => restarter.resumeAfterRestart());
+  step('tell stopped work', () => runner.tellStoppedWork());
+  step('carry on stopped', () => runner.carryOnStopped());
   // A thread waited on may have finished while the runner was down. Only
   // now: waking one starts its CLI, whose tools need what's set up above.
   runner.holdWaits = false;
-  runner.reconcileWaits();
+  step('reconcile waits', () => runner.reconcileWaits());
   // Reviews a runner that went away owed (runner/lab-review.ts).
-  runner.startOwedReviews();
+  step('owed reviews', () => runner.startOwedReviews());
 
   let stopping = false;
   const stop = async (signal: string) => {

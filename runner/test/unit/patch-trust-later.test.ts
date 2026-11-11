@@ -689,7 +689,24 @@ test('schedule check: moving its folder from a thread that asks first approves i
     const r = await call('update_schedule', { scheduleId: sc.id, folder: two });
     assert.equal(r.isError, undefined, r.content[0]?.text);
     assert.equal(asked.length, 1, 'a card for it');
+    assert.match(JSON.stringify(asked[0]), /\.\/check\.sh/, 'the card says what it runs');
+    assert.ok(JSON.stringify(asked[0]).includes(two), 'and where');
     assert.equal(h.runner.patchTrust.checkApproved('./check.sh', two).approved, true);
+    sched.stop();
+  }
+  {
+    // Its check changed by someone else while the card was up isn't put back.
+    const four = repo({ 'check.sh': '#!/bin/sh\necho four\n' });
+    let sched!: ReturnType<typeof askTools>['sched'];
+    let id = '';
+    const made = askTools(one, 'ask', () => void sched.update({ scheduleId: id, check: null }));
+    sched = made.sched;
+    id = (await sched.create({ text: 'Look', title: 'Watch', cron: '*/5 * * * *', cwd: one, check: './check.sh' })).id;
+    const r = await made.call('update_schedule', { scheduleId: id, folder: four });
+    await new Promise((res) => setTimeout(res, 50));
+    assert.equal(made.h.runner.patchTrust.checkApproved('./check.sh', four).approved, false);
+    assert.equal(sched.find(id).check, undefined, 'taken off, and not put back');
+    assert.equal(r.isError, true, r.content[0]?.text);
     sched.stop();
   }
   {

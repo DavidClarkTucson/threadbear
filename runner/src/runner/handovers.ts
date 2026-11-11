@@ -178,6 +178,14 @@ export const handoversPart = {
   adopt(this: Runner, threadId: string, opts: { crashed?: boolean } = {}): ThreadSummary | undefined {
     const had = this.threads.get(threadId);
     if (had) return this.summary(had);
+    // A thread handed over while this runner is still connecting to the old
+    // one comes before start: which worktrees are held is worked out first,
+    // from every thread on disk, and before this one's record, if it can't
+    // be read, is rebuilt without its worktree (Muse's review, 11 Nov 2026).
+    if (!this.unvouchedSettled) {
+      const all = this.store.loadAll();
+      this.settleUnvouched(all.records, all.broken);
+    }
     this.store.forget(threadId);
     const rec = this.store.load(threadId) ?? this.rebuild(threadId);
     if (!rec) {
@@ -187,13 +195,6 @@ export const handoversPart = {
     // Neutralised like the ones loaded at start (real-copy.ts).
     const copy = realCopy(this.store.home);
     if (copy) this.store.save(neutraliseCopied(rec, copy.work));
-    // A thread handed over while this runner is still connecting to the old
-    // one comes before start: which worktrees are held is worked out first,
-    // from every thread on disk (Muse's review, 11 Nov 2026).
-    if (!this.unvouchedSettled) {
-      const all = this.store.loadAll();
-      this.settleUnvouched(all.records, all.broken);
-    }
     // An old runner's mark of a worktree the always-trust doesn't reach
     // (settleUnvouched), set after this one started.
     const w = rec.worktree;

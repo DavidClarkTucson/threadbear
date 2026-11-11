@@ -904,6 +904,9 @@ export function buildThreadbearTools(
         // Renaming and pausing never do.
         const caller = await restricted();
         const newFolder = f === undefined ? undefined : await folder(f);
+        // The check a new folder takes along (Scheduler.update approves
+        // nothing for a folder alone).
+        const carried = check === undefined && newFolder !== undefined && current.check && !current.threadId ? current.check : undefined;
         let card: { checkCard?: CheckCard } = {};
         if (caller) {
           // What its runs reach: the thread it sends to, or new threads the
@@ -924,6 +927,9 @@ export function buildThreadbearTools(
             // Longer to run is more that command can do (Codex review, 6 Nov).
             ...(checkTimeoutSecs !== undefined && current.check && check === undefined && !changes ? [`Change how long the schedule "${current.title}"'s shell command may run`] : []),
             ...checkReason(check, caller),
+            // A new folder takes the check along (below), approved there as
+            // the card shows it: so the card says what it runs, and where.
+            ...(check === undefined && carried ? checkReason(carried, caller).map((r) => `${r}, in ${newFolder}`) : []),
           ];
           // Setting the mode it already has is left out, so a write that
           // lands after someone else lowers it can't raise it back.
@@ -940,6 +946,9 @@ export function buildThreadbearTools(
         // a login or pool this Mac doesn't have goes as given. (In the backend every
         // schedule has a runnerId; the Scheduler still checks this
         // runner's own.)
+        // The check it takes along must still be the schedule's: one changed
+        // or taken off while the card was up isn't put back.
+        if (carried && (await s.find(scheduleId)).check !== carried) throw new Error("The schedule's check changed while the approval card was up, so nothing changed. Look at it again and ask again.");
         const accountId = acc === undefined ? undefined : current.runnerId ? await account(acc).catch(() => acc) : await account(acc);
         let poolId = pl;
         if (pl) {
@@ -968,7 +977,7 @@ export function buildThreadbearTools(
           // first) or as it is (Full): the Scheduler approves nothing for a
           // folder alone, so an app's save can't (security review, 11 Nov
           // 2026, finding 89).
-          ...(check !== undefined ? { check } : newFolder !== undefined && current.check && !current.threadId ? { check: current.check } : {}),
+          ...(check !== undefined ? { check } : carried ? { check: carried } : {}),
           ...card,
           ...(checkTimeoutSecs !== undefined ? { checkTimeoutSecs } : {}),
         });

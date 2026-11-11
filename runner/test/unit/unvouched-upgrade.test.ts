@@ -215,3 +215,42 @@ test('90/91: a handover before start, and a record that can not be read, still h
     assert.equal((await trust.check(path.join(c.repo, '.threadbear', 'patches', 'w.ts'), 0)).trusted, true, 'a note can only hold a worktree, never the checkout');
   }
 });
+
+// Muse's second look: adopt rebuilt an unreadable record before working
+// the list out, and the note's folder could be hidden by the other
+// runner's name (its own word) or by a ". " in the folder's path.
+test("90/91: a note's folder is found whatever the names around it say, and only a worktree is held", async () => {
+  const { movedInWorktrees } = await import('../../src/runner/moves.ts');
+  const c = checkout();
+  const odd = path.join(c.root, 'My App. backup');
+  fs.mkdirSync(odd);
+  g(c.repo, 'worktree', 'add', '-q', '-b', 'thread/odd', path.join(odd, 'slot-2'), 'main');
+  const dir = tmpDir();
+  const lines = [
+    { type: 'system.note', text: `Moved from Bruce, in /nonexistent. to M5, in ${c.wt}. Its worktree's work changes this repo's patches.` },
+    { type: 'system.note', text: `Moved from Bruce to M5, in ${path.join(odd, 'slot-2', 'sub')}.` },
+    { type: 'system.note', text: `Moved from Bruce to M5, in ${c.repo}.` },
+    { type: 'user.message', text: `Moved from Bruce to M5, in ${c.root}.` },
+  ];
+  fs.mkdirSync(path.join(c.wt, 'sub'), { recursive: true });
+  fs.mkdirSync(path.join(odd, 'slot-2', 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'events.ndjson'), lines.map((l, i) => JSON.stringify({ seq: i + 1, ...l })).join('\n') + '\n');
+  assert.deepEqual(movedInWorktrees(dir).sort(), [c.wt, path.join(odd, 'slot-2')].sort());
+});
+
+test('90/91: a handover of an unreadable moved record before start still holds its worktree', async () => {
+  const c = checkout();
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+  const { h, id } = await runnerWith(c, (rec) => (rec.worktree = { ...c.worktree }));
+  const other = '0123abcd-0000-4000-8000-000000000002';
+  fs.cpSync(path.join(c.home, 'threads', id), path.join(c.home, 'threads', other), { recursive: true });
+  const n = fs.readFileSync(path.join(c.home, 'threads', other, 'events.ndjson'), 'utf8').split('\n').filter(Boolean).length;
+  fs.appendFileSync(path.join(c.home, 'threads', other, 'events.ndjson'), JSON.stringify({ seq: n + 1, type: 'system.note', text: `Moved from Bruce to M5, in ${c.wt}.` }) + '\n');
+  fs.writeFileSync(path.join(c.home, 'threads', other, 'thread.json'), '{ broken');
+  fs.rmSync(c.side);
+  const fresh = new PatchTrust({ file: c.file, always: [c.repo] });
+  (h.runner as any).patchTrust = fresh;
+  h.runner.unvouchedSettled = false;
+  h.runner.adopt(other);
+  assert.equal((await fresh.check(c.patch, 0)).trusted, false);
+});

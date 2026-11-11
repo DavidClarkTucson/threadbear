@@ -55,7 +55,7 @@ export function cleanPresses(raw: unknown): PressNote[] | undefined {
 // Muse's review of the fix, 11 Nov 2026, finding 96). True if it changed.
 const OBJECT_LISTS = ['waitingOn', 'reviews', 'buttons', 'subagents', 'projects', 'rewinds', 'queue'];
 const STRING_LISTS = ['reviewDeliveries', 'allowRules', 'pendingApprovals', 'projectsLeft', 'projectsTold'];
-const OBJECTS = ['needs', 'looseEnds', 'stoppedWork', 'highlights', 'worktree', 'handoff', 'moved', 'startedBy'];
+const OBJECTS = ['needs', 'looseEnds', 'stoppedWork', 'stoppedMidTurn', 'highlights', 'worktree', 'handoff', 'moved', 'startedBy', 'labReview', 'labReviewOwed'];
 const NESTED: [string, string, 'object' | 'string' | 'number'][] = [
   ['needs', 'asks', 'object'],
   ['needs', 'ticked', 'number'],
@@ -64,6 +64,8 @@ const NESTED: [string, string, 'object' | 'string' | 'number'][] = [
   ['stoppedWork', 'what', 'string'],
   ['highlights', 'items', 'object'],
   ['highlights', 'edited', 'string'],
+  ['highlights', 'removed', 'string'],
+  ['labReview', 'findings', 'object'],
 ];
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 function listOf(v: unknown, kind: 'object' | 'string' | 'number'): unknown[] | undefined {
@@ -88,8 +90,14 @@ export function normaliseRecord(rec: Record<string, unknown>): boolean {
     if (list) obj[k] = list;
     else delete obj[k];
   }
-  // looseEnds is drawn from its ends; one without them is no check.
+  // looseEnds is drawn from its ends; one without them is no check. The
+  // Highlights need both their lists, so without either they start again.
   if (isObject(rec.looseEnds) && !Array.isArray(rec.looseEnds.ends)) delete rec.looseEnds;
+  // A lab review's ledger is read as its rounds and findings.
+  if (isObject(rec.labReview) && !(typeof rec.labReview.rounds === 'number' && Array.isArray(rec.labReview.findings))) delete rec.labReview;
+  if (isObject(rec.highlights) && !(Array.isArray(rec.highlights.items) && Array.isArray(rec.highlights.edited))) delete rec.highlights;
+  // A wait is on a thread, by its id.
+  if (Array.isArray(rec.waitingOn)) rec.waitingOn = rec.waitingOn.filter((w) => typeof w.threadId === 'string' && typeof (w.title ?? '') === 'string' && (w.done === undefined || isObject(w.done)));
   if (rec.presses !== undefined) {
     const presses = cleanPresses(rec.presses);
     if (presses) rec.presses = presses;

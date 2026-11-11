@@ -227,6 +227,10 @@ test('a moved record with bad press notes is cleaned, and never stops the runner
   live.presses = {};
   live.queue = {};
   live.waitingOn = 'x';
+  live.labReview = {};
+  live.labReviewOwed = { turnId: 'x' };
+  live.highlights = { items: {}, edited: [] };
+  live.stoppedMidTurn = 'yes';
   live.needs = { seq: 1, needs: 'nothing', asks: {} };
   live.looseEnds = { seq: 1, ends: 3 };
   live.subagents = [null, 4];
@@ -236,6 +240,19 @@ test('a moved record with bad press notes is cleaned, and never stops the runner
   assert.equal(back.presses, undefined);
   assert.deepEqual(back.queue, []);
   assert.equal(back.waitingOn, undefined);
+  assert.equal(back.labReview, undefined);
+  assert.equal(back.highlights, undefined);
+  assert.equal(back.stoppedMidTurn, undefined);
+  // A wait whose thread isn't named by an id, done, on a hibernating
+  // thread: reconcileWaits at start delivered it and threw (Muse's second look).
+  live.waitingOn = [{ threadId: 123, title: 'x', done: { at: new Date().toISOString(), how: 'finished' } }, { threadId: 'abc', title: 7 }];
+  live.snoozedUntil = new Date(Date.now() + 86_400_000).toISOString();
+  fs.writeFileSync(path.join(tHome, 'threads', id, 'thread.json'), JSON.stringify(live));
+  const fourth = makeHarness(tHome, {}, { accounts: new FakeAccounts(accounts) });
+  assert.equal((fourth.runner.threads.get(id)!.rec as any).waitingOn.length, 0);
+  fourth.runner.holdWaits = false;
+  fourth.runner.reconcileWaits();
+  fourth.runner.startOwedReviews();
   assert.equal(back.needs.asks, undefined);
   assert.equal(back.looseEnds, undefined);
   assert.deepEqual(back.subagents, []);

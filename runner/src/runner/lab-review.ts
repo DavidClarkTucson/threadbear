@@ -184,7 +184,15 @@ export const labReviewPart = {
   // call once it's listening.
   startOwedReviews(this: Runner, threadId?: string): void {
     if (this.holdWaits) return;
-    for (const st of threadId ? [this.threads.get(threadId)] : [...this.threads.values()]) if (st?.rec.labReviewOwed) this.startOwedReview(st);
+    for (const st of threadId ? [this.threads.get(threadId)] : [...this.threads.values()]) {
+      if (!st?.rec.labReviewOwed) continue;
+      // One at a time, as at start (Runner.recoveryFailed).
+      try {
+        this.startOwedReview(st);
+      } catch (e) {
+        this.recoveryFailed(st, e);
+      }
+    }
   },
 
   startOwedReview(this: Runner, st: ThreadState): void {

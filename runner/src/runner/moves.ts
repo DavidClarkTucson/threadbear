@@ -299,41 +299,73 @@ export function eventsSayMovedIn(threadDir: string): boolean {
   }
 }
 
-// The worktrees a thread's log says it was moved into: the folder in each
-// "Moved from ..., in <folder>." note, up to the top of its checkout, when
-// that's a linked worktree (its .git a file). Only a worktree: the log came
-// from the other runner, which could name any folder, and holding the
-// checkout itself would take its trust away.
+// The worktrees a thread's log says it was moved into, from each
+// "Moved from <name> to <name>, in <folder>." note adoptMoved wrote. The
+// note isn't parsed for its folder, as a name (the other runner's own) or
+// a folder can hold ", in /" or ". " too: every "/..." after a ", in "
+// up to each "." is taken, up to the top of its checkout, when that's a
+// linked worktree (its .git a file). Only a
+// worktree: the log came from the other runner, which could name any
+// folder, and holding a checkout itself would take its trust away. Read
+// in pieces, as a log can be large.
 export function movedInWorktrees(threadDir: string): string[] {
-  if (!eventsSayMovedIn(threadDir)) return [];
-  let text: string;
-  try {
-    text = fs.readFileSync(path.join(threadDir, 'events.ndjson'), 'utf8');
-  } catch {
-    return [];
-  }
   const out = new Set<string>();
-  for (const line of text.split('\n')) {
-    if (!line.includes('"text":"Moved from ')) continue;
+  const take = (line: string) => {
     let ev: { type?: unknown; text?: unknown };
     try {
       ev = JSON.parse(line);
     } catch {
-      continue;
+      return;
     }
-    if (ev.type !== 'system.note' || typeof ev.text !== 'string') continue;
-    const m = /^Moved from .*?, in (\/.+?)\.(?: |$)/.exec(ev.text);
-    if (!m) continue;
-    for (let dir = m[1]!; path.dirname(dir) !== dir; dir = path.dirname(dir)) {
-      let isFile: boolean | undefined;
-      try {
-        isFile = fs.lstatSync(path.join(dir, '.git')).isFile();
-      } catch {
-        continue;
+    if (ev.type !== 'system.note' || typeof ev.text !== 'string' || !ev.text.startsWith('Moved from ')) return;
+    const text = ev.text;
+    for (let at = text.indexOf(', in /'); at >= 0; at = text.indexOf(', in /', at + 1)) {
+      const from = at + ', in '.length;
+      for (let dot = text.indexOf('.', from); dot >= 0; dot = text.indexOf('.', dot + 1)) {
+        // Up from there to the first folder with a .git (a subfolder may
+        // be gone since, and a candidate with words after the path ends
+        // in its folder).
+        for (let d = text.slice(from, dot); path.dirname(d) !== d; d = path.dirname(d)) {
+          let isFile: boolean | undefined;
+          try {
+            isFile = fs.lstatSync(path.join(d, '.git')).isFile();
+          } catch {
+            continue;
+          }
+          if (isFile) out.add(d);
+          break;
+        }
       }
-      if (isFile) out.add(dir);
-      break;
     }
+  };
+  let fd: number;
+  try {
+    fd = fs.openSync(path.join(threadDir, 'events.ndjson'), 'r');
+  } catch {
+    return [];
+  }
+  try {
+    // Split as bytes, so a character across two pieces stays whole.
+    const chunk = Buffer.alloc(1 << 20);
+    let rest = Buffer.alloc(0);
+    for (;;) {
+      const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+      let buf = n > 0 ? Buffer.concat([rest, chunk.subarray(0, n)]) : rest;
+      for (let nl = buf.indexOf(0x0a); nl >= 0; nl = buf.indexOf(0x0a)) {
+        const line = buf.subarray(0, nl);
+        if (line.includes(MOVED_IN)) take(line.toString('utf8'));
+        buf = buf.subarray(nl + 1);
+      }
+      if (n <= 0) {
+        if (buf.includes(MOVED_IN)) take(buf.toString('utf8'));
+        break;
+      }
+      rest = Buffer.from(buf);
+    }
+  } catch {
+    // What was read is what's held.
+  } finally {
+    fs.closeSync(fd);
   }
   return [...out];
 }
