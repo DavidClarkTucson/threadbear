@@ -194,3 +194,44 @@ test('a restart mid-run says it may have partly run, and can be pressed again', 
   assert.equal(run.buttonId, button.id);
   assert.ok(told(h, thread.id).some((t: string) => t.includes('partly run')));
 });
+
+// The Daily brief, 8 Nov: Mike pressed "RSVP yes", then told the brief to go
+// ahead in his reply, and its agent (which hadn't seen the press) sent the
+// same job again with send_message.
+test("the agent hears which of its buttons were pressed, before the user's next message", () => {
+  const { h, thread, folder } = fixture();
+  const other = h.runner.create({ text: 'SF trip', accountId: 'claude-3' }).thread;
+  const rsvp = h.runner.createButton(thread.id, { title: 'RSVP yes', send: { threadId: other.id, text: 'RSVP yes to the party' } }).button;
+  const scope = h.runner.createButton(thread.id, { title: 'Scope the video', start: { text: 'Scope it', cwd: folder } }).button;
+  h.runner.createButton(thread.id, { title: 'Not pressed', start: { text: 'x', cwd: folder } });
+  const session = h.adapter.sessions.find((s) => s.opts.threadId === thread.id)!;
+  session.result();
+  h.runner.pressButton(thread.id, rsvp.id);
+  const started = h.runner.pressButton(thread.id, scope.id).button.pressed!.threadId;
+  h.runner.send(thread.id, 'Yeah go ahead with the RSVP');
+  const text = session.sent.at(-1)!.text;
+  assert.match(text, /pressed/);
+  assert.match(text, /"RSVP yes"/);
+  assert.match(text, new RegExp(other.id.slice(0, 8)));
+  assert.match(text, new RegExp(`"Scope the video".*${started.slice(0, 8)}`));
+  assert.doesNotMatch(text, /Not pressed/);
+  assert.ok(text.endsWith('Yeah go ahead with the RSVP'));
+  // Told once: the message after doesn't say it again.
+  session.result();
+  h.runner.send(thread.id, 'thanks');
+  assert.equal(session.sent.at(-1)!.text, 'thanks');
+});
+
+test("a press told in a turn that didn't complete is told again", () => {
+  const { h, thread } = fixture();
+  const other = h.runner.create({ text: 'SF trip', accountId: 'claude-3' }).thread;
+  const rsvp = h.runner.createButton(thread.id, { title: 'RSVP yes', send: { threadId: other.id, text: 'RSVP yes' } }).button;
+  const session = h.adapter.sessions.find((s) => s.opts.threadId === thread.id)!;
+  session.result();
+  h.runner.pressButton(thread.id, rsvp.id);
+  h.runner.send(thread.id, 'go');
+  assert.match(session.sent.at(-1)!.text, /"RSVP yes"/);
+  session.result('failed', undefined, 'overloaded');
+  h.runner.send(thread.id, 'try again');
+  assert.match(session.sent.at(-1)!.text, /"RSVP yes"/);
+});

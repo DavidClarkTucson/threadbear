@@ -364,6 +364,8 @@ type Runtime = {
   retriedFresh: boolean;
   // News of the standing instructions went out in this turn (settleInstructionsNews).
   instructionsNewsSent?: boolean;
+  // The presses told in this turn, put back if it doesn't complete.
+  pressesSent?: string[];
   // Where the live session's transcript was carried from, if it moved
   // folder; used only if resuming the copy fails.
   carried?: ThreadRecord['handoff'];
@@ -3440,6 +3442,23 @@ export class Runner {
     return `Note from Threadbear: the user's standing instructions${before === undefined || before === INSTRUCTIONS_CLEARED ? '' : ' have changed, and replace any earlier ones'}.\n\n${standingText(standing)}`;
   }
 
+  // The thread's reply buttons Mike has pressed since its agent last heard,
+  // as a line before his next message. The Daily brief, 8 Nov 2026: he
+  // pressed RSVP yes, then said go ahead in his reply, and the agent, which
+  // hadn't seen the press, sent the same job again with send_message.
+  pressNews(rec: ThreadRecord): string | undefined {
+    const ids = rec.pressesUntold;
+    if (!ids?.length) return undefined;
+    const lines = ids.flatMap((id) => {
+      const b = rec.buttons?.find((x) => x.id === id);
+      if (!b?.pressed) return [];
+      const where = b.send ? `messaged "${b.send.threadTitle}"` : 'started a thread';
+      return [`- "${b.title}" ${where} (${b.pressed.threadId.slice(0, 8)})`];
+    });
+    if (!lines.length) return undefined;
+    return `Note from Threadbear: the user pressed ${lines.length === 1 ? 'this button' : 'these buttons'} in your reply, so ${lines.length === 1 ? 'that job is' : 'those jobs are'} already done or under way. Don't send ${lines.length === 1 ? 'it' : 'them'} again.\n${lines.join('\n')}`;
+  }
+
   // Sends a message with any change to the standing instructions in front.
   // They count as told only once the CLI has taken it: a send that throws
   // (a picture gone from the queue) would otherwise use up a clear that never
@@ -3449,12 +3468,20 @@ export class Runner {
     const { rec, rt } = st;
     const before = rec.instructionsTold;
     const standing = this.instructionsNews(rec);
+    const presses = rec.pressesUntold;
+    const pressed = this.pressNews(rec);
+    const lead = [standing, pressed].filter(Boolean).join('\n\n');
     try {
-      rt.session!.send(standing ? { ...message, text: `${standing}\n\n${message.text}` } : message);
+      rt.session!.send(lead ? { ...message, text: `${lead}\n\n${message.text}` } : message);
     } catch (e) {
       if (before === undefined) delete rec.instructionsTold;
       else rec.instructionsTold = before;
+      if (presses) rec.pressesUntold = presses;
       throw e;
+    }
+    if (pressed) {
+      delete rec.pressesUntold;
+      rt.pressesSent = [...(rt.pressesSent ?? []), ...presses!];
     }
     if (!standing) return;
     // A turn that ends any other way may have dropped it (a message Codex was
@@ -3472,6 +3499,8 @@ export class Runner {
   // arrived, so the next message says what's current.
   settleInstructionsNews(st: ThreadState, completed: boolean): void {
     const { rec, rt } = st;
+    if (rt.pressesSent && !completed) rec.pressesUntold = [...new Set([...rt.pressesSent, ...(rec.pressesUntold ?? [])])];
+    rt.pressesSent = undefined;
     if (rt.instructionsNewsSent && !completed && rec.instructionsTold !== undefined) rec.instructionsTold = INSTRUCTIONS_REWOUND;
     rt.instructionsNewsSent = false;
   }

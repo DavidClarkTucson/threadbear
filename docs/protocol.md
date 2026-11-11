@@ -940,6 +940,14 @@ press marks the started thread as started by this thread (`startedBy`
 sent, begins with the usual `[Sent by the agent in the thread ...]` line,
 as the agent wrote the words and Mike only chose to send them.
 
+The thread whose reply had the button hears of the press before Mike's
+next message to it: a line from Threadbear naming each button pressed
+since and the thread it started or messaged, so its agent doesn't send
+the same job again (on 8 Nov 2026 the Daily brief did, after Mike pressed
+RSVP yes and then said go ahead in his reply). A turn that doesn't
+complete hears it again. A run's press already tells the agent how its
+command went, so it isn't in that line.
+
 Safety. Only a thread's own agent can make its buttons: `add_button` is
 bound to the calling thread like the other threadbear tools, and there's
 no RPC that makes one. Pressing (Mike's click on the Mac, phone or

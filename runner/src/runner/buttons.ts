@@ -153,6 +153,9 @@ export const buttonsPart = {
       this.persistButton(st, { ...button, failed: { at: this.isoNow(), error: error.slice(0, 300) } });
       throw e instanceof RpcError ? e : new RpcError(ErrorCode.badParams, error);
     }
+    // For the agent, before Mike's next message (Runner.pressNews). A run's
+    // press tells it already, with how the command went.
+    (st.rec.pressesUntold ??= []).push(button.id);
     this.persistButton(st, next);
     return { button: structuredClone(next) };
   },

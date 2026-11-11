@@ -165,6 +165,9 @@ export type ThreadRecord = {
   // told, so it hears each change once; 'cleared' or 'rewound' (instructions.ts).
   // Absent while it has never held any.
   instructionsTold?: string;
+  // Its reply buttons Mike has pressed that its agent hasn't heard of yet
+  // (Runner.pressNews), so it doesn't send the same job again itself.
+  pressesUntold?: string[];
   // Highlights (highlights.ts): what's been found and pinned, and the
   // event it had read up to. Brought up to date when a client asks.
   highlights?: HighlightState;

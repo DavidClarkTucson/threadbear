@@ -196,7 +196,8 @@ new thread with a brief the agent wrote ("Fill in the form"), another
 sends a message to a thread that's already going. Hover over a button to
 see the brief and where it runs. Nothing happens until you press it, and
 it only runs once: after that it turns green and opens the thread it
-started. It works the same on your phone and the website. A thread
+started. The agent hears which you pressed with your next
+message, so a go ahead in your reply doesn't set the same job off twice. It works the same on your phone and the website. A thread
 without Full access can't make a button that does more than it could
 itself, and that's checked again when you press it.
 
