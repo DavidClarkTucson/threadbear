@@ -9,6 +9,7 @@ use crate::composer::Composer;
 use crate::prefs;
 use crate::style::{self, size};
 use gpui_kit::base::TestSupportExt as _;
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
 use gpui_kit::prelude::*;
@@ -189,17 +190,31 @@ impl Composer {
         let categories = self.render_palette_categories(&view, cx);
         let list = self.render_palette_list(&view, &matches, picked.as_ref(), cx);
         let detail = self.render_palette_detail(&view, picked.as_ref(), cx);
-        // Each column as wide as its longest entry needs, the description the
-        // rest; measured over every command, not just the matches, so the
-        // columns hold still while typing (SlashPalette.columnWidths).
-        let (categories_width, list_width) = slash::column_widths(f64::from(self.card_width.get()), categories_natural_width(&view), list_natural_width(&view.all), false, 200., 120., 110.);
-        let height = slash::palette_height(f64::from(window.viewport_size().height), 300., 560.) as f32;
+        // Its size: what it was dragged to, kept within the window, else as
+        // wide as the box and about half the window tall (slash_resize.rs).
+        // In points, as kept; the window's are zoomed.
+        let zoom = style::zoomed(1.);
+        let viewport = window.viewport_size();
+        let layout = crate::slash_resize::kept(self, cx);
+        let auto_height = slash::palette_height(f64::from(viewport.height / zoom), 300., 560.);
+        let (width, height) = crate::slash_resize::size(layout, f64::from(self.card_width.get() / zoom), size(viewport.width / zoom, viewport.height / zoom), auto_height);
+        // Each column as wide as its longest entry needs, or as it was
+        // dragged to, the description the rest; measured over every command,
+        // not just the matches, so the columns hold still while typing
+        // (SlashPalette.columnWidths).
+        let categories_natural = layout.categories.unwrap_or_else(|| categories_natural_width(&view));
+        let list_natural = layout.list.unwrap_or_else(|| list_natural_width(&view.all));
+        let (categories_width, list_width) = slash::column_widths(width, categories_natural, list_natural, layout.list.is_some(), 200., 120., 110.);
+        crate::slash_resize::drawn_as((width, height), (categories_width, list_width));
         let hairline = style::hairline(cx);
+        let composer = cx.entity().downgrade();
+        let menu_composer = composer.clone();
         let panel = h_flex()
             .id("slash-palette")
+            .relative()
             .size_full()
             .items_start()
-            .rounded(px(14.))
+            .rounded(px(crate::slash_resize::RADIUS))
             .overflow_hidden()
             .bg(cx.theme().background)
             .border_1()
@@ -208,11 +223,31 @@ impl Composer {
             // Keep clicks out of the transcript under it.
             .occlude()
             .child(div().flex_none().w(px(categories_width as f32)).h_full().child(categories))
-            .child(palette_column_rule(cx))
+            .child(crate::slash_resize::column_rule(0, categories_width, list_width + 200., width, cx))
             .child(div().flex_none().w(px(list_width as f32)).h_full().child(list))
-            .child(palette_column_rule(cx))
-            .child(div().flex_1().min_w_0().h_full().child(detail));
-        Some(deferred(div().absolute().left_0().right_0().bottom_full().mb(px(8.)).h(px(height)).on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).child(panel)).with_priority(2).into_any_element())
+            .child(crate::slash_resize::column_rule(1, list_width, categories_width + 200., width, cx))
+            .child(div().flex_1().min_w_0().h_full().child(detail))
+            // Its edges drag it bigger; a right-click anywhere on it puts it back.
+            .children(crate::slash_resize::edges((width, height), cx))
+            .context_menu(move |menu, _, _| crate::slash_resize::menu(menu_composer.clone(), menu));
+        // Centred over the box, kept inside the window.
+        let left = crate::slash_resize::left_offset(width as f32 * zoom, f32::from(viewport.width));
+        Some(
+            deferred(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_full()
+                    .mb(px(8.))
+                    .h(px(height as f32))
+                    .child(crate::slash_resize::measure_box())
+                    .child(div().absolute().top_0().bottom_0().left(gpui_kit::px(left)).w(px(width as f32)).on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).child(panel))
+                    .children(crate::slash_resize::drag_watch(composer)),
+            )
+            .with_priority(2)
+            .into_any_element(),
+        )
     }
 
     /// The categories down the left, with their counts.
@@ -408,17 +443,16 @@ impl Composer {
             "picked": picked.map(|c| format!("/{}", c.name)),
             "detail": detail,
             "note": note,
+            // As last drawn, in points (slash_resize.rs): its width and
+            // height, and its categories' and list's widths.
+            "size": crate::slash_resize::drawn().map(|d| [d[0], d[1]]),
+            "columns": crate::slash_resize::drawn().map(|d| [d[2], d[3]]),
         })
     }
 }
 
 fn palette_placeholder(text: String, cx: &App) -> impl IntoElement {
     div().p(px(16.)).size_full().text_size(px(size::LABEL + 1.)).text_color(style::secondary_text(cx)).child(text)
-}
-
-/// A line between the palette's columns.
-fn palette_column_rule(cx: &App) -> impl IntoElement {
-    div().flex_none().mx(px(3.)).w(px(1.)).h_full().bg(style::hairline(cx))
 }
 
 fn palette_button(title: &'static str, tip: String, cx: &App, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> impl IntoElement {

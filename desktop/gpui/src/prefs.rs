@@ -15,6 +15,9 @@ pub struct Prefs {
     pub remembered: Remembered,
     /// The commands picked from the slash palette lately, newest first.
     pub recent_slash: Vec<String>,
+    /// The size the slash palette and its columns were dragged to
+    /// (slash_resize.rs).
+    pub slash_layout: threadbear_core::slash::PaletteLayout,
 }
 
 fn path() -> PathBuf {

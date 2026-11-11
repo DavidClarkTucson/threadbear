@@ -84,3 +84,37 @@ Feature: The slash command palette
     And the composer says "/mod"
     When I type "e" in the composer
     Then the palette is open on "All"
+
+  # The Swift palette is a panel window of its own whose edges follow the real
+  # pointer (NSEvent.mouseLocation), which a script can't move without taking
+  # the Mac's own, so these are driven on the GPUI app, with real presses and
+  # moves on its edges.
+  @composer.slash.resize @swift-pending
+  Scenario: Its top edge drags it taller, and it stays that tall next time
+    When I type "/" in the composer
+    And I note the palette's size
+    And I drag the palette's top edge 60 points up
+    Then the palette is 60 points taller than it was
+    When I press Escape
+    And I type "m" in the composer
+    Then the palette is still 60 points taller than it was
+
+  @composer.slash.resize @swift-pending
+  Scenario: Default Size, from its right-click menu, puts it back
+    When I type "/" in the composer
+    And I note the palette's size
+    And I drag the palette's top edge 60 points up
+    And I choose "Default Size" from the palette's right-click menu
+    Then the palette is the size it was
+
+  # The detail keeps 200 points, so in a palette as narrow as the box the
+  # list has nowhere to grow: the palette is widened first.
+  @composer.slash.resize @swift-pending
+  Scenario: Its sides drag it wider, and the line after the list drags the list wider
+    When I type "/" in the composer
+    And I note the palette's size
+    And I drag the palette's right edge 150 points right
+    Then the palette is 300 points wider than it was
+    When I note the palette's size
+    And I drag the list's edge 40 points right
+    Then the list is 40 points wider than it was

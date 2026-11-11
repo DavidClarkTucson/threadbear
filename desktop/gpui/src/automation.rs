@@ -150,6 +150,10 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
         return crate::review_window::automation(&weak, window, cmd, cx).await;
     }
     // Send's right-click menu (composer_send.rs), read the same way.
+    // The slash palette's right-click menu (slash_resize.rs), the same way.
+    if cmd["cmd"] == "palette-menu" {
+        return crate::slash_resize::menu_command(window, cmd, cx).await;
+    }
     if cmd["cmd"] == "composer-menu" && cmd["menu"] == "send" {
         return crate::composer_send::menu_command(window, cmd, cx).await;
     }
@@ -446,6 +450,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // The box copied or cut whole, or the clipboard pasted, as ⌘A then ⌘C
         // or ⌘X, and ⌘V; and the chips in it (composer_inline.rs).
         "composer-clip" => crate::composer_inline::clip_command(app, cmd, window, cx),
+        // A drag of the slash palette's edge or a column's line (slash_resize.rs).
+        "palette-drag" => crate::slash_resize::drag_command(cmd, window, cx),
         "composer-chips" => crate::composer_inline::chips_command(app, cx),
         // How many times it's beeped (Return with nowhere to go on the card).
         "beeps" => Ok(json!(format!("ok {}", crate::composer_answers::beeps()))),

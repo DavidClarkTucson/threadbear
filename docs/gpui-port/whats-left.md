@@ -72,7 +72,8 @@ you go.
   `composer.contextring`). In since 11 Nov
 - [x] No right-click on Send to schedule the message
   (`composer.schedulefromsend`). In since 11 Nov
-- [ ] The slash palette can't be resized (`composer.slash.resize`)
+- [x] The slash palette can't be resized (`composer.slash.resize`). In since
+  11 Nov
 - [x] The card: no lab-review findings on it, no slide between pages, picks
   don't show as chips while it's collapsed, no pictures in a Something else
   box, no beep when Return can't go on (`card.*`). In since 11 Nov; Reduce

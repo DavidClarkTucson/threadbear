@@ -374,6 +374,42 @@ built parsers and gates with no launch of the app, which is the trap.)
   panel and Highlights take the room in the same shares, the title in the
   same place after the traffic lights. thread-links.sh's Swift typechecked
   and run on Tinker Desk (it has no Threadbear, so "open nothing").
+### 2026-11-11 The slash palette sized by its edges and columns, kept, with its defaults on a right-click (`composer.slash.resize`)
+
+- The palette's top, sides and top corners are 10-point bands (PaletteFrame)
+  with the resize pointer, lit in the accent while hovered or dragged: the
+  top drags it taller, a side wider on both sides at once, so it stays
+  centred over the box, and a corner both. Kept within the window (never
+  under 220 tall or 480 wide, never over 85% of the window's height or its
+  width less 80), and never past its sides: a wide one is pushed in from
+  the window's edge.
+- The lines between its columns drag the column on their left (the
+  categories at least 110, the list 120, the description keeping 200), and a
+  double-click puts one back to its own width (ResizeHandle).
+- A right-click anywhere on it has Default Size and Default Column Widths.
+- What it's dragged to is kept for next time, in the app's own
+  `gpui-prefs.json` (`slashLayout`), as the Swift app keeps
+  `slashPaletteLayout` in UserDefaults; the sums are core's `PaletteLayout`
+  and `PaletteEdge`, with their tests.
+- Its auto height is now worked out in points, so it's the same at any zoom.
+- Scripts: the GPUI app takes `palette-drag` (`edge`: top, left, right,
+  topLeft, topRight, categories or list, with `dx` and `dy` in points: a
+  real press, moves and release on it) and `palette-menu` (a real right-click
+  on it, listing or `click`ing its items), and its dump's palette says its
+  `size` and `columns` in points. The Swift palette is a panel window whose
+  edges follow the real pointer (NSEvent.mouseLocation), which a script
+  can't move without taking the Mac's own, so its three scenarios are
+  pending there.
+- Files: `desktop/core/src/slash.rs`, `desktop/gpui/src/slash_resize.rs`
+  (new), `desktop/gpui/src/{slash_palette,prefs,automation,main}.rs`,
+  `features/slash-palette.feature` and its steps.
+- Verification: slash-palette.feature on Tinker Desk against the GPUI app,
+  12 of 12 with the three new ones (taller and kept after closing and
+  opening, Default Size back, wider by its side then the list by its line);
+  core's tests. A picture of the GPUI palette dragged 300 wider and 60
+  taller, centred over the box with its edge lit, beside the Swift one at
+  its default size.
+
 ### 2026-11-11 The card: another lab's review, the slide between pages, picks as chips while it's folded, pictures in a Something else box, and the beep (`card.review`, `card.paging`, `card.collapse`, `card.somethingelse`, `card.returnflow`)
 
 - A turn that answered another lab's findings carries the ledger on its

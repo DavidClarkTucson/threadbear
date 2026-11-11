@@ -78,6 +78,7 @@ mod shell;
 mod shell_blocks;
 mod sidebar;
 mod slash_palette;
+mod slash_resize;
 mod style;
 mod terminal;
 mod terminal_element;

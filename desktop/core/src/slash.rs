@@ -283,6 +283,85 @@ pub fn palette_height(window: f64, least: f64, most: f64) -> f64 {
     most.min(least.max(window * 0.5))
 }
 
+/// The sizes Mike dragged the palette and its columns to, kept for next time
+/// (SlashPalette.Layout, AppModel.slashPaletteLayout). None: worked out as
+/// before.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct PaletteLayout {
+    pub height: Option<f64>,
+    pub width: Option<f64>,
+    pub categories: Option<f64>,
+    pub list: Option<f64>,
+}
+
+impl PaletteLayout {
+    /// A dragged height, kept to what the window has room for: never under
+    /// 220, never more than 85% of it.
+    pub fn height_in(h: f64, window: f64) -> f64 {
+        h.max(220.).min((window * 0.85).max(220.))
+    }
+
+    /// A dragged width: never under 480 (three columns and their words),
+    /// never wider than the window less a margin each side.
+    pub fn width_in(w: f64, window: f64) -> f64 {
+        w.max(480.).min((window - 80.).max(480.))
+    }
+
+    /// A dragged column: at least its least, and leaving the others theirs
+    /// in a palette `total` wide.
+    pub fn column(w: f64, least: f64, others: f64, total: f64) -> f64 {
+        w.max(least).min(least.max(total - others))
+    }
+}
+
+/// Which of the palette's edges is being dragged (PaletteFrame.Edge).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaletteEdge {
+    Top,
+    Leading,
+    Trailing,
+    TopLeading,
+    TopTrailing,
+}
+
+impl PaletteEdge {
+    /// The size a drag that started at `start` (width, height) makes, the
+    /// pointer having moved `dx` right and `dy` down. It stays on the box and
+    /// centred over it, so a side grows both sides at once
+    /// (SlashPaletteCoordinator.resizeToPointer).
+    pub fn resized(self, start: (f64, f64), dx: f64, dy: f64) -> (f64, f64) {
+        let (mut width, mut height) = start;
+        match self {
+            PaletteEdge::Top => height -= dy,
+            PaletteEdge::Leading => width -= 2. * dx,
+            PaletteEdge::Trailing => width += 2. * dx,
+            PaletteEdge::TopLeading => {
+                height -= dy;
+                width -= 2. * dx;
+            }
+            PaletteEdge::TopTrailing => {
+                height -= dy;
+                width += 2. * dx;
+            }
+        }
+        (width, height)
+    }
+
+    /// What's kept once it's let go (SlashPaletteCoordinator.endResize): the
+    /// width after a side, the height after the top, both after a corner.
+    pub fn kept(self, layout: PaletteLayout, size: (f64, f64)) -> PaletteLayout {
+        let mut out = layout;
+        if self != PaletteEdge::Top {
+            out.width = Some(size.0);
+        }
+        if !matches!(self, PaletteEdge::Leading | PaletteEdge::Trailing) {
+            out.height = Some(size.1);
+        }
+        out
+    }
+}
+
 /// The keys the palette takes from the composer while it's open
 /// (`PaletteKey`); the cursor stays in the box, so typing keeps narrowing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -513,5 +592,32 @@ mod tests {
         assert_eq!(picked(&list, &state).unwrap().name, "model");
         state.selected = Some("ship".to_owned());
         assert_eq!(picked(&list, &state).unwrap().name, "ship");
+    }
+
+    #[test]
+    fn a_dragged_palette_keeps_to_the_window() {
+        assert_eq!(PaletteLayout::height_in(100., 900.), 220., "never under 220");
+        assert_eq!(PaletteLayout::height_in(2000., 900.), 765., "never over 85% of the window");
+        assert_eq!(PaletteLayout::height_in(400., 200.), 220., "220 even in a short window");
+        assert_eq!(PaletteLayout::width_in(300., 1200.), 480.);
+        assert_eq!(PaletteLayout::width_in(2000., 1200.), 1120.);
+        assert_eq!(PaletteLayout::column(50., 110., 400., 900.), 110.);
+        assert_eq!(PaletteLayout::column(700., 110., 400., 900.), 500., "leaving the others theirs");
+    }
+
+    #[test]
+    fn an_edge_resizes_from_the_middle_and_keeps_what_it_moved() {
+        let start = (600., 300.);
+        // Up 40 (y goes down the screen) and right 25.
+        assert_eq!(PaletteEdge::Top.resized(start, 25., -40.), (600., 340.));
+        assert_eq!(PaletteEdge::Trailing.resized(start, 25., -40.), (650., 300.), "a side grows both sides at once");
+        assert_eq!(PaletteEdge::Leading.resized(start, 25., -40.), (550., 300.));
+        assert_eq!(PaletteEdge::TopLeading.resized(start, -10., -40.), (620., 340.));
+        let kept = PaletteEdge::Top.kept(PaletteLayout { width: Some(500.), ..PaletteLayout::default() }, (600., 340.));
+        assert_eq!((kept.width, kept.height), (Some(500.), Some(340.)), "the top keeps the height alone");
+        let kept = PaletteEdge::Trailing.kept(PaletteLayout::default(), (650., 300.));
+        assert_eq!((kept.width, kept.height), (Some(650.), None));
+        let kept = PaletteEdge::TopTrailing.kept(PaletteLayout::default(), (650., 340.));
+        assert_eq!((kept.width, kept.height), (Some(650.), Some(340.)));
     }
 }
