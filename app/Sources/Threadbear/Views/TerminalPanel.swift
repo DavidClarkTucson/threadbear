@@ -109,7 +109,10 @@ final class Terminals {
         }
     }
 
-    enum PutOutcome { case typed, alreadyThere, busy }
+    /// `busy` and `occupied` are copied instead: another program has the
+    /// terminal or someone's own text is on the prompt, or another command
+    /// put there is waiting for Return.
+    enum PutOutcome { case typed, alreadyThere, busy, occupied }
 
     /// Threads with a command on its way, so a second click while the shell
     /// is still starting doesn't queue another.
@@ -146,10 +149,8 @@ final class Terminals {
                 case .type:
                     session.put(block.command)
                     return done(.typed)
-                case .replaceLast:
-                    guard await session.clearLastPut() else { return done(.busy) }
-                    session.put(block.command)
-                    return done(.typed)
+                case .occupied:
+                    return done(.occupied)
                 case .alreadyThere:
                     return done(.alreadyThere)
                 case .busy:
@@ -218,9 +219,35 @@ final class PromptWatchingTerminalView: LocalProcessTerminalView {
         return nil
     }
 
+    /// ⌘V. When the program hasn't asked for pastes to be marked and the
+    /// text has a line break, each line would run as it arrived, so that's
+    /// asked about first (TerminalPut.pasteRuns).
     override func paste(_ sender: Any) {
+        let text = NSPasteboard.general.string(forType: .string) ?? ""
+        guard asksToPaste(text) else { return }
         onText?()
         super.paste(sender)
+    }
+
+    /// The same for the automation's paste, which hands over its text.
+    func pasteAsked(_ text: String) {
+        guard asksToPaste(text) else { return }
+        onText?()
+        pasteText(text)
+    }
+
+    /// True to go ahead. A scripted app never asks (no one would answer)
+    /// and takes Cancel.
+    private func asksToPaste(_ text: String) -> Bool {
+        guard !terminalStateSnapshot().bracketedPasteMode, TerminalPut.pasteRuns(text) else { return true }
+        if Automation.instanceId != nil { return false }
+        let question = TerminalPut.pasteQuestion(text)
+        let alert = NSAlert()
+        alert.messageText = question.title
+        alert.informativeText = question.detail
+        alert.addButton(withTitle: "Paste")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// Dictation and input methods. A key that lands here has been seen
@@ -285,6 +312,9 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
     private(set) var exited = false
     private(set) var title = ""
     @ObservationIgnored let startedAt = Date()
+    /// The shell's program, links followed, which has to be what owns the
+    /// terminal before anything's typed there.
+    @ObservationIgnored private var shellProgram: String?
     /// How long a new shell may take to reach its first prompt, after
     /// which it's treated as busy and the command is copied.
     static let startingFor: TimeInterval = 10
@@ -313,6 +343,7 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
         // A login shell ("-zsh" as its name), so it reads your profile and
         // has the PATH Terminal gives you, which an app's own doesn't.
         let name = "-" + (shell as NSString).lastPathComponent
+        shellProgram = TerminalPut.realPath(shell)
         view.startProcess(executable: shell, args: [], environment: Self.environment(), execName: name, currentDirectory: target.cwd)
     }
 
@@ -357,33 +388,22 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
         promptLine = .put(text)
     }
 
-    /// Deletes the last command put here, which is known to be everything
-    /// on the prompt with the cursor at its end (TerminalPut.Line.put).
-    /// Ctrl-U clears a line in zsh, bash and fish, but zsh and fish take it
-    /// a line of a multi-line paste at a time, and fish needs a second go
-    /// to remove each newline; any extra ones land on an empty prompt and
-    /// do nothing. Says whether it went, so a shell with its keys rebound
-    /// doesn't end up with two commands run together.
-    func clearLastPut() async -> Bool {
-        guard case .put(let text) = promptLine else { return false }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
-        view.send(txt: String(repeating: "\u{15}", count: lines * 2))
-        for _ in 0..<30 {
-            try? await Task.sleep(for: .milliseconds(20))
-            let screen = view.terminalStateSnapshot().visibleRows.map(\.text).joined(separator: "\n")
-            if !TerminalPut.endsWith(screen, text) {
-                promptLine = .empty
-                return true
-            }
-        }
-        return false
-    }
-
-    /// The shell owns the terminal, rather than a program it's running.
+    /// The shell owns the terminal, rather than a program it's running: its
+    /// own group has the terminal, and it's still the shell, as `exec ssh`
+    /// and `exec vim` keep both its pid and its group.
     private var shellInFront: Bool {
         let pid = view.process?.shellPid ?? 0
         let fd = view.process?.childfd ?? -1
-        return pid > 0 && fd >= 0 && tcgetpgrp(fd) == pid
+        guard pid > 0, fd >= 0, tcgetpgrp(fd) == pid, let shellProgram, let running = Self.program(of: pid) else { return false }
+        return TerminalPut.isTheShell(started: shellProgram, running: running)
+    }
+
+    /// The program a process is running now.
+    private static func program(of pid: pid_t) -> String? {
+        // PROC_PIDPATHINFO_MAXSIZE, which Swift doesn't see.
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+        return String(cString: path)
     }
 
     /// A key on its way to this terminal. Keys for a running program (vim's

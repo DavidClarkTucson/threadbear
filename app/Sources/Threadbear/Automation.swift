@@ -1542,7 +1542,7 @@ enum Automation {
                 // As the block's play icon (TranscriptTextView.press): copied
                 // instead when the shell's busy.
                 app.putInTerminal(ShellBlock(command: command), from: app.selection) { outcome in
-                    if outcome == .busy { ShellBlockIcons.copy(command) }
+                    if outcome == .busy || outcome == .occupied { ShellBlockIcons.copy(command) }
                 }
             }
             if let session = Terminals.shared.existing(for: target) {
@@ -1553,7 +1553,7 @@ enum Automation {
                     app.pasteboard.clearContents()
                     app.pasteboard.setString(text, forType: .string)
                 }
-                if let text = c["paste"] as? String { session.view.pasteText(text) }
+                if let text = c["paste"] as? String { session.view.pasteAsked(text) }
                 if let lines = c["scroll"] as? Int {
                     if lines < 0 { session.view.scrollUp(lines: -lines) } else { session.view.scrollDown(lines: lines) }
                 }

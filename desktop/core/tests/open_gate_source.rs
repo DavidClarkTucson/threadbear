@@ -28,15 +28,20 @@ const OPENERS: &[&str] = &[
     "EditorHost",
 ];
 
-/// The gate itself, a test helper that starts the mock runner, the
+/// The gate itself, a test helper that starts the mock runner, and the
 /// connection bar's Start runner, which runs launchctl on the runner's own
 /// LaunchAgent (and `id -u` for the user) with fixed arguments: nothing a link,
-/// a file or the runner names; and the Terminal panel, which starts your login
-/// shell (`$SHELL -l` through `env -u`, threadbear_core::terminal::launch) in a
-/// pty in a thread's folder or your home folder, as Terminal would, and runs
-/// nothing a reply, a link or a file says (a shell block's command is typed at
-/// its prompt for you to run, never run).
-const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs", "gpui/src/runner_launcher.rs", "gpui/src/terminal.rs"];
+/// a file or the runner names.
+const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs", "gpui/src/runner_launcher.rs"];
+
+/// Single lines elsewhere, each by its file and the text it holds, allowed
+/// exactly as many times as listed, so anything else in the same file is
+/// still caught (Codex's review, 11 Nov: the whole Terminal file was let off).
+/// The Terminal panel starts your login shell (`$SHELL -l` through `env -u`,
+/// threadbear_core::terminal::launch) in a pty in a thread's folder or your
+/// home folder, as Terminal would, and runs nothing a reply, a link or a file
+/// says (a shell block's command is typed at its prompt for you to run).
+const ALLOWED_LINES: &[(&str, &str, usize)] = &[("gpui/src/terminal.rs", "let pty = tty::new(&options, self.size.window_size(), 0)?;", 1)];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -63,6 +68,7 @@ fn nothing_opens_outside_the_gate() {
     }
     assert!(files.iter().any(|f| f.ends_with("gpui/src/open_gate.rs")), "the gate wasn't found, so this test isn't looking in the right place");
     let mut found = Vec::new();
+    let mut allowed_seen = vec![0; ALLOWED_LINES.len()];
     for file in &files {
         let rel = file.strip_prefix(&desktop).unwrap().to_string_lossy().replace('\\', "/");
         if ALLOWED.contains(&rel.as_str()) {
@@ -70,6 +76,10 @@ fn nothing_opens_outside_the_gate() {
         }
         let text = std::fs::read_to_string(file).unwrap();
         for (n, line) in text.lines().enumerate() {
+            if let Some(i) = ALLOWED_LINES.iter().position(|(f, l, _)| *f == rel && line.trim() == *l) {
+                allowed_seen[i] += 1;
+                continue;
+            }
             // Comments may name them; `file://` itself has a `//` in it, so
             // only whole comment lines are passed over.
             if line.trim_start().starts_with("//") {
@@ -83,6 +93,9 @@ fn nothing_opens_outside_the_gate() {
         }
     }
     assert!(found.is_empty(), "open links and files through open_gate.rs (open_web, open_link, open_file, reveal), not directly:\n{}", found.join("\n"));
+    for ((file, line, times), seen) in ALLOWED_LINES.iter().zip(allowed_seen) {
+        assert_eq!(seen, *times, "{file} should have `{line}` {times} time(s): if it has moved or changed, say why it's safe and change ALLOWED_LINES");
+    }
 }
 
 /// The gate's own sink is the only `open_url` in it, so everything in it

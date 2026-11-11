@@ -709,13 +709,14 @@ final class TranscriptTextView: NSTextView {
             // The thread this transcript is, so the command only ever goes to
             // that thread's own shell (AppModel.putInTerminal(_:from:)).
             AppModel.shared.putInTerminal(ShellBlock(command: hit.command), from: transcriptThreadId) { [weak self] outcome in
-                guard outcome == .busy, let self else { return }
-                // Nothing typed over a running program or someone's own
-                // half-typed line, and the command isn't lost.
+                guard outcome == .busy || outcome == .occupied, let self else { return }
+                // Nothing typed over a running program, someone's own
+                // half-typed line or another command, and it isn't lost.
                 ShellBlockIcons.clearPressed(.put, hit.command)
                 ShellBlockIcons.copy(hit.command)
                 self.setNeedsDisplay(hit.rect)
-                CopiedBubble.show(above: hit.rect, in: self, text: "Terminal's in use, so it's copied")
+                let why = outcome == .busy ? "Terminal's in use, so it's copied" : "Another command's waiting for Return, so it's copied"
+                CopiedBubble.show(above: hit.rect, in: self, text: why)
             }
         }
     }

@@ -83,9 +83,11 @@ public enum TerminalPut {
         case wait
         case type
         /// The last command put here is still at the prompt, unrun, and
-        /// this is a different one: it goes in place of that one, as run
-        /// together they'd make a third command nobody wrote.
-        case replaceLast
+        /// this is a different one. It's copied rather than typed: after
+        /// the first, the two would run as a third command nobody wrote,
+        /// and clearing the first would mean sending keys (^U) a shell can
+        /// have bound to anything, Return included (Codex's review, 11 Nov).
+        case occupied
         /// It's already sitting at the prompt (a second click): only the
         /// keyboard needs to go there.
         case alreadyThere
@@ -109,7 +111,7 @@ public enum TerminalPut {
         switch line {
         case .empty: return .type
         case .put(block.command): return .alreadyThere
-        case .put: return .replaceLast
+        case .put: return .occupied
         case .edited: return .busy
         }
     }
@@ -126,11 +128,42 @@ public enum TerminalPut {
         return .edited
     }
 
-    /// Whether the screen ends with the command, ignoring whitespace, as a
-    /// terminal wraps a long one and pads its lines. Only good for checking
-    /// that a line just cleared has gone: it can't tell `"a b"` from `"ab"`.
-    public static func endsWith(_ screen: String, _ command: String) -> Bool {
-        let wanted = command.filter { !$0.isWhitespace }
-        return !wanted.isEmpty && screen.filter { !$0.isWhitespace }.hasSuffix(wanted)
+    /// Whether pasting `text` with no brackets would run something by
+    /// itself: each line break goes in as Return, so at a shell's prompt
+    /// every line before one runs as it arrives, with no chance to read it.
+    /// That's macOS's own bash, which never asks for brackets, and any
+    /// program that hasn't (Codex's review, 11 Nov: a shell block copied
+    /// when the Terminal was busy, pasted there later, ran its first lines).
+    /// SwiftTerm sees it too, then pastes it anyway (`pasteText`), so the
+    /// app asks first, as Windows Terminal and iTerm do.
+    public static func pasteRuns(_ text: String) -> Bool {
+        text.contains("\n") || text.contains("\r")
+    }
+
+    /// What's asked before such a paste: its title and the line under it.
+    public static func pasteQuestion(_ text: String) -> (title: String, detail: String) {
+        var lines = 0
+        text.enumerateLines { _, _ in lines += 1 }
+        lines = max(lines, 1)
+        return (lines == 1 ? "Paste this line?" : "Paste \(lines) lines?",
+                "The program in this terminal will take each line break as Return, so at a shell's prompt each line runs as soon as it's pasted.")
+    }
+
+    /// Whether the program in front of the terminal is the shell that was
+    /// started there, from the paths of both (symlinks followed): `exec ssh
+    /// -tt elsewhere` or `exec vim` keeps the shell's process, and its hold
+    /// on the terminal, but a command typed there would go to that machine
+    /// or program (Codex's review, 11 Nov).
+    public static func isTheShell(started: String, running: String) -> Bool {
+        started == running || realPath(running) == started
+    }
+
+    /// `path` with every link followed, as the system names the file
+    /// (`realpath`, as the proc_pidpath it's checked against does; NSString's
+    /// own drops a leading /private), or nil when there's nothing there.
+    public static func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 }

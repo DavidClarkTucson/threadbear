@@ -101,6 +101,9 @@ pub struct Launch {
     pub program: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    /// The shell `program` ends up running (`env` execs it), which has to
+    /// be what owns the terminal before a command is typed there.
+    pub shell: String,
 }
 
 /// Variables the shell mustn't inherit. A thread id makes the runner read
@@ -147,7 +150,7 @@ pub fn launch(os: Os, shell: Option<&str>, lang: Option<&str>) -> Launch {
         env.push(("LANG".to_owned(), "en_US.UTF-8".to_owned()));
     }
     if os == Os::Windows {
-        return Launch { program: "powershell.exe".to_owned(), args: vec!["-NoLogo".to_owned()], env };
+        return Launch { program: "powershell.exe".to_owned(), args: vec!["-NoLogo".to_owned()], env, shell: "powershell.exe".to_owned() };
     }
     let fallback = if os == Os::Mac { "/bin/zsh" } else { "/bin/sh" };
     let shell = shell.filter(|s| s.starts_with('/')).unwrap_or(fallback);
@@ -155,7 +158,7 @@ pub fn launch(os: Os, shell: Option<&str>, lang: Option<&str>) -> Launch {
     // `-l` is a login shell in zsh, bash, fish and the rest, as the "-zsh"
     // Terminal and the Swift app start is.
     args.extend([shell.to_owned(), "-l".to_owned()]);
-    Launch { program: "/usr/bin/env".to_owned(), args, env }
+    Launch { program: "/usr/bin/env".to_owned(), args, env, shell: shell.to_owned() }
 }
 
 // ---------------------------------------------------------------- keys
@@ -329,14 +332,34 @@ fn control_code(c: char) -> Option<u8> {
 /// A paste, as a terminal sends it: line breaks as Return, inside the brackets
 /// when the program asked for them (bracketed paste), so a newline in it runs
 /// nothing. Inside the brackets nothing may end them early: any ESC goes, as a
-/// pasted `ESC [ 201 ~` would let what follows run by itself.
+/// pasted `ESC [ 201 ~` would let what follows run by itself. Without them
+/// every control character but Tab and Return goes too: each would be a key
+/// pressed (^C, ^D, ^U, an ESC that starts a vim command), not text.
 pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
     let text = text.replace("\r\n", "\r").replace('\n', "\r");
     if !bracketed {
-        return text.into_bytes();
+        return text.chars().filter(|c| !c.is_control() || matches!(c, '\t' | '\r')).collect::<String>().into_bytes();
     }
     let inner: String = text.chars().filter(|c| *c != '\u{1b}' && *c != '\u{9b}').collect();
     [b"\x1b[200~".as_slice(), inner.as_bytes(), b"\x1b[201~".as_slice()].concat()
+}
+
+/// Whether pasting `text` with no brackets would run something by itself:
+/// each line break goes in as Return, so at a shell's prompt every line before
+/// one runs as it arrives, with no chance to read it. That's macOS's own bash,
+/// which never asks for brackets, and any program that hasn't (Codex's review,
+/// 11 Nov: a shell block copied when the Terminal was busy, pasted there
+/// later, ran its first lines). So the app asks first, as Windows Terminal
+/// and iTerm do.
+pub fn paste_runs(text: &str) -> bool {
+    text.contains(['\n', '\r'])
+}
+
+/// What's asked before such a paste: its title and the line under it.
+pub fn paste_question(text: &str) -> (String, &'static str) {
+    let lines = text.lines().count().max(1);
+    let title = if lines == 1 { "Paste this line?".to_owned() } else { format!("Paste {lines} lines?") };
+    (title, "The program in this terminal will take each line break as Return, so at a shell's prompt each line runs as soon as it's pasted.")
 }
 
 // ---------------------------------------------------------------- the mouse
@@ -550,9 +573,11 @@ pub enum Step {
     Wait,
     Type,
     /// The last command put here is still at the prompt, unrun, and this is a
-    /// different one: it goes in place of that one, as run together they'd
-    /// make a third command nobody wrote.
-    ReplaceLast,
+    /// different one. It's copied rather than typed: after the first, the two
+    /// would run as a third command nobody wrote, and clearing the first
+    /// would mean sending keys (^U) a shell can have bound to anything,
+    /// Return included (Codex's review, 11 Nov).
+    Occupied,
     /// It's already sitting at the prompt (a second click): only the keyboard
     /// needs to go there.
     AlreadyThere,
@@ -582,7 +607,7 @@ pub fn step(block: &ShellBlock, shell_in_front: bool, bracketed_paste: bool, sta
     match line {
         Line::Empty => Step::Type,
         Line::Put(command) if *command == block.command => Step::AlreadyThere,
-        Line::Put(_) => Step::ReplaceLast,
+        Line::Put(_) => Step::Occupied,
         Line::Edited => Step::Busy,
     }
 }
@@ -603,22 +628,13 @@ pub fn line_after_key(line: &Line, key: &str, control: bool, alt: bool, shift: b
     Line::Edited
 }
 
-/// What clears the last command put here, known to be everything on the
-/// prompt with the cursor at its end: ^U clears a line in zsh, bash and fish,
-/// but zsh and fish take it a line of a multi-line paste at a time, and fish
-/// needs a second go to remove each newline; any extra land on an empty prompt
-/// and do nothing.
-pub fn clear_put(command: &str) -> Vec<u8> {
-    vec![0x15; command.split('\n').count() * 2]
-}
-
-/// Whether the screen ends with the command, ignoring whitespace, as a
-/// terminal wraps a long one and pads its lines (`TerminalPut.endsWith`).
-/// Only good for checking that a line just cleared has gone: it can't tell
-/// `"a b"` from `"ab"`.
-pub fn ends_with(screen: &str, command: &str) -> bool {
-    let wanted: String = command.chars().filter(|c| !c.is_whitespace()).collect();
-    !wanted.is_empty() && screen.chars().filter(|c| !c.is_whitespace()).collect::<String>().ends_with(&wanted)
+/// Whether the program in front of the terminal is the shell that was
+/// started there, from the paths of both (symlinks followed): `exec ssh -tt
+/// elsewhere` or `exec vim` keeps the shell's process, and its hold on the
+/// terminal, but a command typed there would go to that machine or program
+/// (Codex's review, 11 Nov).
+pub fn is_the_shell(started: &std::path::Path, running: &std::path::Path) -> bool {
+    started == running || std::fs::canonicalize(running).is_ok_and(|r| r == started)
 }
 
 // ---------------------------------------------------------------- colours
@@ -846,6 +862,7 @@ mod tests {
         let l = launch(Os::Mac, Some("/opt/homebrew/bin/fish"), Some("en_GB.UTF-8"));
         assert_eq!(l.program, "/usr/bin/env");
         assert_eq!(&l.args[l.args.len() - 2..], ["/opt/homebrew/bin/fish", "-l"]);
+        assert_eq!(l.shell, "/opt/homebrew/bin/fish");
         for name in ["THREADBEAR_THREAD_ID", "THREADBARE_THREAD_ID", "THREADBEAR_THREAD_KEY"] {
             assert!(l.args.windows(2).any(|w| w[0] == "-u" && w[1] == name), "{name}");
         }
@@ -953,6 +970,8 @@ mod tests {
     #[test]
     fn a_paste_is_bracketed_and_cant_close_its_own_brackets() {
         assert_eq!(paste_bytes("a\nb", false), b"a\rb");
+        // With no brackets a control character would be a key pressed.
+        assert_eq!(paste_bytes("ls\x03\x1b:q!\x15\x7f\u{9b}\tx", false), b"ls:q!\tx");
         assert_eq!(paste_bytes("ls\r\n", true), b"\x1b[200~ls\r\x1b[201~");
         assert_eq!(paste_bytes("echo\x1b[201~\nrm -rf ~", true), b"\x1b[200~echo[201~\rrm -rf ~\x1b[201~");
     }
@@ -1066,10 +1085,38 @@ mod tests {
     }
 
     #[test]
-    fn a_different_block_replaces_the_one_still_at_the_prompt() {
-        assert_eq!(put_step("ls", true, true, false, Line::Put("npm test".into())), Step::ReplaceLast);
+    fn a_different_block_is_copied_while_one_waits_at_the_prompt() {
+        assert_eq!(put_step("ls", true, true, false, Line::Put("npm test".into())), Step::Occupied);
         assert_eq!(put_step("npm test", true, true, false, Line::Put("npm test".into())), Step::AlreadyThere);
-        assert_eq!(put_step("echo \"a b\"", true, true, false, Line::Put("echo \"ab\"".into())), Step::ReplaceLast);
+        assert_eq!(put_step("echo \"a b\"", true, true, false, Line::Put("echo \"ab\"".into())), Step::Occupied);
+    }
+
+    #[test]
+    fn a_paste_that_would_run_lines_is_asked_about() {
+        assert!(!paste_runs("echo one"));
+        assert!(paste_runs("touch /tmp/x\n"));
+        assert!(paste_runs("a\rb"));
+        assert_eq!(paste_question("a\nb\n").0, "Paste 2 lines?");
+        assert_eq!(paste_question("ls\n").0, "Paste this line?");
+    }
+
+    #[test]
+    fn the_shell_is_known_by_its_program() {
+        let dir = std::env::temp_dir().join(format!("tb-shell-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("zsh");
+        std::fs::write(&real, "").unwrap();
+        let real = std::fs::canonicalize(&real).unwrap();
+        assert!(is_the_shell(&real, &real));
+        #[cfg(unix)]
+        {
+            let link = dir.join("link");
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            assert!(is_the_shell(&real, &link), "a link to it is it");
+        }
+        assert!(!is_the_shell(&real, std::path::Path::new("/usr/bin/ssh")));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -1086,17 +1133,6 @@ mod tests {
         assert_eq!(line_after_key(&put, "c", false, false, false, false), Line::Edited, "a plain c is just a c");
     }
 
-    #[test]
-    fn clearing_a_put_command_takes_two_goes_a_line() {
-        assert_eq!(clear_put("ls"), vec![0x15, 0x15]);
-        assert_eq!(clear_put("a\nb"), vec![0x15; 4]);
-    }
-
-    #[test]
-    fn ends_with_sees_through_wrapping() {
-        assert!(ends_with("~ $ npx convex\n run --prod x   \n\n", "npx convex run --prod x"));
-        assert!(!ends_with("~ $ ls\nfile\n~ $ ", "ls"));
-    }
 
     #[test]
     fn the_256_colours_run_from_the_panels_background_to_its_text() {

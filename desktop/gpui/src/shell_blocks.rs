@@ -44,7 +44,7 @@ const NOTE_FOR: Duration = Duration::from_millis(2500);
 /// moment, and when one couldn't be typed and was copied instead. Read as
 /// they're drawn; only touched on the app's own thread.
 static PRESSED: Mutex<Vec<(Icon, String, Instant)>> = Mutex::new(Vec::new());
-static BUSY: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+static BUSY: Mutex<Option<(String, Instant, &'static str)>> = Mutex::new(None);
 
 fn mark(icon: Icon, command: &str) {
     let mut pressed = PRESSED.lock().unwrap_or_else(|e| e.into_inner());
@@ -60,8 +60,9 @@ fn ticked(icon: Icon, command: &str) -> bool {
     PRESSED.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(i, c, at)| *i == icon && c == command && at.elapsed() < TICK_FOR)
 }
 
-fn copied_because_busy(command: &str) -> bool {
-    BUSY.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(c, at)| c == command && at.elapsed() < NOTE_FOR)
+/// Why `command` was just copied rather than typed, while that's shown.
+fn copied_because(command: &str) -> Option<&'static str> {
+    BUSY.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|(c, at, _)| c == command && at.elapsed() < NOTE_FOR).map(|(_, _, why)| *why)
 }
 
 /// Everything drawn again once a tick or a note is due to go.
@@ -94,7 +95,7 @@ pub(crate) fn with_icons(text: gpui_kit::base::TextView, source: &str, thread: &
 
 fn icons(command: &str, thread: &str, cx: &App) -> impl IntoElement {
     let put = crate::terminal::shows_put(thread, cx);
-    let busy = copied_because_busy(command);
+    let busy = copied_because(command);
     // Lined up with the block's first line, 6 in from its right edge, as the
     // Swift box draws them (ShellBlockIcons.rect). The kit's corner is 8 in
     // and fills its actions with the block's own translucent colour, which
@@ -103,7 +104,7 @@ fn icons(command: &str, thread: &str, cx: &App) -> impl IntoElement {
         h_flex()
             .gap(px(2.))
             .items_center()
-            .when(busy, |row| {
+            .when_some(busy, |row, why| {
                 // Over the code, in the window's own colour so it reads.
                 row.child(
                     div()
@@ -116,7 +117,7 @@ fn icons(command: &str, thread: &str, cx: &App) -> impl IntoElement {
                         .line_height(px(style::natural_line(style::size::DETAIL)))
                         .text_color(style::secondary_text(cx))
                         .whitespace_nowrap()
-                        .child("Terminal's in use, so it's copied"),
+                        .child(why),
                 )
             })
             .when(put, |row| row.child(icon(Icon::Put, command, thread, cx)))
@@ -185,15 +186,18 @@ pub(crate) fn put(command: &str, thread: &str, window: &mut Window, cx: &mut App
     let Some(task) = app.update(cx, |a, cx| crate::terminal::put_in_terminal(a, block, thread, window, cx)) else { return };
     let command = command.to_owned();
     cx.spawn(async move |cx| {
-        if task.await == Some(PutOutcome::Busy) {
-            let _ = cx.update(|cx| {
-                unmark(Icon::Put, &command);
-                cx.write_to_clipboard(ClipboardItem::new_string(command.clone()));
-                *BUSY.lock().unwrap_or_else(|e| e.into_inner()) = Some((command.clone(), Instant::now()));
-                cx.refresh_windows();
-                redraw_after(NOTE_FOR, cx);
-            });
-        }
+        let why = match task.await {
+            Some(PutOutcome::Busy) => "Terminal's in use, so it's copied",
+            Some(PutOutcome::Occupied) => "Another command's waiting for Return, so it's copied",
+            _ => return,
+        };
+        let _ = cx.update(|cx| {
+            unmark(Icon::Put, &command);
+            cx.write_to_clipboard(ClipboardItem::new_string(command.clone()));
+            *BUSY.lock().unwrap_or_else(|e| e.into_inner()) = Some((command.clone(), Instant::now(), why));
+            cx.refresh_windows();
+            redraw_after(NOTE_FOR, cx);
+        });
     })
     .detach();
 }

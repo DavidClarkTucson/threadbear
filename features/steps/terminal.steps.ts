@@ -97,6 +97,11 @@ When('I paste {string} into the Terminal and press Return', async function (this
   await this.app.do({ cmd: 'terminal', press: 'enter' });
 });
 
+// Two lines, each ending in a line break, as a block copied from a reply is.
+When('I paste the lines {string} and {string} into the Terminal', async function (this: ThreadbearWorld, first: string, second: string) {
+  await this.app.do({ cmd: 'terminal', paste: `${first}\n${second}\n` });
+});
+
 When('I note how many columns the Terminal has', async function (this: ThreadbearWorld) {
   // From a known width, so "wider" is the same step on both apps.
   state(this).width = 1000;
@@ -171,6 +176,27 @@ Then('the shell of {string} has stopped', async function (this: ThreadbearWorld,
   const id = state(this).ids.get(title);
   assert.ok(id, `"${title}" wasn't given a folder`);
   await this.until(`no shell for "${title}"`, (d) => !d.terminal?.shells.some((s) => s.startsWith(`thread:${id} `)));
+});
+
+// The process itself, by the pid the shell wrote in its folder, not just
+// the panel's row for it.
+Then('the shell that wrote {string} in the folder of {string} has ended', async function (this: ThreadbearWorld, file: string, title: string) {
+  const id = state(this).ids.get(title);
+  const folder = id ? state(this).folders.get(id) : undefined;
+  assert.ok(folder, `"${title}" wasn't given a folder`);
+  const pid = Number(fs.readFileSync(path.join(folder, file), 'utf8').trim());
+  assert.ok(pid > 1, `no pid in ${file}`);
+  // A shell ignoring SIGHUP takes the SIGTERM and SIGKILL that follow it.
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await new Promise((done) => setTimeout(done, 200));
+  }
+  assert.fail(`the shell (pid ${pid}) is still running`);
 });
 
 Then('the Terminal says {string}', async function (this: ThreadbearWorld, note: string) {

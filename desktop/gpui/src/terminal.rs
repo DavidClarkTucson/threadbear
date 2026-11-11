@@ -35,6 +35,7 @@ use gpui_kit::*;
 use serde_json::{json, Value};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -219,7 +220,11 @@ pub(crate) fn app(cx: &App) -> Option<Entity<Threadbear>> {
 pub(crate) enum PutOutcome {
     Typed,
     AlreadyThere,
+    /// Copied instead: another program has the terminal, or someone's own
+    /// text is on the prompt.
     Busy,
+    /// Copied instead: another command put here is waiting for Return.
+    Occupied,
 }
 
 /// A shell block's play icon (`putInTerminal`): the command at its thread's
@@ -347,20 +352,19 @@ impl Terminals {
         let key = target.key.clone();
         cx.spawn(async move |this, cx| {
             let outcome = loop {
-                match session.read_with(cx, |s, _| s.put_step(&block)) {
+                // Worked out and typed in one go, so nothing comes between.
+                let step = session.update(cx, |s, cx| {
+                    let step = s.put_step(&block);
+                    if step == Step::Type {
+                        s.put(&block.command, cx);
+                    }
+                    step
+                });
+                match step {
                     Step::Wait => cx.background_executor().timer(Duration::from_millis(50)).await,
-                    Step::Type => {
-                        session.update(cx, |s, cx| s.put(&block.command, cx));
-                        break Some(PutOutcome::Typed);
-                    }
-                    Step::ReplaceLast => {
-                        if clear_last_put(&session, cx).await {
-                            session.update(cx, |s, cx| s.put(&block.command, cx));
-                            break Some(PutOutcome::Typed);
-                        }
-                        break Some(PutOutcome::Busy);
-                    }
+                    Step::Type => break Some(PutOutcome::Typed),
                     Step::AlreadyThere => break Some(PutOutcome::AlreadyThere),
+                    Step::Occupied => break Some(PutOutcome::Occupied),
                     Step::Busy => break Some(PutOutcome::Busy),
                 }
             };
@@ -368,24 +372,6 @@ impl Terminals {
             outcome
         })
     }
-}
-
-/// Deletes the last command put in `session`, known to be everything on the
-/// prompt with the cursor at its end (`clearLastPut`), and says whether it
-/// went: a shell with its keys rebound mustn't end up with two commands run
-/// together.
-async fn clear_last_put(session: &Entity<Session>, cx: &mut AsyncApp) -> bool {
-    let Line::Put(text) = session.read_with(cx, |s, _| s.line.clone()) else { return false };
-    session.update(cx, |s, _| s.write(rules::clear_put(&text)));
-    for _ in 0..30 {
-        cx.background_executor().timer(Duration::from_millis(20)).await;
-        let screen = session.read_with(cx, |s, _| s.screen_lines().join("\n"));
-        if !rules::ends_with(&screen, &text) {
-            session.update(cx, |s, cx| s.set_line(Line::Empty, cx));
-            return true;
-        }
-    }
-    false
 }
 
 impl Render for Terminals {
@@ -569,8 +555,13 @@ pub(crate) struct Session {
     pub(crate) target: Target,
     pub(crate) term: Arc<FairMutex<Term<Listener>>>,
     shared: Arc<Shared>,
-    /// The shell's process, which leads its own session.
+    /// The shell's process, which leads its own session, and when it
+    /// started, which tells it from a later process given the same pid.
     pid: Option<i32>,
+    born: Option<Born>,
+    /// The shell's program, symlinks followed, which has to be what owns
+    /// the terminal before anything's typed there.
+    shell: Option<PathBuf>,
     /// Our own copy of the pty's controller, to ask who has the terminal.
     #[cfg(unix)]
     pty: Option<std::os::fd::OwnedFd>,
@@ -648,6 +639,8 @@ impl Session {
             term,
             shared,
             pid: None,
+            born: None,
+            shell: None,
             #[cfg(unix)]
             pty: None,
             started: Instant::now(),
@@ -690,10 +683,13 @@ impl Session {
         // Starts a program: the shell, as above, in a folder the thread names.
         // Nothing a link, a file or a page says (open_gate_source.rs allows it).
         let pty = tty::new(&options, self.size.window_size(), 0)?;
+        self.shell = std::fs::canonicalize(&launch.shell).ok();
         #[cfg(unix)]
         {
             use std::os::fd::AsFd as _;
-            self.pid = Some(pty.child().id() as i32);
+            let pid = pty.child().id() as i32;
+            self.pid = Some(pid);
+            self.born = born(pid);
             self.pty = pty.file().as_fd().try_clone_to_owned().ok();
         }
         let event_loop = EventLoop::new(self.term.clone(), Listener(self.shared.clone()), pty, true, false)?;
@@ -756,11 +752,13 @@ impl Session {
         }
     }
 
-    /// Ends the shell as closing a Terminal window does: SIGHUP, which an
-    /// interactive shell passes on to its jobs (SIGTERM is ignored by an
-    /// interactive zsh). Then the reader thread stops, closing the pty.
+    /// Ends the shell (`end_shell`), then the reader thread, which closes
+    /// the pty once the shell has gone.
     fn shut_down(&mut self) {
-        self.hang_up();
+        #[cfg(unix)]
+        if let (Some(pid), Some(when), true) = (self.pid, self.born, self.running()) {
+            end_shell(pid, when);
+        }
         if let Some(sender) = self.shared.sender.get() {
             let _ = sender.send(Msg::Shutdown);
         }
@@ -771,13 +769,18 @@ impl Session {
         }
     }
 
+    /// The app's quitting: SIGHUP, as closing Terminal does. A shell that
+    /// ignores it still goes, as the pty closes with the app and it reads
+    /// the end of its terminal.
     fn hang_up(&self) {
         #[cfg(unix)]
-        if let (Some(pid), false) = (self.pid, self.exited) {
-            unsafe {
-                libc::kill(pid, libc::SIGHUP);
-            }
+        if let (Some(pid), Some(when), true) = (self.pid, self.born, self.running()) {
+            signal(pid, when, libc::SIGHUP);
         }
+    }
+
+    fn running(&self) -> bool {
+        !self.exited && !self.shared.exited.load(Ordering::Acquire)
     }
 
     /// The shell owns the terminal, rather than a program it's running.
@@ -785,12 +788,14 @@ impl Session {
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd as _;
-            let (Some(pid), Some(pty)) = (self.pid, self.pty.as_ref()) else { return false };
-            if self.exited || self.shared.exited.load(Ordering::Acquire) {
+            let (Some(pid), Some(pty), Some(shell)) = (self.pid, self.pty.as_ref(), self.shell.as_ref()) else { return false };
+            if !self.running() {
                 return false;
             }
             let group = unsafe { libc::tcgetpgrp(pty.as_raw_fd()) };
-            group > 0 && group == pid
+            // Its own group has the terminal, and it's still the shell:
+            // `exec ssh` and `exec vim` keep both its pid and its group.
+            group > 0 && group == pid && program_of(pid).is_some_and(|now| rules::is_the_shell(shell, &now))
         }
         #[cfg(not(unix))]
         false
@@ -955,17 +960,40 @@ impl Session {
         }
     }
 
-    /// ⌘V: the clipboard's text as a paste, in brackets when the program asked.
+    /// ⌘V: the clipboard's text as a paste, in brackets when the program
+    /// asked. When it hasn't and the text has a line break, each line would
+    /// run as it arrived, so that's asked about first (`paste_runs`).
     fn paste(&mut self, cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else { return };
-        if self.exited || text.is_empty() {
+        if text.is_empty() || self.paste_now(&text, false, cx) {
             return;
+        }
+        // From a task: the question's loop can't run inside an update.
+        cx.spawn(async move |this, cx| {
+            let (title, detail) = rules::paste_question(&text);
+            if crate::alert::confirm(&title, detail, "Paste", "Cancel") {
+                let _ = this.update(cx, |s, cx| s.paste_now(&text, true, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Pastes `text` for the mode the program's in now (read once, for both
+    /// the check and the bytes), unless it would run lines and that hasn't
+    /// been said yes to: false then, with nothing sent.
+    fn paste_now(&mut self, text: &str, asked: bool, cx: &mut Context<Self>) -> bool {
+        if self.exited {
+            return true;
+        }
+        let bracketed = self.mode().contains(TermMode::BRACKETED_PASTE);
+        if !bracketed && !asked && rules::paste_runs(text) {
+            return false;
         }
         if self.shell_in_front() {
             self.line = Line::Edited;
         }
-        let bracketed = self.mode().contains(TermMode::BRACKETED_PASTE);
-        self.typed(rules::paste_bytes(&text, bracketed), cx);
+        self.typed(rules::paste_bytes(text, bracketed), cx);
+        true
     }
 
     fn select_all(&mut self, cx: &mut Context<Self>) {
@@ -1299,6 +1327,89 @@ pub(crate) fn dump(app: &Threadbear, cx: &App) -> Value {
         "screen": session.map(|s| s.screen_lines()),
         "shells": shells,
     })
+}
+
+// ---------------------------------------------------------------- the shell's process
+
+/// When a process started, which tells it from a later one given the same
+/// pid: the library reaps the shell when it ends, and its pid can then go to
+/// anything else, so a signal only goes to the same pid started at the same
+/// time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(unix), allow(dead_code))]
+struct Born(u64, u64);
+
+#[cfg(target_os = "macos")]
+fn born(pid: i32) -> Option<Born> {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    let read = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
+    (read == size).then_some(Born(info.pbi_start_tvsec, info.pbi_start_tvusec))
+}
+
+#[cfg(target_os = "linux")]
+fn born(pid: i32) -> Option<Born> {
+    // The 22nd field of /proc/<pid>/stat, clock ticks from boot to its
+    // start, counted after the name in brackets, which can have spaces in.
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let fields = &stat[stat.rfind(')')? + 1..];
+    Some(Born(fields.split_whitespace().nth(19)?.parse().ok()?, 0))
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn born(_pid: i32) -> Option<Born> {
+    None
+}
+
+/// The program a process is running now.
+#[cfg(target_os = "macos")]
+fn program_of(pid: i32) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt as _;
+    let mut path = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let read = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if read <= 0 {
+        return None;
+    }
+    path.truncate(read as usize);
+    Some(PathBuf::from(std::ffi::OsString::from_vec(path)))
+}
+
+#[cfg(target_os = "linux")]
+fn program_of(pid: i32) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn program_of(_pid: i32) -> Option<PathBuf> {
+    None
+}
+
+/// `signal` to the shell, if `pid` is still it.
+#[cfg(unix)]
+fn signal(pid: i32, when: Born, signal: i32) -> bool {
+    born(pid) == Some(when) && unsafe { libc::kill(pid, signal) } == 0
+}
+
+/// Ends a shell as closing a Terminal window does: SIGHUP, which an
+/// interactive shell passes on to its jobs. One that ignores it (`trap ''
+/// HUP`) would stay for good, still in a folder the next thread may be given:
+/// the library waits for it to end before closing the pty, so it never reads
+/// the end of its terminal either (Codex's review, 11 Nov). So it's asked
+/// again with SIGTERM, which an interactive zsh ignores too, and then made
+/// to go with SIGKILL, two seconds apart, on a thread of its own.
+#[cfg(unix)]
+fn end_shell(pid: i32, when: Born) {
+    if !signal(pid, when, libc::SIGHUP) {
+        return;
+    }
+    std::thread::spawn(move || {
+        for next in [libc::SIGTERM, libc::SIGKILL] {
+            std::thread::sleep(Duration::from_secs(2));
+            if !signal(pid, when, next) {
+                return;
+            }
+        }
+    });
 }
 
 /// The Swift app's `terminal` command: `{"toggle": true}` is ⌘J, `{"show":

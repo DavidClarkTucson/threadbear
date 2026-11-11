@@ -58,6 +58,18 @@ Feature: The Terminal
     When I paste "echo pasted-in" into the Terminal and press Return
     Then the Terminal shows the line "pasted-in"
 
+  # macOS's own bash never asks for pastes to be marked, so each line break
+  # would be Return. A scripted app answers the question with Cancel.
+  @terminal.panel
+  Scenario: Pasting lines that would each run asks first
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "/bin/bash --norc --noprofile" and press Return in the Terminal
+    And I paste the lines "echo pasted-one" and "echo pasted-two" into the Terminal
+    Then the Terminal doesn't show the line "pasted-one"
+    And the Terminal's prompt doesn't have "echo pasted-one"
+
   @terminal.panel
   Scenario: The shell is as wide as the panel
     Given the thread "Rename the Settings tabs" works in a folder of its own
@@ -107,6 +119,18 @@ Feature: The Terminal
     When I archive the open thread
     Then the shell of "Rename the Settings tabs" has stopped
 
+  # SIGHUP alone left such a shell running for good, still in the folder,
+  # as the pty waited for it to end before closing (Codex's review, 11 Nov).
+  @terminal.lifecycle
+  Scenario: Archiving a thread stops its shell even when it ignores the hang-up
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "trap '' HUP; echo $$ > shell.pid; echo ready" and press Return in the Terminal
+    Then the Terminal shows the line "ready"
+    When I archive the open thread
+    Then the shell that wrote "shell.pid" in the folder of "Rename the Settings tabs" has ended
+
   @terminal.lifecycle
   Scenario: A shell that has exited can be started again
     Given the thread "Rename the Settings tabs" works in a folder of its own
@@ -129,15 +153,30 @@ Feature: The Terminal
     When I press Return in the Terminal
     Then the Terminal shows the line "from-the-reply"
 
+  # Not typed in place of the first: clearing that would mean sending keys
+  # (^U) a shell can have bound to anything, Return included.
   @terminal.putcommand
-  Scenario: Another block's command takes the place of one still unrun
+  Scenario: Another block's command is copied while one waits unrun
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
     And I put "echo first-one" in the Terminal from its block
     Then the Terminal's prompt has "echo first-one" waiting for Return
     When I put "echo second-one" in the Terminal from its block
-    Then the Terminal's prompt has "echo second-one" waiting for Return
-    And the Terminal's prompt doesn't have "echo first-one"
+    Then "echo second-one" is copied instead
+    And the Terminal's prompt has "echo first-one" waiting for Return
+    And the Terminal's prompt doesn't have "echo second-one"
+
+  # `exec` keeps the shell's process and its hold on the terminal, so only the
+  # program it's running now says it isn't the shell (`exec ssh` would type
+  # into another machine). cat with pastes marked looks like a prompt otherwise.
+  @terminal.putcommand
+  Scenario: A shell that execs another program counts as busy
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "printf '\033[?2004h'; exec /bin/cat" and press Return in the Terminal
+    And I put "echo not-in-there" in the Terminal from its block
+    Then "echo not-in-there" is copied instead
 
   @terminal.putcommand
   Scenario: A busy Terminal gets the command copied instead of typed
