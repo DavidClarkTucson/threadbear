@@ -2120,9 +2120,9 @@ thread to another login when the one it's on runs out of room.
   so it survives a restart. Other failures never
   retry by themselves.
 - **Moves in the transcript.** Each move and wait is a `system.note`:
-  "Moved to mike@gangbusters.io: mike.cann@gmail.com hit its 5-hour limit,
+  "Moved to mike@example.org: mike@example.net hit its 5-hour limit,
   back at 6:10 pm." or "Every login in Claude is out of room. Carrying on
-  at 5:00 am when mike@cannstudios.com is back."
+  at 5:00 am when mike@studio.example is back."
 - **Claude to Claude.** A move between two Claude logins copies the
   session's transcript from the old login's `projects/` folder to the new
   one's and resumes it there, so nothing is lost (a real e2e checks the

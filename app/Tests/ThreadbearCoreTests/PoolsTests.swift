@@ -28,7 +28,7 @@ final class PoolsTests: XCTestCase {
             Account(id: "claude-main", title: "sam@acme.io", email: "sam@acme.io", usage: room(61)),
             Account(id: "claude-1", title: "sam.lee@gmail.com", email: "sam.lee@gmail.com", usage: room(16)),
             Account(id: "claude-3", title: "sam@bearworks.com", email: "sam@bearworks.com", usage: room(0, blocked: true, reset: at(17))),
-            Account(id: "claude-2", title: "mike@convex.dev", email: "mike@convex.dev", note: "Convex work only", usage: room(65)),
+            Account(id: "claude-2", title: "mike@work.example", email: "mike@work.example", note: "Convex work only", usage: room(65)),
             Account(id: "codex-main", provider: "codex", title: "Codex · sam@acme.io", email: "sam@acme.io", usage: room(91, weekly: 95)),
         ]
     }
