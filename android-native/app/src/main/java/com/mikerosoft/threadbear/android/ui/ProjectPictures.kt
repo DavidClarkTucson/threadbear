@@ -9,6 +9,8 @@ import com.mikerosoft.threadbear.android.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -49,6 +51,12 @@ object ProjectPictures {
     private const val RETRY_MS = 60_000L
     /** At most about 1 MB each (512 x 512 x 4). */
     private const val KEEP = 48
+    /**
+     * Cuts a download off at its deadline from outside: a server dripping
+     * its headers keeps `responseCode` waiting with no read to check the
+     * clock between, and disconnecting from another thread ends it.
+     */
+    private val watchdog = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "project-pictures-watchdog").apply { isDaemon = true } }
 
     fun image(url: String): ImageBitmap? {
         images[url]?.let { return it }
@@ -81,6 +89,7 @@ object ProjectPictures {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 10_000
         conn.readTimeout = 10_000
+        val cutOff = watchdog.schedule({ conn.disconnect() }, DEADLINE_MS, TimeUnit.MILLISECONDS)
         try {
             if (conn.responseCode != 200) return null
             if (conn.contentLengthLong > LIMIT) return null
@@ -109,6 +118,7 @@ object ProjectPictures {
             val opts = BitmapFactory.Options().apply { inSampleSize = sample }
             return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
         } finally {
+            cutOff.cancel(false)
             conn.disconnect()
         }
     }

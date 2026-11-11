@@ -244,7 +244,9 @@ private fun SwipeRow(t: PhoneThread, section: PhoneSection, now: Instant, projec
     ) {
         ThreadRow(
             t, now, projects, Modifier.background(MaterialTheme.colorScheme.background).clickable { open(t.threadId) },
-            underRunning = section == PhoneSection.RUNNING, wake = wakes[t.threadId],
+            underRunning = section == PhoneSection.RUNNING,
+            // Only under Hibernating, as the iPhone's scheduled rows: elsewhere the time.
+            wake = if (section == PhoneSection.HIBERNATING) wakes[t.threadId] else null,
         )
     }
 }
