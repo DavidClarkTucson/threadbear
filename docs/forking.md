@@ -71,8 +71,9 @@ gone from your fork, not just quiet.
   runner.json, or `"checkHosts"` with a list of them (Mike's is
   `["tinker-desk", "cloud"]`; a Linux one only takes `--quick` runs that
   don't touch `ios/`, `app/` or `dock/`); without either, it runs on yours. A
-  change under `desktop/` runs its Rust tests where the check runs, so that
-  machine needs cargo (rustup), or those steps are skipped and say so. On your Mac it
+  change under `desktop/` (or `runner/src/`, which its tests' mock runner
+  uses) runs its Rust tests where the check runs, so a check host needs cargo
+  (rustup) or those steps fail; on your own Mac they're skipped without it. On your Mac it
   keeps one ssh connection per host through a socket in `~/.ssh/tbc`, and
   the lock on each checkout's copy in `~/.cache/threadbear-check-locks`,
   both folders only you can use (mode 700, yours; one that's anything else

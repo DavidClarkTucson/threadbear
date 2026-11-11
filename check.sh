@@ -295,8 +295,9 @@ if [ "$APP_ONLY" = 0 ]; then
   fi
 fi
 # The desktop app's Rust (desktop/, the GPUI port), when something it reads
-# changed: desktop/ itself, the mock runner its client's tests start, and the
-# Mac app's test fixtures the core's tests share. Nothing ran it before, and
+# changed: desktop/ itself, the mock runner its client's tests start and the
+# runner code that mock imports, the Mac app's test fixtures core's tests
+# share, and the app's art the GPUI app builds in. Nothing ran it before, and
 # on 11 Nov a GPUI change that built a file:// URL outside the open gate
 # landed on main, exactly what core's open_gate_source test is there to catch.
 # --quick runs the small crates' tests (the core logic, the golden
@@ -305,38 +306,62 @@ fi
 # (cargo check of the GPUI app, the dock and every test), a few minutes from
 # cold. On a check host cargo's target folder is kept between runs
 # (scripts/check-remote.sh), so --quick stays about a minute.
-DESKTOP_NEEDS='^desktop/|^app/Tools/mock-runner/|^app/Tests/Fixtures/'
+DESKTOP_NEEDS='^desktop/|^app/Tools/mock-runner/|^runner/src/|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/Art/'
+# What cargo builds from outside desktop/ (include_bytes!), for the hashing below.
+DESKTOP_BUILT_IN=(app/Sources/Threadbear/Resources/Art)
 #
 # That kept target is shared by every checkout that sends a run, and cargo
 # calls a crate fresh when none of its files is newer than its last build: a
 # checkout whose edit is older than another checkout's last build would be
-# tested as that build. So there (THREADBEAR_CHECK_SHARED_TARGET) desktop/'s
-# files are hashed before each cargo step, and any that differ from what that
-# step last built (or all of them, with no record) are touched to now. A
-# record per step, as `cargo test` and `cargo check` build different things:
-# a --quick run brings core's tests up to date, not the GPUI app's check.
+# tested as that build. So there (THREADBEAR_CHECK_SHARED_TARGET) what cargo
+# builds from is hashed before each cargo step, and any file that differs from
+# what that step last built (or all of them, with no record) is touched to now.
+# A record per step, as `cargo test` and `cargo check` build different things:
+# a --quick run brings core's tests up to date, not the GPUI app's check. The
+# record goes before cargo starts and comes back only when the step passed, so
+# a run that failed or was cut short (a bad manifest, a killed build) touches
+# everything that differs again next time (Codex's review).
 cargo_step() {
-  local name="$1" sums="" record=""
+  local name="$1" sums="" record="" before="$FAILED"
   shift
   if [ -z "$CARGO" ]; then
-    printf 'skip  %-20s (no cargo here: rustup.rs installs it)\n' "$name"
+    if [ -n "${THREADBEAR_CHECK_CHANGED_FILE:-}" ]; then
+      # On a check host a skip would let a desktop change land unchecked.
+      local log="$LOGS/$(printf '%s' "$name" | tr -c 'a-zA-Z0-9' '-').log"
+      echo "No cargo on this check host, and something desktop/ reads changed: rustup.rs installs it." >"$log"
+      printf 'FAIL  %-20s       %s\n' "$name" "$log"
+      FAILED="$FAILED$name|$log
+"
+    else
+      printf 'skip  %-20s (no cargo here: rustup.rs installs it)\n' "$name"
+    fi
     return
   fi
   if [ "${THREADBEAR_CHECK_SHARED_TARGET:-}" = 1 ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
     mkdir -p "$CARGO_TARGET_DIR"
     record="$CARGO_TARGET_DIR/.check-sums-$(printf '%s' "$name" | tr -c 'a-zA-Z0-9' '-')"
     sums="$LOGS/desktop-sums"
-    (cd "$ROOT" && find desktop -type f -not -path 'desktop/target/*' -print0 | xargs -0 shasum -a 256 | LC_ALL=C sort) >"$sums"
-    if [ -f "$record" ]; then LC_ALL=C comm -23 "$sums" "$record"; else cat "$sums"; fi \
-      | sed -E 's/^[0-9a-f]+  //' | (cd "$ROOT" && while IFS= read -r f; do touch "$f"; done)
+    local old="$LOGS/desktop-sums-old" inputs=(desktop) d
+    for d in "${DESKTOP_BUILT_IN[@]}"; do [ ! -d "$ROOT/$d" ] || inputs+=("$d"); done
+    if [ -f "$record" ]; then mv "$record" "$old"; else : >"$old"; fi
+    if ! (cd "$ROOT" && find "${inputs[@]}" -type f -not -path 'desktop/target/*' -print0 | xargs -0 shasum -a 256 | LC_ALL=C sort) >"$sums" \
+      || ! LC_ALL=C comm -23 "$sums" "$old" | sed -E 's/^[0-9a-f]+  //' | (cd "$ROOT" && while IFS= read -r f; do touch "$f" || exit 1; done); then
+      # Couldn't tell what changed: everything is new, and no record is kept.
+      (cd "$ROOT" && find "${inputs[@]}" -type f -not -path 'desktop/target/*' -exec touch {} +)
+      record=""
+    fi
   fi
   step "$name" "$ROOT/desktop" "${LIMITED[@]}" "$CARGO" "$@"
-  # Pass or fail: a crate that didn't build has no fingerprint to trust, so
-  # cargo builds it again whatever the record says.
-  [ -z "$record" ] || mv "$sums" "$record"
+  [ -z "$record" ] || [ "$FAILED" != "$before" ] || mv "$sums" "$record"
 }
 if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
-  if needed "$DESKTOP_NEEDS"; then
+  if ! needed "$DESKTOP_NEEDS"; then
+    skip "desktop core tests" "nothing desktop/ reads changed"
+  elif [ "$FALLBACK" = 1 ]; then
+    # No check host could take the run, and Rust builds stay off the Mac
+    # someone's working on (AGENTS.md): desktop/scripts/remote.sh runs them.
+    printf 'skip  %-20s (no check host could take it; desktop/scripts/remote.sh <host> -- bash -c "cd desktop && cargo test -p threadbear-core -p threadbear-client")\n' "desktop core tests"
+  else
     CARGO="$(command -v cargo || true)"
     [ -n "$CARGO" ] || [ ! -x "$HOME/.cargo/bin/cargo" ] || CARGO="$HOME/.cargo/bin/cargo"
     # The client's tests start the mock runner, which needs its packages.
@@ -344,18 +369,7 @@ if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
       step "mock runner packages" "$ROOT/app/Tools/mock-runner" npm ci --no-audit --no-fund
     fi
     cargo_step "desktop core tests" test --locked --no-fail-fast -p threadbear-core -p threadbear-client
-    if [ "$QUICK" = 0 ]; then
-      # A cold GPUI build on Mike's Mac is what AGENTS.md keeps off it: when no
-      # check host could take the run (check.sh's fallback, below), only this
-      # one step waits for a host.
-      if [ "$FALLBACK" = 1 ]; then
-        printf 'skip  %-20s (no check host could take it, and a GPUI build stays off this Mac)\n' "desktop build"
-      else
-        cargo_step "desktop build" check --locked --workspace --all-targets
-      fi
-    fi
-  else
-    skip "desktop core tests" "nothing desktop/ reads changed"
+    [ "$QUICK" = 1 ] || cargo_step "desktop build" check --locked --workspace --all-targets
   fi
 fi
 # --quick (what `tb land` runs) builds the Mac app too when app/ or dock/
