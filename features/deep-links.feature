@@ -18,6 +18,11 @@ Feature: Links into the app from outside
     Then the sidebar shows the "inbox" view
     And the open thread is "Rename the Settings tabs"
 
+  @nav.deeplink @remote-threads
+  Scenario: A threadbear link opens another Mac's thread too
+    When a threadbear link to "Check the photo library backup" comes from outside the app
+    Then the open thread is "Check the photo library backup"
+
   # A link is input from outside the app: anything but a thread link under
   # the scheme (the phone's pairing link, say) does nothing at all.
   @nav.deeplink

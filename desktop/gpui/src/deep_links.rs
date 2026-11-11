@@ -58,9 +58,11 @@ impl Threadbear {
         if activate {
             window.activate_window();
         }
-        if !self.sidebar.loaded {
-            // Opened once the list has come (`open_pending`).
-            self.pending_open = Some(id);
+        // Not until the lists it could be in have come: this Mac's, and the
+        // other Macs' (which can come later, and a link to one of their
+        // threads opened at launch went nowhere: Codex's review, 12 Nov).
+        if !self.sidebar.loaded || (!self.threads.contains_key(&id) && !self.remote.heard) {
+            self.wait_for_link(id, cx);
             return;
         }
         if !self.threads.contains_key(&id) {
@@ -69,6 +71,53 @@ impl Threadbear {
         }
         self.set_mode(crate::shell::SidebarMode::Inbox, cx);
         self.open(id, window, cx);
+    }
+}
+
+/// How long a link waits for the lists before saying its thread isn't there.
+const LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+impl Threadbear {
+    /// Holds a link's thread until the lists are in (`try_waiting_link`),
+    /// and gives up after a while, saying so.
+    fn wait_for_link(&mut self, id: String, cx: &mut Context<Self>) {
+        self.waiting_link = Some((id, std::time::Instant::now()));
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(LINK_WAIT).await;
+            this.update(cx, |this, cx| this.try_waiting_link(cx)).ok();
+        })
+        .detach();
+    }
+
+    /// A list has come: opens the waiting link's thread if it's there now,
+    /// says it isn't once both lists are in or it's waited long enough, or
+    /// goes on waiting.
+    pub(crate) fn try_waiting_link(&mut self, cx: &mut Context<Self>) {
+        let Some((id, since)) = self.waiting_link.clone() else { return };
+        let there = self.threads.contains_key(&id);
+        let lists_in = self.sidebar.loaded && self.remote.heard;
+        if !there && !lists_in && since.elapsed() < LINK_WAIT {
+            return;
+        }
+        self.waiting_link = None;
+        let (me, window) = (cx.entity().downgrade(), self.main_window);
+        // Not from inside this update: opening needs the window, and the
+        // window's update comes back to this entity.
+        cx.defer(move |cx| {
+            window
+                .update(cx, |_, window, cx| {
+                    me.update(cx, |this, cx| {
+                        if this.threads.contains_key(&id) && this.sidebar.loaded {
+                            this.set_mode(crate::shell::SidebarMode::Inbox, cx);
+                            this.open(id, window, cx);
+                        } else {
+                            this.show_error("That link is to a thread that isn't in your sidebar. It was deleted, or it's on a machine this app can't reach.".into(), cx);
+                        }
+                    })
+                    .ok();
+                })
+                .ok();
+        });
     }
 }
 

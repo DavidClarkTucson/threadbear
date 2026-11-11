@@ -10,17 +10,43 @@
 //
 // Only ever this Mac's files: another Mac's thread names paths on that Mac,
 // and a file here with the same path isn't the one meant (Daybreak, 7 Nov), so
-// those never start one.
+// those never start one. And only the file that was grabbed: a path swapped
+// for a link to something else while the drag's under way hands on nothing
+// (Codex's review, 12 Nov), as the file's noted as the drag begins.
 use crate::style::{self, px};
 use gpui_kit::component::{h_flex, ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+use std::cell::OnceCell;
 use std::path::PathBuf;
+use std::rc::Rc;
+use threadbear_core::file_identity::FileIdentity;
 
 /// A file on its way out of the app.
 #[derive(Clone, Debug)]
 pub(crate) struct DraggedFile {
     pub(crate) path: PathBuf,
+    /// The file as the drag began, noted then (the element is made afresh
+    /// every frame, the drag only once).
+    grabbed: Rc<OnceCell<Option<FileIdentity>>>,
+}
+
+impl DraggedFile {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self { path, grabbed: Rc::default() }
+    }
+
+    /// The drag's begun: which file it is now is the one it carries.
+    fn note_grabbed(&self) {
+        self.grabbed.get_or_init(|| FileIdentity::of(&self.path));
+    }
+
+    /// Where the grabbed file is, while its path still leads to that same
+    /// file; None once it doesn't (gone, or swapped for something else).
+    pub(crate) fn still_grabbed(&self) -> Option<PathBuf> {
+        let then = self.grabbed.get_or_init(|| FileIdentity::of(&self.path)).clone()?;
+        then.still_at(&self.path).then(|| then.real().to_path_buf())
+    }
 }
 
 /// What follows the pointer in the window: a picture small, else the file's
@@ -79,13 +105,18 @@ impl Render for DragPicture {
 pub(crate) trait FileDragExt: StatefulInteractiveElement + Sized {
     fn file_drag(self, path: Option<String>) -> Self {
         let Some(path) = path else { return self };
-        self.on_drag(DraggedFile { path: PathBuf::from(path) }, |file, grabbed, _, cx| cx.new(|_| DragPicture { path: file.path.clone(), grabbed }))
-            // Looked at as it leaves the window: a file that's gone since
-            // goes nowhere, as `FileDrag.writer` has it.
-            .external_drag_payload(|file: &DraggedFile, _, _| {
-                let is_dir = std::fs::metadata(&file.path).ok()?.is_dir();
-                Some(ExternalDragPayload::Files(FileDragPaths::new([(file.path.clone(), is_dir)])))
-            })
+        self.on_drag(DraggedFile::new(PathBuf::from(path)), |file, grabbed, _, cx| {
+            file.note_grabbed();
+            cx.new(|_| DragPicture { path: file.path.clone(), grabbed })
+        })
+        // Looked at as it leaves the window: a file that's gone since, or
+        // isn't the one grabbed any more, goes nowhere, as `FileDrag.writer`
+        // has it.
+        .external_drag_payload(|file: &DraggedFile, _, _| {
+            let real = file.still_grabbed()?;
+            let is_dir = std::fs::metadata(&real).ok()?.is_dir();
+            Some(ExternalDragPayload::Files(FileDragPaths::new([(real, is_dir)])))
+        })
     }
 }
 

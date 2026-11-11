@@ -1089,8 +1089,8 @@ impl Composer {
             })
             // A file or picture dragged from inside the app (file_drag.rs).
             .on_drop(move |file: &crate::file_drag::DraggedFile, window, cx| {
-                if let Some(this) = file_drop.upgrade() {
-                    this.update(cx, |this, cx| this.take_paths(vec![file.path.clone()], window, cx));
+                if let (Some(this), Some(real)) = (file_drop.upgrade(), file.still_grabbed()) {
+                    this.update(cx, |this, cx| this.take_paths(vec![real], window, cx));
                 }
             })
             .child(

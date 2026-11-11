@@ -141,6 +141,9 @@ pub struct Threadbear {
     /// A thread a notification's click asked for before the list had
     /// loaded: opened once it has (`linkedThread`).
     pub(crate) pending_open: Option<String>,
+    /// A `threadbear://` link's thread waiting for the lists it could be in,
+    /// and since when (deep_links.rs).
+    pub(crate) waiting_link: Option<(String, std::time::Instant)>,
     /// What the Dock badge says now (notify.rs), so it's only set when that changes.
     pub(crate) dock_badge: Option<String>,
     /// The sub-agent whose transcript is in the main panel, by its thread and
@@ -403,6 +406,7 @@ impl Threadbear {
             settings_window: None,
             main_window: window.window_handle(),
             pending_open: None,
+            waiting_link: None,
             dock_badge: None,
             panel_gate: Default::default(),
             subagent: None,
@@ -800,6 +804,7 @@ impl Threadbear {
                         this.sidebar.loaded = true;
                         this.refresh_dock_badge();
                         this.open_pending(cx);
+                        this.try_waiting_link(cx);
                     }
                     Err(e) => this.list_error = Some(e.message),
                 }

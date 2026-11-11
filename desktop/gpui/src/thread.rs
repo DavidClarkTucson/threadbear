@@ -1225,8 +1225,9 @@ impl Render for ThreadPane {
                 // is a dropped file too: GPUI only hands the system its drag
                 // once it's out of the window.
                 .on_drop(move |file: &crate::file_drag::DraggedFile, window, cx| {
+                    let Some(real) = file.still_grabbed() else { return };
                     let at = window.mouse_position();
-                    file_drop.update(cx, |c, cx| c.take_dropped_paths(vec![file.path.clone()], at, window, cx));
+                    file_drop.update(cx, |c, cx| c.take_dropped_paths(vec![real], at, window, cx));
                 })
                 .drag_over::<crate::file_drag::DraggedFile>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
         });

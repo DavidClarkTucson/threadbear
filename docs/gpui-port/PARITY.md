@@ -463,6 +463,39 @@ built parsers and gates with no launch of the app, which is the trap.)
   draft are there and the note says so; the launch after that has no note),
   with core's tests for the reading (7) and the open gate's source check.
   The Swift app has nothing to bring, so it's `@swift-pending` there.
+### 2026-11-12 Codex's look at the drags out and the links (`drag.fileout`, `nav.deeplink`)
+
+- Codex (gpt-6.1-sol, high) tried to break the drags out, other Macs'
+  pictures and the `threadbear://` links. It found no way from a link to
+  running, sending or opening anything but a thread.
+- Fixed: a drag carries the file that was grabbed. It's noted as the drag
+  begins (every link followed, and which file that is on its disk: core's
+  `file_identity.rs`, with tests) and handed on, out of the window or onto
+  the thread, only while its path still leads there, so a path swapped for
+  a link to something private mid-drag hands on nothing. And a link opened
+  at launch to another Mac's thread waits for the other Macs' threads (15
+  seconds at most) rather than going nowhere when they come after this
+  Mac's list.
+- Passed on, as they're older than these and not this area's: a thread
+  moved here from another Mac keeps that Mac's picture paths in its
+  history, so its tiles show (and now drag) whatever this Mac has at those
+  paths, in the Swift app too (the move's import, runner/src/runner/moves.ts,
+  would need to rewrite or drop them); `picture_file` checks a path and the
+  image loader opens it again later, so a FIFO or /dev/zero swapped in
+  between is read (rows/markdown.rs, from 11 Nov's security fixes: the
+  check wants to be on the bytes decoded); and a remote message's picture
+  chips still open the viewer, which reads this Mac's file at that path
+  (chips.rs, viewer.rs).
+- Files: `desktop/core/src/file_identity.rs` (new),
+  `desktop/gpui/src/{file_drag,thread,composer,deep_links,remote,app}.rs`,
+  a scenario in `features/deep-links.feature`.
+- Verification: on Tinker Desk, `TB_APP=gpui` on `@nav.deeplink`,
+  `@drag.*`, `@highlights.dragout`, `@file.picture`, `@remote-threads` and
+  the composer's drops, 26 of 26, and `TB_APP=swift` `@nav.deeplink` 4 of 4,
+  the new scenario (a link to another Mac's thread) included; core's
+  `file_identity` tests; `features/tools/real-gestures.ts`, 12 of 12, the
+  Highlights file and the picture still dropped as their files.
+
 ### 2026-11-12 Swiping rows away and the window back, and threads, files and pictures dragged out (`sidebar.swipe`, `sidebar.mousedrag`, `nav.swipe`, `drag.threadout`, `drag.fileout`, `highlights.dragout`, `file.picture`, `transcript.images`)
 
 - Two fingers left across a sidebar row slide it after them, with the archive

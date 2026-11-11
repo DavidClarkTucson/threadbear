@@ -34,6 +34,9 @@ pub(crate) struct RemoteState {
     /// `hello.experiments`: what's on for this runner (the Move to menu is
     /// `moveToRunner`'s).
     pub(crate) experiments: Vec<String>,
+    /// The runner has said which other Macs' threads there are (or that it
+    /// can't), so a thread not among them isn't coming.
+    pub(crate) heard: bool,
 }
 
 impl Threadbear {
@@ -44,8 +47,18 @@ impl Threadbear {
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
             let res = call(client.clone(), "remoteThreads.list", json!({})).await;
-            if let Ok(value) = res {
-                this.update(cx, |this, cx| this.receive_remote(&value, cx)).ok();
+            match res {
+                Ok(value) => {
+                    this.update(cx, |this, cx| this.receive_remote(&value, cx)).ok();
+                }
+                // None to come (a runner from before them).
+                Err(_) => {
+                    this.update(cx, |this, cx| {
+                        this.remote.heard = true;
+                        this.try_waiting_link(cx);
+                    })
+                    .ok();
+                }
             }
             // Every runner, this Mac's too: its icon and where a move can go.
             if let Ok(value) = call(client, "runners.list", json!({})).await {
@@ -70,12 +83,15 @@ impl Threadbear {
         let remote = remote::decode_remote_threads(value);
         self.remote.runners = remote.runners.clone();
         self.remote.index = remote;
+        self.remote.heard = true;
         // Mike's runner order, for the Runners panel.
         self.receive_runner_order();
         self.apply_remote_index(cx);
         self.apply_default_runner(cx);
         // The Dock badge counts other runners' threads too, as Swift's does.
         self.refresh_dock_badge();
+        // A link to one of their threads, opened before they'd come.
+        self.try_waiting_link(cx);
         cx.notify();
     }
 

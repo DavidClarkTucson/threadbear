@@ -15,6 +15,7 @@ pub mod crash_report;
 pub mod devices;
 pub mod draft_block;
 pub mod explain;
+pub mod file_identity;
 pub mod file_refs;
 pub mod find;
 pub mod folders;
