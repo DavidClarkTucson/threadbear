@@ -48,8 +48,16 @@ what the iPhone has.
 | AskAnswer/Answers (Turns.swift, Backend.swift) | `Asks.kt` | 2 |
 | Secrets.swift, PairingRequest's key pins | `Secrets.kt` | 2 |
 | PushKey.swift, PushTaps.swift | `Push.kt` | 3 |
-| MessageHistory.swift (older chunks) | `History.kt` | 4 |
-| ReplyButtons, ThreadLinks, SlashCommands, PhotoUpload | | 4 |
+| MessageHistory.swift (older chunks, caps) | `MessageHistory.kt` | 4 |
+| MarkdownBlocks.swift (all of it: rich, drafts, nested quotes, pictures) | `Markdown.kt` | 4 |
+| DraftBlock.swift | `DraftBlock.kt` | 4 |
+| InlinePictures.swift, ThreadPictures (Models.swift) | `InlinePictures.kt`, `ThreadPictures.kt` | 4 |
+| PictureDownload.swift, PictureMemory.swift, PictureFraming.swift | `PictureDownload.kt`, `PictureMemory.kt`, `PictureFraming.kt` | 4 |
+| ReplyButtons.swift, ThreadLinks.swift, LinkPolicy.swift | `ReplyButtons.kt`, `ThreadLinks.kt`, `LinkPolicy.kt` | 4 |
+| SlashCommands.swift (the palette's logic) | `SlashCommands.kt` | 4 |
+| Recap.swift, AgentHeader.swift, CardMentions.swift, ReviewAnswer.swift | same names, `.kt` | 4 |
+| PageSwipes.swift, Plans.swift | `PageSwipes.kt`, `Plans.kt` | 4 |
+| PhotoUpload | | 4 |
 
 Not ported: Quick Ask, dictation/Whisper, the bear and pull-peek, the Pocket
 (maybe later), the demo's sample data beyond what tests need.
@@ -66,7 +74,16 @@ Not ported: Quick Ask, dictation/Whisper, the bear and pull-peek, the Pocket
 3. Thread: the folded transcript, live (`phone:thread` + `phone:messages`),
    the working line while it runs, waiting sends with Cancel, the composer
    with Send turning into Stop while a turn runs, then the cards: approval,
-   question, secret, asks, done.
+   question, secret, asks, done. Replies draw all of MarkdownBlocks:
+   tables, code, nested quotes, ```slack/```email/```draft boxes with Copy,
+   ```mermaid and ```html in a locked-down web view (Pele bundled in
+   assets, as on the iPhone: no network, no navigation, a page's own
+   scripts never run), and pictures (capped download with one deadline,
+   50 MP header check, downsampled, one 96 MB cache, tap for full screen).
+   Reply buttons, thread chips and links (anything but a web page asks
+   first), work: links opening the turn's working, the slash palette, the
+   recap box, plan cards and the plan sheet, older history in chunks, and
+   swipe left for Forward / right for Back.
 4. New thread (FAB on the inbox): text, runner/folder as the iPhone offers.
 5. Settings: paired server, notifications mode, unpair.
 

@@ -21,6 +21,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mikerosoft.threadbear.android.ui.InboxScreen
+import com.mikerosoft.threadbear.android.ui.LocalPageForward
+import com.mikerosoft.threadbear.android.ui.rememberPageForward
 import com.mikerosoft.threadbear.android.ui.PairScreen
 import com.mikerosoft.threadbear.android.ui.ThreadScreen
 import com.mikerosoft.threadbear.android.ui.ThreadbearTheme
@@ -77,12 +79,15 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
         LaunchedEffect(open) {
             open?.let { nav.navigate("thread/$it") { launchSingleTop = true }; openThread.value = null }
         }
+        // Forward to the thread last backed out of, for a swipe left on a thread.
+        CompositionLocalProvider(LocalPageForward provides rememberPageForward(nav)) {
         NavHost(nav, startDestination = "inbox") {
             composable("inbox") { InboxScreen(open = { nav.navigate("thread/$it") }) }
             composable("thread/{id}") { entry ->
                 ThreadScreen(threadId = entry.arguments?.getString("id") ?: "", back = { nav.popBackStack() },
                     open = { nav.navigate("thread/$it") })
             }
+        }
         }
     }
 

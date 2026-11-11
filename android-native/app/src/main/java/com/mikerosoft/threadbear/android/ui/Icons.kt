@@ -71,6 +71,23 @@ object Line {
     val Play = icon("play", "M6 3l14 9-14 9z")
     val CheckCircle = icon("checkCircle", circle(12f, 12f, 10f), "m9 12 2 2 4-4")
 
+    // The thread view's (rich replies, pictures, plans, chips).
+    val Square = icon("square", "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z")
+    val CheckSquare = icon("checkSquare", "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "m9 12 2 2 4-4")
+    val Expand = icon("expand", "M15 3h6v6", "M9 21H3v-6", "M21 3l-7 7", "M3 21l7-7")
+    val Photo = icon("photo", "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", circle(9f, 9f, 2f), "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21")
+    val Download = icon("download", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m7 10 5 5 5-5", "M12 15V3")
+    val Phone = icon("phone", "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z", "M12 18h.01")
+    val CornerDownRight = icon("cornerDownRight", "m15 10 5 5-5 5", "M4 4v7a4 4 0 0 0 4 4h12")
+    val Clipboard = icon("clipboard", "M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z", "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2", "M12 11h4", "M12 16h4", "M8 11h.01", "M8 16h.01")
+    val Layers = icon("layers", "M8 4h12a2 2 0 0 1 2 2v8", "M4 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z")
+    val Message = icon("message", "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z")
+    val FileText = icon("fileText", "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M7 8h10", "M7 12h10", "M7 16h6")
+    val ArrowUpCircle = icon("arrowUpCircle", circle(12f, 12f, 10f), "m16 12-4-4-4 4", "M12 16V8")
+    val ChevronLeft = icon("chevronLeft", "m15 18-6-6 6-6")
+    val Laptop = icon("laptop", "M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16")
+    val Share = icon("share", circle(18f, 5f, 3f), circle(6f, 12f, 3f), circle(18f, 19f, 3f), "m8.59 13.51 6.83 3.98", "m15.41 6.51-6.82 3.98")
+
     /** A tool line's icon, by the protocol's ToolKind. */
     fun tool(kind: String?) = when (kind) {
         "command" -> Terminal

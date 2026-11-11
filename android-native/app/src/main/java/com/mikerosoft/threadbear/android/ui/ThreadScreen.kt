@@ -3,24 +3,14 @@ package com.mikerosoft.threadbear.android.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,7 +20,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -51,10 +40,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -73,20 +61,29 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mikerosoft.threadbear.android.AppModel
 import com.mikerosoft.threadbear.android.LocalModel
 import com.mikerosoft.threadbear.android.LocalSend
 import com.mikerosoft.threadbear.android.LocalSnackbar
 import com.mikerosoft.threadbear.android.Loaded
+import com.mikerosoft.threadbear.android.ThreadExtras
 import com.mikerosoft.threadbear.android.ThreadViewModel
+import com.mikerosoft.threadbear.android.knownThread
+import com.mikerosoft.threadbear.kit.ApprovalOption
 import com.mikerosoft.threadbear.kit.BackendApi
+import com.mikerosoft.threadbear.kit.CardMentions
 import com.mikerosoft.threadbear.kit.Hibernate
+import com.mikerosoft.threadbear.kit.MessageImage
 import com.mikerosoft.threadbear.kit.PendingApproval
 import com.mikerosoft.threadbear.kit.PhoneMessage
 import com.mikerosoft.threadbear.kit.PhoneThread
+import com.mikerosoft.threadbear.kit.Plans
 import com.mikerosoft.threadbear.kit.Role
-import com.mikerosoft.threadbear.kit.RowStatus
+import com.mikerosoft.threadbear.kit.SlashPalette
 import com.mikerosoft.threadbear.kit.ThreadChange
 import com.mikerosoft.threadbear.kit.ThreadItem
+import com.mikerosoft.threadbear.kit.ThreadLinks
+import com.mikerosoft.threadbear.kit.ThreadPictures
 import com.mikerosoft.threadbear.kit.ThreadStatus
 import com.mikerosoft.threadbear.kit.Turns
 import com.mikerosoft.threadbear.kit.WaitingSend
@@ -102,18 +99,21 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
     var draft by rememberSaveable { mutableStateOf("") }
     val thread = (loaded as? Loaded.Here)?.detail?.thread
     val stopping by model.stopping.collectAsStateWithLifecycle()
+    val gate = rememberLinkGate()
 
     LaunchedEffect(thread?.isBusy) { if (thread?.isBusy == false) model.stopped(threadId) }
 
+    CompositionLocalProvider(LocalPushThread provides open, LocalButtonThread provides threadId) {
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbar.current) },
         topBar = { ThreadBar(thread, back) },
         bottomBar = {
-            if (thread != null) {
+            if (thread != null) Column {
+                OverTheBox(thread, draft, gate) { draft = it }
                 val offline = model.offlineRunner(thread)
                 Composer(
                     text = draft,
-                    onText = { draft = it },
+                    onText = { draft = withThreadReference(model, draft, it) },
                     placeholder = when {
                         offline != null -> "$offline is offline, this will wait"
                         thread.isBusy -> "Steer the agent"
@@ -137,11 +137,54 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().height(1.dp), color = MaterialTheme.colorScheme.outline)
             }
             Loaded.Gone -> Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("This thread's gone", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("This thread's gone", style = MaterialTheme.typography.titleMedium)
+                    Text("It may have been deleted on the Mac.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            is Loaded.Here -> Transcript(vm, l.detail.thread, l.detail.messages, inner, back) { draft = it }
+            is Loaded.Here -> Transcript(vm, l.detail.thread, l.detail.messages, inner, back, gate) { if (draft.isEmpty()) draft = it }
         }
     }
+    }
+    LinkGateDialog(gate)
+}
+
+/**
+ * Over the reply box: the recap of a thread that's sat a while, the slash
+ * palette while what's typed is a command being typed, and the thread's
+ * patch link buttons, as the iPhone stacks them over its composer.
+ */
+@Composable
+private fun OverTheBox(thread: PhoneThread, draft: String, gate: LinkGate, fill: (String) -> Unit) {
+    val model = LocalModel.current
+    val extras = ThreadExtras.of(model, LocalContext.current)
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        RecapBox(thread)
+        val query = SlashPalette.query(draft)
+        if (query != null && extras.canUseSlashCommands) {
+            SlashPaletteList(thread.threadId, thread.provider, query) { command ->
+                fill(SlashPalette.fill(command, forArguments = !command.argumentHint.isNullOrBlank()))
+            }
+        }
+        LinkChips(thread.links.orEmpty()) { gate.decide(it) }
+    }
+}
+
+/**
+ * A pasted thread id goes in as a `[title](thread:<id>)` link the agent
+ * can read the id from and the bubble draws as a chip, for a thread this
+ * phone has a row for, as the iPhone's and the Mac's composers do. A paste
+ * is what came in at once: typing never brings a whole id in one change.
+ */
+private fun withThreadReference(model: AppModel, old: String, new: String): String {
+    if (new.length - old.length < 8) return new
+    val head = old.commonPrefixWith(new).length
+    val tail = minOf(old.length - head, new.length - head).let { room -> old.takeLast(room).commonSuffixWith(new.takeLast(room)).length }
+    if (head + tail != old.length) return new
+    val pasted = new.substring(head, new.length - tail)
+    val id = CardMentions.pastedThreadId(pasted) { model.knownThread(it) != null } ?: return new
+    val title = model.knownThread(id)?.title.orEmpty()
+    return new.substring(0, head) + CardMentions.threadReference(id, title) + new.substring(new.length - tail)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -173,32 +216,28 @@ private fun ThreadBar(thread: PhoneThread?, back: () -> Unit) {
                         if (asleep) {
                             MenuItem("Wake", Line.Sun) { menu = false; model.change(thread.threadId, ThreadChange.Wake) }
                         } else {
-                            MenuItem("Hibernate", Line.Moon) { menu = false; hibernate = true }
+                            MenuItem("Hibernate…", Line.Moon) { menu = false; hibernate = true }
                         }
+                        MenuItem("Archive", Line.Archive) { menu = false; model.change(thread.threadId, ThreadChange.Archive); back() }
                         val starred = thread.starredAt != null
                         if (model.apiVersion == 0 || model.apiVersion >= BackendApi.STARS) {
-                            MenuItem(if (starred) "Remove star" else "Star", if (starred) Line.StarFilled else Line.Star) {
+                            MenuItem(if (starred) "Remove Star" else "Star", if (starred) Line.StarFilled else Line.Star) {
                                 menu = false; model.change(thread.threadId, ThreadChange.Star(!starred))
                             }
                         }
-                        MenuItem("Archive", Line.Archive) { menu = false; model.change(thread.threadId, ThreadChange.Archive); back() }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    MenuItem("Copy thread ID", Line.Copy) {
+                    // To point another thread at this one: pasted into a message
+                    // here or on the Mac, it goes in as a link to it.
+                    MenuItem("Copy Thread ID", Line.Copy) {
                         menu = false
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("Thread ID", thread.threadId))
                     }
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                listOfNotNull(thread.cwd, listOfNotNull(thread.accountId, thread.model).joinToString(" · "),
-                                    thread.costUsd?.takeIf { it > 0 }?.let { "$%.2f so far".format(it) }).joinToString("\n"),
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        onClick = {}, enabled = false,
-                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Info(Line.Folder, thread.cwd)
+                    Info(Line.Paw, listOfNotNull(thread.accountId, thread.model).joinToString(" · "))
+                    thread.costUsd?.takeIf { it > 0 }?.let { Info(Line.Zap, "$%.2f so far".format(it)) }
                 }
                 DropdownMenu(expanded = hibernate, onDismissRequest = { hibernate = false }) {
                     for (p in Hibernate.presets(Instant.now())) {
@@ -219,10 +258,21 @@ private fun MenuItem(text: String, icon: androidx.compose.ui.graphics.vector.Ima
     DropdownMenuItem(text = { Text(text) }, leadingIcon = { Icon(icon, null, Modifier.size(18.dp)) }, onClick = onClick)
 }
 
+/** A line of what the thread is, under the menu's actions: not something to tap. */
+@Composable
+private fun Info(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
+    DropdownMenuItem(
+        text = { Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        leadingIcon = { Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        onClick = {}, enabled = false,
+    )
+}
+
 /** One row of the transcript, bottom first (the list is drawn upside down so it sits on the newest). */
 private sealed class Row_ {
     abstract val key: String
     data class Item(val item: ThreadItem) : Row_() { override val key get() = "i:${item.id}" }
+    data class Pinned(val image: MessageImage) : Row_() { override val key get() = "p:${image.seq}:${image.url}" }
     data class Waiting(val send: WaitingSend, val says: Boolean) : Row_() { override val key get() = "w:${send.commandId}" }
     data class Local(val send: LocalSend) : Row_() { override val key get() = "l:${send.key}" }
     data object Card : Row_() { override val key get() = "card" }
@@ -230,39 +280,88 @@ private sealed class Row_ {
 }
 
 @Composable
-private fun Transcript(vm: ThreadViewModel, thread: PhoneThread, threadMessages: List<PhoneMessage>, inner: PaddingValues, leave: () -> Unit, giveBack: (String) -> Unit) {
+private fun Transcript(
+    vm: ThreadViewModel,
+    thread: PhoneThread,
+    threadMessages: List<PhoneMessage>,
+    inner: PaddingValues,
+    leave: () -> Unit,
+    gate: LinkGate,
+    giveBack: (String) -> Unit,
+) {
     val model = LocalModel.current
+    val extras = ThreadExtras.of(model, LocalContext.current)
+    val push = LocalPushThread.current
     val page by vm.page.collectAsStateWithLifecycle()
-    val older by vm.older.collectAsStateWithLifecycle()
-    val olderHasMore by vm.olderHasMore.collectAsStateWithLifecycle()
-    val loadingOlder by vm.loadingOlder.collectAsStateWithLifecycle()
+    LaunchedEffect(page) { page?.let(vm::takeLive) }
+    val history by vm.history.collectAsStateWithLifecycle()
+    val late by vm.lateImages.collectAsStateWithLifecycle()
+    LaunchedEffect(late) { vm.takeLateImages(late) }
+    val loadingChunk by vm.loadingChunk.collectAsStateWithLifecycle()
+    val loadingBefore by vm.loadingBefore.collectAsStateWithLifecycle()
     val waiting by vm.waiting.collectAsStateWithLifecycle()
     val locals by vm.locals.collectAsStateWithLifecycle()
     val cancelling by vm.cancelling.collectAsStateWithLifecycle()
+    val answering by vm.answering.collectAsStateWithLifecycle()
     val runners by model.runners.collectAsStateWithLifecycle()
     val now = rememberNow(1000)
 
-    // From API 2 the live page (tool lines too), with older chunks before it.
-    val live = page?.messages
-    val messages = remember(live, older, threadMessages) {
-        if (live == null) threadMessages
-        else {
-            val first = live.firstOrNull()?.seq ?: Int.MAX_VALUE
-            older.filter { it.seq < first } + live
-        }
-    }
+    // From API 2 the history (the live page, tool lines too, with older
+    // chunks before it); until it arrives, and on an older backend,
+    // phone:thread's messages.
+    val h = history
+    val messages = h?.messages ?: threadMessages
     val items = remember(messages, thread.isBusy) { Turns.fold(messages, thread.isBusy) }
+    val pictures = remember(h) { ThreadPictures(h?.images.orEmpty()) }
+    val pins = remember(pictures, items) { pictures.pinned(items) }
+    val paged = h != null
+    val canLoadMore = if (h != null) h.hasMore else thread.hasEarlier(threadMessages.firstOrNull()?.seq)
+    val loadingMore = if (paged) loadingChunk else loadingBefore != null && loadingBefore == threadMessages.firstOrNull()?.seq
+    val loadMore = { if (paged) vm.loadChunk() else vm.loadEarlier(threadMessages.firstOrNull()?.seq) }
     val offline = remember(runners, thread.runnerId, now) { WaitingSends.offlineRunner(thread.runnerId, runners, now) }
+    val macAsleep = runners.isNotEmpty() && runners.none { it.isOnline(now) }
     val shown = remember(waiting, messages) { WaitingSends.shown(waiting, messages) }
     val listed = shown.map { it.commandId }.toSet()
     val pendingLocals = locals.filter { it.commandId == null || it.commandId !in listed }
-    val canLoadMore = live != null && (if (older.isEmpty()) page?.hasMore == true else olderHasMore)
 
-    val rows = remember(items, shown, pendingLocals, canLoadMore) {
+    var workLink by remember { mutableStateOf<ThreadLinks.Hit?>(null) }
+    var planShown by remember { mutableStateOf<PhoneMessage?>(null) }
+
+    /**
+     * A link in a message. A work: link opens the turn's working over the
+     * thread with the step lit; a thread: link opens that thread on top of
+     * this one; a review only opens on the Mac, so that one says so rather
+     * than doing nothing; anything else goes through the link gate.
+     */
+    fun follow(url: String, seq: Int?) {
+        when (val target = ThreadLinks.target(url)) {
+            null -> {
+                // A relative link (`[plan](shorts-plan/candidates.md)`) is a
+                // file in the thread's folder on the Mac; the phone can't open it.
+                if (!Regex("^[A-Za-z][A-Za-z0-9+.-]*:").containsMatchIn(url) || url.startsWith("file:", ignoreCase = true)) {
+                    model.note("That file opens on the Mac.")
+                } else {
+                    gate.decide(url)
+                }
+            }
+            // Agents may give only the start of the id.
+            is ThreadLinks.Target.Thread -> push(model.inbox.value?.firstOrNull { it.threadId.startsWith(target.id) }?.threadId ?: target.id)
+            ThreadLinks.Target.Review -> model.note("That review opens on the Mac.")
+            is ThreadLinks.Target.Button -> {
+                // One partway through a line, drawn as a link. An id the row doesn't carry is just its words.
+                val button = messages.firstOrNull { it.seq == seq }?.buttons?.firstOrNull { it.id == target.id } ?: return
+                extras.tap(button, thread.threadId, push)
+            }
+            is ThreadLinks.Target.Step -> workLink = ThreadLinks.find(target.quote, seq, items) ?: return
+        }
+    }
+
+    val rows = remember(items, shown, pendingLocals, canLoadMore, pins) {
         buildList {
             add(Row_.Card)
             pendingLocals.reversed().forEach { add(Row_.Local(it)) }
             shown.reversed().forEachIndexed { i, s -> add(Row_.Waiting(s, says = i == 0)) }
+            pins.trailing.reversed().forEach { add(Row_.Pinned(it)) }
             items.reversed().forEach { add(Row_.Item(it)) }
             if (canLoadMore) add(Row_.Earlier)
         }
@@ -273,166 +372,69 @@ private fun Transcript(vm: ThreadViewModel, thread: PhoneThread, threadMessages:
         if (state.firstVisibleItemIndex <= 2) state.animateScrollToItem(0)
     }
 
-    LazyColumn(
-        state = state,
-        reverseLayout = true,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = inner.calculateTopPadding() + 8.dp, bottom = inner.calculateBottomPadding() + 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom),
+    CompositionLocalProvider(
+        LocalThreadLink provides ::follow,
+        LocalThreadPictures provides pictures,
+        LocalOpenPlan provides { planShown = it },
     ) {
-        items(rows, key = { it.key }) { row ->
-            when (row) {
-                Row_.Card -> StatusCard(vm, thread, messages, pendingLocals.isEmpty() && shown.isEmpty(), now, leave)
-                is Row_.Local -> PendingBubble(row.send.text, "Sending…", cancel = null, cancelling = false)
-                is Row_.Waiting -> PendingBubble(
-                    WaitingSends.mirrored(row.send),
-                    if (row.says) WaitingSends.note(row.send, offline) else null,
-                    cancel = if (row.send.canCancel) ({ vm.cancel(row.send, giveBack) }) else null,
-                    cancelling = row.send.commandId in cancelling,
-                )
-                is Row_.Item -> ItemView(row.item)
-                Row_.Earlier -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    if (loadingOlder) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 1.5.dp)
-                    else TextButton(onClick = { messages.firstOrNull()?.seq?.let(vm::loadOlder) }) {
-                        Text("Earlier messages", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        PageSwipes(back = leave) {
+            LazyColumn(
+                state = state,
+                reverseLayout = true,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = inner.calculateTopPadding() + 8.dp, bottom = inner.calculateBottomPadding() + 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom),
+            ) {
+                items(rows, key = { it.key }) { row ->
+                    when (row) {
+                        Row_.Card -> StatusCard(vm, thread, messages, pendingLocals.isEmpty() && shown.isEmpty(), leave)
+                        is Row_.Local -> WaitingMessageView(row.send.text, null, offline, says = true, cancelling = false, cancel = null)
+                        is Row_.Waiting -> WaitingMessageView(
+                            WaitingSends.mirrored(row.send), row.send, offline, says = row.says,
+                            cancelling = row.send.commandId in cancelling,
+                            cancel = { vm.cancel(row.send, giveBack) },
+                        )
+                        is Row_.Pinned -> PinnedPicture(row.image)
+                        is Row_.Item -> ItemView(row.item, pins.under)
+                        Row_.Earlier -> {
+                            EarlierButton(loadingMore, waitingForMac = !paged && macAsleep, load = loadMore)
+                            // Scrolling up to it loads by itself, like any chat. Not on a
+                            // short thread, where it's on screen at once and nobody asked.
+                            // Rows, not messages: one long finished turn is dozens of
+                            // messages folded into a line.
+                            LaunchedEffect(Unit) { if (items.size >= 20) loadMore() }
+                        }
                     }
                 }
             }
         }
     }
-}
 
-@Composable
-private fun ItemView(item: ThreadItem, nested: Boolean = false) {
-    when (item) {
-        is ThreadItem.Message -> MessageView(item.message, nested)
-        is ThreadItem.Tools -> ToolRun(item.items)
-        is ThreadItem.Worked -> Worked(item)
-        is ThreadItem.Gap -> GapLine(item.gap.label)
-    }
-}
-
-@Composable
-private fun MessageView(m: PhoneMessage, nested: Boolean) {
-    val colors = MaterialTheme.colorScheme
-    when (m.role) {
-        Role.USER -> {
-            val mine = m.origin == null || m.origin == "phone"
-            if (mine) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    Text(
-                        m.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp))
-                            .background(colors.surfaceContainerHigh).padding(horizontal = 14.dp, vertical = 10.dp),
-                    )
-                }
-            } else {
-                // A schedule's, the runner's or another agent's message: told apart from Mike's.
-                val icon = when (m.origin) { "schedule" -> Line.Clock; "runner" -> Line.Bell; else -> Line.Paw }
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, colors.outlineVariant, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Icon(icon, null, Modifier.size(16.dp).padding(top = 2.dp), tint = colors.onSurfaceVariant)
-                    Spacer(Modifier.width(8.dp))
-                    Text(m.text, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, maxLines = 8, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-        Role.ASSISTANT -> MarkdownText(
-            m.text,
-            Modifier.fillMaxWidth(),
-            style = if (nested) MaterialTheme.typography.bodyMedium.copy(color = colors.onSurfaceVariant) else MaterialTheme.typography.bodyLarge,
-        )
-        Role.TOOL -> ToolRun(listOf(m))
-    }
-}
-
-@Composable
-private fun ToolRun(lines: List<PhoneMessage>) {
-    var open by remember { mutableStateOf(false) }
-    val faint = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(Modifier.fillMaxWidth().animateContentSize().clickable(enabled = lines.size > 1) { open = !open }) {
-        val shown = if (open) lines else listOf(lines.last())
-        for (m in shown) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-            Icon(Line.tool(m.toolKind), null, Modifier.size(14.dp), tint = faint)
-            Spacer(Modifier.width(8.dp))
-            Text(m.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono), color = faint, maxLines = if (open) 3 else 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            if (!open && lines.size > 1) {
-                Spacer(Modifier.width(6.dp))
-                Text("+${lines.size - 1}", style = MaterialTheme.typography.labelSmall, color = LocalSignals.current.faint)
-            }
+    workLink?.let { hit ->
+        CompositionLocalProvider(LocalThreadPictures provides pictures, LocalThreadLink provides ::follow) {
+            WorkingSheet(hit) { workLink = null }
         }
     }
-}
-
-@Composable
-private fun Worked(item: ThreadItem.Worked) {
-    var open by remember { mutableStateOf(false) }
-    val turn by animateFloatAsState(if (open) 90f else 0f, label = "chevron")
-    val faint = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.clip(RoundedCornerShape(8.dp)).clickable { open = !open }.padding(vertical = 4.dp, horizontal = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(item.worked.title, style = MaterialTheme.typography.labelLarge, color = faint)
-            Spacer(Modifier.width(4.dp))
-            Icon(Line.ChevronRight, if (open) "Hide" else "Show", Modifier.size(14.dp).rotate(turn), tint = faint)
-        }
-        AnimatedVisibility(open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Row(Modifier.height(IntrinsicSize.Min).padding(top = 6.dp)) {
-                Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
-                Spacer(Modifier.width(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    item.worked.items.forEach { ItemView(it, nested = true) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GapLine(label: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = LocalSignals.current.faint, modifier = Modifier.padding(horizontal = 10.dp))
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-    }
-}
-
-/** A message on its way: dimmed, with why it's waiting and a Cancel while it can be. */
-@Composable
-private fun PendingBubble(text: String, note: String?, cancel: (() -> Unit)?, cancelling: Boolean) {
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-            modifier = Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 14.dp, vertical = 10.dp),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 32.dp)) {
-            if (note != null) Text(note, style = MaterialTheme.typography.labelSmall, color = LocalSignals.current.faint)
-            if (cancel != null) {
-                if (cancelling) {
-                    Spacer(Modifier.width(10.dp))
-                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                } else {
-                    TextButton(onClick = cancel, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("Cancel", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
+    planShown?.let { plan ->
+        val pending = thread.pendingApproval
+        // Go ahead only on the card that waits on this very plan, when it can be allowed from here.
+        val waitsOnIt = Plans.plan(pending, messages)?.seq == plan.seq
+        val approvalId = if (waitsOnIt && Plans.canGoAhead(pending)) pending?.id else null
+        CompositionLocalProvider(LocalThreadPictures provides pictures, LocalThreadLink provides ::follow) {
+            PlanSheet(
+                plan, approvalId,
+                approving = approvalId != null && answering?.first == approvalId,
+                canSendBack = Plans.canSendBack(plan, pending, messages),
+                goAhead = { vm.respond(it, ApprovalOption.ALLOW) },
+                sendBack = { text, done -> vm.send(text, onSent = { done(true) }, onFailed = { done(false) }) },
+            ) { planShown = null }
         }
     }
 }
 
 /** Below the newest message: what the thread is doing, or the card waiting on Mike. */
 @Composable
-private fun StatusCard(vm: ThreadViewModel, thread: PhoneThread, messages: List<PhoneMessage>, nothingOnItsWay: Boolean, now: Instant, leave: () -> Unit) {
+private fun StatusCard(vm: ThreadViewModel, thread: PhoneThread, messages: List<PhoneMessage>, nothingOnItsWay: Boolean, leave: () -> Unit) {
     val model = LocalModel.current
     val signals = LocalSignals.current
     val colors = MaterialTheme.colorScheme
@@ -450,7 +452,9 @@ private fun StatusCard(vm: ThreadViewModel, thread: PhoneThread, messages: List<
         Turns.lastShown(messages)?.role == Role.ASSISTANT && nothingOnItsWay && answeredDone != lastSeq
     var picks by remember(thread.asksSeq) { mutableStateOf(mapOf<Int, Int>()) }
     var ticked by remember(lastSeq) { mutableStateOf(setOf<Int>()) }
+    val plan = remember(pending, messages) { Plans.plan(pending, messages) }
     when {
+        pending is PendingApproval.Approval && plan != null -> PlanApprovalCard(pending, plan, tapped(pending.id)) { vm.respond(pending.id, it) }
         pending is PendingApproval.Approval -> ApprovalCard(pending, tapped(pending.id)) { vm.respond(pending.id, it) }
         pending is PendingApproval.Questions -> QuestionCard(pending, tapped(pending.id)) { chosen, typed -> vm.answer(pending.id, pending.questions, chosen, typed) }
         pending is PendingApproval.Secret -> SecretCard(
@@ -458,20 +462,16 @@ private fun StatusCard(vm: ThreadViewModel, thread: PhoneThread, messages: List<
             com.mikerosoft.threadbear.kit.RunnerKeyPins.check(pending.key, model.runnerKey(thread.runnerId)),
             tapped(pending.id),
         ) { vm.secret(pending, thread.runnerId, it) }
+        // A kind this build doesn't know.
         pending is PendingApproval.Other -> CardFrame(signals.needsYou) {
-            Text("Waiting on you", style = MaterialTheme.typography.titleMedium)
-            Text("Answer this one on the Mac.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-        }
-        thread.isBusy || thread.working != null -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-            WorkingDot(7.dp)
-            Spacer(Modifier.width(10.dp))
-            Text(thread.working ?: "Working", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            if (thread.isBusy) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Line.Laptop, null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
                 Spacer(Modifier.width(8.dp))
-                Text(RowStatus.workingLabel(thread.lastActivityAt, now), style = MaterialTheme.typography.labelSmall, color = signals.faint)
+                Text("Answer this on the Mac.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             }
         }
+        // Its own id per status, so the seconds start again when a stopped one runs.
+        thread.isBusy || thread.working != null -> androidx.compose.runtime.key(thread.status == ThreadStatus.RUNNING) { WorkingLine(thread.working) }
         showsAsks -> AsksCard(
             asks, picks, busy = answeredAsks == thread.asksSeq, pressing = pressing,
             pick = { i, c -> picks = if (c == null) picks - i else picks + (i to c) },
