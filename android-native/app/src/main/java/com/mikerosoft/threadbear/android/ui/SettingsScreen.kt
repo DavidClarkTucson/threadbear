@@ -194,10 +194,13 @@ private fun Group(title: String?, footer: String? = null, content: @Composable C
 @Composable
 private fun Field(label: String, value: String) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        Spacer(Modifier.width(16.dp).weight(1f))
-        Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-            overflow = TextOverflow.Ellipsis)
+        // The label keeps its width and the value takes the rest, right-aligned
+        // (as a LabeledContent): with both weighted, a Convex host pushed the
+        // label off the row, and short values floated mid-row.
+        Text(label, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+        Spacer(Modifier.width(16.dp))
+        Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+            overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.End, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
     }
 }
 
