@@ -49,13 +49,17 @@ export function fcmReason(body: unknown): string | undefined {
 // its own Firebase project (Keith's Android app and Mike's, since 11 Nov
 // 2026). A phone's token only works with its own project, and the relay
 // keeps no tokens to remember which (docs/push-relay.md), so a send tries
-// each key in turn. This picks what to answer from the results so far, in
-// key order: the first that worked; else the first that isn't "that token
-// belongs to another project", which is the token's own project speaking
-// (so UNREGISTERED from it still makes the backend forget the phone); else
-// the first.
+// each key in turn. Firebase answers another project's token with 403
+// PERMISSION_DENIED whose code is SENDER_ID_MISMATCH, so any other answer
+// about the token itself (404 UNREGISTERED, 400 INVALID_ARGUMENT) is the
+// token's own project speaking: the send stops there (fcmSettled), and that
+// answer wins (fcmPick), so the backend still drops a gone phone. A key
+// that fails for its own reasons (401, a timeout, a 5xx) settles nothing,
+// and the next key is tried.
 export type FcmResult = { status: number; reason?: string };
 export const wrongProject = (r: FcmResult) => r.reason === 'SENDER_ID_MISMATCH';
+/** The token's own project has answered: sent, or a verdict on the token. */
+export const fcmSettled = (r: FcmResult) => r.status === 200 || ((r.status === 404 || r.status === 400) && !wrongProject(r));
 export function fcmPick(results: FcmResult[]): FcmResult | undefined {
-  return results.find((r) => r.status === 200) ?? results.find((r) => !wrongProject(r)) ?? results[0];
+  return results.find(fcmSettled) ?? results.find((r) => !wrongProject(r)) ?? results[0];
 }

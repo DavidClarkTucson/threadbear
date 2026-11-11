@@ -32,6 +32,9 @@ class PairingStore(context: Context) {
         editor.apply()
     }
 
+    /** Whether there's a pairing, without opening the token (the push service asks). */
+    fun paired(): Boolean = prefs.contains("url") && prefs.contains("token")
+
     fun clear() {
         prefs.edit().remove("url").remove("token").apply()
     }

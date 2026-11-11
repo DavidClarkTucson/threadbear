@@ -62,14 +62,26 @@ object Push {
     /** This phone's Firebase token, or null when push is off or Firebase can't say. */
     suspend fun token(): String? = if (!available) null else runCatching { FirebaseMessaging.getInstance().token.await() }.getOrNull()
 
+    /**
+     * What a thread id can be, from a push or another app's intent: a
+     * runner's UUID, "test" from push:test. Anything else (a "/" that would
+     * break the navigation route) is dropped.
+     */
+    fun validThreadId(id: String?): String? = id?.takeIf { Regex("^[A-Za-z0-9_-]{1,100}$").matches(it) }
+
     /** Shows one: the sealed title and text opened with this phone's key, else the stand-in. */
     fun show(context: Context, threadId: String, sealed: String?) {
         if (!permitted(context)) return
+        // Unpaired: whatever's still on its way from the old backend isn't shown.
+        if (!PairingStore(context).paired()) return
         val key = PushKeyStore(context).load()
         val opened = if (sealed != null && key != null) PushSeal.open(sealed, key) else null
         val open = Intent(context, MainActivity::class.java)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra("threadId", threadId)
+            // The id makes each thread's PendingIntent its own: extras don't, and
+            // two ids with the same hashCode would both open the later thread.
+            .setIdentifier("thread:$threadId")
         // One per thread (its id as the request code and the tag): a newer one replaces it.
         val tap = PendingIntent.getActivity(context, threadId.hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = NotificationCompat.Builder(context, CHANNEL)
@@ -88,6 +100,16 @@ object Push {
         }
     }
 
+    /**
+     * Unpairing: Firebase forgets this phone's token, so the old backend's
+     * next send comes back UNREGISTERED and it drops the phone, and a new
+     * push key is made for the next pairing.
+     */
+    suspend fun forget(context: Context) {
+        PushKeyStore(context).clear()
+        if (available) runCatching { FirebaseMessaging.getInstance().deleteToken().await() }
+    }
+
     /** Opening a thread clears its notification, as reading it on the iPhone does. */
     fun clear(context: Context, threadId: String) = NotificationManagerCompat.from(context).cancel(threadId, 1)
 }
@@ -99,7 +121,7 @@ class ThreadbearMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val threadId = message.data["threadId"]?.takeIf { it.isNotEmpty() && it.length <= 100 } ?: return
+        val threadId = Push.validThreadId(message.data["threadId"]) ?: return
         Push.show(this, threadId, message.data["e"])
     }
 }
@@ -114,6 +136,8 @@ class PushKeyStore(context: Context) {
     private val prefs = context.getSharedPreferences("push", Context.MODE_PRIVATE)
 
     fun load(): ByteArray? = prefs.getString("key", null)?.let { runCatching { open(it) }.getOrNull() }
+
+    fun clear() { prefs.edit().remove("key").commit() }
 
     fun loadOrCreate(): ByteArray? = load() ?: runCatching {
         val bytes = ByteArray(32).also(SecureRandom()::nextBytes)

@@ -10,7 +10,7 @@
 import { createSign } from 'node:crypto';
 import { v } from 'convex/values';
 import { internalAction } from './_generated/server';
-import { fcmMessage, fcmPick, fcmReason, type FcmResult } from './fcmMessage';
+import { fcmMessage, fcmPick, fcmReason, fcmSettled, type FcmResult } from './fcmMessage';
 
 type Account = { client_email: string; private_key: string; project_id: string };
 
@@ -51,6 +51,8 @@ async function accessToken(a: Account, nowMs = Date.now()): Promise<{ token: str
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
+    // Bounded like the send: one key's sign-in hanging mustn't hold up the other's.
+    signal: AbortSignal.timeout(10_000),
   }).catch(() => null);
   if (!res) return { status: 0, reason: 'timeout' };
   const body = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number };
@@ -84,11 +86,9 @@ export const send = internalAction({
     for (const acct of keys) {
       const r = await sendWith(acct, a);
       results.push(r);
-      // Any other no goes on to the next key too: what Firebase answers for
-      // another project's token isn't something to bet a phone's
-      // notifications on, and fcmPick still answers with the token's own
-      // project's word when both say no.
-      if (r.status === 200) break;
+      // Sent, or the token's own project said what's wrong with it: no
+      // other key can do better, and Keith's phones don't wait on Mike's key.
+      if (fcmSettled(r)) break;
     }
     return fcmPick(results)!;
   },

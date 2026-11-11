@@ -190,6 +190,8 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     fun registerPush(newToken: String? = null) {
         val b = _backend.value ?: return
         if (!Push.available || !Push.permitted(appContext)) return
+        // Already registered this run: the resume check costs nothing then.
+        if (newToken == null && _pushToken.value != null) return
         if (_identity.value?.sendsNotifications == false) return
         scope.launch {
             val token = newToken ?: Push.token() ?: return@launch
@@ -204,6 +206,8 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
 
     fun unpair() {
         store.clear()
+        _pushToken.value = null
+        scope.launch { Push.forget(appContext) }
         transport?.close()
         transport = null
         _backend.value = null

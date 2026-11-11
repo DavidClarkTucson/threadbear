@@ -48,6 +48,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Notifications allowed in Settings since the prompt was turned down:
+        // register now rather than on the next launch.
+        model.registerPush()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
@@ -58,7 +65,7 @@ class MainActivity : ComponentActivity() {
         if (data != null && data.startsWith("threadbear://pair")) {
             if (!model.ask(data)) model.note("That isn't a pairing link Threadbear can use.")
         }
-        intent?.getStringExtra("threadId")?.let { openThread.value = it }
+        Push.validThreadId(intent?.getStringExtra("threadId"))?.let { openThread.value = it }
     }
 }
 

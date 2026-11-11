@@ -67,10 +67,12 @@ The same, through Firebase Cloud Messaging (API 66):
    Keith's (his `platima/threadbear` Android app) in the first and Mike's
    native app's (`android-native/`, project `threadbear-android`) in the
    second, since 11 Nov 2026. A token only works with its own project, and the
-   relay keeps no tokens, so a send tries each key until one takes it
-   (`fcmPick` in `fcmMessage.ts`): the answer is the one that worked, else the
-   token's own project's (so UNREGISTERED still drops the phone), never a
-   "that token is another project's" (`SENDER_ID_MISMATCH`).
+   relay keeps no tokens, so a send tries each key in turn until one sends it
+   or the token's own project gives a verdict on it (`fcmSettled`, `fcmPick`
+   in `fcmMessage.ts`): another project's token is a `SENDER_ID_MISMATCH`, so
+   a 404 UNREGISTERED still drops the phone, and a key failing on its own
+   (401, a timeout) just moves on to the next. Unpairing the app deletes its
+   Firebase token, so the backend's next send drops the phone.
 4. The Android app's `FirebaseMessagingService` opens `e` with
    its key and posts the notification; if it can't, it posts "A thread needs
    you". A token Firebase says is unregistered (404) is dropped like an Apple
