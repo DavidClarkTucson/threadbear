@@ -2484,7 +2484,7 @@ function addRemoteDemo() {
     threads.set(id, { summary, events, inProgress: new Map(), timers: [], runnerId: BRUCE });
   };
   make('bruce_backup', 'Check the photo library backup', '/Users/bruce/dev/me/misc', 12, 'idle', [{
-    ask: 'Is last night\'s photo library backup complete? Here is what Backblaze showed this morning.',
+    ask: 'Is last night\'s photo library backup complete? [Picture 1] is what Backblaze showed this morning.',
     images: [{ path: BRUCE_FILES.picture, mediaType: 'image/png', width: 760, height: 420 }],
     answer: 'The backup finished at 3:12 am: **48,210 files**, nothing skipped. The only warning is the external drive, which was asleep for the first pass and caught up on the second.\n\nWant me to keep the drive awake during backups?',
     needs: 'you',

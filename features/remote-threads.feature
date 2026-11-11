@@ -27,6 +27,13 @@ Feature: Other runners' threads
     When I open the thread "Check the photo library backup"
     Then the pictures of my message say "Couldn't get it from bruce"
 
+  # Its chip names the same file on bruce: pressed here it opens nothing, as
+  # this Mac's file at that path isn't the one meant (Codex, 12 Nov).
+  @rich.picturechips @remote-threads
+  Scenario: Another Mac's picture chip opens nothing on this Mac
+    When I open the thread "Check the photo library backup"
+    Then pressing the picture chip in my message opens nothing
+
   @sidebar.row.remote @remote-threads
   Scenario: It takes a message like any other thread
     When I open the thread "Tidy the media drive"

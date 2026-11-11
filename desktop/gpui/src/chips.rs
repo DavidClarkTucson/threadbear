@@ -10,6 +10,7 @@
 use crate::open_gate::{self, Origin};
 use crate::style::{self, size};
 use crate::thread::ThreadPane;
+use crate::tips::Tip as _;
 use gpui_kit::base::text::{InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin};
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
@@ -382,9 +383,18 @@ impl ThreadPane {
         let origin = self.origin();
         let name = kind.label();
         let chip = match kind {
+            // Another Mac's picture: its path names a file on that Mac, and
+            // read here it's whatever this Mac has at that path, so it opens
+            // no card and no viewer (Codex's review of the drags, 12 Nov). The
+            // picture itself is in the tile over the words, which the runner
+            // sends (remote_pictures.rs); the chip says where it is.
+            ChipKind::Picture(_) if origin != Origin::ThisMac => {
+                let runner = self.summary.runner_id.clone().unwrap_or_default();
+                let mac = self.composer.read(cx).app.upgrade().map_or_else(|| "another Mac".to_owned(), |app| app.read(cx).runner_name_of(&runner));
+                chip.cursor_default().tip(format!("This picture is on {mac}: it shows above"))
+            }
             ChipKind::Picture(index) => {
-                // Only this Mac's pictures: another Mac's path names a file there.
-                let picture = images.get(index).filter(|_| origin == Origin::ThisMac);
+                let picture = images.get(index);
                 let shown = picture.filter(|_| card_shown(&key, QUICK)).map(|p| under_chip(picture_card(p, cx)));
                 let images = images.to_vec();
                 let hover_key = key.clone();

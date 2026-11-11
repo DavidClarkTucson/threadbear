@@ -83,6 +83,12 @@ Then('the move sheet stayed closed', async function (this: ThreadbearWorld) {
 
 // Both apps' `tiles`: what each picture of the message says when it isn't
 // drawn ("Couldn't get it from bruce"), "picture" when it is.
+Then('pressing the picture chip in my message opens nothing', async function (this: ThreadbearWorld) {
+  const row = await this.until('my message', (d) => d.transcript.rows.find((r) => r.kind === 'user'));
+  const said = await this.app.do({ cmd: 'peek', row: row.id, words: 'Picture 1', press: true }).then((r) => `ok ${r}`, (e) => String(e));
+  assert.ok(!said.includes('quicklook'), `the chip opened something: ${said}`);
+});
+
 Then('the pictures of my message say {string}', async function (this: ThreadbearWorld, words: string) {
   await this.until('a message with pictures', (d) => d.transcript.rows.some((r) => r.kind === 'user'));
   let said = '';

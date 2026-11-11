@@ -222,6 +222,23 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 Another Mac's picture chips open nothing here (`rich.picturechips`)
+
+- A picture's chip in a message on another Mac's thread named that Mac's
+  file, and a press opened this Mac's viewer on whatever this Mac had at the
+  same path (Codex's review of the drags found it). It's a label now, saying
+  which Mac the picture is on; the picture itself is in the tile over the
+  words, which this Mac's runner asks for (remote_pictures.rs). The Swift app
+  already used only the grid's copy.
+- The mock's message on bruce has a "[Picture 1]" in its words, for the
+  scenario.
+- Files: `desktop/gpui/src/chips.rs`, `app/Tools/mock-runner/server.mjs`,
+  `features/remote-threads.feature` and its steps.
+- Verification: on Tinker Desk, `@remote-threads`, `@rich.picturechips` and
+  `@transcript.images`, GPUI 23 of 23 and Swift 19 of 19. The new scenario
+  fails without the fix, as the viewer opens on any path that looks like a
+  picture.
+
 ### 2026-11-12 Updates, crash reports and the import after Codex's reviews (`system.selfupdate`, `system.crash`, `system.swiftimport`)
 
 - A crash report never carries a panic's own text now, only Rust's own
