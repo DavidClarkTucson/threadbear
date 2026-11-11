@@ -2,17 +2,6 @@ package com.mikerosoft.threadbear.kit
 
 import java.time.Instant
 
-/** `[Picture N]` markers in a message (InlinePictures.swift, the part the phone needs). */
-object InlinePictures {
-    private val marker = Regex("""\[Picture (\d{1,3})]""")
-
-    /** The picture numbers placed in the text, 1 to 99, each once. */
-    fun placed(text: String): Set<Int> =
-        marker.findAll(text).mapNotNull { it.groupValues[1].toIntOrNull() }.filter { it in 1..99 }.toSet()
-
-    fun unplaced(text: String, count: Int): Int = count - placed(text).count { it <= count }
-}
-
 /** Messages sent from the phone that the runner hasn't applied yet (WaitingSends.swift). */
 object WaitingSends {
     /**

@@ -14,54 +14,25 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
-/** docs/protocol.md, "Pictures in a message", in the composer (InlinePicturesTests.swift). */
+/** What the composer adds to InlinePictures (its own tests are InlinePicturesTest). */
 class PhotoMarksTest {
-    private val m = PhotoMarks.MARK_STRING
-
-    @Test fun photosGoInWhereTheCursorIsWithASpaceEitherSide() {
-        val one = PhotoMarks.inserting(1, "compare this with that", 12)
-        assertEquals("compare this $m with that", one.text)
-        assertEquals(0, one.firstIndex)
-        assertEquals(14, one.cursor)
-        // Two more at the end: after the first photo, spaced.
-        val more = PhotoMarks.inserting(2, one.text, one.text.length)
-        assertEquals("compare this $m with that $m $m ", more.text)
-        assertEquals(1, more.firstIndex)
-        // In place of a selection, and clamped past the end.
-        assertEquals("a $m word", PhotoMarks.inserting(1, "a bad word", 2, 5).text)
-        assertEquals("$m ", PhotoMarks.inserting(1, "", 9, 13).text)
-    }
-
-    @Test fun marksGoAsNumberedMarkersAndPhotosAloneAsNoWords() {
-        assertEquals("this [Picture 1] like [Picture 2]", PhotoMarks.sentText("this $m like $m"))
-        assertEquals("", PhotoMarks.sentText("$m $m "))
-        assertEquals("plain", PhotoMarks.sentText("plain"))
-    }
-
-    @Test fun eachPhotoHasOneMark() {
-        assertEquals("look $m $m", PhotoMarks.normalized("look", 2))
-        assertEquals("a $m b ", PhotoMarks.normalized("a $m b $m", 1))
-        assertEquals("this that", PhotoMarks.removingMark(0, "this $m that"))
-        assertEquals("a $m c", PhotoMarks.removingMark(1, "a $m $m c"))
-        assertEquals("no marks", PhotoMarks.removingMark(0, "no marks"))
-        assertEquals("ab", PhotoMarks.words("a${m}b"))
-    }
+    private val m = InlinePictures.MARK_STRING
 
     /** A chip deleted or cut in the words takes its photo along; one typed past isn't touched. */
     @Test fun anEditSaysWhichPhotosItTookOut() {
         val text = "a $m b $m c $m"
         // Backspace over the second chip (at 6).
-        assertEquals(listOf(1), PhotoMarks.removedMarks(text, listOf(6..6)))
+        assertEquals(listOf(1), InlinePictures.removedMarks(text, listOf(6..6)))
         // A selection over the first two.
-        assertEquals(listOf(0, 1), PhotoMarks.removedMarks(text, listOf(1..7)))
+        assertEquals(listOf(0, 1), InlinePictures.removedMarks(text, listOf(1..7)))
         // Typing between them takes none.
-        assertEquals(emptyList(), PhotoMarks.removedMarks(text, listOf(3 until 3)))
-        assertEquals(emptyList(), PhotoMarks.removedMarks(text, emptyList()))
+        assertEquals(emptyList(), InlinePictures.removedMarks(text, listOf(3 until 3)))
+        assertEquals(emptyList(), InlinePictures.removedMarks(text, emptyList()))
     }
 
-    /** The message half still reads what the composer sends. */
+    /** What the composer sends is what the message side reads back as placed pictures. */
     @Test fun sentMarkersAreThePlacedPictures() {
-        val sent = PhotoMarks.sentText("this $m and $m")
+        val sent = InlinePictures.sentText("this $m and $m")
         assertEquals(0, InlinePictures.unplaced(sent, 2))
     }
 }

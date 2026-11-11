@@ -24,7 +24,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import com.mikerosoft.threadbear.kit.BackendApi
-import com.mikerosoft.threadbear.kit.PhotoMarks
+import com.mikerosoft.threadbear.kit.InlinePictures
 import com.mikerosoft.threadbear.kit.PhotoPrep
 import com.mikerosoft.threadbear.kit.PhotoUpload
 import com.mikerosoft.threadbear.kit.TransportError
@@ -197,7 +197,7 @@ object PhotoDecoding {
 
 /**
  * A composer's words and photos together (PhotoPicking.swift's PhotoWords):
- * each photo a chip in the words, a mark there (PhotoMarks), and the photos
+ * each photo a chip in the words, a mark there (InlinePictures), and the photos
  * in the marks' order. The text field draws each mark as its chip
  * ([chips]) and a chip deleted takes its photo with it ([keepMarks]).
  */
@@ -211,10 +211,10 @@ class PhotoBox(val text: TextFieldState) {
     /** How many more it can take, counting the ones on their way. */
     val room: Int get() = maxOf(0, PhotoPrep.MAX_PHOTOS - photos.size - adding)
 
-    private val words: String get() = PhotoMarks.normalized(text.text.toString(), photos.size)
+    private val words: String get() = InlinePictures.normalized(text.text.toString(), photos.size)
 
     /** What's sent: the words with each chip as a [Picture N] marker, or none when there are only photos. */
-    val message: String get() = PhotoMarks.sentText(words).trim()
+    val message: String get() = InlinePictures.sentText(words).trim()
 
     val isEmpty: Boolean get() = message.isEmpty() && photos.isEmpty() && adding == 0
 
@@ -253,7 +253,7 @@ class PhotoBox(val text: TextFieldState) {
         if (take.isEmpty()) return
         val words = words
         val selection = text.selection
-        val result = PhotoMarks.inserting(take.size, words, selection.min, selection.max)
+        val result = InlinePictures.inserting(take.size, words, selection.min, selection.max - selection.min)
         photos.addAll(minOf(result.firstIndex, photos.size), take)
         // A programmatic edit: it doesn't go through keepMarks.
         text.edit {
@@ -269,7 +269,7 @@ class PhotoBox(val text: TextFieldState) {
         val words = words
         photos.removeAt(index)
         photo.upload?.drop()
-        val out = PhotoMarks.removingMark(index, words)
+        val out = InlinePictures.removingMark(index, words)
         text.edit { replace(0, length, out) }
     }
 
@@ -303,15 +303,28 @@ class PhotoBox(val text: TextFieldState) {
         val changes = changes
         if (changes.changeCount == 0) return@InputTransformation
         val replaced = (0 until changes.changeCount).map { i -> changes.getOriginalRange(i).let { it.min until it.max } }
-        val removed = PhotoMarks.removedMarks(originalText, replaced)
+        val removed = InlinePictures.removedMarks(originalText, replaced)
         val inserted = (0 until changes.changeCount).map { changes.getRange(it) }.sortedByDescending { it.min }
         for (range in inserted) {
-            for (j in range.max - 1 downTo range.min) if (j < length && charAt(j) == PhotoMarks.MARK) replace(j, j + 1, "")
+            for (j in range.max - 1 downTo range.min) if (j < length && charAt(j) == InlinePictures.MARK) replace(j, j + 1, "")
         }
         if (removed.isNotEmpty()) {
             for (i in removed.sortedDescending()) if (i < photos.size) photos.removeAt(i).upload?.drop()
         }
+        // A paste is what came in at once: typing never brings a whole thread id in one change.
+        val rewrite = pasteRewrite
+        if (rewrite != null && changes.changeCount == 1) {
+            val range = changes.getRange(0)
+            if (range.length >= 8) rewrite(asCharSequence().substring(range.min, range.max))?.let { replace(range.min, range.max, it) }
+        }
     }
+
+    /**
+     * What a pasted piece of text should go in as instead, or null to leave
+     * it: a thread id becomes a link to that thread (Composer.kt's
+     * threadReference), as the iPhone's and the Mac's composers do.
+     */
+    var pasteRewrite: ((String) -> String?)? = null
 
     /** Each mark drawn as "Picture N" in a chip's colours; a spare mark (no photo) isn't drawn. */
     @OptIn(ExperimentalFoundationApi::class)
@@ -323,7 +336,7 @@ class PhotoBox(val text: TextFieldState) {
         var i = 0
         var n = 0
         while (i < length) {
-            if (charAt(i) != PhotoMarks.MARK) { i++; continue }
+            if (charAt(i) != InlinePictures.MARK) { i++; continue }
             n++
             if (n > count) { replace(i, i + 1, ""); continue }
             // Thin spaces either side stand in for the chip's padding.

@@ -15,6 +15,8 @@ import com.mikerosoft.threadbear.kit.SecretAnswer
 import com.mikerosoft.threadbear.kit.SecretSeal
 import com.mikerosoft.threadbear.kit.CommandState
 import com.mikerosoft.threadbear.kit.InboxSections
+import com.mikerosoft.threadbear.kit.MessageHistory
+import com.mikerosoft.threadbear.kit.MessageImage
 import com.mikerosoft.threadbear.kit.MessagePage
 import com.mikerosoft.threadbear.kit.PhoneMessage
 import com.mikerosoft.threadbear.kit.ThreadChange
@@ -28,6 +30,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -95,10 +100,87 @@ class ThreadViewModel(private val model: AppModel, val threadId: String) : ViewM
             .catch { emit(emptyList()) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** Older rows read once, put before the live page ("Load earlier"). */
-    val older = MutableStateFlow<List<PhoneMessage>>(emptyList())
-    val olderHasMore = MutableStateFlow(true)
-    val loadingOlder = MutableStateFlow(false)
+    /**
+     * From API 2: the thread's messages as far back as it's been scrolled
+     * (the kit's MessageHistory): the live page above, taken in by the
+     * screen as it comes (takeLive, so the page stays a WhileSubscribed
+     * query), and older chunks read once each (loadChunk). Published as a
+     * copy after each change; null until the first page.
+     */
+    private val h = MessageHistory()
+    val history = MutableStateFlow<MessageHistory?>(null)
+    /** A chunk of older rows has been asked for and hasn't come yet. */
+    val loadingChunk = MutableStateFlow(false)
+    /** Before API 2: the oldest seq when Load earlier was tapped, until older messages arrive or the runner says it couldn't. */
+    val loadingBefore = MutableStateFlow<Int?>(null)
+
+    fun takeLive(page: MessagePage) {
+        h.takeLive(page)
+        history.value = h.copy()
+    }
+
+    /**
+     * API 37: pictures of rows read once. A picture can finish uploading
+     * after its row went into a chunk or slid off the live page, and neither
+     * is read again. This follows only from the first row read once.
+     */
+    val lateImages: StateFlow<List<MessageImage>> = combine(model.backend, history.map { it?.lateImagesFrom }.distinctUntilChanged()) { b, from -> b to from }
+        .flatMapLatest { (b, from) ->
+            if (b == null || from == null || model.apiVersion in 1 until BackendApi.IMAGES) flowOf(emptyList())
+            else b.images(threadId, from).retryWhen { cause, _ -> cause !is TransportError.Unauthorized && run { delay(2000); true } }
+                .catch { emit(emptyList()) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun takeLateImages(images: List<MessageImage>) {
+        if (h.live == null) return
+        h.takeLateImages(images)
+        history.value = h.copy()
+    }
+
+    /** Older rows than the live page holds, read once (MessageHistory). */
+    fun loadChunk() {
+        val b = model.backend.value ?: return
+        if (loadingChunk.value) return
+        val before = h.nextBefore ?: return
+        loadingChunk.value = true
+        viewModelScope.launch {
+            try {
+                val chunk = b.olderMessages(threadId, before, MORE_PER_PAGE)
+                if (h.takeOlder(chunk, before)) history.value = h.copy()
+            } catch (e: Exception) {
+                model.report(e)
+            } finally {
+                loadingChunk.value = false
+            }
+        }
+    }
+
+    /**
+     * A backend before API 2: the runner pages older messages in, and they
+     * turn up in the thread's own query; this only watches for a failure,
+     * or the Mac being asleep.
+     */
+    fun loadEarlier(before: Int?) {
+        val b = model.backend.value ?: return
+        if (before == null || loadingBefore.value == before) return
+        loadingBefore.value = before
+        viewModelScope.launch {
+            try {
+                val id = b.loadEarlier(threadId, before)
+                val status = b.command(id).first { it == null || it.state == CommandState.DONE || it.state == CommandState.FAILED }
+                if (status?.state == CommandState.FAILED) {
+                    model.note(status.note ?: "The Mac couldn't send older messages.")
+                    loadingBefore.value = null
+                    return@launch
+                }
+            } catch (e: Exception) {
+                model.report(e)
+            }
+            // Done (or gone): if nothing older arrived, let it be tapped again.
+            delay(2000)
+            if (loadingBefore.value == before) loadingBefore.value = null
+        }
+    }
 
     val locals = MutableStateFlow<List<LocalSend>>(emptyList())
     private var nextKey = 0L
@@ -273,23 +355,6 @@ class ThreadViewModel(private val model: AppModel, val threadId: String) : ViewM
                 model.report(e)
             } finally {
                 cancelling.update { it - send.commandId }
-            }
-        }
-    }
-
-    fun loadOlder(before: Int) {
-        val b = model.backend.value ?: return
-        if (loadingOlder.value) return
-        loadingOlder.value = true
-        viewModelScope.launch {
-            try {
-                val chunk = b.olderMessages(threadId, before, MORE_PER_PAGE)
-                older.update { chunk.messages + it.filter { m -> m.seq >= before } }
-                olderHasMore.value = chunk.hasMore
-            } catch (e: Exception) {
-                model.report(e)
-            } finally {
-                loadingOlder.value = false
             }
         }
     }

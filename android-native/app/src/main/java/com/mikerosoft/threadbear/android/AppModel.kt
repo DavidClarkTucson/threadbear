@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The app's state, for as long as the process lives (the iPhone's
@@ -46,6 +47,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppModel(context: Context, private val scope: CoroutineScope) {
+    private val appContext = context.applicationContext
     private val store = PairingStore(context)
     private val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
     private var transport: ConvexFfiTransport? = null
@@ -73,6 +75,9 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     /** Stop pressed, until the turn ends. */
     val stopping = MutableStateFlow<Set<String>>(emptySet())
 
+    /** The inbox's and the shell's own state (ShellModel.kt): Pocket, Settings, row moves. */
+    val shell: ShellModel by lazy { ShellModel(this, context, scope) }
+
     init {
         store.load()?.let { connect(it) }
     }
@@ -88,6 +93,7 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
         scope.launch {
             try {
                 _identity.value = _backend.value?.me()
+                registerPush()
             } catch (e: TransportError.Unauthorized) {
                 report(e)
             } catch (_: Exception) {
@@ -115,8 +121,6 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     val accounts: StateFlow<List<PhoneAccount>> = follow(emptyList()) { b ->
         if (apiVersion in 1 until BackendApi.MODELS) flowOf(emptyList()) else b.accounts()
     }
-    /** New threads asked for here that their runner hasn't made yet (StartingThreads.kt). */
-    val starts = StartingThreads(this, scope)
     val connected: StateFlow<Boolean> = _backend.flatMapLatest { it?.connected ?: flowOf(false) }
         .stateIn(scope, SharingStarted.Eagerly, false)
 
@@ -164,11 +168,17 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
             val trial = ConvexFfiTransport(shown.pairing.deploymentUrl)
             try {
                 val me = PhoneBackend(trial, shown.pairing.token).me()
+                // Another server: the old one stops reaching this phone. The
+                // same server with a new token keeps the registration, which
+                // registerPush moves to the new token.
+                val old = _pairing.value
+                pairingChanged(forget = old != null && old.deploymentUrl != shown.pairing.deploymentUrl)
                 store.save(shown.pairing)
                 trial.close()
                 connect(shown.pairing)
                 _identity.value = me
                 note("Paired with ${shown.host}")
+                registerPush()
             } catch (e: Exception) {
                 trial.close()
                 report(e)
@@ -178,8 +188,76 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    // Push
+
+    /** The Firebase token the backend has for this phone, once registered (for Notify me). */
+    private val _pushToken = MutableStateFlow<String?>(null)
+    val pushToken: StateFlow<String?> = _pushToken
+
+    /**
+     * Hands the backend this phone's Firebase token and push key, as the
+     * iPhone's didRegister: on each connect, after pairing, when the
+     * permission's given, and when Firebase makes a new token. Not while
+     * notifications aren't allowed (nothing would show), nor for a backend
+     * that sends none (self-hosted). Quiet on failure: the next launch tries again.
+     */
+    fun registerPush(newToken: String? = null) {
+        val b = _backend.value ?: return
+        if (!Push.available || !Push.permitted(appContext)) return
+        // Already registered this run: the resume check costs nothing then.
+        if (newToken == null && _pushToken.value != null) return
+        if (_identity.value?.sendsNotifications == false) return
+        val epoch = pairingEpoch
+        scope.launch {
+            // One at a time with forgetting an old pairing's token (pairingChanged),
+            // so a quick re-pair can't register the token being deleted, and work
+            // for a pairing that's since changed is dropped, not finished.
+            pushLock.withLock {
+                if (epoch != pairingEpoch) return@withLock
+                val token = newToken ?: Push.token() ?: return@withLock
+                val key = PushKeyStore(appContext).loadOrCreate()?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+                try {
+                    b.registerDevice(token, "production", "android", key)
+                    if (epoch == pairingEpoch) {
+                        _pushToken.value = token
+                        // Settings' Notify me picker shows once there's a token.
+                        shell.pushToken.value = token
+                        // As the iPhone: the phone's own choice goes with each
+                        // registration (a backend before the setting notifies every time).
+                        if (apiVersion >= com.mikerosoft.threadbear.kit.BackendApi.NOTIFICATION_SETTING) {
+                            runCatching { b.setNotifications(token, shell.notifyMode.value) }
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    private val pushLock = kotlinx.coroutines.sync.Mutex() // fair: queued work runs in order
+    @Volatile private var pairingEpoch = 0
+
+    /**
+     * The pairing changed (unpaired, or paired with something else): what's
+     * queued for the old one is dropped, and with [forget] the old backend
+     * loses this phone (Firebase deletes the token, so its next send comes
+     * back UNREGISTERED and it drops the device) and the push key is made
+     * anew, so the old backend's sealed notifications can't be opened.
+     */
+    private fun pairingChanged(forget: Boolean) {
+        // Another server (or none): its notifications come down and any being
+        // opened are dropped, before anything else of the new pairing's.
+        Push.pairingChanged(appContext, clear = forget)
+        pairingEpoch++
+        _pushToken.value = null
+        shell.pushToken.value = null
+        if (forget) scope.launch { pushLock.withLock { Push.forget(appContext) } }
+    }
+
     fun unpair() {
         store.clear()
+        pairingChanged(forget = true)
+        shell.clear()
         transport?.close()
         transport = null
         _backend.value = null
@@ -190,6 +268,12 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     // Changes, each showing at once
 
     fun change(threadId: String, change: ThreadChange) {
+        // Archive and hibernate wait for the runner to say, as the iPhone's do (ShellModel).
+        when (change) {
+            ThreadChange.Archive -> return shell.archive(threadId)
+            is ThreadChange.Snooze, ThreadChange.SnoozeUntilRestart -> return shell.hibernate(threadId, change)
+            else -> {}
+        }
         val b = _backend.value ?: return
         val hides = change is ThreadChange.Archive || change is ThreadChange.ArchiveWithVerdict || change is ThreadChange.Snooze
         if (hides) puttingAway.update { it + threadId }

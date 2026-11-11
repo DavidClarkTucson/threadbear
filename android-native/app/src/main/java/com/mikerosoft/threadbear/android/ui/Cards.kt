@@ -38,7 +38,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -236,7 +235,8 @@ fun AsksCard(
     run: (PhoneAskRun) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val uri = LocalUriHandler.current
+    // Through the thread's links, so another app's link asks first (LinkGate), as on the iPhone.
+    val open = LocalThreadLink.current
     CardFrame(LocalSignals.current.needsYou) {
         asks.forEachIndexed { index, ask ->
             val ticked = ask.ticked == true
@@ -259,7 +259,7 @@ fun AsksCard(
                     }
                     if (ask.hasNotes) {
                         if (links.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            links.forEach { l -> Pill(l.title, { runCatching { uri.openUri(l.url) } }, icon = Line.External) }
+                            links.forEach { l -> Pill(l.title, { open(l.url, null) }, icon = Line.External) }
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             ask.choices.forEachIndexed { choice, label ->
@@ -270,7 +270,7 @@ fun AsksCard(
                         }
                     } else if (links.isNotEmpty() || ask.choices.isNotEmpty()) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            links.forEach { l -> Pill(l.title, { runCatching { uri.openUri(l.url) } }, icon = Line.External) }
+                            links.forEach { l -> Pill(l.title, { open(l.url, null) }, icon = Line.External) }
                             ask.choices.forEachIndexed { choice, label ->
                                 val picked = picks[index] == choice
                                 Pill(label, { choose(choice) }, filled = picked, star = ask.suggestedIndex == choice,

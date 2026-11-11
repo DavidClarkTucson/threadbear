@@ -77,20 +77,24 @@ import kotlinx.coroutines.launch
  *
  * It closes as soon as the backend has the request (7 Nov, Mike: waiting
  * on the runner's answer left the spinner up for ages); a row in the inbox
- * stands in for the thread until the runner's made it (StartingThreads).
- * `opened` is called later, after the screen's gone, with the new thread's
- * id if it starts within a minute: the caller opens it only if the inbox
- * is still what's showing, as the iPhone does, so a thread that lands
- * while Mike's in another, or writing the next, doesn't pull him away.
+ * stands in for the thread until the runner's made it (ShellModel.starting),
+ * and MainActivity opens it if it starts within a minute and the inbox is
+ * still showing (shell.justStarted), as the iPhone does, so a thread that
+ * lands while Mike's in another, or writing the next, doesn't pull him away.
+ *
+ * It opens with a failed start's words, photos and picks to try again
+ * (shell.retryDraft), or with words to start from (shell.composeText: the
+ * Pocket's "Add to my pocket: ").
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewThreadScreen(close: () -> Unit, opened: (String) -> Unit) {
+fun NewThreadScreen(close: () -> Unit) {
     val model = LocalModel.current
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     // A failed start's screen again, as it was.
-    val retry = remember { model.starts.takeRetry() }
+    val retry = remember { model.shell.retryDraft.value.also { model.shell.retryDraft.value = null } }
+    val startText = remember { model.shell.composeText.value.also { model.shell.composeText.value = null } }
     val box = rememberPhotoBox()
     val dictation = rememberDictation()
     val scope = rememberCoroutineScope()
@@ -125,9 +129,11 @@ fun NewThreadScreen(close: () -> Unit, opened: (String) -> Unit) {
         else NewThreadChoices.offlineText(runners, now)
 
     LaunchedEffect(Unit) {
-        retry?.let { draft ->
-            box.restore(draft.text, draft.photos)
-            draft.photos.forEach(model::startUpload)
+        if (retry != null) {
+            box.restore(retry.text, retry.photos)
+            retry.photos.forEach(model::startUpload)
+        } else if (startText != null && box.text.text.isEmpty()) {
+            box.restore(startText, emptyList())
         }
         // Straight to typing, once the field's been laid out (the Scaffold's
         // content comes a frame after this starts).
@@ -181,7 +187,7 @@ fun NewThreadScreen(close: () -> Unit, opened: (String) -> Unit) {
                 val draft = NewThreadDraft(typed, photos, if (canChooseRunner) runnerId else null, modelId, effort)
                 val commandId = backend.create(message, draft.runnerId, null, images, NewThreadSettings(draft.modelId, draft.effort))
                 sent(photos)
-                model.starts.started(commandId, message, draft, opened)
+                model.shell.started(commandId, message, draft.runnerId, photos.size, draft)
                 close()
             } catch (e: CancellationException) {
                 throw e

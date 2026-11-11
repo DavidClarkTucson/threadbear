@@ -189,6 +189,21 @@ class PhoneBackend(private val transport: ConvexTransport, private val token: St
         return command("phone:create", args(*a.toTypedArray()))
     }
 
+    /**
+     * API 37: pictures of rows read once, from `from` on. A picture can
+     * finish uploading after its row went into a chunk or slid off the live
+     * page, and neither is read again.
+     */
+    fun images(threadId: String, from: Int): Flow<List<MessageImage>> =
+        live("phone:images", args("threadId" to JsonPrimitive(threadId), "from" to JsonPrimitive(from))) { it.lossyList(MessageImage::read) }
+
+    /** Asks the thread's runner for its slash commands (API 62): the list comes back as the command's result. */
+    suspend fun slashCommands(threadId: String): String = command("phone:slashCommands", args("threadId" to JsonPrimitive(threadId)))
+
+    /** Before API 2: asks the runner to page older messages into phone:thread. */
+    suspend fun loadEarlier(threadId: String, beforeSeq: Int): String =
+        command("phone:loadEarlier", args("threadId" to JsonPrimitive(threadId), "beforeSeq" to JsonPrimitive(beforeSeq)))
+
     suspend fun registerDevice(pushToken: String, environment: String, platform: String, pushKey: String?) {
         val a = mutableListOf<Pair<String, JsonElement>>(
             "apnsToken" to JsonPrimitive(pushToken), "environment" to JsonPrimitive(environment), "platform" to JsonPrimitive(platform),
@@ -226,6 +241,28 @@ class PhoneBackend(private val transport: ConvexTransport, private val token: St
     /** Takes back a photo that was uploaded and then never sent (backend API 25). */
     suspend fun discardPhoto(storageId: String) {
         transport.mutation("phone:discardImage", args("storageId" to JsonPrimitive(storageId)))
+    }
+
+    /** Archived threads past the den's newest 100 with these words in (backend API 16). */
+    suspend fun search(text: String): List<PhoneThread> =
+        parseJson(transport.query("phone:search", args("text" to JsonPrimitive(text)))).lossyList(PhoneThread::read)
+
+    /** The Pocket's cards (backend API 19), live. */
+    fun pocket(): Flow<List<PocketCard>> = live("phone:pocket", args()) { it.lossyList(PocketCard::read) }
+
+    /** Straight to the table, not a command: the Mac may well be asleep. */
+    suspend fun removePocketCard(id: String) {
+        transport.mutation("phone:removePocketCard", args("id" to JsonPrimitive(id)))
+    }
+
+    /** When this phone is notified (backend API 3), by its push token. */
+    suspend fun setNotifications(pushToken: String, notify: NotifyMode) {
+        transport.mutation("phone:setNotifications", args("apnsToken" to JsonPrimitive(pushToken), "notify" to JsonPrimitive(notify.wire)))
+    }
+
+    /** New threads start on the first of these that's online (backend API 56). */
+    suspend fun setRunnerOrder(runnerIds: List<String>) {
+        transport.mutation("phone:setRunnerOrder", args("runnerIds" to JsonArray(runnerIds.map(::JsonPrimitive))))
     }
 }
 

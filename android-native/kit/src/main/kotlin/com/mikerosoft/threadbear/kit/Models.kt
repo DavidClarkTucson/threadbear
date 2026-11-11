@@ -67,6 +67,8 @@ sealed class PendingApproval {
         val title: String,
         val options: List<ApprovalOption>,
         val inputSummary: String?,
+        /** On Claude's ExitPlanMode card: the seq of the plan row it waits on (backend API 72). */
+        val planSeq: Int? = null,
     ) : PendingApproval()
 
     data class Questions(override val id: String, val questions: List<Question>) : PendingApproval()
@@ -98,6 +100,7 @@ sealed class PendingApproval {
                     title = o.str("title") ?: "Permission",
                     options = (o.strings("options") ?: listOf("allow", "deny")).mapNotNull(ApprovalOption::of),
                     inputSummary = o.str("inputSummary"),
+                    planSeq = o.num("planSeq")?.wholeCount(),
                 )
                 else -> Other(id, kind)
             }
@@ -363,6 +366,8 @@ data class PhoneMessage(
     val wokeBy: List<WokeTask>? = null,
     val buttons: List<MessageButton>? = null,
     val at: Instant,
+    /** A Plan first plan in full (backend API 72): drawn as a plan card, never folded into the turn's working. */
+    val plan: Boolean = false,
 ) {
     companion object {
         fun read(o: JsonObject): PhoneMessage = PhoneMessage(
@@ -384,6 +389,7 @@ data class PhoneMessage(
                 MessageButton(b.needStr("id"), b.needStr("title"), b.needStr("kind"), b.str("target"), b.str("pressedThreadId"), b.str("failed"))
             },
             at = o.needDate("at"),
+            plan = o.bool("plan") ?: false,
         )
     }
 }
@@ -478,17 +484,33 @@ object BackendApi {
     const val WAITING_SENDS = 57
     const val STOP = 69
     const val STARS = 27
+    /** From 3 each phone chooses when it's notified (phone:setNotifications). */
+    const val NOTIFICATION_SETTING = 3
+    /** From 16 phone:search looks through archived threads past the newest 100. */
+    const val SEARCH = 16
+    /** From 19 agents file cards in the Pocket (phone:pocket). */
+    const val POCKET = 19
+    /** From 56 runners have an order (phone:setRunnerOrder). */
+    const val RUNNER_ORDER = 56
     /** A message or new thread can carry photos (phone:imageUploadUrl). */
     const val PHOTOS = 18
     /** Accounts carry their models and phone:create takes an effort. */
     const val MODELS = 20
-    /** phone:runners lists runners in Mike's order, so there's one to choose. */
-    const val RUNNER_ORDER = 56
+    const val IMAGES = 37
+    const val BUTTONS = 59
+    const val SLASH_COMMANDS = 62
+    const val PLANS = 72
 }
 
 enum class CommandState { PENDING, TAKEN, DONE, FAILED }
 
-data class CommandStatus(val state: CommandState, val note: String? = null, val threadId: String? = null) {
+data class CommandStatus(
+    val state: CommandState,
+    val note: String? = null,
+    val threadId: String? = null,
+    /** A slashCommands command's answer (API 62): phone:command's `result`. Anything that isn't a list of commands reads as none. */
+    val commands: List<SlashCommand>? = null,
+) {
     companion object {
         fun read(o: JsonObject) = CommandStatus(
             state = when (o.needStr("state")) {
@@ -500,6 +522,9 @@ data class CommandStatus(val state: CommandState, val note: String? = null, val 
             },
             note = o.str("note"),
             threadId = o.str("threadId"),
+            commands = o.arr("result")?.let { list ->
+                runCatching { list.map { SlashCommand.read(it as JsonObject) } }.getOrNull()
+            },
         )
     }
 }

@@ -22,6 +22,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mikerosoft.threadbear.android.ui.InboxScreen
 import com.mikerosoft.threadbear.android.ui.NewThreadScreen
+import com.mikerosoft.threadbear.android.ui.PocketScreen
+import com.mikerosoft.threadbear.android.ui.RunnerOrderScreen
+import com.mikerosoft.threadbear.android.ui.SettingsScreen
+import com.mikerosoft.threadbear.android.ui.LocalPageForward
+import com.mikerosoft.threadbear.android.ui.rememberPageForward
 import com.mikerosoft.threadbear.android.ui.PairScreen
 import com.mikerosoft.threadbear.android.ui.ThreadScreen
 import com.mikerosoft.threadbear.android.ui.ThreadbearTheme
@@ -49,6 +54,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Notifications allowed in Settings since the prompt was turned down:
+        // register now rather than on the next launch.
+        model.registerPush()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
@@ -59,7 +71,7 @@ class MainActivity : ComponentActivity() {
         if (data != null && data.startsWith("threadbear://pair")) {
             if (!model.ask(data)) model.note("That isn't a pairing link Threadbear can use.")
         }
-        intent?.getStringExtra("threadId")?.let { openThread.value = it }
+        Push.validThreadId(intent?.getStringExtra("threadId"))?.let { openThread.value = it }
     }
 }
 
@@ -73,30 +85,56 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
     if (pairing == null) {
         PairScreen()
     } else {
+        AskForNotifications(model)
         val nav = rememberNavController()
         val open by openThread.collectAsStateWithLifecycle()
         LaunchedEffect(open) {
             open?.let { nav.navigate("thread/$it") { launchSingleTop = true }; openThread.value = null }
         }
-        // A failed start tapped in the inbox: the new thread screen again, as it was.
-        val retry by model.starts.retryDraft.collectAsStateWithLifecycle()
-        LaunchedEffect(retry) {
-            if (retry != null && nav.currentDestination?.route != "new") nav.navigate("new") { launchSingleTop = true }
+        // A thread that started soon after it was asked for opens, as the iPhone's
+        // sheet used to wait to do, unless you've gone into another meanwhile.
+        val started by model.shell.justStarted.collectAsStateWithLifecycle()
+        LaunchedEffect(started) {
+            val id = started ?: return@LaunchedEffect
+            model.shell.justStarted.value = null
+            if (nav.currentDestination?.route == "inbox") nav.navigate("thread/$id")
         }
+        // Forward to the thread last backed out of, for a swipe left on a thread.
+        CompositionLocalProvider(LocalPageForward provides rememberPageForward(nav)) {
         NavHost(nav, startDestination = "inbox") {
-            composable("inbox") { InboxScreen(open = { nav.navigate("thread/$it") }) }
+            composable("inbox") {
+                InboxScreen(
+                    open = { nav.navigate("thread/$it") },
+                    newThread = { nav.navigate("new") { launchSingleTop = true } },
+                    settings = { nav.navigate("settings") { launchSingleTop = true } },
+                    pocket = { nav.navigate("pocket") { launchSingleTop = true } },
+                )
+            }
             composable("new") {
-                NewThreadScreen(
+                // The thread opens by itself through shell.justStarted (above), once the runner's made it.
+                NewThreadScreen(close = { nav.popBackStack() })
+            }
+            composable("settings") { SettingsScreen(back = { nav.popBackStack() }, runnerOrder = { nav.navigate("settings/runners") }) }
+            composable("settings/runners") { RunnerOrderScreen(back = { nav.popBackStack() }) }
+            composable("pocket") {
+                // Only once the Pocket's gone, as the iPhone's cover: the thread
+                // or New thread goes on the inbox, not over the Pocket.
+                PocketScreen(
                     close = { nav.popBackStack() },
-                    // Called after it's closed, once the thread's made: opened only
-                    // if the inbox is still showing (not another thread, nor the next new one).
-                    opened = { id -> if (nav.currentDestination?.route == "inbox") nav.navigate("thread/$id") },
+                    openThread = { id -> nav.navigate("thread/$id") { popUpTo("inbox") } },
+                    add = {
+                        model.shell.composeText.value = "Add to my pocket: "
+                        nav.navigate("new") { popUpTo("inbox") }
+                    },
                 )
             }
             composable("thread/{id}") { entry ->
+                val context = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(entry.arguments?.getString("id")) { entry.arguments?.getString("id")?.let { Push.clear(context, it) } }
                 ThreadScreen(threadId = entry.arguments?.getString("id") ?: "", back = { nav.popBackStack() },
                     open = { nav.navigate("thread/$it") })
             }
+        }
         }
     }
 
@@ -118,3 +156,26 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
  */
 private fun breakable(text: String, host: String): String =
     text.replace(host, host.replace(".", ".\u200B") + "\u2060")
+
+/**
+ * Asks for notifications once paired, as the iPhone does (and straight
+ * after pairing, not only on a later launch), but not for a backend that
+ * sends none, and only once: Android doesn't show the prompt again after
+ * a no anyway, and Mike finds notifications annoying, so there's no nagging.
+ */
+@Composable
+private fun AskForNotifications(model: AppModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val identity by model.identity.collectAsStateWithLifecycle()
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) model.registerPush() }
+    LaunchedEffect(identity) {
+        val id = identity ?: return@LaunchedEffect
+        if (!Push.available || !id.sendsNotifications || Push.permitted(context)) return@LaunchedEffect
+        val prefs = context.getSharedPreferences("app", android.content.Context.MODE_PRIVATE)
+        if (prefs.getBoolean("askedNotifications", false)) return@LaunchedEffect
+        prefs.edit().putBoolean("askedNotifications", true).apply()
+        if (android.os.Build.VERSION.SDK_INT >= 33) ask.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+}

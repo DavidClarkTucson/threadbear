@@ -81,7 +81,9 @@ import com.mikerosoft.threadbear.android.LocalModel
 import com.mikerosoft.threadbear.android.PhotoBox
 import com.mikerosoft.threadbear.android.PhotoDecoding
 import com.mikerosoft.threadbear.android.PickedPhoto
+import com.mikerosoft.threadbear.android.knownThread
 import com.mikerosoft.threadbear.android.retryUpload
+import com.mikerosoft.threadbear.kit.CardMentions
 import com.mikerosoft.threadbear.kit.BackendApi
 import com.mikerosoft.threadbear.kit.PhotoUpload
 import java.io.File
@@ -90,10 +92,21 @@ import kotlinx.coroutines.delay
 /** A composer's words and photos, kept with the screen; anything not sent is taken back when it goes. */
 @Composable
 fun rememberPhotoBox(): PhotoBox {
+    val model = LocalModel.current
     val text = rememberTextFieldState()
-    val box = remember(text) { PhotoBox(text) }
+    val box = remember(text) { PhotoBox(text).apply { pasteRewrite = { model.threadReference(it) } } }
     DisposableEffect(box) { onDispose { box.dropAll() } }
     return box
+}
+
+/**
+ * A pasted thread id goes in as a `[title](thread:<id>)` link the agent
+ * can read the id from and the bubble draws as a chip, for a thread this
+ * phone has a row for, as the iPhone's and the Mac's composers do.
+ */
+fun AppModel.threadReference(pasted: String): String? {
+    val id = CardMentions.pastedThreadId(pasted) { knownThread(it) != null } ?: return null
+    return CardMentions.threadReference(id, knownThread(id)?.title.orEmpty())
 }
 
 /** The mic for one box, stopped when the box goes away. */
