@@ -883,7 +883,7 @@ browser; overlays are deferred.
 
 ### Reply buttons
 
-An experiment (`replyButtons`, off by default). Mike asked on 7 Nov 2026
+Standard since 11 Nov 2026 (it was the `replyButtons` experiment). Mike asked on 7 Nov 2026
 for buttons partway through a long reply (the Daily brief's "Needs
 attention" lines) that start a background thread with a brief the agent
 wrote, or send a message to a thread that's already going, so he can set
@@ -894,7 +894,7 @@ agent while it can still fix it, not Mike as a dead button the next
 morning, and the brief lives in the thread rather than in the reply's
 text.
 
-The thread's agent calls `add_button` (only while the experiment is on),
+The thread's agent calls `add_button`,
 which stores a `ReplyButton` on the thread and returns its link,
 `button:<id>`. The agent puts `[title](button:<id>)` in its reply where
 it belongs; the apps draw that link as a button. A button the reply never

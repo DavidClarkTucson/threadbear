@@ -458,7 +458,7 @@ Size is `none` throughout: the planning docs don't size these, and work the app 
 | `planned.exp.richblocks` | Rich blocks | Agents are told about mermaid and html blocks (standard since 10 Nov) | Needs `rich.mermaid` and `rich.html` in the web runtime and their sandbox. | web | none | none |
 | `planned.exp.schedulechecks` | Schedule checks (standard since 11 Nov) | A shell check gates a schedule run | Agents write the `check` field, and `schedule.editor` must keep it on save (unverified how saves treat a missing field). | build | none | none |
 | `planned.exp.looseends` | Loose ends (`looseEnds`) | "Still open" and "Coming back" on the done card | Added sections in `card.done`. | build | none | none |
-| `planned.exp.replybuttons` | Reply buttons (`replyButtons`) | Pills in replies that agents create and update | `rich.replybuttons`, gated on the experiment. | build | none | none |
+| `planned.exp.replybuttons` | Reply buttons | Pills in replies that agents create and update (standard since 11 Nov) | `rich.replybuttons`. | build | none | none |
 | `planned.exp.instructions` | Standing instructions | A Settings box applied to every session (standard since 11 Nov) | `settings.instructions`. | kit | none | none |
 | `planned.exp.movetorunner` | Move to runner (`moveToRunner`) | Move a thread to another machine | `sidebar.move` plus the row menu and moving row, started only from the first Mac today. | build | none | none |
 | `planned.exp.acpagents` | ACP agents (`acpAgents`) | OpenCode and Cursor threads | Drive every provider choice from `ProviderInfo` rather than hardcoding two, and don't copy the web's `modelLabel`. | build | none | none |

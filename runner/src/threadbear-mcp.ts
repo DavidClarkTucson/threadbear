@@ -224,9 +224,6 @@ export function buildThreadbearTools(
     gateway?: () => string | undefined;
     gatewayHealth?: () => Promise<ConnectorService[] | undefined>;
     remote?: () => RemoteControl | undefined;
-    // The replyButtons experiment (runner/buttons.ts): add_button is only
-    // handed out while it's on.
-    replyButtons?: () => boolean;
     // The runAsks experiment: end_turn's asks[].run is only offered while
     // it's on.
     runAsks?: () => boolean;
@@ -608,18 +605,18 @@ export function buildThreadbearTools(
   ];
 
   // docs/protocol.md, "Reply buttons".
-  const buttonTools = opts.replyButtons?.() === true && control.createButton
+  const buttonTools = control.createButton
     ? [
         tool(
           'add_button',
-          "Makes a button for your reply that the user can press while reading it, to start a new thread with a brief you write (start) or send a message to another thread (send). Nothing runs until they press it, and it runs once. Returns a button:<id> link: put [title](button:<id>) in your reply on the line it belongs to. Offer one where there's a clear next job they'd otherwise have to type out, not for everything.",
+          "Makes a button the user can press while reading your reply: it starts a new thread with your brief (start) or messages another thread (send), once, only when pressed. Put the [title](button:<id>) it returns on the line it belongs to. Only for a clear next job they'd otherwise type out.",
           {
             title: z.string().min(1).max(60).describe('What the button says, a few words starting with a verb: "Fill in the form".'),
             start: z.object({
               text: z.string().min(1).max(20000).describe('The brief: complete, since the new thread knows nothing else.'),
               title: z.string().optional().describe("The new thread's title. Default: the button's."),
-              folder: z.string().optional().describe("Its folder. Default: this thread's. Relative paths are from this thread's folder."),
-              account: z.string().optional().describe('Account id or email (list_accounts). Default: a pool picks.'),
+              folder: z.string().optional().describe("Default: this thread's, which relative paths start from."),
+              account: z.string().optional().describe('Account id or email. Default: a pool picks.'),
               pool: z.string().optional(),
               model: z.string().optional(),
               effort: effortEnum.optional(),
@@ -2064,13 +2061,13 @@ export function serverInstructions(selfId: string, o: { one: boolean; bulletRepl
   );
 }
 
-export function threadbearMcpServer(control: ThreadControl, selfId: string, schedules?: ScheduleControl, projects?: ProjectControl, appRestarts?: AppRestartControl, bulletReplies: () => boolean = () => true, pocket?: () => PocketControl | undefined, oneReply: () => boolean = () => false, gateway?: () => string | undefined, gatewayHealth?: () => Promise<ConnectorService[] | undefined>, remote?: () => RemoteControl | undefined, replyButtons?: () => boolean, runAsks?: () => boolean): McpSdkServerConfigWithInstance {
+export function threadbearMcpServer(control: ThreadControl, selfId: string, schedules?: ScheduleControl, projects?: ProjectControl, appRestarts?: AppRestartControl, bulletReplies: () => boolean = () => true, pocket?: () => PocketControl | undefined, oneReply: () => boolean = () => false, gateway?: () => string | undefined, gatewayHealth?: () => Promise<ConnectorService[] | undefined>, remote?: () => RemoteControl | undefined, runAsks?: () => boolean): McpSdkServerConfigWithInstance {
   const one = oneReply();
   const server = createSdkMcpServer({
     name: SERVER_NAME,
     version: RUNNER_VERSION,
     instructions: serverInstructions(selfId, { one, bulletReplies: bulletReplies(), pocket: Boolean(pocket?.()), projects: Boolean(projects) }),
-    tools: buildThreadbearTools(control, selfId, Date.now, schedules, projects, appRestarts, { bulletReplies, pocket, oneReply: () => one, gateway, gatewayHealth, remote, replyButtons, runAsks }),
+    tools: buildThreadbearTools(control, selfId, Date.now, schedules, projects, appRestarts, { bulletReplies, pocket, oneReply: () => one, gateway, gatewayHealth, remote, runAsks }),
   });
   server.tools = [...ALWAYS_ASK_TOOLS].map((name) => ({ name: name.split('__').at(-1)!, permission_policy: 'always_ask' as const }));
   return server;

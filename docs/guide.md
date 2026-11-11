@@ -190,6 +190,16 @@ unanswered, press ⌘Return.
 When an ask is about pictures the agent put up to compare, its button can
 open that comparison window straight from the card.
 
+A reply can have buttons partway through it, beside the line they're
+about, so you can set jobs off as you read without typing: one starts a
+new thread with a brief the agent wrote ("Fill in the form"), another
+sends a message to a thread that's already going. Hover over a button to
+see the brief and where it runs. Nothing happens until you press it, and
+it only runs once: after that it turns green and opens the thread it
+started. It works the same on your phone and the website. A thread
+without Full access can't make a button that does more than it could
+itself, and that's checked again when you press it.
+
 The comparison window starts on the first option's first picture. An option
 can have several (its overview, how it looks mid-drag, a detail), shown in a
 strip under the picture. Next and back (or the left and right arrow keys)

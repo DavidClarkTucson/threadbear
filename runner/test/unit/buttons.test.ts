@@ -90,10 +90,9 @@ test('a press that fails is saved as failed and can be pressed again', () => {
   assert.ok(ok.pressed && !ok.failed);
 });
 
-test('add_button is only handed out with the experiment on, and returns the link', async () => {
+test('add_button is handed to every thread, and returns the link', async () => {
   const { h, thread } = fixture();
-  assert.equal(buildThreadbearTools(h.runner, thread.id).find((t) => t.name === 'add_button'), undefined);
-  const tool = buildThreadbearTools(h.runner, thread.id, Date.now, undefined, undefined, undefined, { replyButtons: () => true }).find((t) => t.name === 'add_button');
+  const tool = buildThreadbearTools(h.runner, thread.id).find((t) => t.name === 'add_button');
   assert.ok(tool);
   const r = await tool.handler({ title: 'Look into it', start: { text: 'Look at the camera panning', folder: '.' } } as any, {} as any);
   assert.equal(r.isError, undefined, JSON.stringify(r));
