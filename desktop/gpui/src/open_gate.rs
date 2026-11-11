@@ -24,7 +24,11 @@ pub(crate) fn install(app: WeakEntity<Threadbear>, cx: &mut App) {
 
 fn refuse(message: String, cx: &mut App) {
     let Some(app) = cx.try_global::<GateNotices>().and_then(|n| n.0.upgrade()) else { return };
-    app.update(cx, |app, cx| app.show_error(message, cx));
+    // Said once the click's update is over: the gate is opened from inside
+    // the app's own updates too (the row's Open on Web, the Connectors
+    // panel, a project page's links), and updating the app from inside one
+    // of those is a double lease, which crashes the app.
+    cx.defer(move |cx| app.update(cx, |app, cx| app.show_error(message, cx)));
 }
 
 /// The system's own opener. Only this file reaches it.

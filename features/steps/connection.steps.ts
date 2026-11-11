@@ -23,6 +23,12 @@ When('the runner goes away without a word for {int} seconds', async function (th
   await this.app.do({ cmd: 'mock', method: 'goAway', params: { downMs: seconds * 1000 } });
 });
 
+// The app has seen the connection go (the mock answers first and drops it a
+// moment later), for what's done while it's away.
+When('the app has lost the runner', async function (this: ThreadbearWorld) {
+  await this.until('the connection to drop', (d) => d.connection !== 'connected');
+});
+
 Then('the bar says {string}', async function (this: ThreadbearWorld, text: string) {
   await this.until(`the bar saying "${text}"`, (d) => d.banner?.text === text && d.banner?.style === 'warning', 15_000);
 });

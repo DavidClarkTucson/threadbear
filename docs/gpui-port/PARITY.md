@@ -222,6 +222,22 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 Move to while the runner was away crashed the app (`sidebar.move`)
+
+- Move to ▸ a runner while this Mac's runner couldn't be reached crashed
+  the GPUI app: the sheet comes up then to wait, and asks the other runner
+  as it's made, inside the app's own update, reading the app back for the
+  runner's connection (a double lease, as the Settings and pin crashes
+  were). It's handed the connection instead.
+- The open gate's "didn't open that" line went into the app's error bar by
+  updating the app, and the gate is opened from inside the app's own
+  updates too (a row's Open on Web, the Connectors panel): the line is
+  written once that update is over.
+- Files: `desktop/gpui/src/move_sheet.rs`, `desktop/gpui/src/open_gate.rs`,
+  `features/remote-threads.feature`, `features/steps/connection.steps.ts`.
+- Verification: on Tinker Desk, the new scenario fails on the code before
+  the fix with the panic at entity_map.rs:156, and passes with it.
+
 ### 2026-11-12 Opening a thread whose agent had shown a pin crashed the app (`panel.requests`)
 
 - A thread with a pin waiting to be shown (the `pin` tool with `show`)

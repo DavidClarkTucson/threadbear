@@ -76,6 +76,16 @@ Feature: Other runners' threads
     And the move sheet offers the folder "/Users/bruce/dev/me/threadbear-threads/slot-4"
     And the move sheet's login is "claude-main"
 
+  # The sheet asks the other runner as it's made, inside the app's own
+  # update, and it read the app back for the runner's connection, which
+  # crashed the GPUI app (a double lease, 12 Nov).
+  @sidebar.move @remote-threads
+  Scenario: Move to while this Mac's runner is away opens the sheet to wait
+    When the runner goes away without a word for 8 seconds
+    And the app has lost the runner
+    And I ask to move the thread "Morning brief" to "bruce"
+    Then the move sheet says "Move “Morning brief” to bruce"
+
   @sidebar.move @remote-threads
   Scenario: Moving from the sheet takes it off, and says so on the row
     When I ask to move the thread "Morning brief" to "bruce"

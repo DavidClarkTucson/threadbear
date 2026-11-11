@@ -20,7 +20,8 @@ use crate::style::px;
 use serde_json::json;
 #[cfg(feature = "automation")]
 use serde_json::Value;
-use threadbear_client::runner::Status;
+use std::sync::Arc;
+use threadbear_client::runner::{Client, Status};
 use threadbear_core::remote::{MovePreview, RunnerInfo};
 use crate::tips::Tip as _;
 
@@ -147,7 +148,11 @@ impl Threadbear {
         let busy = self.threads.get(&request.thread_id).is_some_and(|t| t.busy());
         let app = cx.entity().downgrade();
         let app_for_close = app.clone();
-        let view = cx.new(|cx| MoveSheet::new(app, request, title, busy, answer, window, cx));
+        // Handed the client: the sheet asks the runner as it's made, inside
+        // this update, and reading it back from the app then is a double
+        // lease (Move to while the runner was away crashed the app).
+        let client = self.client.clone();
+        let view = cx.new(|cx| MoveSheet::new(app, client, request, title, busy, answer, window, cx));
         self.move_sheet = Some(view.clone());
         cx.notify();
         window.open_dialog(cx, move |dialog, _, _| {
@@ -172,6 +177,7 @@ impl Threadbear {
 /// The sheet's content (`MoveSheet`).
 pub(crate) struct MoveSheet {
     app: WeakEntity<Threadbear>,
+    client: Arc<Client>,
     request: MoveRequest,
     title: String,
     busy: bool,
@@ -190,14 +196,15 @@ pub(crate) struct MoveSheet {
 }
 
 impl MoveSheet {
-    fn new(app: WeakEntity<Threadbear>, request: MoveRequest, title: String, busy: bool, answer: Option<MovePreview>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    fn new(app: WeakEntity<Threadbear>, client: Arc<Client>, request: MoveRequest, title: String, busy: bool, answer: Option<MovePreview>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let folder = cx.new(|cx| InputState::new(window, cx).placeholder(format!("Folder on {}", request.runner_name)));
         let sub = cx.subscribe_in(&folder, window, |this, _, ev: &InputEvent, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. }) {
                 this.ask(window, cx);
             }
         });
-        let mut sheet = MoveSheet { app, request, title, busy, preview: None, asking: false, folder, login: String::new(), guessed_folder: String::new(), guessed_login: String::new(), filled: false, asks: 0, _subs: vec![sub] };
+        let mut sheet = MoveSheet { app, client, request, title, busy, preview: None, asking: false, folder, login: String::new(), guessed_folder: String::new(), guessed_login: String::new(), filled: false, asks: 0, _subs: vec![sub] };
         match answer {
             // Opened with the runner's answer in hand (`request.answer`).
             Some(known) => sheet.apply(known, None, None, window, cx),
@@ -226,7 +233,7 @@ impl MoveSheet {
         }
         self.asking = true;
         cx.notify();
-        let Some(client) = self.app.upgrade().map(|a| a.read(cx).client.clone()) else { return };
+        let client = self.client.clone();
         cx.spawn_in(window, async move |this, cx| {
             let answer = call(client, "threads.movePreview", params).await;
             this.update_in(cx, |this, window, cx| {
