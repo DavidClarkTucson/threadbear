@@ -209,6 +209,12 @@ impl Threadbear {
         // changes (a moment after the last change, as a divider drag is many).
         let layout = shell::make_layout(settings.saved.dock_layout.as_ref());
         let app = cx.entity().downgrade();
+        // A reply button's pill presses through here (reply_buttons.rs): the
+        // kit draws it inside the reply's text, where there's no app to hand.
+        let press_app = app.clone();
+        cx.set_global(crate::reply_buttons::PressHook(Rc::new(move |id: String, window: &mut Window, cx: &mut App| {
+            press_app.update(cx, |this, cx| this.press_reply_button(id, window, cx)).ok();
+        })));
         let dock = cx.new(|_| {
             let mut model = DockModel::new(layout);
             let app = app.clone();
@@ -333,6 +339,60 @@ impl Threadbear {
         this.note_navigation();
         this.watch_shortcuts(cx);
         this
+    }
+
+    /// A reply button's pill was clicked (AppModel.pressReplyButton). Not
+    /// pressed yet: presses it, "…" until the runner answers, and a second
+    /// click meanwhile does nothing. Pressed: opens the thread it started or
+    /// messaged rather than pressing again.
+    pub(crate) fn press_reply_button(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((thread_id, button)) = crate::reply_buttons::known(&id) else { return };
+        // Only from the transcript of the thread that made it: ids are the
+        // runner's per thread, and a link copied into another thread's reply
+        // mustn't press this one.
+        if self.selected.as_deref() != Some(thread_id.as_str()) {
+            self.show_error("That button belongs to another thread, so it can't be pressed from here.".into(), cx);
+            return;
+        }
+        if let Some(pressed) = &button.pressed {
+            if self.threads.contains_key(&pressed.thread_id) {
+                self.open(pressed.thread_id.clone(), window, cx);
+            } else {
+                let what = if button.send.is_some() { "messaged" } else { "started" };
+                self.show_error(format!("The thread that button {what} isn't in your sidebar, so it can't open here. It was deleted, or it's archived on another machine."), cx);
+            }
+            return;
+        }
+        if !crate::reply_buttons::set_pressing(&id, true) {
+            return;
+        }
+        self.redraw_pane(cx);
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "buttons.press", json!({ "threadId": thread_id, "buttonId": id })).await;
+            this.update(cx, |this, cx| {
+                match res {
+                    Ok(v) => {
+                        if let Some(button) = threadbear_core::reply_buttons::ReplyButton::decode(&v["button"]) {
+                            crate::reply_buttons::receive([button], &thread_id);
+                        }
+                    }
+                    Err(e) => this.show_error(e.message, cx),
+                }
+                crate::reply_buttons::set_pressing(&id, false);
+                this.redraw_pane(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The open thread draws again: its pills read the buttons as they draw.
+    fn redraw_pane(&self, cx: &mut Context<Self>) {
+        if let Some(pane) = &self.pane {
+            pane.update(cx, |_, cx| cx.notify());
+        }
+        cx.notify();
     }
 
     /// One of the app's windows came to the front or went (`active`, as the

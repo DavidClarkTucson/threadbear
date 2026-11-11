@@ -29,6 +29,7 @@ mod patches;
 mod prefs;
 mod rails;
 mod remote;
+mod reply_buttons;
 mod rows;
 mod schedule_editor;
 mod scheduled;
