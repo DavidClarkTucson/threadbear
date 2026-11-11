@@ -68,15 +68,20 @@ fn export() -> Option<String> {
 }
 
 /// The Swift app's `app-drafts.json` into this app's `desktop-drafts.json`,
-/// where a box is empty here. Written whole and renamed into place, readable
-/// only by Mike's account, as drafts.rs writes it.
+/// where a box is empty here, written as drafts.rs writes it (core's
+/// private_file.rs: whole, and only Mike's account can read it).
 fn bring_drafts(home: &Path) -> usize {
     let Some(swift) = std::fs::read(home.join("app-drafts.json")).ok().and_then(|d| serde_json::from_slice::<Value>(&d).ok()) else { return 0 };
     let path = home.join("desktop-drafts.json");
     let mut current = std::fs::read(&path).ok().and_then(|d| serde_json::from_slice::<Value>(&d).ok()).and_then(|v| v.as_object().cloned()).unwrap_or_default();
     let count = rules::fill_drafts(&mut current, &swift);
     if count > 0 {
-        write_private(&path, &Value::Object(current));
+        if let Ok(data) = serde_json::to_vec(&Value::Object(current)) {
+            if let Err(e) = threadbear_core::private_file::write(&path, &data) {
+                eprintln!("threadbear: couldn't bring the Swift app's drafts across: {e}");
+                return 0;
+            }
+        }
     }
     count
 }
@@ -91,26 +96,12 @@ fn bring_side_files(home: &Path, defaults: &std::collections::BTreeMap<String, P
             continue;
         }
         if let Ok(text) = serde_json::to_string_pretty(&value) {
-            if std::fs::write(&path, text).is_ok() {
+            if threadbear_core::private_file::write(&path, text.as_bytes()).is_ok() {
                 filled.push(key.to_owned());
             }
         }
     }
     filled
-}
-
-fn write_private(path: &Path, value: &Value) {
-    let Ok(data) = serde_json::to_vec(value) else { return };
-    let temp = path.with_extension("json.tmp");
-    if std::fs::write(&temp, data).is_err() {
-        return;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600));
-    }
-    let _ = std::fs::rename(&temp, path);
 }
 
 impl Threadbear {

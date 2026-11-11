@@ -181,15 +181,14 @@ fn main_tree(checkout: &str) -> Option<String> {
 
 fn open_log() -> Option<std::fs::File> {
     let path = log_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
     // A build here writes all of cargo's output: past 2 MB the old log goes
     // to `.1`, so it never grows without end.
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > 2 << 20) {
         let _ = std::fs::rename(&path, path.with_extension("log.1"));
     }
-    std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
+    // Added to by the app and by the script's output both (core's
+    // private_file.rs, as every file the app writes is).
+    threadbear_core::private_file::append(&path).ok()
 }
 
 /// A line in the update log, with the time, as well as on stderr: the

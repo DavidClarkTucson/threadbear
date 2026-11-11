@@ -45,6 +45,47 @@ pub fn write_with_mode(path: &Path, data: &[u8], mode: u32) -> std::io::Result<(
     Ok(())
 }
 
+/// A folder for this user only, made if it isn't there yet, for files that
+/// go through `write` and `append` (the activity log's).
+pub fn dir(dir: &Path) -> std::io::Result<()> {
+    make_dir(dir)
+}
+
+/// Opens `path` to add to its end, for a log written a line at a time that
+/// another process adds to as well (the Swift app writes the same activity
+/// files; the update script's output goes into the update log), so it can't
+/// be written whole and renamed like the rest. A new one is this user's only
+/// from its first byte. A symlink there is refused, not followed, and one
+/// made before this that others could read is made owner-only first.
+pub fn append(path: &Path) -> std::io::Result<std::fs::File> {
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    make_dir(&dir)?;
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{} is a symlink", path.display())));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.append(true).create(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let file = options.open(path)?;
+    // The file just opened, not the name, so it's the one being written.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let meta = file.metadata()?;
+        if !meta.is_file() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{} isn't a file", path.display())));
+        }
+        if meta.permissions().mode() & 0o077 != 0 {
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    Ok(file)
+}
+
 /// A folder that isn't there yet is made for this user only. One that is
 /// keeps the permissions it has.
 fn make_dir(dir: &Path) -> std::io::Result<()> {
@@ -103,6 +144,34 @@ mod tests {
 
     fn mode(path: &Path) -> u32 {
         std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn a_log_is_added_to_and_only_for_its_owner() {
+        use std::io::Write as _;
+        let dir = scratch("append");
+        // Its folder made too, owner-only.
+        let path = dir.join("activity").join("2026-11-11.jsonl");
+        append(&path).unwrap().write_all(b"one\n").unwrap();
+        append(&path).unwrap().write_all(b"two\n").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\ntwo\n");
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(mode(&dir.join("activity")), 0o700);
+        // One made before, readable by others, is tightened, its lines kept.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        append(&path).unwrap().write_all(b"three\n").unwrap();
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\ntwo\nthree\n");
+        // A symlink isn't followed.
+        let elsewhere = dir.join("elsewhere");
+        std::fs::write(&elsewhere, b"").unwrap();
+        let link = dir.join("activity").join("2026-11-12.jsonl");
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+        assert!(append(&link).is_err());
+        assert_eq!(std::fs::read(&elsewhere).unwrap(), b"");
+        // Nor is a folder where the file goes written.
+        assert!(append(&dir.join("activity")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

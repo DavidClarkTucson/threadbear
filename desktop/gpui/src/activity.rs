@@ -425,14 +425,9 @@ fn write_lines(folder: PathBuf, lines: mpsc::Receiver<Write>) {
 }
 
 fn open(folder: &Path, name: &str) -> Option<std::fs::File> {
-    let mut dirs = std::fs::DirBuilder::new();
-    dirs.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt as _;
-        dirs.mode(0o700);
-    }
-    if let Err(e) = dirs.create(folder) {
+    // The folder 0700 and each day's file 0600 from the start, through the
+    // one place files are made (core's private_file.rs).
+    if let Err(e) = threadbear_core::private_file::dir(folder) {
         eprintln!("threadbear: couldn't make {}: {e}", folder.display());
         return None;
     }
@@ -442,14 +437,7 @@ fn open(folder: &Path, name: &str) -> Option<std::fs::File> {
     for old in rules::expired(&names, threadbear_core::chrono::Local::now().date_naive()) {
         let _ = std::fs::remove_file(folder.join(old));
     }
-    let mut options = std::fs::OpenOptions::new();
-    options.append(true).create(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    match options.open(folder.join(name)) {
+    match threadbear_core::private_file::append(&folder.join(name)) {
         Ok(f) => Some(f),
         Err(e) => {
             eprintln!("threadbear: couldn't open {name}: {e}");
