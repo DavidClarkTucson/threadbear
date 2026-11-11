@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use threadbear_client::config::RunnerConfig;
+use threadbear_core::completion_sound::{self, Ding};
 use threadbear_core::inbox::InboxOrder;
 use threadbear_core::zoom;
 
@@ -50,6 +51,15 @@ pub struct Saved {
     pub appearance: Option<String>,
     /// `dockLayout`: the Dock's JSON, the same shape Swift's Codable saves.
     pub dock_layout: Option<Value>,
+    /// `completionSound`: the ding when a thread finishes (ding.rs). Off
+    /// until it's turned on.
+    pub completion_sound: Option<bool>,
+    /// `completionSoundDing`: which one, `Ding`'s name.
+    pub completion_sound_ding: Option<String>,
+    /// `completionSoundVolume`: 0.1 to 1.
+    pub completion_sound_volume: Option<f64>,
+    /// `askBeforeQuitting` (QuitPrompt): None is yes.
+    pub ask_before_quitting: Option<bool>,
 }
 
 /// The settings file: where it is and what's in it. Reading is at launch only;
@@ -113,6 +123,22 @@ impl Settings {
 
     pub fn set_inbox_order(&mut self, order: InboxOrder) {
         self.saved.inbox_order = Some(order.name().to_string());
+    }
+
+    pub fn ding_on(&self) -> bool {
+        self.saved.completion_sound.unwrap_or(false)
+    }
+
+    pub fn ding(&self) -> Ding {
+        Ding::from_name(self.saved.completion_sound_ding.as_deref().unwrap_or(""))
+    }
+
+    pub fn ding_volume(&self) -> f64 {
+        self.saved.completion_sound_volume.unwrap_or(completion_sound::DEFAULT_VOLUME).clamp(0.1, 1.)
+    }
+
+    pub fn asks_before_quitting(&self) -> bool {
+        self.saved.ask_before_quitting.unwrap_or(true)
     }
 }
 

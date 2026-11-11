@@ -129,6 +129,14 @@ pub struct Threadbear {
     pub(crate) small_jobs: Vec<String>,
     /// The Settings window while it's open (settings_window.rs).
     pub(crate) settings_window: Option<(AnyWindowHandle, Entity<crate::settings_window::SettingsWindow>)>,
+    /// The main window, for opening a thread from outside it (a
+    /// notification's click).
+    pub(crate) main_window: AnyWindowHandle,
+    /// A thread a notification's click asked for before the list had
+    /// loaded: opened once it has (`linkedThread`).
+    pub(crate) pending_open: Option<String>,
+    /// What the Dock badge says now (notify.rs), so it's only set when that changes.
+    pub(crate) dock_badge: Option<String>,
     /// The last settings change the runner turned down (`settingsError`).
     pub(crate) settings_error: Option<String>,
     /// A runner from before `settings.get`.
@@ -206,6 +214,7 @@ impl Threadbear {
         });
         #[cfg(feature = "automation")]
         crate::automation::serve(cx.entity().downgrade(), window.window_handle(), cx);
+        crate::notify::install(cx.entity().downgrade(), window.window_handle(), cx);
 
         // The dock: the saved layout or the default, and a save whenever it
         // changes (a moment after the last change, as a divider drag is many).
@@ -326,6 +335,9 @@ impl Threadbear {
             runner_settings: None,
             small_jobs: vec!["claude".into()],
             settings_window: None,
+            main_window: window.window_handle(),
+            pending_open: None,
+            dock_badge: None,
             settings_error: None,
             settings_unsupported: false,
             standing_instructions: None,
@@ -455,12 +467,14 @@ impl Threadbear {
                         }
                         let before = self.threads.insert(t.id.clone(), t.clone());
                         self.note_failed_account(before.as_ref(), &t);
+                        self.thread_changed_outside(before.as_ref(), &t, cx);
                     }
                 }
                 "thread.deleted" => {
                     let id = params["threadId"].as_str().unwrap_or("");
                     self.threads.remove(id);
                     self.failed_on_account.remove(id);
+                    self.refresh_dock_badge();
                 }
                 "runner.notice" => {
                     // The runner said it's restarting: the connection going
@@ -502,6 +516,56 @@ impl Threadbear {
         cx.notify();
     }
 
+    /// What a summary changing says outside the thread itself (`apply`): a
+    /// notification if it's just come to need Mike and he isn't looking at
+    /// it, the ding if it's just finished, and the Dock badge's count. Not
+    /// another runner's thread, nor a scripted app's (notify.rs).
+    fn thread_changed_outside(&mut self, before: Option<&ThreadSummary>, t: &ThreadSummary, cx: &mut Context<Self>) {
+        let looking = crate::thread::is_looking() && self.selected.as_deref() == Some(t.id.as_str());
+        if threadbear_core::inbox::should_notify(before, t, looking) {
+            crate::notify::post(t, cx);
+        }
+        if t.runner_id.is_none() && crate::notify::enabled() {
+            crate::ding::thread_changed(before.map(|b| b.status.as_str()), &t.status, &self.settings);
+        }
+        self.refresh_dock_badge();
+    }
+
+    /// The Dock badge: the threads waiting on Mike (`refreshDockBadge`).
+    pub(crate) fn refresh_dock_badge(&mut self) {
+        let label = threadbear_core::inbox::dock_badge(threadbear_core::inbox::needs_you_count(self.threads.values(), now_ms()));
+        if label != self.dock_badge {
+            crate::notify::set_badge(label.as_deref());
+            self.dock_badge = label;
+        }
+    }
+
+    /// A thread asked for from outside the window (a notification's click):
+    /// the Inbox, with it open, or once the list has loaded.
+    pub(crate) fn open_from_outside(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        window.activate_window();
+        if !self.sidebar.loaded {
+            self.pending_open = Some(id);
+            return;
+        }
+        self.set_mode(SidebarMode::Inbox, cx);
+        self.open(id, window, cx);
+    }
+
+    fn open_pending(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.pending_open.take() else { return };
+        let (me, window) = (cx.entity().downgrade(), self.main_window);
+        // Not from inside this update: opening needs the window, and the
+        // window's update would come back to this entity.
+        cx.defer(move |cx| {
+            window
+                .update(cx, |_, window, cx| {
+                    me.update(cx, |this, cx| this.open_from_outside(id, window, cx)).ok();
+                })
+                .ok();
+        });
+    }
+
     fn load_list(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
@@ -517,6 +581,8 @@ impl Threadbear {
                         this.apply_remote_index(cx);
                         this.list_error = None;
                         this.sidebar.loaded = true;
+                        this.refresh_dock_badge();
+                        this.open_pending(cx);
                     }
                     Err(e) => this.list_error = Some(e.message),
                 }

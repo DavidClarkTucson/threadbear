@@ -72,6 +72,8 @@ impl Threadbear {
         self.remote.index = remote;
         self.apply_remote_index(cx);
         self.apply_default_runner(cx);
+        // The Dock badge counts other runners' threads too, as Swift's does.
+        self.refresh_dock_badge();
         cx.notify();
     }
 

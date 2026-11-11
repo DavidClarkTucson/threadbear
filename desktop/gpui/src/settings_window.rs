@@ -16,6 +16,7 @@ use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::tooltip::Tooltip;
@@ -26,6 +27,7 @@ use gpui_kit::*;
 use crate::style::px;
 use serde_json::{json, Value};
 use std::time::Duration;
+use threadbear_core::completion_sound::{self, Ding};
 use threadbear_core::new_thread::abbreviate_home;
 use threadbear_core::runner_settings::{experiment_about, BringIn, RunnerSettings, StandingInstructions};
 
@@ -185,6 +187,8 @@ pub(crate) struct SettingsWindow {
     resolve_error: Option<String>,
     /// Pools, as edited (`settings_window/pools.rs`).
     pools: pools::PoolsDraft,
+    /// The ding's volume (Notifications).
+    volume: Entity<SliderState>,
     scroll: ScrollHandle,
     _subs: Vec<Subscription>,
 }
@@ -224,6 +228,26 @@ impl SettingsWindow {
             crate::thread::set_looking(crate::thread::window_key(window), false);
             true
         });
+        // The ding's volume: kept as it's dragged, and heard when it's let go
+        // (the Swift slider's `editing` ending).
+        let volume_now = app.upgrade().map_or(completion_sound::DEFAULT_VOLUME, |a| a.read(cx).settings.ding_volume());
+        let volume = cx.new(|_| SliderState::new().min(0.1).max(1.).step(0.01).default_value(volume_now as f32));
+        let volume_app = app.clone();
+        subs.push(cx.subscribe(&volume, move |_, _, ev: &SliderEvent, cx| {
+            let (value, let_go) = match ev {
+                SliderEvent::Change(v) => (v.start(), false),
+                SliderEvent::Release(v) => (v.start(), true),
+            };
+            volume_app
+                .update(cx, |app, cx| {
+                    app.settings.saved.completion_sound_volume = Some(value as f64);
+                    app.save_settings_soon(cx);
+                    if let_go {
+                        crate::ding::play(app.settings.ding(), app.settings.ding_volume());
+                    }
+                })
+                .ok();
+        }));
         let mut this = SettingsWindow {
             app,
             client,
@@ -238,6 +262,7 @@ impl SettingsWindow {
             resolving: false,
             resolve_error: None,
             pools: Default::default(),
+            volume,
             scroll: ScrollHandle::new(),
             _subs: subs,
         };
@@ -436,7 +461,8 @@ impl SettingsWindow {
     }
 
     fn render_general(&mut self, settings: Option<&RunnerSettings>, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let mut sections = vec![self.appearance_section(cx)];
+        // This Mac's own, so they're here while the runner's away too.
+        let mut sections = vec![self.appearance_section(cx), self.quitting_section(cx), self.notifications_section(cx)];
         let Some(settings) = settings else {
             sections.push(plain_note(&waiting_text(&self.app, cx), cx));
             return sections;
@@ -556,6 +582,85 @@ impl SettingsWindow {
             "Light or dark for Threadbear only. Same as the Mac follows System Settings > Appearance.",
             "change it for you.",
             vec![row("Appearance", div().id("settings-appearance-holder").test_support().aria_label("Light or dark for Threadbear, whatever the Mac is set to").child(menu), cx)],
+            cx,
+        )
+    }
+
+    /// `QuitPrompt`'s switch: ticking Don't ask again turns it off, and this
+    /// turns it back on.
+    fn quitting_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let on = self.app.upgrade().is_none_or(|a| a.read(cx).settings.asks_before_quitting());
+        let switch = self.switch("settings-ask-before-quitting", on, "Ask to confirm when you quit Threadbear", cx, |this, on, cx| {
+            this.app
+                .update(cx, |app, cx| {
+                    app.settings.saved.ask_before_quitting = Some(on);
+                    app.save_settings_soon(cx);
+                })
+                .ok();
+        });
+        section(
+            "settings-quitting",
+            "Quitting",
+            "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.",
+            "change it for you.",
+            vec![row("Ask before quitting", switch, cx)],
+            cx,
+        )
+    }
+
+    /// The ding when a thread finishes (ding.rs): on or off, which, how loud.
+    fn notifications_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let (on, ding) = self.app.upgrade().map_or((false, Ding::default()), |a| {
+            let s = &a.read(cx).settings;
+            (s.ding_on(), s.ding())
+        });
+        let switch = self.switch("settings-ding", on, "A soft ding when a thread is done and ready for you", cx, |this, on, cx| {
+            this.app
+                .update(cx, |app, cx| {
+                    app.settings.saved.completion_sound = Some(on);
+                    app.save_settings_soon(cx);
+                    if on {
+                        crate::ding::play(app.settings.ding(), app.settings.ding_volume());
+                    }
+                })
+                .ok();
+        });
+        let app = self.app.clone();
+        let picker = Button::new("settings-ding-sound").label(ding.title()).small().secondary().dropdown_caret(true).tooltip("Which ding plays").dropdown_menu(move |menu: PopupMenu, _, _| {
+            let mut menu = menu;
+            for choice in Ding::ALL {
+                let app = app.clone();
+                menu = menu.item(PopupMenuItem::new(choice.title()).checked(choice == ding).on_click(move |_, _, cx| {
+                    app.update(cx, |app, cx| {
+                        app.settings.saved.completion_sound_ding = Some(choice.name().to_owned());
+                        app.save_settings_soon(cx);
+                        crate::ding::play(choice, app.settings.ding_volume());
+                    })
+                    .ok();
+                }));
+            }
+            menu
+        });
+        let volume = h_flex()
+            .gap(px(8.))
+            .items_center()
+            .child(div().id("settings-ding-volume").test_support().aria_label("How loud the ding is").w(px(180.)).tooltip(|window, cx| Tooltip::new("How loud the ding is").build(window, cx)).child(Slider::new(&self.volume).horizontal()))
+            .child(self.button("settings-ding-play", "Play", "Hear the ding", cx, |this, _, cx| {
+                if let Some(app) = this.app.upgrade() {
+                    let s = &app.read(cx).settings;
+                    crate::ding::play(s.ding(), s.ding_volume());
+                }
+            }));
+        section(
+            "settings-notifications",
+            "Notifications",
+            "A soft ding when a thread finishes working: its reply is done, it's waiting for your answer, or it hit an error. It plays wherever you are, even in another app, and stays quiet for a thread you stopped yourself. Notifications themselves are in System Settings > Notifications.",
+            "change when the ding plays.",
+            vec![
+                row("Play a sound when a thread finishes", switch, cx),
+                row("Sound", div().id("settings-ding-sound-holder").test_support().aria_label("Which ding plays").child(picker), cx),
+                row("Volume", volume, cx),
+            ],
             cx,
         )
     }

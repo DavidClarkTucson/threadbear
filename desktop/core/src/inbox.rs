@@ -325,6 +325,70 @@ pub fn wakes(schedules: &[crate::highlights::Schedule]) -> HashMap<String, Wake>
     soonest
 }
 
+/// `ThreadSections.needsYouCount`: the threads waiting on Mike, for the Dock
+/// badge, without sorting anything: one in the Inbox, or starred and awake,
+/// that wants him (`wants_you`).
+pub fn needs_you_count<'a>(threads: impl IntoIterator<Item = &'a ThreadSummary>, now_ms: i64) -> usize {
+    threads
+        .into_iter()
+        .filter(|t| {
+            if !t.wants_you() || t.is_archived() {
+                return false;
+            }
+            if t.is_starred() {
+                return t.snoozed_until_ms().is_none();
+            }
+            if t.snoozed(now_ms) {
+                return false;
+            }
+            // In the Inbox: what needs Mike goes there even with work going in
+            // the background; otherwise a running thread is under Running.
+            t.review_waiting() || t.needs_answer() || t.waiting_on_mike() || (t.needs_you && !t.working_in_background()) || !(t.busy() || t.working_in_background())
+        })
+        .count()
+}
+
+/// The Dock badge's words: the count, or none (`DockBadge.label`).
+pub fn dock_badge(count: usize) -> Option<String> {
+    (count > 0).then(|| count.to_string())
+}
+
+/// What a notification for a thread that's come to need Mike says
+/// (`Notifier.post`): its title, and what it asked for, else its last words.
+pub fn notification_words(t: &ThreadSummary) -> (String, String) {
+    let title = if t.title.is_empty() { "Threadbear".to_owned() } else { t.title.clone() };
+    let body = if t.status == "waiting" {
+        "Waiting for you to answer.".to_owned()
+    } else if let Some(action) = t.asks.as_ref().and_then(|asks| asks.iter().find(|a| a.ticked != Some(true))).map(|a| crate::sidebar::preview_plain(&a.action)) {
+        action
+    } else if t.preview.is_empty() {
+        "Finished.".to_owned()
+    } else {
+        crate::sidebar::preview_plain(&t.preview)
+    };
+    (title, body)
+}
+
+/// `AppModel.apply`'s rule for a notification: the thread has just come to
+/// need Mike (it didn't before, or wasn't known) and he isn't looking at it.
+/// Never another runner's thread: notifications are low-key, and that Mac's
+/// app says so there.
+pub fn should_notify(before: Option<&ThreadSummary>, after: &ThreadSummary, looking_at_it: bool) -> bool {
+    after.needs_you && !before.is_some_and(|b| b.needs_you) && !looking_at_it && after.runner_id.is_none()
+}
+
+/// The notification's identifier, as the Swift app's (`Notifier.post`): one
+/// per thread and point in it, so a later one doesn't replace an earlier one
+/// still unread, and the thread comes back out of it when it's clicked.
+pub fn notification_tag(t: &ThreadSummary) -> String {
+    format!("{}-{}", t.id, t.last_seq)
+}
+
+/// The thread a notification's tag names (`notification_tag`).
+pub fn thread_in_tag(tag: &str) -> Option<&str> {
+    tag.rsplit_once('-').map(|(id, _)| id).filter(|id| !id.is_empty())
+}
+
 /// `ThreadSections.build`: where each thread goes and the order within each
 /// heading. `wakes` are the threads a schedule is due to message
 /// (`inbox::wakes`): one that's idle with nothing for Mike waits for it under
@@ -492,6 +556,39 @@ mod tests {
     }
     fn now() -> i64 {
         parse_ms("2026-11-06T12:00:00Z").unwrap()
+    }
+
+    #[test]
+    fn the_badge_counts_what_waits_on_mike_and_a_notification_says_what_it_asked() {
+        let asks = thread(1, json!({ "needs": "you", "needsYou": true, "asks": [{ "action": "Ship **it**?" }] }));
+        let unread = thread(2, json!({ "needsYou": true, "lastSeenSeq": 3 }));
+        let read = thread(3, json!({}));
+        let asleep = thread(4, json!({ "needsYou": true, "snoozedUntil": "2026-11-07T00:00:00Z" }));
+        let all = [asks.clone(), unread, read, asleep];
+        assert_eq!(needs_you_count(&all, now()), 2);
+        assert_eq!(dock_badge(2).as_deref(), Some("2"));
+        assert_eq!(dock_badge(0), None);
+        let (title, body) = notification_words(&asks);
+        assert_eq!(title, "Thread 1");
+        assert_eq!(body, "Ship it?");
+    }
+
+    #[test]
+    fn a_notification_comes_once_when_a_thread_starts_needing_mike_elsewhere() {
+        let quiet = thread(1, json!({}));
+        let needy = thread(1, json!({ "needsYou": true, "lastSeq": 42 }));
+        assert!(should_notify(Some(&quiet), &needy, false));
+        assert!(should_notify(None, &needy, false), "a thread first heard of needing him");
+        assert!(!should_notify(Some(&needy), &needy, false), "only when it starts");
+        assert!(!should_notify(Some(&quiet), &needy, true), "not while he's looking at it");
+        let mut remote = needy.clone();
+        remote.runner_id = Some("other-mac".into());
+        assert!(!should_notify(Some(&quiet), &remote, false), "another runner's says so on that Mac");
+        let tag = notification_tag(&needy);
+        assert_eq!(tag, "t1-42");
+        assert_eq!(thread_in_tag(&tag), Some("t1"));
+        assert_eq!(thread_in_tag("b0e6c5a2-1111-2222-3333-444455556666-7"), Some("b0e6c5a2-1111-2222-3333-444455556666"), "a thread id has dashes of its own");
+        assert_eq!(thread_in_tag("nothing"), None);
     }
 
     #[test]

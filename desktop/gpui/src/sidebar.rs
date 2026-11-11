@@ -251,8 +251,13 @@ impl SidebarState {
                 n = n.wrapping_add(1);
                 let alive = this.update(cx, |t, cx| {
                     let ticking = t.threads.values().any(|t| t.busy() || t.subagents.iter().flatten().any(|s| s.get("status").and_then(Value::as_str) == Some("running")));
-                    if n % 20 == 0 || ticking {
+                    let twentieth = n.is_multiple_of(20);
+                    if twentieth || ticking {
                         cx.notify();
+                    }
+                    // A hibernating thread waking changes the badge's count.
+                    if twentieth {
+                        t.refresh_dock_badge();
                     }
                 });
                 if alive.is_err() {

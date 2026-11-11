@@ -620,8 +620,9 @@ impl Threadbear {
             Command::HibernateEvening => self.hibernate_open("evening", window, cx),
             Command::HibernateTomorrow => self.hibernate_open("tomorrow", window, cx),
             Command::HibernateMonday => self.hibernate_open("monday", window, cx),
-            // What's typed goes to disk on the way out (drafts.rs's on_app_quit).
-            Command::Quit => cx.quit(),
+            // What's typed goes to disk on the way out (drafts.rs's
+            // on_app_quit), once it's been asked (quit_prompt.rs).
+            Command::Quit => crate::quit_prompt::quit(self.settings.asks_before_quitting(), cx.entity().downgrade(), cx),
             Command::Hide => cx.hide(),
             Command::HideOthers => cx.hide_other_apps(),
             Command::ShowAll => cx.unhide_other_apps(),
