@@ -478,6 +478,14 @@ object BackendApi {
     const val WAITING_SENDS = 57
     const val STOP = 69
     const val STARS = 27
+    /** From 3 each phone chooses when it's notified (phone:setNotifications). */
+    const val NOTIFICATION_SETTING = 3
+    /** From 16 phone:search looks through archived threads past the newest 100. */
+    const val SEARCH = 16
+    /** From 19 agents file cards in the Pocket (phone:pocket). */
+    const val POCKET = 19
+    /** From 56 runners have an order (phone:setRunnerOrder). */
+    const val RUNNER_ORDER = 56
 }
 
 enum class CommandState { PENDING, TAKEN, DONE, FAILED }
