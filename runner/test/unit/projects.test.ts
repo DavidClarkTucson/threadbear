@@ -876,10 +876,29 @@ test("the librarian never gives a project another project's repo, a folder holdi
   h.clock.advance(SETTLE_MS);
   await tick(8);
   assert.ok(projects.list().some((p) => p.title === 'Crypto'));
-  // addFolders: the same three are refused, its own repo's subfolder is
-  // nobody else's and a free repo is added.
+  // Nor one whose only folder is in a worktree of another project's repo
+  // (the main checkout's copy is Threadbear's), or reaches its repo by a
+  // symlink or another casing.
+  const tbWt = path.join(root, 'dev/tb-wt');
+  fs.mkdirSync(path.join(tb, '.git/worktrees/tw'), { recursive: true });
+  fs.mkdirSync(path.join(tbWt, 'android'), { recursive: true });
+  fs.writeFileSync(path.join(tbWt, '.git'), `gitdir: ${path.join(tb, '.git/worktrees/tw')}\n`);
+  fs.writeFileSync(path.join(tbWt, 'android/package.json'), '{}');
+  fs.symlinkSync(tb, path.join(root, 'dev/tb-link'));
+  const caseBlind = fs.existsSync(path.join(root, 'DEV/threadbear'));
+  for (const folder of ['~/dev/tb-wt/android', '~/dev/tb-link', ...(caseBlind ? ['~/dev/Threadbear'] : [])]) {
+    answer = { projects: [], new: { title: `Copy ${folder}`, folders: [folder], goals: 'x', state: 'y' } };
+    const t = create('More Threadbear work').thread;
+    await finish(t.id);
+    h.clock.advance(SETTLE_MS);
+    await tick(8);
+    assert.ok(!projects.list().some((p) => p.title === `Copy ${folder}`), `${folder} made a project`);
+  }
+  // addFolders: the same ones are refused (a repo cloned inside a worktree
+  // doesn't hide it), and a free repo is added.
   const free = repo('dev/sentry-watch');
-  answer = { projects: [bb.id], reasons: { [bb.id]: 'Works on the extension' }, addFolders: { [bb.id]: ['~/dev/threadbear', '~/dev/videos', '~/dev/app-wt/ios', '~/dev/sentry-watch'] } };
+  repo('dev/app-wt/vendor/tool');
+  answer = { projects: [bb.id], reasons: { [bb.id]: 'Works on the extension' }, addFolders: { [bb.id]: ['~/dev/threadbear', '~/dev/videos', '~/dev/app-wt/ios', '~/dev/app-wt/vendor/tool', '~/dev/tb-link', '~/dev/sentry-watch'] } };
   h.runner.send(two.id, 'more');
   await tick();
   await finish(two.id, [path.join(fresh, 'x.ts')]);

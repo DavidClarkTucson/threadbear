@@ -753,14 +753,14 @@ export class Librarian {
     };
     // A new project, when nothing fits.
     const fresh = readNew(a.new);
-    const proposed = fresh ? fresh.folders.map((f) => this.expand(f)) : [];
+    const proposed = fresh ? fresh.folders.map((f) => this.canonical(this.expand(f))) : [];
     const folders = proposed.filter((f) => this.freeFolder(f));
     // Every repo it gave is another project's: the thread is that
     // project's work, not a new one (Threadbear Android app, a second
     // project on the Threadbear repo, 10 Nov). Left unfiled, a later look
     // can put it there; a project with no folders at all (a house job)
     // still gets made.
-    const othersOnly = !folders.length && proposed.some((f) => this.isProjectFolder(f));
+    const othersOnly = !folders.length && proposed.some((f) => this.othersHave(f));
     if (fresh && !wanted.length && othersOnly) {
       this.log.info('librarian did not make a project on folders other projects have', { threadId: rec.id, title: fresh.title, folders: proposed.map((f) => this.tilde(f)) });
     } else if (fresh && !wanted.length) {
@@ -825,7 +825,7 @@ export class Librarian {
         if (!p || !member.has(pid) || !Array.isArray(folders)) continue;
         const add = folders
           .filter((f): f is string => typeof f === 'string')
-          .map((f) => this.expand(f))
+          .map((f) => this.canonical(this.expand(f)))
           .filter((f) => this.freeFolder(f, pid) && !p.folders.includes(f));
         if (!add.length) continue;
         this.projects.update(pid, { folders: [...p.folders, ...add] });
@@ -1258,8 +1258,9 @@ export class Librarian {
     // Nor a folder inside a git worktree: Threadbear got
     // `threadbear-threads/slot-4/ios` this way, a path that's another
     // thread's tomorrow. Its main checkout's copy is the one to give.
-    const repo = findUp(dir, this.home, (d) => fs.existsSync(path.join(d, '.git')));
-    if (repo && mainCheckout(repo) !== repo) return false;
+    // Every ancestor, not just the nearest repo: a repo cloned inside a
+    // worktree would otherwise hide it.
+    if (findUp(dir, this.home, (d) => mainCheckout(d) !== d)) return false;
     try {
       if (!fs.statSync(dir).isDirectory()) return false;
     } catch {
@@ -1276,8 +1277,37 @@ export class Librarian {
   // about something else (review of 11 Nov). Mike and agents can still
   // share a folder between projects on purpose; this only bounds guesses.
   private freeFolder(dir: string, forProject?: string): boolean {
-    if (!this.isProjectFolder(dir)) return false;
-    return !this.projects.list().some((p) => p.id !== forProject && p.folders.some((f) => isInside(dir, f) || isInside(f, dir)));
+    return this.isProjectFolder(dir) && !this.othersHave(dir, forProject);
+  }
+
+  // Whether another live project has the folder, sits inside it or holds
+  // it, comparing real paths so a symlink or another casing (the Mac's
+  // disk ignores case) doesn't make the same repo look free.
+  private othersHave(dir: string, forProject?: string): boolean {
+    return this.projects.list().some((p) => p.id !== forProject && p.folders.some((f) => {
+      const g = this.canonical(f);
+      return isInside(dir, g) || isInside(g, dir);
+    }));
+  }
+
+  // The folder's real path with the disk's own casing, and a folder in a
+  // git worktree as the same folder in its main checkout: the path a
+  // project should have, and the one to compare. As given when it doesn't
+  // exist (isProjectFolder turns those down anyway).
+  private canonical(dir: string): string {
+    let real: string;
+    let realHome: string;
+    try {
+      real = fs.realpathSync.native(dir);
+      realHome = fs.realpathSync.native(this.home);
+    } catch {
+      return dir;
+    }
+    // Back in the home's own form (a temp home is /var, really /private/var),
+    // which is how every other path here is written.
+    if (isInside(real, realHome)) real = path.join(this.home, path.relative(realHome, real));
+    const wt = findUp(real, this.home, (d) => mainCheckout(d) !== d);
+    return wt ? path.join(mainCheckout(wt), path.relative(wt, real)) : real;
   }
 
   // "~/x" against the home the librarian was given (a test's fake one).
