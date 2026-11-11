@@ -67,12 +67,16 @@ const INERT_MODULES = new Set(
   ['fs', 'fs/promises', 'path', 'path/posix', 'url', 'os', 'crypto', 'util', 'events', 'stream', 'stream/promises', 'buffer', 'string_decoder', 'querystring', 'timers', 'timers/promises', 'assert', 'assert/strict', 'readline', 'readline/promises', 'zlib', 'http', 'https', 'net', 'dns', 'dns/promises', 'perf_hooks']
     .flatMap((m) => [m, `node:${m}`]),
 );
+const PROCESS_RUNNERS = new Set(['binding', '_linkedBinding', 'execve', 'dlopen']);
 const PATH_MODULES = new Set(['path', 'node:path', 'path/posix', 'node:path/posix']);
 const PATH_FUNCTIONS = new Set(['join', 'resolve', 'dirname', 'basename', 'normalize', 'relative', 'extname']);
 const TYPE_KEYS = new Set(['typeAnnotation', 'typeArguments', 'typeParameters', 'returnType', 'superTypeArguments', 'implements']);
 const TYPE_ONLY = new Set(['TSInterfaceDeclaration', 'TSTypeAliasDeclaration', 'TSDeclareFunction', 'TSModuleDeclaration']);
 const MAX_VARIANTS = 16;
 const MAX_DEPTH = 24;
+const MAX_STEPS = 20_000;
+// Longer than any command a patch writes: past it, the text is a value.
+const MAX_TEXT = 4000;
 
 type Binding =
   | { kind: 'const'; init: AstNode }
@@ -127,6 +131,10 @@ class Reader {
   private osSpaces = new Set<string>();
   private worktreeObject: AstNode | undefined;
   private calls: AstNode[] = [];
+  // Each constant's value, worked out once; and a cap on the work, so a
+  // file of constants built from each other can't hold the runner.
+  private constValues = new Map<AstNode, string[]>();
+  private steps = 0;
 
   private program: AstNode;
   private file: string;
@@ -216,7 +224,11 @@ class Reader {
       }
       case 'ExportNamedDeclaration':
       case 'ExportAllDeclaration':
-        if (node.source) this.checkModule(String(node.source.value), node);
+        if (node.source) {
+          // Handed on to a file that calls it by a name this one can't see.
+          if (CP_MODULES.has(String(node.source.value))) throw new Unknown(node, 'it passes child_process on');
+          this.checkModule(String(node.source.value), node);
+        }
         break;
       case 'ImportExpression':
         throw new Unknown(node, 'it imports a module as it runs');
@@ -401,6 +413,9 @@ class Reader {
   }
 
   private member(node: AstNode, parent: Parent | undefined): void {
+    // Node's own ways to start a process or load native code without
+    // child_process.
+    if (node.object.type === 'Identifier' && node.object.name === 'process' && PROCESS_RUNNERS.has(memberName(node) ?? '')) throw new Unknown(node, `it uses process.${memberName(node)}`);
     if (node.computed && memberName(node) === undefined) {
       // `x[k](...)`: could be sh under another name.
       if (parent?.key === 'callee') throw new Unknown(node, 'it calls a function picked as it runs');
@@ -493,7 +508,7 @@ class Reader {
   // What an expression can be as text: each way it can come out, with
   // VALUE where it's worked out as it runs.
   private value(node: AstNode, env: Map<string, string[]>, depth: number): string[] {
-    if (depth > MAX_DEPTH) return [VALUE];
+    if (depth > MAX_DEPTH || ++this.steps > MAX_STEPS) return [VALUE];
     const n = unwrap(node);
     const next = (x: AstNode, e = env) => this.value(x, e, depth + 1);
     switch (n.type) {
@@ -523,8 +538,14 @@ class Reader {
         const own = env.get(n.name);
         if (own) return own;
         const b = this.only(n.name);
-        if (b?.kind === 'const') return next(b.init, new Map());
-        return [VALUE];
+        if (b?.kind !== 'const') return [VALUE];
+        const known = this.constValues.get(b.init);
+        if (known) return known;
+        // Itself while it's worked out (`const a = a + 'x'` never ends).
+        this.constValues.set(b.init, [VALUE]);
+        const v = next(b.init, new Map());
+        this.constValues.set(b.init, v);
+        return v;
       }
       case 'MemberExpression':
       case 'MetaProperty': {
@@ -697,7 +718,7 @@ function isValue(node: AstNode, parent: Parent, parents: Map<AstNode, Parent>): 
 
 function join(a: string[], b: string[]): string[] {
   const out: string[] = [];
-  for (const x of a) for (const y of b) out.push(x + y);
+  for (const x of a) for (const y of b) out.push(x.length + y.length > MAX_TEXT ? VALUE : x + y);
   return out.length > MAX_VARIANTS ? [VALUE] : out;
 }
 

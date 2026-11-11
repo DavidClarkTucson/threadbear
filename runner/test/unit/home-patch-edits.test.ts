@@ -164,3 +164,18 @@ test('patchCommands: what each sink runs, worked out', () => {
     `const cp = require('child_process');`,
   ]) assert.ok('unknown' in patchCommands(src, '/x/p.ts', true), src);
 });
+
+test("patchCommands: what it won't reason about, and a file built to take forever doesn't", () => {
+  for (const src of [
+    `export { execSync } from 'node:child_process';`,
+    `export * from 'child_process';`,
+    `process.binding('spawn_sync');`,
+    `process.execve('/bin/sh', ['sh']);`,
+  ]) assert.ok('unknown' in patchCommands(src, '/x/p.ts', true), src);
+  // 2^40 ways to work it out without each constant being kept.
+  const chain = Array.from({ length: 40 }, (_, i) => `const a${i + 1} = a${i} + a${i};`).join('\n');
+  const started = Date.now();
+  const r = patchCommands(`const a0 = 'x';\n${chain}\nexport default { actions: [{ title: 'A', run: a40 }] };`, '/x/p.ts', true);
+  assert.ok(Date.now() - started < 2000, 'quick');
+  assert.ok('commands' in r);
+});
