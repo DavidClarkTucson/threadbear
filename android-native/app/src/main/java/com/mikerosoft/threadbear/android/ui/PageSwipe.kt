@@ -76,6 +76,8 @@ fun rememberPageForward(nav: NavController): PageForward? {
         last = path
     }
     val next = stack.next ?: return null
+    // Ids from the back stack were routes already; checked again all the same.
+    if (com.mikerosoft.threadbear.android.Push.validThreadId(next) == null) return null
     return remember(next) { PageForward(next) { nav.navigate("thread/$next") } }
 }
 

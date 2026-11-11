@@ -179,8 +179,18 @@ private fun TextLine(written: String, inline: InlineStyle, style: TextStyle, but
 private fun MarkdownTable(table: MarkdownBlock.Table, inline: InlineStyle, style: TextStyle) {
     val colors = MaterialTheme.colorScheme
     val small = style.copy(fontSize = 14.sp, lineHeight = 19.sp)
-    val columns = table.header.size
-    val rows = listOf(table.header) + table.rows
+    // Bounded whatever the reply says: the parser allows 1,000 columns within
+    // its cell budget, and 1,000 columns of 220 dp is wider than Compose can
+    // lay out (Constraints throws past its limits; Codex review, 11 Nov). So
+    // at most MAX_COLUMNS columns, MAX_ROWS rows and MAX_CELL_LINES lines a
+    // cell, which keeps the table well inside them; what's cut says so.
+    val columns = minOf(table.header.size, MAX_COLUMNS)
+    val rows = listOf(table.header) + table.rows.take(MAX_ROWS)
+    val hidden = buildList {
+        if (table.header.size > MAX_COLUMNS) add("${table.header.size - MAX_COLUMNS} more columns")
+        if (table.rows.size > MAX_ROWS) add("${table.rows.size - MAX_ROWS} more rows")
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
     Box(
         Modifier.clip(RoundedCornerShape(8.dp)).background(colors.surfaceContainerHigh)
             .horizontalScroll(rememberScrollState()).padding(10.dp),
@@ -191,6 +201,8 @@ private fun MarkdownTable(table: MarkdownBlock.Table, inline: InlineStyle, style
                     Text(
                         inline.parse(row.getOrElse(c) { "" }),
                         style = if (r == 0) small.copy(fontWeight = FontWeight.SemiBold) else small,
+                        maxLines = MAX_CELL_LINES,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         textAlign = when (table.alignments.getOrNull(c)) {
                             MarkdownBlock.Alignment.CENTER -> androidx.compose.ui.text.style.TextAlign.Center
                             MarkdownBlock.Alignment.TRAILING -> androidx.compose.ui.text.style.TextAlign.End
@@ -236,7 +248,13 @@ private fun MarkdownTable(table: MarkdownBlock.Table, inline: InlineStyle, style
             }
         }
     }
+    if (hidden.isNotEmpty()) Text(hidden.joinToString(" and ") + " on the Mac", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+    }
 }
+
+private const val MAX_COLUMNS = 24
+private const val MAX_ROWS = 100
+private const val MAX_CELL_LINES = 8
 
 /**
  * Inline marks: escapes, `code`, **bold**, *italic*, ~~strike~~,

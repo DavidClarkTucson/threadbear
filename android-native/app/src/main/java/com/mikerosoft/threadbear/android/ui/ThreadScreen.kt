@@ -65,6 +65,7 @@ import com.mikerosoft.threadbear.android.AppModel
 import com.mikerosoft.threadbear.android.LocalModel
 import com.mikerosoft.threadbear.android.LocalSend
 import com.mikerosoft.threadbear.android.LocalSnackbar
+import com.mikerosoft.threadbear.android.Push
 import com.mikerosoft.threadbear.android.Loaded
 import com.mikerosoft.threadbear.android.ThreadExtras
 import com.mikerosoft.threadbear.android.ThreadViewModel
@@ -104,7 +105,12 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
 
     LaunchedEffect(thread?.isBusy) { if (thread?.isBusy == false) model.stopped(threadId) }
 
-    CompositionLocalProvider(LocalPushThread provides open, LocalButtonThread provides threadId) {
+    // Every thread opened from the transcript (a thread: link, a chip, a reply
+    // button) comes here, and its id from content: only one that can be a
+    // thread's id becomes a route, the same rule as a notification's, as
+    // "thread:a/b" made a route the navigation threw on (Codex review, 11 Nov).
+    val push = remember(open) { { id: String -> Push.validThreadId(id)?.let(open) ?: model.note("That isn't a thread on this phone.") } }
+    CompositionLocalProvider(LocalPushThread provides push, LocalButtonThread provides threadId) {
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbar.current) },
         topBar = { ThreadBar(thread, back) },
