@@ -104,6 +104,9 @@ final class ShellBlockTests: XCTestCase {
         XCTAssertFalse(TerminalPut.pasteRuns("echo one"))
         XCTAssertTrue(TerminalPut.pasteRuns("touch /tmp/x\n"))
         XCTAssertTrue(TerminalPut.pasteRuns("a\rb"))
+        XCTAssertTrue(TerminalPut.pasteRuns("echo $(touch /tmp/x)\t"), "a Tab is the Tab key without brackets")
+        XCTAssertTrue(TerminalPut.pasteQuestion("ls\t").detail.contains("Tab"))
+        XCTAssertTrue(TerminalPut.pasteQuestion("ls\n").detail.contains("Return"))
         XCTAssertEqual(TerminalPut.pasteQuestion("a\nb\n").title, "Paste 2 lines?")
         XCTAssertEqual(TerminalPut.pasteQuestion("ls\n").title, "Paste this line?")
     }

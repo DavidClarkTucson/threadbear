@@ -354,9 +354,11 @@ pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
 /// which never asks for brackets, and any program that hasn't (Codex's review,
 /// 11 Nov: a shell block copied when the Terminal was busy, pasted there
 /// later, ran its first lines). So the app asks first, as Windows Terminal
-/// and iTerm do.
+/// and iTerm do. A Tab is asked about too: it's the Tab key there, and zsh's
+/// completion with bracketed paste off expands a `$(...)` before it, which
+/// runs it (Codex's review of the paste fix, 11 Nov).
 pub fn paste_runs(text: &str) -> bool {
-    text.contains(['\n', '\r'])
+    text.contains(['\n', '\r', '\t'])
 }
 
 /// Text that arrives all at once, from an input method or a text expander,
@@ -370,6 +372,9 @@ pub fn is_bulk_text(text: &str) -> bool {
 pub fn paste_question(text: &str) -> (String, &'static str) {
     let lines = text.lines().count().max(1);
     let title = if lines == 1 { "Paste this line?".to_owned() } else { format!("Paste {lines} lines?") };
+    if !text.contains(['\n', '\r']) {
+        return (title, "The program in this terminal will take each Tab in it as the Tab key, which a shell can use to complete or expand what's before it.");
+    }
     (title, "The program in this terminal will take each line break as Return, so at a shell's prompt each line runs as soon as it's pasted.")
 }
 
@@ -1124,6 +1129,9 @@ mod tests {
         assert!(!paste_runs("echo one"));
         assert!(paste_runs("touch /tmp/x\n"));
         assert!(paste_runs("a\rb"));
+        assert!(paste_runs("echo $(touch /tmp/x)\t"), "a Tab is the Tab key without brackets");
+        assert!(paste_question("ls\t").1.contains("Tab"));
+        assert!(paste_question("ls\n").1.contains("Return"));
         assert_eq!(paste_question("a\nb\n").0, "Paste 2 lines?");
         assert_eq!(paste_question("ls\n").0, "Paste this line?");
     }

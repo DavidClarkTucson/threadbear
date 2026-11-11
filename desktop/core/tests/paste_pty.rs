@@ -19,8 +19,9 @@ use threadbear_core::terminal::paste_bytes;
 
 /// Starts an interactive bash in a pty, waits for it to turn bracketed paste
 /// on, sends the bytes (hex in argv[1]) in one write, and says RAN if the
-/// marker came out of a command, HELD if it didn't, NOBRACKETS if bash never
-/// asked for brackets.
+/// marker came out of a command, HELD if it didn't and bash still runs what's
+/// typed after it, DEAD if it doesn't, NOBRACKETS if bash never asked for
+/// brackets.
 const HARNESS: &str = r#"
 import os, pty, sys, time, select
 payload = bytes.fromhex(sys.argv[1])
@@ -51,7 +52,14 @@ if b"\x1b[?2004h" not in out:
 read_for(0.3)
 os.write(fd, payload)
 read_for(1.5)
-print("RAN" if b"TB_PASTE_RAN" in out else "HELD")
+if b"TB_PASTE_RAN" in out:
+    print("RAN")
+else:
+    # Still there, and still at its prompt: ^U takes the held paste off the
+    # line, and a command typed after it runs.
+    os.write(fd, b"\x15printf 'TB_%s\\n' ALIVE\r")
+    read_for(1.5)
+    print("HELD" if b"TB_ALIVE" in out else "DEAD")
 try:
     os.kill(pid, 9)
 except OSError:
@@ -90,7 +98,11 @@ fn a_pasted_signal_character_cant_run_the_paste() {
         tried += 1;
         assert_eq!(run(&paste_bytes(&text, true)).as_deref(), Some("HELD"), "{signal:?} then a line break ran the paste");
     }
+    // Linux check hosts have bash 5 and Python, so there a run that tried
+    // nothing is a broken harness, not a pass. macOS's own bash (3.2) has no
+    // bracketed paste, so a Mac without a newer one skips.
     if tried == 0 {
+        assert!(!cfg!(target_os = "linux"), "no case could be played here, so nothing was checked");
         eprintln!("skipped: no bash with bracketed paste and a pty that runs the old bytes here");
     }
 }

@@ -136,8 +136,11 @@ public enum TerminalPut {
     /// when the Terminal was busy, pasted there later, ran its first lines).
     /// SwiftTerm sees it too, then pastes it anyway (`pasteText`), so the
     /// app asks first, as Windows Terminal and iTerm do.
+    /// A Tab is asked about too: it's the Tab key there, and zsh's
+    /// completion with bracketed paste off expands a `$(...)` before it,
+    /// which runs it (Codex's review of the paste fix, 11 Nov).
     public static func pasteRuns(_ text: String) -> Bool {
-        text.contains("\n") || text.contains("\r")
+        text.unicodeScalars.contains { $0 == "\n" || $0 == "\r" || $0 == "\t" }
     }
 
     /// A paste as the terminal sends it (`paste_bytes` in the GPUI app): line
@@ -174,8 +177,11 @@ public enum TerminalPut {
         var lines = 0
         text.enumerateLines { _, _ in lines += 1 }
         lines = max(lines, 1)
-        return (lines == 1 ? "Paste this line?" : "Paste \(lines) lines?",
-                "The program in this terminal will take each line break as Return, so at a shell's prompt each line runs as soon as it's pasted.")
+        let title = lines == 1 ? "Paste this line?" : "Paste \(lines) lines?"
+        if !text.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" }) {
+            return (title, "The program in this terminal will take each Tab in it as the Tab key, which a shell can use to complete or expand what's before it.")
+        }
+        return (title, "The program in this terminal will take each line break as Return, so at a shell's prompt each line runs as soon as it's pasted.")
     }
 
     /// Whether the program in front of the terminal is the shell that was
