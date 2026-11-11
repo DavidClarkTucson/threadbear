@@ -753,14 +753,18 @@ export class Librarian {
     };
     // A new project, when nothing fits.
     const fresh = readNew(a.new);
-    const proposed = fresh ? fresh.folders.map((f) => this.canonical(this.expand(f))) : [];
+    const given = fresh ? fresh.folders.map((f) => this.expand(f)) : [];
+    const proposed = given.map((f) => this.canonical(f));
     const folders = proposed.filter((f) => this.freeFolder(f));
     // Every repo it gave is another project's: the thread is that
     // project's work, not a new one (Threadbear Android app, a second
     // project on the Threadbear repo, 10 Nov). Left unfiled, a later look
     // can put it there; a project with no folders at all (a house job)
     // still gets made.
-    const othersOnly = !folders.length && proposed.some((f) => this.othersHave(f));
+    // A worktree path counts too, even when its main checkout's copy is
+    // nobody's (a folder only on the worktree's branch): it's a thread's
+    // checkout of some repo, never a body of work of its own.
+    const othersOnly = !folders.length && (proposed.some((f) => this.othersHave(f)) || given.some((f) => this.inWorktree(f)));
     if (fresh && !wanted.length && othersOnly) {
       this.log.info('librarian did not make a project on folders other projects have', { threadId: rec.id, title: fresh.title, folders: proposed.map((f) => this.tilde(f)) });
     } else if (fresh && !wanted.length) {
@@ -1294,7 +1298,7 @@ export class Librarian {
   // git worktree as the same folder in its main checkout: the path a
   // project should have, and the one to compare. As given when it doesn't
   // exist (isProjectFolder turns those down anyway).
-  private canonical(dir: string): string {
+  private canonical(dir: string, depth = 0): string {
     let real: string;
     let realHome: string;
     try {
@@ -1307,7 +1311,24 @@ export class Librarian {
     // which is how every other path here is written.
     if (isInside(real, realHome)) real = path.join(this.home, path.relative(realHome, real));
     const wt = findUp(real, this.home, (d) => mainCheckout(d) !== d);
-    return wt ? path.join(mainCheckout(wt), path.relative(wt, real)) : real;
+    // The main checkout's path comes from the worktree's .git file, which
+    // may name it through a symlink: real-path that too.
+    // Once more at most: two .git files naming each other would loop.
+    if (!wt) return real;
+    const main = path.join(mainCheckout(wt), path.relative(wt, real));
+    return depth ? main : this.canonical(main, depth + 1);
+  }
+
+  // Inside a git worktree, at any depth (a repo cloned inside one doesn't
+  // hide it).
+  private inWorktree(dir: string): boolean {
+    let real: string;
+    try {
+      real = fs.realpathSync.native(dir);
+    } catch {
+      return false;
+    }
+    return Boolean(findUp(real, this.home, (d) => mainCheckout(d) !== d));
   }
 
   // "~/x" against the home the librarian was given (a test's fake one).

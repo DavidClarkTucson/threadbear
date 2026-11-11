@@ -886,7 +886,19 @@ test("the librarian never gives a project another project's repo, a folder holdi
   fs.writeFileSync(path.join(tbWt, 'android/package.json'), '{}');
   fs.symlinkSync(tb, path.join(root, 'dev/tb-link'));
   const caseBlind = fs.existsSync(path.join(root, 'DEV/threadbear'));
-  for (const folder of ['~/dev/tb-wt/android', '~/dev/tb-link', ...(caseBlind ? ['~/dev/Threadbear'] : [])]) {
+  // A worktree whose .git file names its main checkout through a symlink,
+  // and one of a repo no project has, with a folder only on its branch.
+  const viaLink = path.join(root, 'dev/link-wt');
+  fs.mkdirSync(path.join(viaLink, 'web'), { recursive: true });
+  fs.writeFileSync(path.join(viaLink, '.git'), `gitdir: ${path.join(root, 'dev/tb-link/.git/worktrees/tw')}\n`);
+  fs.writeFileSync(path.join(viaLink, 'web/package.json'), '{}');
+  const loose = repo('dev/loose');
+  const looseWt = path.join(root, 'dev/loose-wt');
+  fs.mkdirSync(path.join(loose, '.git/worktrees/lw'), { recursive: true });
+  fs.mkdirSync(path.join(looseWt, 'branch-only'), { recursive: true });
+  fs.writeFileSync(path.join(looseWt, '.git'), `gitdir: ${path.join(loose, '.git/worktrees/lw')}\n`);
+  fs.writeFileSync(path.join(looseWt, 'branch-only/package.json'), '{}');
+  for (const folder of ['~/dev/tb-wt/android', '~/dev/tb-link', '~/dev/link-wt/web', '~/dev/loose-wt/branch-only', ...(caseBlind ? ['~/dev/Threadbear'] : [])]) {
     answer = { projects: [], new: { title: `Copy ${folder}`, folders: [folder], goals: 'x', state: 'y' } };
     const t = create('More Threadbear work').thread;
     await finish(t.id);
