@@ -693,7 +693,9 @@ shell has become another program, as `exec ssh` does), or you've typed on
 its prompt, nothing gets added: the command goes on the clipboard and a
 bubble says so (a shell without bracketed paste, like macOS's old bash,
 always copies). Pasting lines into a shell like that asks first, as each
-line would run as soon as it arrived. Play isn't there on a thread
+line would run as soon as it arrived. A paste leaves out control
+characters (anything but Tab and line breaks), so copied text with a
+hidden one in it can't run itself. Play isn't there on a thread
 on another Mac or the cloud, or an archived one, as this Mac's shell
 wouldn't be in the right place; Copy still is. Nor is it on a thread open
 in a panel of its own, as the Terminal shows the main panel's thread's

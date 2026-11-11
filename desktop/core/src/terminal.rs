@@ -331,16 +331,20 @@ fn control_code(c: char) -> Option<u8> {
 
 /// A paste, as a terminal sends it: line breaks as Return, inside the brackets
 /// when the program asked for them (bracketed paste), so a newline in it runs
-/// nothing. Inside the brackets nothing may end them early: any ESC goes, as a
-/// pasted `ESC [ 201 ~` would let what follows run by itself. Without them
-/// every control character but Tab and Return goes too: each would be a key
-/// pressed (^C, ^D, ^U, an ESC that starts a vim command), not text.
+/// nothing. Every control character but Tab and Return goes, brackets or not.
+/// Without them each would be a key pressed (^C, ^D, ^U, an ESC that starts a
+/// vim command), not text. Inside them an ESC could end them early (a pasted
+/// `ESC [ 201 ~` lets what follows run by itself), and the rest never reach
+/// the program as text anyway: the pty's own line discipline takes ^C, ^\, ^Z,
+/// ^S and ^Q as signals before the shell sees the brackets, so a pasted ^\
+/// quits bash's paste half way and the line break after it runs the command
+/// (Daybreak, 11 Nov). C1 controls (U+0080 to U+009F, U+009B being CSI) go too.
 pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
     let text = text.replace("\r\n", "\r").replace('\n', "\r");
+    let inner: String = text.chars().filter(|c| !c.is_control() || matches!(c, '\t' | '\r')).collect();
     if !bracketed {
-        return text.chars().filter(|c| !c.is_control() || matches!(c, '\t' | '\r')).collect::<String>().into_bytes();
+        return inner.into_bytes();
     }
-    let inner: String = text.chars().filter(|c| *c != '\u{1b}' && *c != '\u{9b}').collect();
     [b"\x1b[200~".as_slice(), inner.as_bytes(), b"\x1b[201~".as_slice()].concat()
 }
 
@@ -981,6 +985,23 @@ mod tests {
         assert_eq!(paste_bytes("ls\x03\x1b:q!\x15\x7f\u{9b}\tx", false), b"ls:q!\tx");
         assert_eq!(paste_bytes("ls\r\n", true), b"\x1b[200~ls\r\x1b[201~");
         assert_eq!(paste_bytes("echo\x1b[201~\nrm -rf ~", true), b"\x1b[200~echo[201~\rrm -rf ~\x1b[201~");
+    }
+
+    /// Daybreak's finding 84: inside the brackets a ^\\ (or ^C, ^Z) is still a
+    /// signal to the pty, which flushes the opening bracket, so the line break
+    /// after it ran the command. Every control but Tab and Return goes, C0,
+    /// DEL and C1 alike; tests/paste_pty.rs plays it against a real bash.
+    #[test]
+    fn a_bracketed_paste_has_no_control_characters_in_it() {
+        assert_eq!(
+            paste_bytes("\u{1c}printf \"TB_%s_RAN\\n\" PASTE\n", true),
+            b"\x1b[200~printf \"TB_%s_RAN\\n\" PASTE\r\x1b[201~"
+        );
+        let every: String = (0u32..0x20).chain(0x7f..0xa0).filter_map(char::from_u32).collect();
+        assert_eq!(paste_bytes(&format!("a{every}b"), true), b"\x1b[200~a\t\r\rb\x1b[201~");
+        assert_eq!(paste_bytes(&format!("a{every}b"), false), b"a\t\r\rb");
+        // Text that isn't control stays as it is, either way.
+        assert_eq!(paste_bytes("caf\u{e9} \u{65e5}\u{672c} \u{1f43b}", true), "\x1b[200~caf\u{e9} \u{65e5}\u{672c} \u{1f43b}\x1b[201~".as_bytes());
     }
 
     #[test]
