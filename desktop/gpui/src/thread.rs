@@ -47,19 +47,28 @@ pub(crate) fn is_looking() -> bool {
     LOOKING.lock().map(|w| !w.is_empty()).unwrap_or(true)
 }
 
-/// While a script's click goes through the window (automation's `click`),
-/// which isn't Mike at it: a scripted Swift app never counts as in front.
-static SCRIPTED_INPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// While a script's command runs (automation's `step`), whose clicks and
+/// keys go through the window but aren't Mike at it: a scripted Swift app
+/// never counts as in front. A count, so a command inside another keeps it,
+/// and put back by a guard, so a panic doesn't leave it set.
+static SCRIPTED_INPUT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+struct ScriptedInput;
+
+impl Drop for ScriptedInput {
+    fn drop(&mut self) {
+        SCRIPTED_INPUT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 pub(crate) fn scripted_input<R>(f: impl FnOnce() -> R) -> R {
-    SCRIPTED_INPUT.store(true, std::sync::atomic::Ordering::Relaxed);
-    let result = f();
-    SCRIPTED_INPUT.store(false, std::sync::atomic::Ordering::Relaxed);
-    result
+    SCRIPTED_INPUT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _scripted = ScriptedInput;
+    f()
 }
 
 pub(crate) fn input_is_scripted() -> bool {
-    SCRIPTED_INPUT.load(std::sync::atomic::Ordering::Relaxed)
+    SCRIPTED_INPUT.load(std::sync::atomic::Ordering::Relaxed) > 0
 }
 
 /// A window's id for `set_looking`.

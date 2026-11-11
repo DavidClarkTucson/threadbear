@@ -102,7 +102,8 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     } else {
         window
     };
-    let out = cx.update_window(window, |_, window, cx| step(&app, cmd, window, cx)).map_err(|e| e.to_string())??;
+    // Its clicks and keys are the script's, not Mike being at the window.
+    let out = cx.update_window(window, |_, window, cx| crate::thread::scripted_input(|| step(&app, cmd, window, cx))).map_err(|e| e.to_string())??;
     if !from_new {
         return Ok(out);
     }
@@ -361,11 +362,9 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let target = window.find_all_by_label(title).into_iter().find(|e| e.visible());
             let Some(target) = target else { return Err(format!("no button called {title:?}")) };
             let at = target.bounds().center();
-            crate::thread::scripted_input(|| {
-                window.pointer_move(at, None, cx);
-                window.pointer_down(at, MouseButton::Left, cx);
-                window.pointer_up(at, MouseButton::Left, cx);
-            });
+            window.pointer_move(at, None, cx);
+            window.pointer_down(at, MouseButton::Left, cx);
+            window.pointer_up(at, MouseButton::Left, cx);
             Ok(json!("click ok"))
         }
         "expand" | "collapse" => {

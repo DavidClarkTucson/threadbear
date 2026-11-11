@@ -493,6 +493,15 @@ impl Render for FloatingPanelView {
             .size_full()
             .flex()
             .flex_col()
+            // A press in a window that was never told it's in front (an X
+            // server with no window manager) is still someone at it.
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                if !window.is_window_active() {
+                    if let Some(told) = this.options.window_activation.clone() {
+                        told(true, window, cx);
+                    }
+                }
+            }))
             .bg(theme.panel)
             .text_color(theme.header_text)
             .child(bar)

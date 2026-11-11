@@ -114,6 +114,10 @@ pub(crate) fn dock_options(app: WeakEntity<Threadbear>, cx: &App) -> DockOptions
         // the main window does (`Threadbear::looking_changed`). Going, it's
         // only noted: that can come in the middle of the app's own update.
         window_activation: Some(std::rc::Rc::new(move |active: bool, window: &mut Window, cx: &mut App| {
+            // A script's click in that window isn't Mike looking.
+            if active && crate::thread::input_is_scripted() {
+                return;
+            }
             let key = crate::thread::window_key(window);
             match app.upgrade() {
                 Some(app) if active => app.update(cx, |app, cx| app.looking_changed(key, true, cx)),
