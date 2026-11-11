@@ -72,6 +72,9 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     /** Stop pressed, until the turn ends. */
     val stopping = MutableStateFlow<Set<String>>(emptySet())
 
+    /** The inbox's and the shell's own state (ShellModel.kt): Pocket, Settings, row moves. */
+    val shell: ShellModel by lazy { ShellModel(this, context, scope) }
+
     init {
         store.load()?.let { connect(it) }
     }
@@ -173,6 +176,7 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
 
     fun unpair() {
         store.clear()
+        shell.clear()
         transport?.close()
         transport = null
         _backend.value = null
@@ -183,6 +187,12 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     // Changes, each showing at once
 
     fun change(threadId: String, change: ThreadChange) {
+        // Archive and hibernate wait for the runner to say, as the iPhone's do (ShellModel).
+        when (change) {
+            ThreadChange.Archive -> return shell.archive(threadId)
+            is ThreadChange.Snooze, ThreadChange.SnoozeUntilRestart -> return shell.hibernate(threadId, change)
+            else -> {}
+        }
         val b = _backend.value ?: return
         val hides = change is ThreadChange.Archive || change is ThreadChange.ArchiveWithVerdict || change is ThreadChange.Snooze
         if (hides) puttingAway.update { it + threadId }

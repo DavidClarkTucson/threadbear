@@ -21,6 +21,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mikerosoft.threadbear.android.ui.InboxScreen
+import com.mikerosoft.threadbear.android.ui.NewThreadScreen
+import com.mikerosoft.threadbear.android.ui.PocketScreen
+import com.mikerosoft.threadbear.android.ui.RunnerOrderScreen
+import com.mikerosoft.threadbear.android.ui.SettingsScreen
 import com.mikerosoft.threadbear.android.ui.PairScreen
 import com.mikerosoft.threadbear.android.ui.ThreadScreen
 import com.mikerosoft.threadbear.android.ui.ThreadbearTheme
@@ -77,8 +81,42 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
         LaunchedEffect(open) {
             open?.let { nav.navigate("thread/$it") { launchSingleTop = true }; openThread.value = null }
         }
+        // A thread that started soon after it was asked for opens, as the iPhone's
+        // sheet used to wait to do, unless you've gone into another meanwhile.
+        val started by model.shell.justStarted.collectAsStateWithLifecycle()
+        LaunchedEffect(started) {
+            val id = started ?: return@LaunchedEffect
+            model.shell.justStarted.value = null
+            if (nav.currentDestination?.route == "inbox") nav.navigate("thread/$id")
+        }
         NavHost(nav, startDestination = "inbox") {
-            composable("inbox") { InboxScreen(open = { nav.navigate("thread/$it") }) }
+            composable("inbox") {
+                InboxScreen(
+                    open = { nav.navigate("thread/$it") },
+                    newThread = { nav.navigate("new") { launchSingleTop = true } },
+                    settings = { nav.navigate("settings") { launchSingleTop = true } },
+                    pocket = { nav.navigate("pocket") { launchSingleTop = true } },
+                )
+            }
+            composable("new") {
+                NewThreadScreen(close = { nav.popBackStack() }, opened = { id ->
+                    nav.navigate("thread/$id") { popUpTo("inbox") }
+                })
+            }
+            composable("settings") { SettingsScreen(back = { nav.popBackStack() }, runnerOrder = { nav.navigate("settings/runners") }) }
+            composable("settings/runners") { RunnerOrderScreen(back = { nav.popBackStack() }) }
+            composable("pocket") {
+                // Only once the Pocket's gone, as the iPhone's cover: the thread
+                // or New thread goes on the inbox, not over the Pocket.
+                PocketScreen(
+                    close = { nav.popBackStack() },
+                    openThread = { id -> nav.navigate("thread/$id") { popUpTo("inbox") } },
+                    add = {
+                        model.shell.composeText.value = "Add to my pocket: "
+                        nav.navigate("new") { popUpTo("inbox") }
+                    },
+                )
+            }
             composable("thread/{id}") { entry ->
                 ThreadScreen(threadId = entry.arguments?.getString("id") ?: "", back = { nav.popBackStack() },
                     open = { nav.navigate("thread/$it") })

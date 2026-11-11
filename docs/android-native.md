@@ -50,9 +50,15 @@ what the iPhone has.
 | PushKey.swift, PushTaps.swift | `Push.kt` | 3 |
 | MessageHistory.swift (older chunks) | `History.kt` | 4 |
 | ReplyButtons, ThreadLinks, SlashCommands, PhotoUpload | | 4 |
+| Pocket.swift, PocketIcon.swift | `Pocket.kt` | 5 |
+| InboxMoves.swift, Tucks.swift | `InboxMoves.kt`, `Tucks.kt` | 5 |
+| ThreadSearch (Inbox.swift) | `Search.kt` | 5 |
+| NotifyMode, AppModel's runner order and offline line | `Settings.kt` | 5 |
+| AppModel's StartingThread (new threads on their way) | `Starting.kt` | 5 |
 
-Not ported: Quick Ask, dictation/Whisper, the bear and pull-peek, the Pocket
-(maybe later), the demo's sample data beyond what tests need.
+Not ported: Quick Ask, dictation/Whisper, the bear and pull-peek, the
+Pocket's "here" mark (it needs location and a map search), the rows flying
+between headings (RowFlight), the demo's sample data beyond what tests need.
 
 ## Screens
 
@@ -68,7 +74,18 @@ Not ported: Quick Ask, dictation/Whisper, the bear and pull-peek, the Pocket
    with Send turning into Stop while a turn runs, then the cards: approval,
    question, secret, asks, done.
 4. New thread (FAB on the inbox): text, runner/folder as the iPhone offers.
-5. Settings: paired server, notifications mode, unpair.
+5. Settings (the bar's menu): paired server, phone, token expiry, runners
+   and their order (drag by the handles), Notify me once push is on, the
+   self-hosted note, Unpair with a confirm.
+6. Pocket (the wallet button, with its count): the deck, a card full screen,
+   swipe a card away with Undo, open its thread, "Add to my pocket".
+
+The inbox's search is always showing, and after a 300 ms pause asks Convex
+for archived threads past the newest 100 (`phone:search`). Rows swipe left
+to archive and right to hibernate (wake, a starred one that's asleep), and
+a long press has Star, Hibernate, Archive, Mark as read and Copy Thread ID.
+Archive and hibernate hide the row at once and wait for the runner
+(ShellModel), as the iPhone's do.
 
 ## Slices
 
