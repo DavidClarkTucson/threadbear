@@ -2,6 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Dictation: asked for at the mic's first tap. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- The speech recognizer must be visible to ask whether there is one (Android 11+). -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
     <!-- Android 13+: asked for once paired, as the iPhone asks (MainActivity). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -17,6 +29,17 @@
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="barcode_ui" />
+
+        <!-- Where the system camera writes a photo for a composer (Composer.kt's PhotoMenu). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.photos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/photo_paths" />
+        </provider>
 
         <activity
             android:name=".MainActivity"

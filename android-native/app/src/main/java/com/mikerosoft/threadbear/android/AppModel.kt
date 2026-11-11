@@ -5,6 +5,7 @@ import com.mikerosoft.threadbear.kit.BackendApi
 import com.mikerosoft.threadbear.kit.InboxSections
 import com.mikerosoft.threadbear.kit.Pairing
 import com.mikerosoft.threadbear.kit.PairingRequest
+import com.mikerosoft.threadbear.kit.PhoneAccount
 import com.mikerosoft.threadbear.kit.PhoneBackend
 import com.mikerosoft.threadbear.kit.PhoneCounts
 import com.mikerosoft.threadbear.kit.PhoneIdentity
@@ -116,6 +117,10 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     val projects: StateFlow<List<PhoneProject>> = follow(emptyList()) { it.projects() }
     val counts: StateFlow<PhoneCounts?> = follow(null) { it.counts() }
     val wakes: StateFlow<List<ScheduleWake>> = follow(emptyList()) { it.wakes() }
+    /** Every runner's logins and their models (backend API 20), for the new thread pickers. */
+    val accounts: StateFlow<List<PhoneAccount>> = follow(emptyList()) { b ->
+        if (apiVersion in 1 until BackendApi.MODELS) flowOf(emptyList()) else b.accounts()
+    }
     val connected: StateFlow<Boolean> = _backend.flatMapLatest { it?.connected ?: flowOf(false) }
         .stateIn(scope, SharingStarted.Eagerly, false)
 

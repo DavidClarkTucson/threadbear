@@ -111,9 +111,8 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
                 )
             }
             composable("new") {
-                NewThreadScreen(close = { nav.popBackStack() }, opened = { id ->
-                    nav.navigate("thread/$id") { popUpTo("inbox") }
-                })
+                // The thread opens by itself through shell.justStarted (above), once the runner's made it.
+                NewThreadScreen(close = { nav.popBackStack() })
             }
             composable("settings") { SettingsScreen(back = { nav.popBackStack() }, runnerOrder = { nav.navigate("settings/runners") }) }
             composable("settings/runners") { RunnerOrderScreen(back = { nav.popBackStack() }) }

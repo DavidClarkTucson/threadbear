@@ -287,8 +287,10 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
     private var latestStart: String? = null
     /** A thread that started soon after it was asked for, for the inbox to open. */
     val justStarted = MutableStateFlow<String?>(null)
-    /** A failed start, for New thread to open again as it was. */
-    val retryDraft = MutableStateFlow<StartingThread?>(null)
+    /** A failed start, for New thread to open again as it was: words, photos, runner, model and effort. */
+    val retryDraft = MutableStateFlow<NewThreadDraft?>(null)
+    /** Each start's screen as it was, by its command id, for trying again. */
+    private val drafts = HashMap<String, NewThreadDraft>()
     /**
      * Words for New thread to open with, as the iPhone's model.composeText:
      * the Pocket's "Add to my pocket: ". New thread reads it and sets it back to null.
@@ -296,7 +298,8 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
     val composeText = MutableStateFlow<String?>(null)
 
     /** Call once phone:create has answered with its command id; New thread can close then. */
-    fun started(commandId: String, message: String, runnerId: String? = null, photos: Int = 0) {
+    fun started(commandId: String, message: String, runnerId: String? = null, photos: Int = 0, draft: NewThreadDraft? = null) {
+        draft?.let { drafts[commandId] = it }
         starting.update { listOf(StartingThread(commandId, message, runnerId, photos, Instant.now())) + it }
         latestStart = commandId
         watchStarting(commandId)
@@ -305,14 +308,15 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
     /** Gone from the list: a failed one dismissed, or tapped to try again. */
     fun dropStarting(id: String) {
         startingJobs.remove(id)?.cancel()
+        drafts.remove(id)
         starting.update { list -> list.filter { it.id != id } }
     }
 
     /** A failed one back in New thread as it was. */
     fun retryStarting(row: StartingThread) {
+        val draft = drafts[row.id] ?: NewThreadDraft(row.message, emptyList(), row.runnerId)
         dropStarting(row.id)
-        retryDraft.value = row
-        composeText.value = row.message
+        retryDraft.value = draft
     }
 
     private fun watchStarting(id: String) {
@@ -345,17 +349,21 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
             is StartingThread.Outcome.Started -> {
                 starting.update { list -> list.filter { it.id != id } }
                 startingJobs.remove(id)
+                drafts.remove(id)
                 if (id == latestStart && Instant.now() < row.startedAt.plus(StartingThread.OPENS_WITHIN)) justStarted.value = o.threadId
                 true
             }
             is StartingThread.Outcome.Failed -> {
                 starting.update { list -> list.map { if (it.id == id) it.copy(failed = o.note) else it } }
                 startingJobs.remove(id)
+                // The backend deleted its copies with the failed command: a retry uploads them again.
+                drafts[id]?.photos?.forEach { it.attach(null) }
                 true
             }
             StartingThread.Outcome.Gone -> {
                 starting.update { list -> list.filter { it.id != id } }
                 startingJobs.remove(id)
+                drafts.remove(id)
                 true
             }
             StartingThread.Outcome.Waiting -> false
@@ -435,6 +443,8 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
         startingJobs.values.forEach { it.cancel() }
         startingJobs.clear()
         starting.value = emptyList()
+        drafts.clear()
+        retryDraft.value = null
         archiving.value = emptySet()
         bringingBack.value = emptySet()
         tucks.value = Tucks()

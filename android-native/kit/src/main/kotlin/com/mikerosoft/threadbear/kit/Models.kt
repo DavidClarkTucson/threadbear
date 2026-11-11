@@ -492,7 +492,10 @@ object BackendApi {
     const val POCKET = 19
     /** From 56 runners have an order (phone:setRunnerOrder). */
     const val RUNNER_ORDER = 56
+    /** A message or new thread can carry photos (phone:imageUploadUrl). */
     const val PHOTOS = 18
+    /** Accounts carry their models and phone:create takes an effort. */
+    const val MODELS = 20
     const val IMAGES = 37
     const val BUTTONS = 59
     const val SLASH_COMMANDS = 62

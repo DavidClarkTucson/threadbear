@@ -212,6 +212,37 @@ class PhoneBackend(private val transport: ConvexTransport, private val token: St
         transport.mutation("phone:registerDevice", args(*a.toTypedArray()))
     }
 
+    // New threads and photos (NewThreadScreen, the composers' photos).
+
+    /** Every runner's logins with the models they offer (backend API 20), for the new thread pickers. */
+    fun accounts(): Flow<List<PhoneAccount>> = live("phone:accounts", args()) { it.lossyList(PhoneAccount::read) }
+
+    /** `settings` (backend API 20 for an effort): the model and effort it starts on; `images` (API 18) its photos. */
+    suspend fun create(text: String, runnerId: String?, cwd: String?, images: List<String>, settings: NewThreadSettings): String {
+        val a = mutableListOf<Pair<String, JsonElement>>("text" to JsonPrimitive(text))
+        settings.model?.let { a += "model" to JsonPrimitive(it) }
+        settings.effort?.let { a += "effort" to JsonPrimitive(it) }
+        // Only when there are some: a backend before API 18 refuses the field.
+        if (images.isNotEmpty()) a += "images" to JsonArray(images.map(::JsonPrimitive))
+        runnerId?.let { a += "runnerId" to JsonPrimitive(it) }
+        cwd?.let { a += "cwd" to JsonPrimitive(it) }
+        return command("phone:create", args(*a.toTypedArray()))
+    }
+
+    /** A photo's bytes into file storage (backend API 18): its storage id, for send or create. */
+    suspend fun uploadPhoto(jpeg: ByteArray, post: PhotoPost = HttpPhotoPost, progress: (Float) -> Unit = {}): String {
+        val url = (parseJson(transport.mutation("phone:imageUploadUrl", args())) as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: throw TransportError.Server("Couldn't upload the photo.")
+        val body = post.post(url, jpeg, progress)
+        val answer = runCatching { parseJson(body) as? JsonObject }.getOrNull()
+        return answer?.str("storageId") ?: throw TransportError.Server("Couldn't upload the photo.")
+    }
+
+    /** Takes back a photo that was uploaded and then never sent (backend API 25). */
+    suspend fun discardPhoto(storageId: String) {
+        transport.mutation("phone:discardImage", args("storageId" to JsonPrimitive(storageId)))
+    }
+
     /** Archived threads past the den's newest 100 with these words in (backend API 16). */
     suspend fun search(text: String): List<PhoneThread> =
         parseJson(transport.query("phone:search", args("text" to JsonPrimitive(text)))).lossyList(PhoneThread::read)

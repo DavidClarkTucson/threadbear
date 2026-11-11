@@ -145,4 +145,22 @@ object InlinePictures {
         if (last < text.length) pieces += Piece.Words(text.substring(last))
         return pieces
     }
+
+    /**
+     * Which photos an edit took out: the places, among `original`'s marks,
+     * of those inside the ranges it replaced (`start until end` each, in
+     * `original`'s offsets). A chip deleted or cut in the composer takes its
+     * photo with it.
+     */
+    fun removedMarks(original: CharSequence, replaced: List<IntRange>): List<Int> {
+        if (replaced.isEmpty()) return emptyList()
+        val out = mutableListOf<Int>()
+        var place = 0
+        for (i in original.indices) {
+            if (original[i] != MARK) continue
+            if (replaced.any { i in it }) out += place
+            place++
+        }
+        return out
+    }
 }
