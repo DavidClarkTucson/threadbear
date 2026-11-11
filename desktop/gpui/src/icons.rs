@@ -114,6 +114,11 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "pencil" => IconName::Pencil,
         "rectangle.split.2x1" => IconName::Columns2,
         "square.stack" => IconName::Layers,
+        // The project menu's Make Its Own Project and Merge into, and a task
+        // card's thread chip (projects.rs, project_page.rs).
+        "square.on.square" => IconName::Copy,
+        "arrow.triangle.merge" => IconName::Merge,
+        "bubble.left" => IconName::MessageSquare,
         "plus" => IconName::Plus,
         "desktopcomputer" => IconName::Monitor,
         "macmini" => IconName::Server,

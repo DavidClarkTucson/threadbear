@@ -179,8 +179,9 @@ pub(crate) enum MenuAction {
     /// The header's ... menu (header.rs).
     CopyTranscript,
     OpenOnWeb,
-    OpenProject,
     ThreadProject { thread: String, add: Option<String>, remove: Option<String> },
+    /// A project's menu, or one of a thread's that acts on projects (projects.rs).
+    Project(crate::projects::ProjectAction),
     /// Runs on: where the new thread starts, its default, and a folder on
     /// the chosen runner (new_thread.rs).
     Runner(Option<String>),
@@ -651,6 +652,7 @@ impl Threadbear {
             MenuAction::RunSchedule(id) => return self.run_schedule(id, cx),
             MenuAction::PauseSchedule(id, paused) => return self.set_schedule_paused(id, paused, cx),
             MenuAction::DeleteSchedule(id) => return self.delete_schedule(id, window, cx),
+            MenuAction::Project(action) => return self.run_project_action(action, window, cx),
             _ => {}
         }
         let Some(id) = thread else { return };
@@ -692,9 +694,6 @@ impl Threadbear {
                     crate::open_gate::open_web(&link, cx);
                 }
             }
-            // A project's page isn't in this app yet: the Projects view is
-            // where it will open.
-            MenuAction::OpenProject => self.set_mode(crate::shell::SidebarMode::Projects, cx),
             MenuAction::ThreadProject { thread, add, remove } => self.set_thread_projects(thread, add, remove, cx),
             MenuAction::MoveTo(runner_id, runner_name) => self.open_move(crate::move_sheet::MoveRequest { thread_id: id, runner_id, runner_name }, window, cx),
             MenuAction::CancelMove => self.cancel_move(id, cx),
@@ -705,7 +704,8 @@ impl Threadbear {
             | MenuAction::EditSchedule(_)
             | MenuAction::RunSchedule(_)
             | MenuAction::PauseSchedule(..)
-            | MenuAction::DeleteSchedule(_) => {}
+            | MenuAction::DeleteSchedule(_)
+            | MenuAction::Project(_) => {}
         }
         cx.notify();
     }
@@ -728,6 +728,11 @@ impl Threadbear {
             rows.push(MenuRow::item("Delete…", "trash", MenuAction::Delete));
         } else {
             rows.push(MenuRow::item("Archive", "archivebox", MenuAction::Archive));
+        }
+        // Projects ▸ (`ThreadProjectsMenu`): projects are this Mac's runner's,
+        // and another runner's threads aren't in them.
+        if self.projects_supported && !t.is_remote() {
+            rows.push(self.thread_projects_menu(t));
         }
         // Move to ▸ another runner (`ThreadMoveMenu`), behind the experiment;
         // while a move's going, Cancel Move instead.
@@ -882,6 +887,7 @@ impl Threadbear {
                     this.load_librarian(cx);
                     this.all_projects = crate::app::project_list(&v["projects"]);
                     this.sidebar.projects = project_briefs(&v["projects"]);
+                    this.receive_projects(&v["projects"]);
                     cx.notify();
                 })
                 .ok();
@@ -1037,6 +1043,7 @@ impl Threadbear {
         }
         self.selected = None;
         self.shows_home = false;
+        self.projects.open = None;
         self.note_navigation();
         self.new_thread.picks.project = None;
         self.new_thread.focus_pending = true;
@@ -1173,14 +1180,15 @@ impl Threadbear {
     }
 
     /// `ThreadRowView`: tile, title, place line, status or hover buttons.
-    fn render_row(&mut self, t: &ThreadSummary, section: &'static str, wake: Option<&threadbear_core::inbox::Wake>, now: i64, clock: &Clock, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_row(&mut self, t: &ThreadSummary, section: &'static str, wake: Option<&threadbear_core::inbox::Wake>, now: i64, clock: &Clock, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let mode = RowMode::of(section, t, now);
         // The Hibernating and Archived rows read plainly; only live ones say
         // what they're doing (`ThreadRowView.body`).
         let look = if mode == RowMode::Inbox { RowLook::of(t, Some(section)) } else { RowLook::PLAIN };
         let trailing = rows::trailing(t, &look, mode, clock, wake);
         let id = t.id.clone();
-        let selected = self.selected.as_deref() == Some(id.as_str());
+        // Not while a page is in the thread's place: it isn't what's showing.
+        let selected = self.selected.as_deref() == Some(id.as_str()) && self.home_page().is_none() && self.projects.open.is_none();
         // A script's hover wins over the real pointer, which on a shared
         // desktop can be resting on another row (`ThreadRowView.pointerOver`).
         let hovered_row = self.sidebar.hover_override.as_deref().or(self.sidebar.hovered.as_deref());

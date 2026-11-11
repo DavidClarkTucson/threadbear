@@ -5,7 +5,7 @@
 // RefusalOffer) and the notes that float over the panel (ArchivedToast,
 // InboxEndToast).
 use crate::app::Threadbear;
-use crate::shell::{self, SidebarMode};
+use crate::shell;
 use crate::sidebar::{MenuAction, MenuRow};
 use crate::style::{self, px};
 use crate::{call, icons, now_ms};
@@ -82,6 +82,10 @@ impl Threadbear {
 
     /// The thread's title in the panel's bar, or a field while it's renamed.
     pub(crate) fn render_header_title(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        // A project's page has its own title line (project_page.rs).
+        if let Some(title) = self.render_project_header_title(cx) {
+            return title;
+        }
         let Some(thread) = self.open_thread().cloned().filter(|_| self.home_page().is_none()) else { return div().into_any_element() };
         let faint = style::faint_text(cx);
         let secondary = style::secondary_text(cx);
@@ -157,8 +161,11 @@ impl Threadbear {
             .into_any_element()
     }
 
-    /// One of the thread's projects, as a small tile before the title; or the
+    /// One of the thread's projects, as its icon before the title; or the
     /// folder glyph when it's in none (`ProjectIconButton`, the `folder` mark).
+    /// A click opens the project's page; the menu takes the thread out, keeps
+    /// it there (for one the librarian put it in) or adds it to another. A
+    /// dashed ring is the librarian's guess that no one has confirmed yet.
     fn render_project_chips(&mut self, thread: &ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
         let projects = thread.projects.clone().unwrap_or_default();
         let secondary = style::secondary_text(cx);
@@ -168,25 +175,23 @@ impl Threadbear {
             // SF's folder at 12 pt is about 13.5 wide; Lucide's is at 14.
             return tipped!(div().id("header-folder").flex_none(), tip).child(icon("folder", 14., secondary)).into_any_element();
         }
-        let tile_fill = style::primary_opacity(cx, 0.08);
         let hover = style::primary_opacity(cx, 0.08);
-        let icons_by_project = self.sidebar.project_icons.clone();
-        let icon_of = move |id: &str| icons_by_project.get(id).cloned();
-        h_flex()
-            .flex_none()
-            .gap(px(3.))
-            .children(projects.into_iter().enumerate().map(|(index, project)| {
-                let (open_id, menu_project, menu_thread) = (project.clone(), project.clone(), thread.id.clone());
-                let letter: SharedString = project.title.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default().into();
-                let tip = format!("{}, in {}. Click to open the project", project.title, abbreviate(&cwd));
-                tipped!(h_flex().id(("project-chip", index)).size(px(20.)).items_center().justify_center().rounded(px(5.)).hover(move |s| s.bg(hover)), tip)
+        let ring = secondary.opacity(0.5);
+        let mut chips = h_flex().flex_none().gap(px(3.));
+        for (index, membership) in projects.into_iter().enumerate() {
+            let project = self.project(&membership.id).cloned();
+            let title = project.as_ref().map_or_else(|| membership.title.clone(), |p| p.title.clone());
+            let guessed = membership.by == "librarian" && !membership.pinned;
+            let tip = if guessed {
+                format!("The librarian put this thread in {title}. Right-click to keep it there or take it out. In {}", abbreviate(&cwd))
+            } else {
+                format!("{title}, in {}. Click to open the project", abbreviate(&cwd))
+            };
+            let (open_id, menu_project, menu_thread) = (membership.id.clone(), membership.clone(), thread.id.clone());
+            chips = chips.child(
+                tipped!(div().id(("project-chip", index)).flex_none().p(px(2.)).rounded(px(5.)).hover(move |s| s.bg(hover)).when(guessed, |s| s.border(gpui_kit::px(0.75)).border_dashed().border_color(ring)), tip)
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        let _ = &open_id;
-                        // A project's page isn't in this app yet: the Projects
-                        // view is where it will open.
-                        this.set_mode(SidebarMode::Projects, cx);
-                    }))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_project_page(&open_id, cx)))
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -195,55 +200,32 @@ impl Threadbear {
                             this.open_menu(Some(thread), rows, ev.position, false, window, cx);
                         }),
                     )
-                    .child(project_face(icon_of(&project.id), letter, tile_fill, secondary))
-            }))
-            .into_any_element()
+                    .child(crate::projects::project_icon(project.as_ref(), &title, 16., cx)),
+            );
+        }
+        chips.into_any_element()
     }
 
     /// The menu on a project's chip: open it, keep it, take the thread out, or
     /// add it to another (`ProjectIconButton`'s menu).
-    fn project_chip_rows(&self, thread_id: &str, project: &threadbear_core::inbox::Project) -> Vec<MenuRow> {
-        let mut rows = vec![MenuRow::item(format!("Open {}", project.title), "arrow.right.circle", MenuAction::OpenProject), MenuRow::separator()];
-        if !project.pinned {
-            rows.push(MenuRow::item(format!("Keep it in {}", project.title), "pin", MenuAction::ThreadProject { thread: thread_id.to_string(), add: Some(project.id.clone()), remove: None }));
+    fn project_chip_rows(&self, thread_id: &str, membership: &threadbear_core::inbox::Project) -> Vec<MenuRow> {
+        let title = self.project(&membership.id).map_or_else(|| membership.title.clone(), |p| p.title.clone());
+        let mut rows = vec![MenuRow::item(format!("Open {title}"), "arrow.right.circle", MenuAction::Project(crate::projects::ProjectAction::Open(membership.id.clone()))), MenuRow::separator()];
+        if !membership.pinned {
+            rows.push(MenuRow::item(format!("Keep it in {title}"), "pin", MenuAction::ThreadProject { thread: thread_id.to_string(), add: Some(membership.id.clone()), remove: None }));
         }
-        rows.push(MenuRow::item(format!("Take it out of {}", project.title), "minus.circle", MenuAction::ThreadProject { thread: thread_id.to_string(), add: None, remove: Some(project.id.clone()) }));
-        let others = self.projects_to_add(thread_id);
+        rows.push(MenuRow::item(format!("Take it out of {title}"), "minus.circle", MenuAction::ThreadProject { thread: thread_id.to_string(), add: None, remove: Some(membership.id.clone()) }));
+        let others = self.threads.get(thread_id).map(|t| threadbear_core::projects::projects_to_add(&self.projects.list, t)).unwrap_or_default();
         if !others.is_empty() {
-            let children = others.into_iter().map(|(id, title)| MenuRow::item(title, "square.stack", MenuAction::ThreadProject { thread: thread_id.to_string(), add: Some(id), remove: None })).collect();
+            let children = others.into_iter().map(|p| MenuRow::item(p.title.clone(), "square.stack", MenuAction::ThreadProject { thread: thread_id.to_string(), add: Some(p.id.clone()), remove: None })).collect();
             rows.push(MenuRow::submenu("Add to another project", "plus.square.on.square", children));
         }
         rows
     }
 
-    /// `projectsToAdd`: the projects this thread isn't in, by name.
-    fn projects_to_add(&self, thread_id: &str) -> Vec<(String, String)> {
-        let already: Vec<&str> = self.threads.get(thread_id).and_then(|t| t.projects.as_ref()).map(|p| p.iter().map(|x| x.id.as_str()).collect()).unwrap_or_default();
-        let mut others: Vec<(String, String)> = self.all_projects.iter().filter(|(id, _, archived)| !archived && !already.contains(&id.as_str())).map(|(id, title, _)| (id.clone(), title.clone())).collect();
-        others.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
-        others
-    }
-
-    /// `threads.setProjects`, for a chip's menu.
+    /// `threads.setProjects` from a menu: shown at once (projects.rs).
     pub(crate) fn set_thread_projects(&mut self, thread: String, add: Option<String>, remove: Option<String>, cx: &mut Context<Self>) {
-        let client = self.client.clone();
-        let params = json!({ "threadId": thread, "add": add.map(|a| vec![a]).unwrap_or_default(), "remove": remove.map(|r| vec![r]).unwrap_or_default() });
-        cx.spawn(async move |this, cx| {
-            let res = call(client, "threads.setProjects", params).await;
-            this.update(cx, |this, cx| {
-                match res {
-                    Ok(v) => {
-                        if let Ok(t) = serde_json::from_value::<ThreadSummary>(v["thread"].clone()) {
-                            this.threads.insert(t.id.clone(), t);
-                        }
-                    }
-                    Err(e) => this.show_error(e.message, cx),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+        self.set_projects(&thread, add.into_iter().collect(), remove.into_iter().collect(), cx);
     }
 
     fn render_rename_field(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -313,11 +295,11 @@ impl Threadbear {
     // The bar's buttons: back, forward, share, the ... menu.
 
     pub(crate) fn render_header_buttons(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let thread = self.open_thread().cloned().filter(|_| self.home_page().is_none());
+        let thread = self.open_thread().cloned().filter(|_| self.home_page().is_none() && self.projects.open.is_none());
         let back = self.render_history_button(true, cx);
         let forward = self.render_history_button(false, cx);
         let share = thread.as_ref().filter(|_| self.website_url.is_some()).map(|t| self.render_share_button(t, cx));
-        let more = thread.as_ref().map(|t| self.render_more_button(t, cx));
+        let more = thread.as_ref().map(|t| self.render_more_button(t, cx)).or_else(|| self.render_project_more_button(cx));
         h_flex().flex_none().items_center().child(back).child(forward).children(share).children(more).into_any_element()
     }
 
@@ -1138,7 +1120,7 @@ impl Threadbear {
     /// The header as `dump` reports it (`ThreadHeader`).
     #[cfg(feature = "automation")]
     pub(crate) fn header_dump(&self) -> Option<Value> {
-        let t = self.open_thread().filter(|_| self.home_page().is_none())?;
+        let t = self.open_thread().filter(|_| self.home_page().is_none() && self.projects.open.is_none())?;
         let back_to = self.can_go_back().then(|| self.destination(true)).flatten();
         let forward_to = self.can_go_forward().then(|| self.destination(false)).flatten();
         let back_key = self.shortcuts.key(ShortcutCommand::Back).map(|k| k.display());
@@ -1220,23 +1202,6 @@ fn abbreviate(path: &str) -> String {
         Ok(home) if !home.is_empty() && path == home => "~".into(),
         Ok(home) if !home.is_empty() && path.starts_with(&format!("{home}/")) => format!("~{}", &path[home.len()..]),
         _ => path.to_string(),
-    }
-}
-
-/// `ProjectIconView` at 16 pt: the project's picture, else its symbol from
-/// the bundled set, else its first letter on a faint tile (the header showed
-/// only the letter, where the Swift app shows the bear or the picture).
-fn project_face(icon: Option<crate::sidebar::ProjectIcon>, letter: SharedString, fill: Hsla, secondary: Hsla) -> AnyElement {
-    let letter_tile = move || div().size(px(16.)).flex().items_center().justify_center().rounded(px(4.)).bg(fill).text_size(px(10.)).font_weight(FontWeight::SEMIBOLD).child(letter.clone()).into_any_element();
-    match icon {
-        Some(crate::sidebar::ProjectIcon { image_path: Some(path), .. }) => {
-            let fallback = letter_tile.clone();
-            img(std::path::PathBuf::from(path)).size(px(16.)).rounded(px(4.)).object_fit(ObjectFit::Contain).with_fallback(fallback).into_any_element()
-        }
-        Some(crate::sidebar::ProjectIcon { symbol: Some(symbol), .. }) if crate::icons::try_symbol(&symbol).is_some() => {
-            div().size(px(16.)).flex().items_center().justify_center().child(crate::icons::symbol(&symbol).with_size(px(13.)).text_color(secondary)).into_any_element()
-        }
-        _ => letter_tile(),
     }
 }
 

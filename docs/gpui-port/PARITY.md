@@ -222,6 +222,68 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Projects: the sidebar's view, the page of cards and a project's page (`projects.list`, `projects.home`, `projects.page`, `projects.parts`, `projects.newthread`, `header.projectchip`, `highlights.projects`)
+
+- Projects in the activity bar opens the sidebar's Projects view and the
+  Projects page beside it, as in the Swift app. The view: a heading per
+  project (its icon, its open threads' count, a chevron under the pointer,
+  lit while its page is open), its open threads under it as the inbox draws
+  them (leaving out the project the heading names), its archived ones folded
+  away five at a time, its parts nested under it; then Not in a project, and
+  Archived projects folded away at the foot. New project at the top spins
+  until the runner has made it.
+- The page: a card per project in the Swift grid (as many columns as fit
+  at 240 to 340 wide), its icon on a wide tile (a picture icon blurred
+  behind it, made off the main thread, as GPUI has no blur), its open
+  threads' count in the corner, what its threads are doing in the sidebar's
+  colours with the working spinner (or when it was last active), its parts,
+  and its state's first lines. The search looks through titles, state,
+  goals, notes, folders' names, links and parts, accents aside; Return
+  opens the top card, Escape clears it. A card's right-click is the
+  project's menu.
+- A project's page: its icon (a menu to choose a picture, go back to the
+  librarian's, or show the original), the title edited in place (Return
+  saves, Escape puts it back), who made it and when, "Part of" for a part,
+  New Thread; then Parts, Goals, State, the Notion task board, Notes,
+  Folders, Threads and Patches. Goals, state and notes edit in a box with
+  Save (⌘Return) and Cancel (Escape), and show with their bold, code and
+  links, every line kept as it was. Every change shows at once and goes
+  back with the runner's reason if it says no; the icon, the board's
+  refresh and New project spin until they land. The bar says Projects /
+  the project, and its ... is the project's menu: Archive, the Notion page,
+  Make a Part of or Make Its Own Project, Merge into, Copy project id and
+  Delete, asking first where the Swift app does.
+- The ways in: a thread's project tiles in its bar open the page (a dashed
+  ring for the librarian's guess, its menu to keep it there, take it out or
+  add it to another, shown at once); Projects ▸ in a row's menu and the
+  bar's ... (a tick by each project it's in, New project…, Ask the
+  librarian to look); Open project in Highlights' ⓘ; New Thread on the page
+  starts the new-thread box in the project and its first folder. Back and
+  Forward remember a project's page, and skip one that's gone.
+- Not here yet: a project page's own panels on the rail
+  (`panel.projectpage`: the page hides the thread's pane for now), decisions
+  (`projects.decisions`), and the card's grow on hover.
+- The rules are `desktop/core/src/projects.rs`, with the Swift tests ported
+  (sections and parts, cards, search, decisions, folds, the page's words,
+  what a page borrows from its threads); both apps' dumps say what the views
+  show (`project`, `projectCards`, the Projects view's sections).
+- Files: `desktop/core/src/projects.rs`, `desktop/gpui/src/projects.rs`,
+  `projects_list.rs`, `projects_page.rs` and `project_page.rs` (new); the
+  lines that hook them into `app.rs`, `shell.rs`, `sidebar.rs`, `header.rs`,
+  `highlights_project.rs`, `automation.rs`, `settings.rs`, `icons.rs` and
+  `main.rs`; the `image` crate in `desktop/gpui/Cargo.toml` (already in the
+  build through GPUI); `features/projects-views.feature` and its steps.
+- Verification: projects-views.feature's 9 scenarios on Tinker Desk against
+  the GPUI app (9 of 9) and the Swift app (8 of 8; the Highlights one is
+  `@swift-pending`, as the ⓘ's popover is a window of its own that the
+  Swift script's click doesn't look in); projects.feature's two parts
+  scenarios on both apps, no longer pending; navigation, header,
+  sidebar-actions, sidebar-rows, rails, new-thread, highlights and librarian
+  features on the GPUI app (99 of 99 with the above); core's tests, the
+  integration ones too. The Projects page and Threadbear's and Walkies'
+  pages side by side with the Swift app's in dark and measured: the headers
+  to the pixel, the text within a point.
+
 ### 2026-11-11 The Usage panel and the honey pot (`usage.spend`, `usage.pools`, `rail.honeypot`)
 
 - Usage in the activity bar is the honey pot: filled to the room on the
@@ -515,7 +577,6 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: the scenarios for each (`@sidebar.sections`, `@reply-buttons`,
   `@composer.textbox`, `@menu.app`, `@card.needsyou`) on Tinker Desk, as each
   slice landed.
-
 ### 2026-11-11 The Runners, Updates and Connectors panels, with their buttons and dots (`runners.panel`, `updates.panel`, `connectors.panel`, `rail.activity`, `rail.dots`)
 
 - Connectors, Runners and Updates are at the foot of the activity bar, above

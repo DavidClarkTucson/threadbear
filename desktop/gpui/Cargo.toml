@@ -24,6 +24,11 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 # with a random name and 0700, so nobody else on the machine can read it or
 # put one there first. Already in the build through gpui-kit.
 tempfile = "3"
+# A project card's backdrop (projects_page.rs): its picture icon blurred, as
+# the Swift card's `.blur(radius: 28)` behind it. GPUI has no blur for an
+# image, so a small copy is blurred here, off the main thread. Already in the
+# build through GPUI, at this version and with these formats.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "ico"] }
 # Never compiled. gpui-kit's test helpers (the `automation` feature) mention
 # gpui-fast, which pins these exact versions, and Cargo resolves it even though
 # it isn't built, so the versions have to agree. Remove with gpui-kit's next bump.

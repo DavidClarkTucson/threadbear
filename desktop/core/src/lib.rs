@@ -18,6 +18,7 @@ pub mod new_thread;
 pub mod open_policy;
 pub mod panel_requests;
 pub mod pools;
+pub mod projects;
 pub mod remote;
 pub mod reply_buttons;
 pub mod review;

@@ -175,6 +175,9 @@ pub struct Threadbear {
     /// Every project's id, title and whether it's archived, for the
     /// header's chips (`projects.list`).
     pub(crate) all_projects: Vec<(String, String, bool)>,
+    /// The projects themselves, the page that's open and the views' own
+    /// state (projects.rs).
+    pub(crate) projects: crate::projects::ProjectsState,
 
     /// The new-thread page's box and what it's set to (new_thread.rs).
     pub(crate) new_thread: crate::new_thread::NewThreadState,
@@ -307,6 +310,7 @@ impl Threadbear {
         sidebar.order = settings.inbox_order();
         let scheduled = crate::scheduled::ScheduledState::new(settings.saved.collapsed_schedule_sections.as_deref());
         let usage = crate::usage::UsageState::new(settings.saved.usage_chart_range.as_deref(), settings.saved.usage_show_model_weeks);
+        let settings_open_rows = settings.saved.projects_open_rows.clone();
         let folded: HashSet<&'static str> = match &settings.saved.collapsed_sections {
             // The section keys are the Swift enum's raw values.
             Some(saved) => ["starred", "inbox", "running", "hibernating", "archived"].into_iter().filter(|k| saved.iter().any(|s| s == k)).collect(),
@@ -392,6 +396,7 @@ impl Threadbear {
             upstream_on: false,
             projects_supported: false,
             all_projects: Vec::new(),
+            projects: crate::projects::ProjectsState::new(settings_open_rows.as_deref()),
             new_thread: crate::new_thread::NewThreadState::new(),
             remote: Default::default(),
             runners_panel: Default::default(),
@@ -645,6 +650,7 @@ impl Threadbear {
                     self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]);
                     self.sidebar.projects = crate::sidebar::project_briefs(&params["projects"]);
                     self.all_projects = project_list(&params["projects"]);
+                    self.receive_projects(&params["projects"]);
                     self.side.update(cx, |side, cx| side.projects_updated(&params["projects"], cx));
                 }
                 "schedules.updated" => {
@@ -848,10 +854,11 @@ impl Threadbear {
         // A thread (its own row, say) in place of one of its sub-agents.
         self.close_subagent(cx);
         if self.selected.as_deref() == Some(id.as_str()) {
-            // Open already, behind a page (a schedule's target was clicked):
-            // the page goes.
-            if self.shows_home {
+            // Open already, behind a page (a schedule's target was clicked,
+            // or a project's page): the page goes.
+            if self.shows_home || self.projects.open.is_some() {
                 self.shows_home = false;
+                self.projects.open = None;
                 self.note_navigation();
                 cx.notify();
             }
@@ -880,6 +887,7 @@ impl Threadbear {
         }
         self.selected = Some(id);
         self.shows_home = false;
+        self.projects.open = None;
         let pane = cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx));
         composer.update(cx, |c, cx| {
             c.attach(pane.downgrade());
@@ -939,6 +947,7 @@ impl Threadbear {
         }
         self.selected = None;
         self.shows_home = false;
+        self.projects.open = None;
         self.note_navigation();
         cx.notify();
     }
@@ -1046,6 +1055,9 @@ impl Threadbear {
         if self.mode == SidebarMode::Librarian {
             sidebar["sections"] = librarian_sections;
         }
+        if self.mode == SidebarMode::Projects {
+            sidebar["sections"] = self.projects_sidebar_dump();
+        }
         json!({
             "connection": connection,
             "selection": self.selection_dump(),
@@ -1072,6 +1084,10 @@ impl Threadbear {
             "transcript": self.subagent_pane.as_ref().map(|p| p.read(cx)).or(pane).map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "subagent": self.subagent.as_ref().map(|(_, id)| id.clone()),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
+            // A project's page in place of the thread, and the Projects page's
+            // cards while it's showing (projects.rs, projects_page.rs).
+            "project": self.project_page_dump(),
+            "projectCards": self.project_cards_dump(),
             "banner": self.banner_dump(),
             "limit": self.limit_dump(cx),
             "error": self.error_message.clone(),
