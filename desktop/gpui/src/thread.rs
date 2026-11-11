@@ -115,6 +115,9 @@ pub struct ThreadPane {
     /// page ends before this seq instead (`olderSkip`).
     older_skip: Option<(i64, i64)>,
     older_failures: u32,
+    /// In a panel of its own whose tab is behind another: not in front of
+    /// Mike, so not read (thread_panels.rs, `isShowing`).
+    pub(crate) behind: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -147,6 +150,7 @@ impl ThreadPane {
             loading_older: false,
             older_skip: None,
             older_failures: 0,
+            behind: false,
             _subs: vec![scrolled],
         };
         // Its diagrams and pages drawing, and the web runtime (rich_boxes.rs).
@@ -184,6 +188,7 @@ impl ThreadPane {
             loading_older: false,
             older_skip: None,
             older_failures: 0,
+            behind: false,
             _subs: vec![],
         };
         pane._subs.extend(crate::rich_boxes::watch(cx));
@@ -443,7 +448,7 @@ impl ThreadPane {
     // opened behind other windows stays unread until he comes back to it.
     pub(crate) fn mark_seen(&self) {
         // Reading a sub-agent isn't reading its thread.
-        if self.summary.unread() && is_looking() && self.subagent_id.is_none() {
+        if self.summary.unread() && is_looking() && self.subagent_id.is_none() && !self.behind {
             let client = self.client.clone();
             let params = json!({ "threadId": self.summary.id, "seq": self.summary.last_seq });
             RT.spawn(async move { client.call("threads.markSeen", params).await });

@@ -998,6 +998,9 @@ impl Composer {
                 .child(Icon::from(IconName::Square).with_size(px(10.)).text_color(fg))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)))
                 .tooltip(|window, cx| Tooltip::new(if cfg!(target_os = "macos") { "Stop (⌘.)" } else { "Stop (Ctrl+.)" }).build(window, cx))
+                // Its key to the left while ⌘ is held (key_hints.rs).
+                .relative()
+                .children(crate::key_hints::hint(self.app.upgrade().and_then(|a| a.read(cx).shortcut_display(threadbear_core::shortcuts::ShortcutCommand::Stop)), crate::key_hints::Placement::Before))
                 .into_any_element();
         }
         let tip = if running { "Send (into this turn)" } else { "Send (Return)" };

@@ -87,6 +87,13 @@ impl Threadbear {
             return title;
         }
         let Some(thread) = self.open_thread().cloned().filter(|_| self.home_page().is_none()) else { return div().into_any_element() };
+        let _ = window;
+        self.render_thread_title(thread, cx)
+    }
+
+    /// A thread's title line, for the main panel's bar or the bar of a panel
+    /// it has of its own (thread_panels.rs), as both are Swift's `HeaderTitle`.
+    pub(crate) fn render_thread_title(&mut self, thread: ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
         let faint = style::faint_text(cx);
         let secondary = style::secondary_text(cx);
         let hover = style::primary_opacity(cx, 0.06);
@@ -123,7 +130,6 @@ impl Threadbear {
         };
         let worktree = thread.worktree.as_ref().and_then(|w| w["branch"].as_str()).map(String::from);
         let schedule = thread.schedule.clone();
-        let _ = window;
         h_flex()
             .min_w_0()
             // Where the Swift bar's title line sits, measured against it
@@ -328,7 +334,7 @@ impl Threadbear {
     }
 
     /// The share icon: accent when someone else can read the thread.
-    fn render_share_button(&mut self, thread: &ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_share_button(&mut self, thread: &ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
         let on = share_is_on(thread);
         let tip = if on { "Shared: anyone with the link can read it" } else { "Share this thread on the web" };
         let color = if on { style::accent(cx) } else { style::secondary_text(cx) };
@@ -444,7 +450,7 @@ impl Threadbear {
 
     /// The thread's ... menu: the same as its row's, with Copy transcript and
     /// the thread's own web page (`ThreadMenuButton`).
-    fn render_more_button(&mut self, thread: &ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_more_button(&mut self, thread: &ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
         let id = thread.id.clone();
         let secondary = style::secondary_text(cx);
         let hover = style::sidebar_hover(cx);
@@ -460,7 +466,7 @@ impl Threadbear {
 
     pub(crate) fn open_more_menu(&mut self, id: String, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(thread) = self.threads.get(&id).cloned() else { return };
-        let mut rows = self.thread_menu_rows(&thread);
+        let mut rows = self.thread_menu_rows(&thread, cx);
         // Swift's menu has "Copy thread id" last and Copy transcript above it;
         // the row's menu ends with that divider and item.
         rows.truncate(rows.len().saturating_sub(2));
@@ -770,7 +776,7 @@ impl Threadbear {
     /// `signInAccount`: this Mac's login to sign in again. Never another
     /// runner's thread (its login is signed in on that Mac), and an unknown
     /// login falls back to the main one of a provider there is (sign_in.rs).
-    fn sign_in_account(&self, thread: &ThreadSummary, cx: &App) -> Option<SignInAccount> {
+    pub(crate) fn sign_in_account(&self, thread: &ThreadSummary, cx: &App) -> Option<SignInAccount> {
         if !self.sign_in_needed(thread, cx) {
             return None;
         }
@@ -780,12 +786,12 @@ impl Threadbear {
 
     /// `remoteSignInRunner`: another Mac's thread whose login was refused,
     /// and the runner to sign in on.
-    fn remote_sign_in_runner(&self, thread: &ThreadSummary, cx: &App) -> Option<String> {
+    pub(crate) fn remote_sign_in_runner(&self, thread: &ThreadSummary, cx: &App) -> Option<String> {
         let runner = thread.runner_id.as_deref()?;
         self.sign_in_needed(thread, cx).then(|| self.runner_name_of(runner))
     }
 
-    fn render_signin_banner(&mut self, thread: &ThreadSummary, account: Option<SignInAccount>, remote: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_signin_banner(&mut self, thread: &ThreadSummary, account: Option<SignInAccount>, remote: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         let hairline = style::hairline(cx);
         let orange = style::needs_you(cx);
         let id = thread.id.clone();

@@ -240,6 +240,14 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "new" | "options" => crate::new_thread::automation(app, cmd, window, cx),
         // A threadbear:// link handed over as macOS hands one (deep_links.rs).
         "open-url" => crate::deep_links::automation(app, cmd, window.window_handle(), cx),
+        // A thread in a panel of its own, and back (thread_panels.rs).
+        "open-panel" | "move-to-main" => crate::thread_panels::automation(app, cmd, window, cx),
+        // The keys beside the buttons as if ⌘ were held (key_hints.rs).
+        "hints" => {
+            let on = cmd["on"].as_bool().unwrap_or(true);
+            app.update(cx, |t, cx| t.hints_command(on, cx));
+            Ok(json!(format!("ok {}", crate::key_hints::showing())))
+        }
         // The activity bar's panels, as the Swift app's commands of these names.
         "runners" => crate::runners_panel::automation(app, cmd, window, cx),
         "updates" => crate::updates_panel::automation(app, cmd, cx),

@@ -173,15 +173,23 @@ impl DockContent for Panels {
     }
 
     fn header(&self, panel: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        let app = self.app.upgrade()?;
+        // A thread in a panel of its own has its title line too (thread_panels.rs).
+        if crate::thread_panels::pinned_thread(panel).is_some() {
+            return app.update(cx, |t, cx| t.thread_panel_header(panel, cx));
+        }
         if panel != MAIN {
             return None;
         }
-        let app = self.app.upgrade()?;
         Some(app.update(cx, |t, cx| t.render_header_title(window, cx)))
     }
 
     fn accessory(&self, panel: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         let app = self.app.upgrade()?;
+        // A thread in a panel of its own: its Share and ... menu (thread_panels.rs).
+        if crate::thread_panels::pinned_thread(panel).is_some() {
+            return app.update(cx, |t, cx| t.thread_panel_buttons(panel, cx));
+        }
         if panel != MAIN {
             // A web panel's Back, Reload and Open in browser (web_panels.rs).
             return app.update(cx, |t, cx| crate::web_panels::bar_buttons(t, panel, cx));
@@ -222,6 +230,8 @@ fn panel_symbol(panel: &str) -> Option<&'static str> {
         HIGHLIGHTS => "pin",
         FILES => "folder",
         PATCHES => "square.dashed",
+        // A thread in a panel of its own, as the main panel's.
+        _ if crate::thread_panels::pinned_thread(panel).is_some() => "text.alignleft",
         _ => return None,
     })
 }
@@ -374,6 +384,9 @@ fn standard_keys() -> [(&'static str, Command); 4] {
 
 impl Threadbear {
     pub(crate) fn panel_title(&self, panel: &str) -> String {
+        if let Some(title) = self.thread_panel_title(panel) {
+            return title;
+        }
         match panel {
             THREADS => "Threads".into(),
             MAIN => self.main_panel_title(),
@@ -411,9 +424,10 @@ impl Threadbear {
     }
 
     /// `WindowDock.section(_:)` != nil: a pane section's panel, not the
-    /// sidebar, the main panel or one of the activity bar's panels.
+    /// sidebar, the main panel, one of the activity bar's panels or a thread
+    /// in a panel of its own.
     pub(crate) fn is_pane_section(panel: &str) -> bool {
-        !matches!(panel, THREADS | MAIN | USAGE | UPDATES | CONNECTORS | RUNNERS | TERMINAL)
+        !matches!(panel, THREADS | MAIN | USAGE | UPDATES | CONNECTORS | RUNNERS | TERMINAL) && crate::thread_panels::pinned_thread(panel).is_none()
     }
 
     /// `available` in `RootView.content`: Highlights, Files and a thread's own
@@ -423,6 +437,11 @@ impl Threadbear {
         // back at the same width (thread_panels.rs).
         if panel == THREADS {
             return !self.threads_collapsed();
+        }
+        // A thread's own panel while there's such a thread: one deleted on
+        // another machine leaves it nothing to show.
+        if let Some(id) = crate::thread_panels::pinned_thread(panel) {
+            return self.threads.contains_key(id);
         }
         if !Self::is_pane_section(panel) {
             return true;
@@ -520,6 +539,8 @@ impl Threadbear {
     pub(crate) fn dock_layout_changed(&mut self, layout: DockLayout, cx: &mut Context<Self>) {
         self.settings.saved.dock_layout = serde_json::to_value(&layout).ok();
         self.save_settings_soon(cx);
+        // Threads' own panels and the main panel's tabs (thread_panels.rs).
+        self.thread_panels_layout_changed(&layout, cx);
         cx.notify();
     }
 
@@ -1228,7 +1249,12 @@ impl Threadbear {
             }))
             // The mouse's side buttons (`MouseNavigation`).
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), cx.listener(|this, _: &MouseDownEvent, window, cx| this.go_back(window, cx)))
-            .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|this, _: &MouseDownEvent, window, cx| this.go_forward(window, cx)));
+            .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|this, _: &MouseDownEvent, window, cx| this.go_forward(window, cx)))
+            // Holding ⌘ shows the buttons' keys; a key, a click or a scroll
+            // with it held puts them away (key_hints.rs).
+            .on_modifiers_changed(cx.listener(|this, ev: &ModifiersChangedEvent, window, cx| this.hints_modifiers_changed(&ev.modifiers, window, cx)))
+            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, cx| this.hints_used(&ev.modifiers, cx)))
+            .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| this.hints_used(&ev.modifiers, cx)));
         register_commands(root, cx)
     }
 
@@ -1252,6 +1278,8 @@ impl Threadbear {
             // ghost is the empty panel: the shell's view is drawn in one place.
             TERMINAL if ghost => div().size_full().into_any_element(),
             TERMINAL => crate::terminal::panel_view(cx),
+            // A thread in a panel of its own (thread_panels.rs).
+            _ if crate::thread_panels::pinned_thread(panel).is_some() => self.thread_panel_view(panel, ghost, window, cx),
             // Highlights, Files, Patches and a patch's own panels are sections of
             // the one pane beside the thread (highlights.rs), each its own panel
             // in the dock, as in the Swift app.
@@ -1287,6 +1315,11 @@ impl Threadbear {
             (_, Some(SidebarMode::Scheduled)) => self.render_scheduled_home(cx),
             (_, Some(SidebarMode::Librarian)) => self.render_librarian_home(cx),
             (_, Some(_)) => self.render_projects_home(window, cx),
+            // Its thread is open in a panel of its own (thread_panels.rs).
+            (None, None) if self.open_elsewhere(cx).is_some() => {
+                let id = self.open_elsewhere(cx).unwrap_or_default();
+                self.render_open_elsewhere(id, cx)
+            }
             // No thread open is the new-thread page, as in the Swift app.
             (None, None) => self.render_new_page(window, cx),
         };

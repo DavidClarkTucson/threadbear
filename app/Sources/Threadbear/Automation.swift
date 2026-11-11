@@ -365,7 +365,29 @@ enum Automation {
             // A thread in a panel of its own, as the row's Open in New Panel.
             let match = thread(c["id"], app)
             guard let id = match.id else { return match.error }
-            app.openThreadInPanel(id)
+            if c["keepSelected"] as? Bool == true {
+                // The state OpenElsewhereNote is there for, which no click
+                // reaches: the thread selected in the main panel as its own
+                // panel opens.
+                app.select(id)
+                let panel = WindowDock.threadPanel(id)
+                if let main = app.dock.layout.group(containing: WindowDock.main) {
+                    app.dock.open(panel, .edge(group: main.id, .right))
+                } else {
+                    app.dock.open(panel, .window(.right))
+                }
+            } else {
+                app.openThreadInPanel(id)
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            return "ok \(id)"
+        case "move-to-main":
+            // A thread's own panel closed and the thread in the main panel,
+            // as the row's Move to Main Panel.
+            let match = thread(c["id"], app)
+            guard let id = match.id else { return match.error }
+            app.dock.close(WindowDock.threadPanel(id))
+            app.select(id)
             try? await Task.sleep(for: .milliseconds(300))
             return "ok \(id)"
         case "dock-move":

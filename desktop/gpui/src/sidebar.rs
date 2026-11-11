@@ -175,7 +175,9 @@ pub(crate) enum MenuAction {
     Rename,
     CopyId,
     Sort(InboxOrder),
+    /// A thread in a panel of its own, and back (thread_panels.rs).
     OpenInPanel,
+    MoveToMainPanel,
     /// The header's ... menu (header.rs).
     CopyTranscript,
     OpenOnWeb,
@@ -227,6 +229,8 @@ pub(crate) struct SidebarState {
     heights: HashMap<&'static str, std::rc::Rc<std::cell::Cell<f32>>>,
     fold_serial: u64,
     scroll: ScrollHandle,
+    /// Where the rows were and where they're going (row_motion.rs).
+    pub(crate) motion: std::rc::Rc<crate::row_motion::RowMotion>,
     _tick: Task<()>,
 }
 
@@ -281,6 +285,7 @@ impl SidebarState {
             heights: HashMap::new(),
             fold_serial: 0,
             scroll: ScrollHandle::new(),
+            motion: Default::default(),
             _tick: tick,
         }
     }
@@ -683,9 +688,12 @@ impl Threadbear {
             MenuAction::Rename => self.start_renaming(id, window, cx),
             MenuAction::CopyId => cx.write_to_clipboard(ClipboardItem::new_string(id)),
             // BearDock isn't in this app yet, so a thread opens in the main pane.
-            MenuAction::OpenInPanel => self.open(id, window, cx),
+            MenuAction::OpenInPanel => self.open_thread_in_panel(id, cx),
+            MenuAction::MoveToMainPanel => self.move_to_main_panel(id, window, cx),
             MenuAction::CopyTranscript => {
-                if let Some(pane) = &self.pane {
+                // The menu's thread: in the main panel, or a panel of its own.
+                let main = self.pane.clone().filter(|p| p.read(cx).summary.id == id);
+                if let Some(pane) = main.or_else(|| self.thread_panel_pane(&id)) {
                     pane.update(cx, |p, cx| p.copy_transcript(cx));
                 }
             }
@@ -711,10 +719,14 @@ impl Threadbear {
     }
 
     /// `ThreadMenu`: the row's right-click menu.
-    pub(crate) fn thread_menu_rows(&self, t: &ThreadSummary) -> Vec<MenuRow> {
+    pub(crate) fn thread_menu_rows(&self, t: &ThreadSummary, cx: &App) -> Vec<MenuRow> {
         let mut rows = vec![
-            // Greyed out until the window has panels (BearDock).
-            MenuRow::item("Open in New Panel", "rectangle.split.2x1", MenuAction::OpenInPanel).disabled(),
+            // So several threads can be open at once (thread_panels.rs).
+            if self.has_thread_panel(&t.id, cx) {
+                MenuRow::item("Move to Main Panel", "rectangle.portrait.and.arrow.forward", MenuAction::MoveToMainPanel)
+            } else {
+                MenuRow::item("Open in New Panel", "rectangle.split.2x1", MenuAction::OpenInPanel)
+            },
             MenuRow::separator(),
             MenuRow::item("Rename", "pencil", MenuAction::Rename),
             if t.is_starred() { MenuRow::item("Remove Star", "star.slash", MenuAction::Star(false)) } else { MenuRow::item("Star", "star", MenuAction::Star(true)) },
@@ -804,7 +816,7 @@ impl Threadbear {
 
     pub(crate) fn open_row_menu(&mut self, id: String, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.threads.get(&id).cloned() else { return };
-        let menu_rows = self.thread_menu_rows(&t);
+        let menu_rows = self.thread_menu_rows(&t, cx);
         self.open_menu(Some(id), menu_rows, position, false, window, cx);
     }
 
@@ -907,7 +919,11 @@ impl Threadbear {
         // When a schedule next messages each thread, for those under
         // Hibernating for it (`app.wakes`).
         let wakes = threadbear_core::inbox::wakes(&self.scheduled.list);
-        let mut list = v_flex().px(px(OUTER_INSET)).pb(px(32.));
+        // Rows glide to their new place as the list changes (row_motion.rs):
+        // what's drawn, top to bottom, and what a fold is moving already.
+        let motion = self.sidebar.motion.clone();
+        let (mut drawn, mut quiet) = (Vec::<String>::new(), HashSet::<String>::new());
+        let mut list = v_flex().px(px(OUTER_INSET)).pb(px(32.)).child(motion.list_marker());
         let loaded = self.sidebar.loaded;
         if !loaded {
             list = list.child(render_loading_rows(&p));
@@ -929,7 +945,10 @@ impl Threadbear {
                 } else {
                     (total, 0)
                 };
-                list = list.child(self.render_heading(section.key, section.title, total, folded, searching, &p, cx));
+                let heading_key = format!("heading:{}", section.key);
+                let heading = self.render_heading(section.key, section.title, total, folded, searching, &p, cx).into_any_element();
+                list = list.child(motion.row(&heading_key, heading));
+                drawn.push(heading_key);
                 // A fold under way draws the rows while they ease shut, and
                 // from the moment they start to open.
                 let fold = (!searching).then(|| self.sidebar.folding.get(section.key).copied()).flatten();
@@ -937,21 +956,33 @@ impl Threadbear {
                     continue;
                 }
                 let mut body = v_flex().relative().w_full();
+                let mut place = |key: String, element: AnyElement, body: Div| {
+                    // A section folding or unfolding moves its rows itself.
+                    if fold.is_some() {
+                        quiet.insert(key.clone());
+                    }
+                    let glided = motion.row(&key, element);
+                    drawn.push(key);
+                    body.child(glided)
+                };
                 for t in section.rows.iter().take(shown.0) {
                     let wake = (section.key == "hibernating").then(|| wakes.get(&t.id)).flatten();
-                    body = body.child(self.render_row(t, section.key, wake, now, &clock, &p, cx));
+                    let row = self.render_row(t, section.key, wake, now, &clock, &p, cx);
+                    body = place(t.id.clone(), row, body);
                     if !matches!(section.key, "hibernating" | "archived") {
-                        for sub in self.render_subagents(t, section.key, now, &p, cx) {
-                            body = body.child(sub);
+                        for (i, sub) in self.render_subagents(t, section.key, now, &p, cx).into_iter().enumerate() {
+                            body = place(format!("sub:{}:{i}", t.id), sub, body);
                         }
                     }
                 }
                 if section.key == "archived" && shown.1 > 0 {
-                    body = body.child(self.render_show_more(shown.1, &p, cx));
+                    let more = self.render_show_more(shown.1, &p, cx).into_any_element();
+                    body = place("more:archived".into(), more, body);
                 }
                 // Under the empty Inbox heading.
                 if section.key == "inbox" && section.rows.is_empty() && !searching {
-                    body = body.child(div().pl(px(LEADING)).pt(px(14.)).text_size(px(style::size::SIDEBAR_PREVIEW)).text_color(p.secondary).child("Nothing in the inbox."));
+                    let empty = div().pl(px(LEADING)).pt(px(14.)).text_size(px(style::size::SIDEBAR_PREVIEW)).text_color(p.secondary).child("Nothing in the inbox.").into_any_element();
+                    body = place("note:inbox-empty".into(), empty, body);
                 }
                 // Its height as drawn, for a fold to run to or from.
                 let height = self.sidebar.heights.entry(section.key).or_default().clone();
@@ -970,6 +1001,9 @@ impl Threadbear {
                         .into_any_element(),
                 });
             }
+        }
+        if loaded {
+            motion.rows_drawn(drawn, &quiet, cx.reduce_motion());
         }
         let new_thread_active = self.selected.is_none();
         let conn_note = self.connection_note();
@@ -1039,6 +1073,10 @@ impl Threadbear {
         tipped!(div().w(px(32.)).flex_none().flex().items_center().justify_center().rounded(px(CORNER)).when(active, |s| s.bg(selected)).when(!active, |s| s.hover(move |h| h.bg(hover).text_color(fg))), "new-thread", "Start a new thread")
             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.new_thread(cx)))
             .child(icon("square.and.pencil", style::size::SIDEBAR_BUTTON, color))
+            // Its key over the end of the search while ⌘ is held, as the
+            // sidebar's edge is just right of it (key_hints.rs).
+            .relative()
+            .children(crate::key_hints::hint(self.shortcut_display(threadbear_core::shortcuts::ShortcutCommand::NewThread), crate::key_hints::Placement::Before))
     }
 
     /// `app.newThread()`: leaves the open thread for a fresh start, the
@@ -1118,6 +1156,10 @@ impl Threadbear {
         let chevron_group = group.clone();
         let hover_group = group.clone();
         let title = SharedString::from(title.to_owned());
+        // Folded, its count rolls to a new number as threads come and go
+        // (row_motion.rs), as the Swift heading's does.
+        let count_line = style::natural_line(style::size::SIDEBAR_META);
+        let count_el = (folded && count > 0).then(|| crate::row_motion::rolling(&format!("heading-{key}"), count, count_line, cx.reduce_motion(), |n| div().child(n.to_string()).into_any_element()));
         let label = h_flex()
             .group(group.clone())
             .flex_1()
@@ -1130,7 +1172,7 @@ impl Threadbear {
             .child(icon(symbol, 11., secondary).flex_none())
             .child(div().flex_none().text_size(px(style::size::SIDEBAR_HEADING)).line_height(px(16.)).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(title.clone()))
             .child(div().flex_1().min_w_0().h(px(1.)).mx(px(4.)).bg(hairline))
-            .when(folded && count > 0, |s| s.child(div().flex_none().text_size(px(style::size::SIDEBAR_META)).text_color(faint).child(count.to_string())))
+            .when_some(count_el, |s, n| s.child(div().flex_none().text_size(px(style::size::SIDEBAR_META)).text_color(faint).child(n)))
             .when(foldable, |s| {
                 s.child(div().flex_none().when(!folded, |d| d.invisible()).group_hover(chevron_group, |d| d.visible()).child(icon(if folded { "chevron.right" } else { "chevron.down" }, 9., faint)))
             });

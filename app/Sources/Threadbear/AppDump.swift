@@ -430,6 +430,22 @@ struct AppDump: Encodable {
     /// The Threads panel is on screen: in the layout and not folded away
     /// with ⌘/ (`threadsShowing`).
     var threadsShowing: Bool = true
+    /// Threads open in panels of their own (ThreadPanels.swift).
+    var threadPanels: [ThreadPanelInfo] = []
+    /// The thread the main panel has selected but says is open in its own
+    /// panel (`OpenElsewhereNote`).
+    var openElsewhere: String? = nil
+    /// The keys shown beside the buttons while ⌘ is held (ShortcutHints),
+    /// as "Threads ⌘1", in the buttons' order.
+    var keyHints: [String] = []
+
+    struct ThreadPanelInfo: Encodable {
+        var id: String
+        var title: String
+        /// Its tab's the one showing in its group, or it's in a window of its own.
+        var showing: Bool
+        var transcript: Transcript?
+    }
     /// The window's zoom, in percent (TextZoom).
     var zoom: Int = 100
     /// "end" or "empty" while the end-of-inbox note is up (InboxEndToast).
@@ -734,6 +750,69 @@ struct AppDump: Encodable {
         }
     }
 
+    /// A transcript as it's drawn: the main panel's, or a thread's in a panel
+    /// of its own.
+    @MainActor
+    static func transcriptInfo(_ controller: TranscriptController) -> Transcript? {
+        guard let session = controller.session else { return nil }
+        let table = controller.tableView
+        let visible = table.rows(in: table.visibleRect)
+        let rows = (0..<session.displayCount).map { index -> Row in
+            let row = session.displayRow(index)
+            return Row(id: row.id, kind: row.kind.rawValue, height: Int(table.rect(ofRow: index).height.rounded()),
+                       expanded: opens(row) ? controller.isExpanded(row) : nil, inGroup: row.inGroup,
+                       onScreen: NSLocationInRange(index, visible), seq: row.seq, turn: row.turnId, text: RowDebug.excerpt(row),
+                       buttons: Self.buttons(row), drafts: Self.drafts(row), rich: Self.rich(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId),
+                       chips: Self.chips(row))
+        }
+        let state: String
+        switch session.state {
+        case .idle: state = "idle"
+        case .loading: state = "loading"
+        case .loaded: state = "loaded"
+        case .failed(let message): state = "failed: \(message)"
+        }
+        return Transcript(threadId: session.threadId, state: state, hasMoreAbove: session.hasMoreAbove,
+                          atBottom: controller.isAtBottom, rows: rows)
+    }
+
+    /// The keys the buttons show while ⌘ is held (`shortcutHint`): the
+    /// activity bar's views and Settings, New thread beside the Inbox's
+    /// search, and the composer's Stop while its thread runs with nothing
+    /// typed. The GPUI app's dump says the same.
+    @MainActor
+    static func keyHints(_ app: AppModel) -> [String] {
+        guard ShortcutHints.shared.showing else { return [] }
+        var out: [String] = []
+        func add(_ title: String, _ command: ShortcutCommand) {
+            if let key = AppShortcuts.shared.display(command) { out.append("\(title) \(key)") }
+        }
+        add("Threads", .showInbox)
+        if app.schedulesSupported { add("Scheduled", .showScheduled) }
+        if app.projectsSupported {
+            add("Projects", .showProjects)
+            add("Librarian", .showLibrarian)
+        }
+        add("Settings", .settings)
+        if app.sidebarMode == .inbox && app.threadsShowing { add("New thread", .newThread) }
+        if let thread = app.selectedThread, thread.status.isBusy {
+            let draft = app.drafts[thread.id]
+            if (draft?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, draft?.images.isEmpty ?? true { add("Stop", .stop) }
+        }
+        return out
+    }
+
+    /// Each thread in a panel of its own (ThreadPanels.swift), in the
+    /// layout's order: whether its tab's the one showing, and its transcript.
+    @MainActor
+    static func threadPanels(_ app: AppModel) -> [ThreadPanelInfo] {
+        app.dock.layout.panels.compactMap { panel in
+            guard let id = WindowDock.pinnedThread(panel) else { return nil }
+            return ThreadPanelInfo(id: id, title: WindowDock.title(of: panel, app: app), showing: app.dock.isShowing(panel),
+                                   transcript: app.panelTranscripts[id].flatMap(transcriptInfo))
+        }
+    }
+
     @MainActor
     static func make(app: AppModel, window: NSWindow?, instance: String?) -> AppDump {
         let now = Date()
@@ -800,28 +879,7 @@ struct AppDump: Encodable {
             }
         }
         let key = app.selection ?? "new"
-        var transcript: Transcript?
-        if let session = app.transcript.session {
-            let table = app.transcript.tableView
-            let visible = table.rows(in: table.visibleRect)
-            let rows = (0..<session.displayCount).map { index -> Row in
-                let row = session.displayRow(index)
-                return Row(id: row.id, kind: row.kind.rawValue, height: Int(table.rect(ofRow: index).height.rounded()),
-                           expanded: opens(row) ? app.transcript.isExpanded(row) : nil, inGroup: row.inGroup,
-                           onScreen: NSLocationInRange(index, visible), seq: row.seq, turn: row.turnId, text: RowDebug.excerpt(row),
-                           buttons: Self.buttons(row), drafts: Self.drafts(row), rich: Self.rich(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId),
-                           chips: Self.chips(row))
-            }
-            let state: String
-            switch session.state {
-            case .idle: state = "idle"
-            case .loading: state = "loading"
-            case .loaded: state = "loaded"
-            case .failed(let message): state = "failed: \(message)"
-            }
-            transcript = Transcript(threadId: session.threadId, state: state, hasMoreAbove: session.hasMoreAbove,
-                                    atBottom: app.transcript.isAtBottom, rows: rows)
-        }
+        let transcript = transcriptInfo(app.transcript)
         let appearance = window?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
         return AppDump(
             instance: instance,
@@ -876,6 +934,11 @@ struct AppDump: Encodable {
             } : [],
             dock: app.dock.layout.summary.replacingOccurrences(of: "threadbear.", with: ""),
             threadsShowing: app.threadsShowing,
+            threadPanels: threadPanels(app),
+            openElsewhere: app.selection.flatMap { id in
+                !app.showsHomePage && app.openProject == nil && app.dock.layout.contains(WindowDock.threadPanel(id)) ? id : nil
+            },
+            keyHints: keyHints(app),
             zoom: TextZoom.shared.percent,
             inboxEndNote: app.inboxEndNote.map { $0.empty ? "empty" : "end" },
             rails: rails(app),

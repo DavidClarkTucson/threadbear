@@ -200,6 +200,9 @@ pub(crate) enum MenuAction {
     // what a click on a web link does.
     OpenInProfile { url: String, directory: String },
     SetWebClick { action: threadbear_core::reply_links::WebLinkAction },
+    // A row of Threads it started (`startedRow`'s menu).
+    OpenThread { id: String },
+    OpenThreadInPanel { id: String },
 }
 
 /// The app's window of files read so far and folders looked at lives in
@@ -714,6 +717,18 @@ impl SidePane {
                 paths.iter().for_each(|path| crate::files::reveal(path, origin, cx));
             }
             MenuAction::FolderCrumb { key, path, selecting } => self.run_folder_crumb_action(&key, path, selecting, thread, cx),
+            // A row of Threads it started: the thread, in the main panel or a
+            // panel of its own (thread_panels.rs).
+            MenuAction::OpenThread { id } => {
+                if let Some(app) = self.app.upgrade() {
+                    app.update(cx, |app, cx| app.open(id, window, cx));
+                }
+            }
+            MenuAction::OpenThreadInPanel { id } => {
+                if let Some(app) = self.app.upgrade() {
+                    app.update(cx, |app, cx| app.open_thread_in_panel(id, cx));
+                }
+            }
         }
         self.menu = None;
         cx.notify();
@@ -1285,7 +1300,7 @@ impl SidePane {
                         _ => None,
                     };
                     let (id, title) = (row.thread.id.clone(), row.thread.title.clone());
-                    let open_id = id.clone();
+                    let (open_id, menu_id) = (id.clone(), id.clone());
                     let pr = PaneRow::new(SharedString::from(format!("hl-started-{id}")), title)
                         .icon(core::started_icon(row.state))
                         .tinted(color)
@@ -1296,6 +1311,14 @@ impl SidePane {
                             if let Some(app) = this.app.upgrade() {
                                 app.update(cx, |t, cx| t.open(id, window, cx));
                             }
+                        })
+                        // Open, or Open in New Panel (`startedRow`'s menu).
+                        .on_menu(move |this, pos, window, cx| {
+                            let items = vec![
+                                MenuItem::action("Open", "arrow.up.forward", MenuAction::OpenThread { id: menu_id.clone() }),
+                                MenuItem::action("Open in New Panel", "rectangle.split.2x1", MenuAction::OpenThreadInPanel { id: menu_id.clone() }),
+                            ];
+                            this.open_menu(items, pos, window, cx);
                         });
                     list = list.child(pr.render(p, cx));
                 }

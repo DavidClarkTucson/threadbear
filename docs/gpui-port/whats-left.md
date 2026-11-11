@@ -76,6 +76,9 @@ you go.
   (`composer.schedulefromsend`). In since 11 Nov
 - [x] The slash palette can't be resized (`composer.slash.resize`). In since
   11 Nov
+- [ ] In a narrow panel (a thread in a panel of its own, a narrow window) the
+  chips under the box run past its edge, where the Swift app's shrink their
+  labels to fit (`composer.modelpicker`, `composer.permission`)
 - [x] The card: no lab-review findings on it, no slide between pages, picks
   don't show as chips while it's collapsed, no pictures in a Something else
   box, no beep when Return can't go on (`card.*`). In since 11 Nov; Reduce
@@ -83,15 +86,15 @@ you go.
   (`foundation.reducemotion`), and the beep is the Mac's only
 
 ### Threads and the sidebar
-- [ ] No trackpad swipe or drag-left to archive a row, and rows jump between
-  sections instead of gliding (`sidebar.swipe`, `sidebar.mousedrag`,
-  `sidebar.rowmotion`)
-- [ ] No "Open in New Panel" (a thread in a panel of its own), or panels that
+- [ ] No trackpad swipe or drag-left to archive a row (`sidebar.swipe`,
+  `sidebar.mousedrag`). Rows glide between sections and counts roll now
+  (`sidebar.rowmotion`)
+- [x] No "Open in New Panel" (a thread in a panel of its own), or panels that
   close with their thread (`dock.threadpanel`, `dock.openelsewhere`,
   `dock.contexttabs`)
 - [x] No View > Collapse Threads (⌘/) (`menu.view`)
-- [ ] No trackpad swipe back and forward, and no key hints while ⌘ is held
-  (`nav.swipe`, `nav.hints`)
+- [ ] No trackpad swipe back and forward (`nav.swipe`). The keys show while
+  ⌘ is held now (`nav.hints`)
 - [x] `threadbear://` links (BrowserBear's pill on an agent's tab) don't open
   this app (`nav.deeplink`). They open the GPUI app once install-app.sh has
   run; `desktop/scripts/thread-links.sh swift` gives them back

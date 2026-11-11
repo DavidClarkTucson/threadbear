@@ -33,7 +33,7 @@ pub struct Threadbear {
     pub(crate) selected: Option<String>,
     pub(crate) pane: Option<Entity<ThreadPane>>,
     /// The open pane's requests to the app (a thread: link was clicked).
-    pane_events: Option<Subscription>,
+    pub(crate) pane_events: Option<Subscription>,
     pub(crate) search: Entity<InputState>,
     /// The sections folded away under their headings, by key.
     pub(crate) folded: HashSet<&'static str>,
@@ -197,6 +197,9 @@ pub struct Threadbear {
     /// The Threads panel's view, made the first time the dock asks for it
     /// (sidebar.rs, `SidebarView`).
     pub(crate) sidebar_view: Option<Entity<crate::sidebar::SidebarView>>,
+    /// Threads open in panels of their own, and the tabs opened beside the
+    /// main panel for what it shows (thread_panels.rs).
+    pub(crate) thread_panels: crate::thread_panels::ThreadPanels,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -237,6 +240,8 @@ impl Threadbear {
         crate::viewer::viewer_handle_global(side.downgrade(), cx);
         crate::open_gate::install(cx.entity().downgrade(), cx);
         crate::terminal::install(&cx.entity(), cx);
+        // A key with ⌘ held puts the keys shown beside the buttons away.
+        crate::key_hints::install(cx.entity().downgrade(), cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
         // The filter is worked out at render, so a change only needs a redraw.
         let searching = cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
@@ -307,6 +312,9 @@ impl Threadbear {
             this.inbox_count_cache.set(None);
             this.projects.pane_cache.take();
         });
+        // Tabs opened beside the main panel for what it showed go when it
+        // moves on (thread_panels.rs, `mainContextChanged`).
+        let main_context = cx.observe(&cx.entity(), |this: &mut Threadbear, _, cx| this.main_context_maybe_changed(cx));
 
         let mut sidebar = crate::sidebar::SidebarState::new(cx);
         sidebar.order = settings.inbox_order();
@@ -408,8 +416,9 @@ impl Threadbear {
             move_sheet: None,
             side,
             sidebar_view: None,
+            thread_panels: Default::default(),
             _events: events,
-            _subs: vec![appearance, searching, frame, menus, looking, quitting, side_changed],
+            _subs: vec![appearance, searching, frame, menus, looking, quitting, side_changed, main_context],
         };
         // The window starts on the Inbox with nothing open (`noteNavigation`
         // on launch), so Back from the first thread comes back here.
@@ -426,8 +435,9 @@ impl Threadbear {
         let Some((thread_id, button)) = crate::reply_buttons::known(&id) else { return };
         // Only from the transcript of the thread that made it: ids are the
         // runner's per thread, and a link copied into another thread's reply
-        // mustn't press this one.
-        if self.selected.as_deref() != Some(thread_id.as_str()) {
+        // mustn't press this one. A thread in a panel of its own has its
+        // transcript there (thread_panels.rs).
+        if self.selected.as_deref() != Some(thread_id.as_str()) && self.thread_panel_pane(&thread_id).is_none() {
             self.show_error("That button belongs to another thread, so it can't be pressed from here.".into(), cx);
             return;
         }
@@ -466,7 +476,7 @@ impl Threadbear {
 
     /// The open thread draws again: its pills read the buttons as they draw.
     fn redraw_pane(&self, cx: &mut Context<Self>) {
-        if let Some(pane) = &self.pane {
+        for pane in self.pane.iter().chain(self.thread_panels.panes()) {
             pane.update(cx, |_, cx| cx.notify());
         }
         cx.notify();
@@ -477,9 +487,15 @@ impl Threadbear {
     /// front, the open thread is read.
     pub(crate) fn looking_changed(&mut self, window: u64, active: bool, cx: &mut Context<Self>) {
         crate::thread::set_looking(window, active);
+        // ⌘-Tab away lets ⌘ go in the other app, so this one never hears it.
+        if !active {
+            self.hints_reset(cx);
+        }
         if let (true, Some(pane)) = (crate::thread::is_looking(), self.pane.clone()) {
             pane.read(cx).mark_seen();
         }
+        // And the threads in panels of their own that are in front.
+        self.mark_thread_panels_seen(cx);
         self.serve_panel_request(cx);
     }
 
@@ -544,7 +560,9 @@ impl Threadbear {
                 RequestedPanel::Section(_) => self.show_pane(&id, cx),
                 _ => self.toggle_under_threads(&id, cx),
             },
-            RequestedPlace::Tab => self.dock.update(cx, |m, cx| m.show(&id, &[shell::MAIN], DockDrop::window(DockEdge::Right), cx)),
+            // Beside the main panel, for what it shows: it goes when the main
+            // panel moves on, unless it's dragged away (thread_panels.rs).
+            RequestedPlace::Tab => self.open_main_tab(&id, cx),
             RequestedPlace::Side(side) => {
                 let edge = match side.as_str() {
                     "left" => DockEdge::Left,
@@ -601,7 +619,7 @@ impl Threadbear {
                     self.load_clis(cx);
                     self.load_connectors(cx);
                     self.side.update(cx, |side, cx| side.connected(cx));
-                    if let Some(pane) = &self.pane {
+                    for pane in self.pane.iter().chain(self.thread_panels.panes()) {
                         pane.update(cx, |p, cx| p.load(cx));
                     }
                 }
@@ -618,6 +636,9 @@ impl Threadbear {
                         if let Some(pane) = &self.subagent_pane {
                             pane.update(cx, |p, cx| p.summary_changed(&t, cx));
                         }
+                        if let Some(pane) = self.thread_panel_pane(&t.id) {
+                            pane.update(cx, |p, cx| p.summary_changed(&t, cx));
+                        }
                         let before = self.threads.insert(t.id.clone(), t.clone());
                         self.note_failed_account(before.as_ref(), &t);
                         self.thread_changed_outside(before.as_ref(), &t, cx);
@@ -630,6 +651,8 @@ impl Threadbear {
                 "thread.deleted" => {
                     let id = params["threadId"].as_str().unwrap_or("");
                     crate::terminal::thread_deleted(id, cx);
+                    // Its panel of its own goes with it (`forget`).
+                    self.close_thread_panel(id, cx);
                     self.threads.remove(id);
                     self.failed_on_account.remove(id);
                     self.refresh_dock_badge();
@@ -671,7 +694,8 @@ impl Threadbear {
                     // An open review window hears its review change whichever
                     // thread is open here (review_window.rs).
                     crate::review_window::receive_event(&params, cx);
-                    if let Some(pane) = &self.pane {
+                    // Each pane takes its own thread's events only.
+                    for pane in self.pane.iter().chain(self.thread_panels.panes()) {
                         pane.update(cx, |p, cx| p.event(&params, cx));
                     }
                 }
@@ -856,8 +880,18 @@ impl Threadbear {
     }
 
     pub(crate) fn open(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_with(id, None, window, cx);
+    }
+
+    /// `open`, with the pane of a thread brought back from a panel of its own
+    /// (thread_panels.rs), which goes on reading it rather than reading it again.
+    pub(crate) fn open_with(&mut self, id: String, moved: Option<Entity<ThreadPane>>, window: &mut Window, cx: &mut Context<Self>) {
         // A thread (its own row, say) in place of one of its sub-agents.
         self.close_subagent(cx);
+        // A thread open in a panel of its own is shown there.
+        if moved.is_none() && self.open_in_its_panel(&id, cx) {
+            return;
+        }
         if self.selected.as_deref() == Some(id.as_str()) {
             // Open already, behind a page (a schedule's target was clicked,
             // or a project's page): the page goes.
@@ -879,21 +913,11 @@ impl Threadbear {
             old.read(cx).unsubscribe();
         }
         let client = self.client.clone();
-        let app = cx.entity().downgrade();
-        let made = !self.composers.contains_key(&id);
-        let composer = self
-            .composers
-            .entry(id.clone())
-            .or_insert_with(|| cx.new(|cx| Composer::new(Some(id.clone()), client.clone(), app, window, cx)))
-            .clone();
-        // Its words from before a quit, the first time its box is made.
-        if made {
-            self.restore_saved_draft(&id, &composer, cx);
-        }
+        let composer = self.composer_for(&id, window, cx);
         self.selected = Some(id);
         self.shows_home = false;
         self.projects.open = None;
-        let pane = cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx));
+        let pane = moved.unwrap_or_else(|| cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx)));
         composer.update(cx, |c, cx| {
             c.attach(pane.downgrade());
             c.focus(window, cx);
@@ -909,6 +933,20 @@ impl Threadbear {
         self.pane = Some(pane);
         self.note_navigation();
         cx.notify();
+    }
+
+    /// A thread's message box, kept while others are open so what's typed
+    /// stays with it, and made (with its words from before a quit) the first
+    /// time it's wanted.
+    pub(crate) fn composer_for(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<Composer> {
+        if let Some(composer) = self.composers.get(id) {
+            return composer.clone();
+        }
+        let (client, app) = (self.client.clone(), cx.entity().downgrade());
+        let composer = cx.new(|cx| Composer::new(Some(id.to_owned()), client, app, window, cx));
+        self.composers.insert(id.to_owned(), composer.clone());
+        self.restore_saved_draft(id, &composer, cx);
+        composer
     }
 
     /// Nothing open: the new-thread screen's place in the history. For going
@@ -1100,6 +1138,12 @@ impl Threadbear {
             "dock": dock,
             // Folded away with ⌘/ or closed, it isn't on screen (thread_panels.rs).
             "threadsShowing": self.threads_showing(cx),
+            // Threads in panels of their own, and the one the main panel says
+            // is open in its own panel (`OpenElsewhereNote`).
+            "threadPanels": self.thread_panels_dump(cx),
+            "openElsewhere": self.open_elsewhere(cx),
+            // The keys shown beside the buttons while ⌘ is held (key_hints.rs).
+            "keyHints": self.key_hints_dump(cx),
             "zoom": crate::style::zoom_percent(),
             "archivedNote": self.archived_note.as_ref().map(|n| n.thread.clone()),
             "inboxEndNote": self.inbox_end_note.as_ref().map(|n| if n.empty { "empty" } else { "end" }),

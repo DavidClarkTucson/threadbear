@@ -95,6 +95,12 @@ export type Dump = {
   dock?: string;
   /** The Threads panel is on screen: in the layout and not folded away with ⌘/. */
   threadsShowing?: boolean;
+  /** Threads open in panels of their own: whether each one's tab is showing, and its transcript. */
+  threadPanels?: { id: string; title: string; showing: boolean; transcript?: Dump['transcript'] | null }[];
+  /** The thread the main panel says is open in its own panel. */
+  openElsewhere?: string | null;
+  /** The keys shown beside the buttons while ⌘ is held ("Threads ⌘1"). */
+  keyHints?: string[];
   /** The window's zoom, in percent. */
   zoom?: number;
   /** The thread the Archived note names, while it's up. */

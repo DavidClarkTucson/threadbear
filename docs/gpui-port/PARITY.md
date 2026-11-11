@@ -376,6 +376,95 @@ built parsers and gates with no launch of the app, which is the trap.)
   code, and the question without the runtime. The Swift app wasn't run:
   nothing of it changed but the mock runner's new answers, which only
   these scenarios ask for.
+### 2026-11-11 Rows that glide, counts that roll, and the keys while ⌘ is held (`sidebar.rowmotion`, `nav.hints`)
+
+- When the thread list changes (a thread starred, moving from Running to the
+  Inbox, archived, a new one at the top), each row, heading and sub-agent
+  row glides from where it was to where it is now, as the Swift list's
+  `Juice.rows` does over rows matched in its space: a spring of 0.32 s with
+  a touch of overshoot. GPUI has no matched geometry, so it's done the FLIP
+  way: laid out in its new place and painted, for a moment, where it was
+  (`with_element_offset` in prepaint), measured from the list's own top so
+  scrolling isn't a move. A row that wasn't there fades in, coming down a
+  little (GPUI can't scale a row, as `Juice.row`'s grow does). A section
+  folding moves its own rows, and Reduce Motion (`cx.reduce_motion()`, once
+  the app reads the system's) stops all of it.
+- The folded heading's count and the activity bar's badges roll to a new
+  number, up for more and down for fewer, as `numericText` does.
+- Holding ⌘ on its own shows each button's key beside it in Tandem's amber,
+  as ShortcutHints does: the activity bar's views and Settings to their
+  right, New thread and the composer's Stop to their left, drawn over their
+  neighbours. Letting go, ⌘ with Shift or Option, any key, click or scroll
+  with it held, or the window going to the back, puts them away until ⌘ is
+  pressed on its own again (a key's watched before its shortcut acts,
+  `intercept_keystrokes`). Control plays ⌘'s part off the Mac.
+- The bookkeeping is core's `row_motion.rs`, with its tests; the drawing is
+  `desktop/gpui/src/{row_motion,key_hints}.rs`.
+- Scripts: both apps' `hints` puts the keys up or away, and both dumps have
+  `keyHints` ("Threads ⌘1", in the buttons' order).
+- Not here: the selected row's highlight sliding to the next row, a row's
+  status blurring to its new words, and the landed flash (`juice.*`).
+- Files: `desktop/core/src/row_motion.rs`, `desktop/gpui/src/{row_motion,key_hints}.rs`
+  (new), `desktop/gpui/src/{sidebar,rails,shell,app,composer,automation,main}.rs`,
+  `app/Sources/Threadbear/AppDump.swift`, `features/key-hints.feature` and its steps.
+- Verification: on Tinker Desk, key-hints.feature GPUI 3 of 3 and Swift 2 of
+  2 (pressing a key through the Swift app's script goes straight to its
+  menu, past the watch, so that one's `@swift-pending`); the sidebar's,
+  rails' and menus' scenarios still passing; core's tests. Pictures of both
+  apps in dark with ⌘ held: the keys sit in the same places in the same
+  colours. Frames of a starred row in the GPUI app: the first painted
+  where it was with the Starred heading fading in, then settled at the top
+  with the Threads badge rolled from 13 to 12.
+
+### 2026-11-11 A thread in a panel of its own, and tabs that go with the main panel (`dock.threadpanel`, `dock.openelsewhere`, `dock.contexttabs`)
+
+- Open in New Panel, in a row's right-click menu, the thread's ... menu and
+  the menu of a row under Highlights' Threads it started, opens the thread in
+  a panel of its own (`threadbear.thread:<id>`, the Swift app's id, so a saved
+  layout carries over) to the right of the main panel, where it stays
+  whatever the sidebar picks. Its bar has the thread's title line (a click
+  renames it), Share and the ... menu, as `PinnedThreadView`'s; under it are
+  its sign-in line and reviews waiting, then its transcript and box, as in
+  the main panel. It can be dragged, tabbed and torn out like any panel.
+- The thread open in the main panel moves into its panel with its transcript
+  still reading it (not read again), and the main panel goes to a new
+  thread. Picking a thread that has a panel of its own (its row, a link,
+  Back) brings the panel to the front and leaves the main panel as it is, as
+  the Swift app's `select` does. Move to Main Panel (in place of Open in New
+  Panel while it has one) closes the panel and carries its transcript back.
+  Closing the panel lets the thread go; deleting the thread closes it.
+- The main panel's note, "This thread is open in its own panel." with Go to
+  it and Show it here (`OpenElsewhereNote`), shows when the main panel has
+  selected a thread that's in its own panel. No click leaves the window like
+  that in either app (opening a thread always sends it to its panel), so
+  it's the Swift app's safety net, kept so one transcript is never drawn in
+  two places; its scenario puts the window there with the automation.
+- A panel an agent asks to show as a tab (`show_panel` with `where: "tab"`)
+  opens beside the main panel for what it shows and closes when the main
+  panel moves on to another thread, a page or a project, unless it's been
+  dragged out of the main panel's group (`mainTabs`), and the main panel's
+  tab comes to the front.
+- A thread in its own panel whose tab is behind another isn't read until
+  it's in front (`isShowing`); its reply buttons press from there, and Copy
+  transcript in its ... menu copies its own.
+- Scripts: both apps take `open-panel` (with `keepSelected`, the note's
+  state) and `move-to-main`; both dumps have `threadPanels` (each one's id,
+  title, whether it's in front, and its transcript in the main one's shape)
+  and `openElsewhere`.
+- Not the same: a narrow panel's composer chips run past the box's edge in
+  the GPUI app where the Swift app's shrink (composer_chips.rs, the same at
+  any narrow width of the main panel too).
+- Files: `desktop/gpui/src/thread_panels.rs`, `desktop/core/src/thread_panels.rs`
+  (the panels' ids, with tests),
+  `desktop/gpui/src/{app,shell,header,sidebar,highlights,thread,automation}.rs`,
+  `app/Sources/Threadbear/{AppDump,Automation}.swift`,
+  `features/thread-panels.feature` and its steps.
+- Verification: on Tinker Desk, thread-panels.feature with panel-requests,
+  sidebar-actions' row menu and the history scenarios: GPUI 21 of 21, Swift
+  16 of 16; the whole GPUI suite afterwards. Pictures of both apps in dark
+  with a thread in its own panel beside the main one, and with the note: the
+  panels split the room the same, the bars' titles, Share and ... line up,
+  and the note's words and buttons sit in the same place.
 
 ### 2026-11-11 View > Collapse Threads, and threadbear:// links from outside (`menu.view`, `nav.deeplink`)
 
