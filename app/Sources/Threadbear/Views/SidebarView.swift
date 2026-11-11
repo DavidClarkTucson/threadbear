@@ -26,8 +26,9 @@ extension View {
     /// takes no clicks and isn't read out. It keeps its scroll position and
     /// folds meanwhile. What in it takes keys or is pointed at reads
     /// `keptShown`: a list or search box gives up the cursor while hidden
-    /// (or the arrow keys and typing would go to a list nobody can see),
-    /// and the tour doesn't point at it.
+    /// and leaves the Tab order (or the arrow keys and typing would go to a
+    /// list nobody can see), and the tour and the archive flight don't aim
+    /// at it.
     func keptAlive(shown: Bool) -> some View {
         opacity(shown ? 1 : 0)
             .offset(y: shown || Juice.reduceMotion ? 0 : zoomed(6))
@@ -59,23 +60,24 @@ struct SidebarView: View {
         // the new one share the space while one fades out and the other
         // fades in and settles.
         ZStack {
-            // The Inbox and Projects lists stay built once they've been
-            // shown, hidden while another view is up, so switching between
-            // them is a fade rather than SwiftUI building every row again:
-            // that rebuild was most of the half second Mike saw clicking
-            // Projects (11 Nov). The other two views are built as they're
-            // shown, as before.
-            InboxList()
-                .keptAlive(shown: app.sidebarMode == .inbox)
+            // The Projects list stays built once it's been shown, hidden
+            // while another view is up, so coming back to it is a fade
+            // rather than SwiftUI building every row again: that rebuild
+            // was much of the half second Mike saw clicking Projects
+            // (11 Nov). The other views are built as they're shown, as
+            // before. The Inbox was kept too at first, but hidden it went on
+            // filtering every thread change and held the archive flight's
+            // landing marks (Codex's review), for a few milliseconds a switch.
             if keepProjects || app.sidebarMode == .projects {
                 ProjectsList(shown: app.sidebarMode == .projects)
                     .keptAlive(shown: app.sidebarMode == .projects)
             }
             Group {
                 switch app.sidebarMode {
+                case .inbox: InboxList()
                 case .scheduled: ScheduledList()
                 case .librarian: LibrarianView()
-                case .inbox, .projects: EmptyView()
+                case .projects: EmptyView()
                 }
             }
             .transition(Juice.reduceMotion ? .opacity : .asymmetric(
@@ -677,6 +679,7 @@ struct ThreadRowView: View {
     /// the row doesn't name it again.
     var heading: String? = nil
     let select: () -> Void
+    @Environment(\.keptShown) private var keptShown
     @State private var hovering = false
     @State private var pressed = false
     /// A brief accent wash over a row that's just finished, so a reply
@@ -834,7 +837,9 @@ struct ThreadRowView: View {
         .rowHighlight(selected: isSelected, hovering: showsActions, selectedColor: selectedColor, space: rowSpace)
         // The open thread's row: archived, it closes up as its panel drops
         // into the Archived heading, which the flight allows for.
-        .background { if isSelected { FlightMarker(kind: .openRow) } }
+        // Not from a list kept hidden (keptAlive): the flight allows for the
+        // row in view.
+        .background { if isSelected && keptShown { FlightMarker(kind: .openRow) } }
         .contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.corner))
         // A slight press while the mouse is down, so a click feels like it
         // landed on something.
@@ -1512,6 +1517,8 @@ struct SearchField: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: TypeScale.sidebarButton))
                 .focused($focused)
+                // Hidden, it's out of the Tab order as well as unfocused.
+                .disabled(!shown)
                 .onAppear { if focusOnAppear, shown { focused = true } }
                 .onChange(of: shown) { _, now in
                     if now, focusOnAppear { focused = true } else if !now { focused = false }

@@ -44,7 +44,7 @@ struct ProjectsHome: View {
                         .layoutPriority(1)
                         // Return opens the top result, Escape clears, so a
                         // project is a few keys away from this page.
-                        .onSubmit { if searching, let first = cards.first { app.openProjectPage(first.project.id) } }
+                        .onSubmit { if shown, searching, let first = cards.first { app.openProjectPage(first.project.id) } }
                         .onExitCommand { app.projectSearchQuery = "" }
                     Button { app.newProject(with: nil) } label: {
                         Label("New project", systemImage: "plus")
