@@ -318,6 +318,21 @@ const ISO_TIME = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[
 export function isIsoTime(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 64 && ISO_TIME.test(value);
 }
+// A thread row's times held to isIsoTime, in place: the ones it must have
+// stand in from lastActivityMs, the rest go. Android's took
+// "+999999999-12-31T23:59:59Z" and threw drawing the row (Daybreak, 11 Nov
+// 2026). On what a runner key writes, and on what phones read, for rows
+// stored before and for apps from before their own check.
+export function holdThreadTimes(t: Record<string, any>): void {
+  if (!isIsoTime(t.lastActivityAt)) {
+    const ms = t.lastActivityMs;
+    t.lastActivityAt = new Date(Number.isFinite(ms) && ms >= 0 && ms <= 8.64e15 ? ms : Date.now()).toISOString();
+  }
+  if (!isIsoTime(t.createdAt)) t.createdAt = t.lastActivityAt;
+  for (const f of ['snoozedUntil', 'archivedAt', 'starredAt']) if (t[f] !== undefined && !isIsoTime(t[f])) delete t[f];
+  if (t.woke && !isIsoTime(t.woke.at)) delete t.woke;
+  else if (t.woke?.since !== undefined && !isIsoTime(t.woke.since)) t.woke = { at: t.woke.at };
+}
 // A whole number from 0 to `most`.
 export function wholeIn(value: unknown, most: number): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= most;

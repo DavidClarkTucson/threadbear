@@ -58,7 +58,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { isJoining, runnerKeyPlan } from './runner-key-plan.mjs';
-import { ADMIN_URL, backendContainer, DATA_VOLUME, offTailnetStep, origins, PORTS, selfHostedPlan, servedOn } from './self-hosted-plan.mjs';
+import { ADMIN_URL, backendContainer, DATA_VOLUME, mustSeeTailnetOff, offTailnetStep, origins, PORTS, selfHostedPlan, servedOn, TAILNET_PENDING_FILE } from './self-hosted-plan.mjs';
 import { ConvexAdminError, convexEnv, readConvexAdmin, SELF_HOSTED_ENV_FILE } from '../runner/src/convex-admin.ts';
 
 const repo = path.resolve(import.meta.dirname, '..');
@@ -616,10 +616,9 @@ function serve(ts, tailnetPort, localPort) {
 // it can't find or that can't answer stops it (Daybreak, 11 Nov 2026), and
 // as the URL stays the tailnet one, the next run is a move and tries again.
 // The decisions are offTailnetStep's (scripts/self-hosted-plan.mjs).
-function unserve(ts, tailnetPort, localPort) {
-  const moving = plan.from === 'tailnet';
+function unserve(ts, tailnetPort, localPort, moving) {
   const step = offTailnetStep({ cli: Boolean(ts), handlers: ts ? served(ts, tailnetPort) : undefined, tailnetPort, localPort, moving });
-  if (step.do === 'fail') throw new Fail(step.message);
+  if (step.do === 'fail') throw new Fail(ts ? step.message : `${step.message} If you've taken Tailscale off this Mac for good, nothing of it is serving: delete ${path.join(home, TAILNET_PENDING_FILE)} and run setup again.`);
   if (step.do === 'note') return note(step.message);
   if (step.do === 'nothing') return;
   if (dry) return todo(`tailscale serve --https=${tailnetPort} off`);
@@ -680,10 +679,21 @@ async function selfHostedBackend() {
   const b = backendContainer(plan.mode, tailnet);
   ensureContainer(BACKEND_CONTAINER, BACKEND_IMAGE, b.env, b.runArgs, b.cmd);
   ensureContainer(DASHBOARD_CONTAINER, DASHBOARD_IMAGE, { NEXT_PUBLIC_DEPLOYMENT_URL: url }, ['-p', `127.0.0.1:${PORTS.dashboard[1]}:6791`]);
-  if (tailnet) for (const [tailnetPort, localPort] of Object.values(PORTS)) serve(tailnet.ts, tailnetPort, localPort);
-  else {
+  const pendingFile = path.join(home, TAILNET_PENDING_FILE);
+  if (tailnet) {
+    // Said before anything is served, so a run that stops after serving
+    // but before saving its URL still has a local run check every port.
+    if (!dry && !fs.existsSync(pendingFile)) {
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(pendingFile, 'This Mac\'s self-hosted Convex backend has been served on the tailnet (tailscale serve). Setup with --local removes this once it has seen every port taken off.\n');
+    }
+    for (const [tailnetPort, localPort] of Object.values(PORTS)) serve(tailnet.ts, tailnetPort, localPort);
+  } else {
     const ts = tailscaleCli();
-    for (const [tailnetPort, localPort] of Object.values(PORTS)) unserve(ts, tailnetPort, localPort);
+    const moving = mustSeeTailnetOff({ from: plan.from, pending: fs.existsSync(pendingFile) });
+    for (const [tailnetPort, localPort] of Object.values(PORTS)) unserve(ts, tailnetPort, localPort, moving);
+    // Each port was seen off, or setup stopped above.
+    if (!dry && moving) fs.rmSync(pendingFile, { force: true });
   }
   if (dry) {
     if (!fs.existsSync(selfHostedFile)) todo(`the backend's admin key, in ${selfHostedFile}`);

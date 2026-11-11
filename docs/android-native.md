@@ -51,6 +51,7 @@ what the iPhone has.
 | MessageHistory.swift (older chunks, caps) | `MessageHistory.kt` | 4 |
 | MarkdownBlocks.swift (all of it: rich, drafts, nested quotes, pictures) | `Markdown.kt` | 4 |
 | DraftBlock.swift | `DraftBlock.kt` | 4 |
+| MarkdownBlocksView's inline marks (bold, code, links) | `InlineMarks.kt`, one linear scan, links never inside links | 4 |
 | InlinePictures.swift, ThreadPictures (Models.swift) | `InlinePictures.kt`, `ThreadPictures.kt` | 4 |
 | PictureDownload.swift, PictureMemory.swift, PictureFraming.swift | `PictureDownload.kt`, `PictureMemory.kt`, `PictureFraming.kt` | 4 |
 | ReplyButtons.swift, ThreadLinks.swift, LinkPolicy.swift | `ReplyButtons.kt`, `ThreadLinks.kt`, `LinkPolicy.kt` | 4 |

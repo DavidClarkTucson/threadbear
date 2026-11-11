@@ -78,6 +78,7 @@ class InlineMarksTest {
             "[a](x " + "[b](y) ".repeat((n - 6) / 7),
             "[a] ".repeat(n / 4),
             "\\".repeat(n),
+            "\\*".repeat(n / 2),
             (1..n / 10).joinToString("") { "[l$it](u) " },
             "**__~~*_".repeat(n / 8),
         )

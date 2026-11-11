@@ -169,3 +169,15 @@ export function offTailnetStep({ cli, handlers, tailnetPort, localPort, moving }
   if (ours.length !== handlers.length) return { do: 'fail', message: `Tailscale serves this backend on tailnet port ${tailnetPort} alongside something else (tailscale serve status), so it's still on your tailnet. Take the backend's part off by hand, then run setup again.` };
   return { do: 'off' };
 }
+
+// Whether a local run has to see every tailnet port off before it carries
+// on: a move off the tailnet (the saved URL is a tailnet one), or any run
+// after one that put the backend on the tailnet without the local one since
+// seeing it off. That's the note setup leaves before it first serves
+// (TAILNET_PENDING_FILE in the data folder), as a tailnet run that stopped
+// before saving its URL left a local URL behind, which alone said nothing
+// was served (cross-lab review of the Daybreak fix, 11 Nov 2026).
+export const TAILNET_PENDING_FILE = 'self-hosted-on-tailnet';
+export function mustSeeTailnetOff({ from, pending }) {
+  return from === 'tailnet' || Boolean(pending);
+}

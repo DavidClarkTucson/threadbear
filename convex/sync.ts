@@ -12,7 +12,7 @@ import { actAs, checkRunnerId, forbidden, hasLiveKey, pageLimit, readRunnerOrder
 import { scrubDoc, scrubEveryString, SCRUB_RULES_VERSION, HELD_BACK } from './redaction';
 import { dropHead, seedHeads, syncHead, syncHeads } from './projectHeads';
 import { dropNotes, putNotes, syncNotes } from './projectNotes';
-import { badRunnerStats, cutBytes, docBytes, fitUsage, impossibleUsage, isIsoTime, LOGIN_EMAIL, LOGIN_PROVIDER, loginKey, mayClaim, NAME_CHARS, mayFinish, mayTake, mayTouch, mayUseStorage, mayWrite, nameSkeleton, normalName, ownsCard, SCHEDULE_ID, utf8Bytes, wholeIn, type Caller, type UsageDoc } from './runnerAccess';
+import { badRunnerStats, cutBytes, docBytes, fitUsage, holdThreadTimes, impossibleUsage, isIsoTime, LOGIN_EMAIL, LOGIN_PROVIDER, loginKey, mayClaim, NAME_CHARS, mayFinish, mayTake, mayTouch, mayUseStorage, mayWrite, nameSkeleton, normalName, ownsCard, SCHEDULE_ID, utf8Bytes, wholeIn, type Caller, type UsageDoc } from './runnerAccess';
 import { dropWake, seedWakes, syncWake } from './wakes';
 import { pushFailing, pushOff } from './pushHealth';
 import { issueToken as makeToken, listTokens as allTokens, revokeToken as revokeOne, tokenInfo, tokenKind, MAX_DAYS } from './tokens';
@@ -458,17 +458,7 @@ function fitThread<T extends Record<string, any>>(t: T): T | undefined {
   // Never in the future: lists are by activity, and a far-off time would
   // push every other Mac's threads off them.
   if (typeof out.lastActivityMs === 'number') out.lastActivityMs = Math.min(out.lastActivityMs, Date.now());
-  // Its times are ones the apps can read (isIsoTime): Android's took
-  // "+999999999-12-31T23:59:59Z", then threw drawing the row (Daybreak, 11
-  // Nov 2026). The ones it must have stand in from lastActivityMs; the rest go.
-  if (!isIsoTime(out.lastActivityAt)) {
-    const ms = out.lastActivityMs;
-    out.lastActivityAt = new Date(Number.isFinite(ms) && ms >= 0 ? ms : Date.now()).toISOString();
-  }
-  if (!isIsoTime(out.createdAt)) out.createdAt = out.lastActivityAt;
-  for (const f of ['snoozedUntil', 'archivedAt', 'starredAt']) if (out[f] !== undefined && !isIsoTime(out[f])) delete out[f];
-  if (out.woke && !isIsoTime(out.woke.at)) delete out.woke;
-  else if (out.woke?.since !== undefined && !isIsoTime(out.woke.since)) out.woke = { at: out.woke.at };
+  holdThreadTimes(out);
   for (const f of ['title', 'preview', 'cwd', 'working', 'asked']) if (typeof out[f] === 'string') out[f] = cutBytes(out[f], f === 'title' ? 300 : CAP.threadText);
   if (typeof out.recap === 'string') out.recap = cutBytes(out.recap, CAP.recap);
   if (Array.isArray(out.looseEnds)) out.looseEnds = out.looseEnds.slice(0, 10).map((e: any) => ({ ...e, text: cutBytes(String(e.text ?? ''), 300) }));

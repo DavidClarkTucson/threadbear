@@ -15,6 +15,7 @@ const m = (await import(planModule)) as {
   origins: (mode: string, name?: string) => { url: string; site: string; dashboard: string };
   isLoopbackUrl: (u: string) => boolean;
   servedOn: (status: unknown, tailnetPort: number) => { Proxy?: string }[] | undefined;
+  mustSeeTailnetOff: (a: { from?: string; pending?: boolean }) => boolean;
   offTailnetStep: (a: { cli: boolean; handlers?: { Proxy?: string }[]; tailnetPort: number; localPort: number; moving: boolean }) => { do: string; message?: string };
 };
 
@@ -134,4 +135,30 @@ test('a move off the tailnet stops unless it can see each port is off', () => {
   assert.equal(step({ moving: false, handlers: ours }).do, 'off');
   assert.equal(step({ moving: false, handlers: undefined }).do, 'note');
   assert.equal(step({ moving: false, cli: false }).do, 'nothing');
+});
+
+// Cross-lab review of that fix: a --tailnet run that served the ports and
+// then stopped before saving its URL left a local URL, so a later --local
+// run with Tailscale stopped only said it couldn't check. The note setup
+// leaves before serving makes that run check too.
+test('a local run after the backend was served on the tailnet has to see it off, URL or not', () => {
+  assert.equal(m.mustSeeTailnetOff({ from: 'tailnet' }), true);
+  assert.equal(m.mustSeeTailnetOff({ pending: true }), true);
+  assert.equal(m.mustSeeTailnetOff({ from: undefined, pending: false }), false);
+  const step = (moving: boolean) => m.offTailnetStep({ cli: true, handlers: undefined, tailnetPort: 3210, localPort: 13210, moving });
+  assert.equal(step(m.mustSeeTailnetOff({ pending: true })).do, 'fail');
+  assert.equal(step(m.mustSeeTailnetOff({ pending: false })).do, 'note');
+});
+
+// The order that makes it hold: the note is written before the first
+// tailscale serve, and removed only after every port's step, in setup itself.
+test('setup leaves the tailnet note before serving and clears it only after every port is off', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../../../scripts/setup.mjs', import.meta.url), 'utf8');
+  const write = src.indexOf('fs.writeFileSync(pendingFile');
+  const serveLoop = src.indexOf('serve(tailnet.ts, tailnetPort, localPort)');
+  const unserveLoop = src.indexOf('unserve(ts, tailnetPort, localPort, moving)');
+  const remove = src.indexOf('fs.rmSync(pendingFile');
+  assert.ok(write > 0 && write < serveLoop, 'written before serving');
+  assert.ok(unserveLoop > 0 && unserveLoop < remove, 'removed after the ports');
 });

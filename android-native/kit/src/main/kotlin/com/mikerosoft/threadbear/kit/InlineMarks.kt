@@ -32,22 +32,27 @@ object InlineMarks {
     fun parse(text: String, links: Boolean = true): List<Run> {
         val out = Builder()
         out.append(text, emptySet(), if (links) null else NO_LINKS, 0)
-        return out.runs
+        return out.runs()
     }
 
     /** What's around the text being read: no link yet, or inside one (no more links). */
     private val NO_LINKS = Link("", -1)
 
     private class Builder {
-        val runs = mutableListOf<Run>()
+        // Runs still being written: a run's words in a buffer, so a line of
+        // thousands of escapes in a row isn't copied again for each one
+        // (cross-lab review, 11 Nov 2026).
+        private val open = mutableListOf<Triple<StringBuilder, Set<Mark>, Link?>>()
         var links = 0
+
+        fun runs(): List<Run> = open.map { (text, marks, link) -> Run(text.toString(), marks, link) }
 
         fun words(text: String, marks: Set<Mark>, link: Link?) {
             if (text.isEmpty()) return
             val shown = link?.takeIf { it !== NO_LINKS }
-            val last = runs.lastOrNull()
-            if (last != null && last.marks == marks && last.link == shown) runs[runs.size - 1] = last.copy(text = last.text + text)
-            else runs += Run(text, marks, shown)
+            val last = open.lastOrNull()
+            if (last != null && last.second == marks && last.third == shown) last.first.append(text)
+            else open += Triple(StringBuilder(text), marks, shown)
         }
 
         /** `link` is the link the text is inside, NO_LINKS when none may start, or null. */

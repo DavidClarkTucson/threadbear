@@ -12,7 +12,7 @@ import { API_VERSION } from './version';
 import { pushOff } from './pushHealth';
 import { imagesFrom, phoneImage, replyImagesFrom } from './share';
 import { deleteIfUnused, endCommandFiles, eventBodyAnswer, finishedArgs, readEventBody, runnerName } from './sync';
-import { docBytes, isIsoTime } from './runnerAccess';
+import { docBytes, holdThreadTimes, isIsoTime } from './runnerAccess';
 import { HEADS_MARK } from './projectHeads';
 import { notesOf } from './projectNotes';
 
@@ -71,6 +71,8 @@ function stripThread(doc: Doc<'threads'>): PhoneThread {
   for (const [k, value] of Object.entries(doc)) if (PHONE_THREAD_KEYS.has(k) && value !== undefined) out[k] = value;
   // Out of its list for a runner key's cap (sync.ts upsertThreads): shown where it belongs.
   if (doc.view === 'overflow') out.view = doc.wantView ?? 'inbox';
+  // Times a phone can read, whoever wrote them and whenever.
+  holdThreadTimes(out);
   return out as PhoneThread;
 }
 

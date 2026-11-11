@@ -1179,6 +1179,13 @@ test("a runner key's thread and schedule times are ones the apps can read", asyn
 
   const token = 'phone-token';
   await s.ctx.db.insert('tokens', { hash: await sha256(token), name: 'phone', expiresAt: Date.now() + 100_000, createdAt: Date.now() });
+  // A row stored before the check (or the owner's): what a phone reads is held all the same.
+  const stored = s.rows('threads').find((r) => r.threadId === 'MINE')!;
+  await s.ctx.db.patch(stored._id, { lastActivityAt: far, woke: { at: far } });
+  const read = ((await call(s.ctx, phone.thread, { token, threadId: 'MINE' })) as { thread: Record<string, any> }).thread;
+  assert.equal(read.lastActivityAt, new Date(stored.lastActivityMs).toISOString());
+  assert.equal(read.starredAt, undefined);
+  assert.equal(read.woke, undefined);
   await call(s.ctx, sync.saveSchedule, { key: BRUCE_KEY, schedule: sched(UUID(7), BRUCE, { threadId: 'FAR', nextRunAt: '+1000000000-06-01T00:00:00Z' }) });
   await call(s.ctx, sync.saveSchedule, { key: BRUCE_KEY, schedule: sched(UUID(8), BRUCE, { threadId: 'OK', nextRunAt: '2026-11-12T09:00:00.000Z' }) });
   // A wake stored before the check is held to it when read.
