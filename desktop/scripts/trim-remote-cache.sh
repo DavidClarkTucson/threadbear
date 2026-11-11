@@ -37,8 +37,8 @@ free_gib() {
 }
 
 # Removes a target folder if the host is short and nothing's using it. Look
-# inside it, not at it: rsync sets a checkout's own time to the Mac's, and cargo
-# working inside a folder doesn't change that folder's.
+# inside it, not at it: a checkout's own time only moves when rsync writes
+# into it, and cargo working inside a folder doesn't change that folder's.
 evict() {
   [ "$(free_gib)" -lt "$TRIM_GIB" ] || return 0
   [ -d "$1" ] || return 0

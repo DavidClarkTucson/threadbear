@@ -37,7 +37,16 @@ ssh "$host" "cd $base && bash -s -- $key" <"$root/desktop/scripts/trim-remote-ca
 # Named by hand, not read from .gitignore: rsync takes those rules from the
 # receiving side when it decides what to delete, which removed part of a
 # Swift build and a node_modules here on 9 Nov.
-rsync -az --delete --exclude .git --exclude node_modules --exclude .build --exclude target --exclude reports \
+#
+# Files are compared by content (-c) and written with the host's own time, not
+# this Mac's (no -t, so not -a). Cargo calls a crate fresh when its files are
+# older than its last build, and a Mac time can be: a file changed here before a
+# build there that compiled the old copy (another run still going, or a script
+# that edits the copy and puts it back) arrived looking older than that build,
+# and the next run passed on stale code (11 Nov, thread 699f31d2). Unchanged
+# files keep their time, so they don't rebuild.
+# desktop/scripts/test-remote-freshness.sh <host> plays that case.
+rsync -rlpDcz --delete --exclude .git --exclude node_modules --exclude .build --exclude target --exclude reports \
   --exclude .fixtures --exclude .swiftpm --exclude dist --exclude DerivedData --exclude .DS_Store \
   "$root/" "$host:$src/"
 
@@ -45,7 +54,7 @@ printf -v cmd '%q ' "$@"
 read -r -d '' prelude <<PRELUDE || true
 set -e
 cd "\$HOME/$src"
-# rsync just set this folder's time to the Mac's, and the age limit above reads it.
+# rsync changes this folder's time only when it writes into it, and the age limit above reads it.
 touch .
 # So trim-remote-cache.sh can tell this target's in use for the whole run. Its
 # output goes nowhere, or ssh would wait for it after the command ends.
