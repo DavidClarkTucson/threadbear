@@ -134,3 +134,23 @@ Feature: Design reviews
     Then the review shows today's version over option "A"
     When I press "Back to A (or let go of Space)" in the review
     Then the review shows option "A" again
+
+  @review.openlive
+  Scenario: An option that runs live can be tried from its caption
+    Given the agent shows options with several shots each
+    When I open that review
+    Then the caption offers nothing to try live
+    When I press "C. Account pools" in the review
+    Then the caption offers "http://localhost:5190/c" to try live
+
+  # The GPUI window can't play a clip or show a page yet: it shows the still
+  # with a button that opens the clip in its own app or the page in the
+  # browser (docs/gpui-port/PARITY.md).
+  @review.media @gpui-pending
+  Scenario: A clip plays on the stage, and a page shows in place
+    Given the agent shows options with several shots each
+    When I open that review
+    And I press "C. Account pools" in the review
+    Then the stage plays the clip
+    When I press "B. One picker, shot 2" in the review
+    Then the stage shows the page

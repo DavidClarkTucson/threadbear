@@ -1287,6 +1287,14 @@ impl ReviewWindow {
             "sendLabel": s.send_label(),
             "editable": s.editable(),
             "minimap": self.stage.minimap_showing(),
+            // What the stage draws: here a clip or a page is its still.
+            "stage": match (s.mode, s.shown_shot()) {
+                (ReviewMode::All, _) => "all",
+                (_, Some(shot)) if shot.media.is_some() => "still",
+                _ => "picture",
+            },
+            // What Open live would open, for the option on show.
+            "live": s.shown_option().filter(|_| s.mode == ReviewMode::Single).and_then(|o| o.url.clone()).unwrap_or_default(),
         })
     }
 }

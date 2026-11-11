@@ -646,6 +646,36 @@ built parsers and gates with no launch of the app, which is the trap.)
   the new choice at once. Left as they are, as they're the whole app's: every
   panel sits 2 points higher under the dock's bar, bruce's Mac mini is the
   icon set's server, and GPUI's text draws a little lighter.
+### 2026-11-11 The review window's clips, pages and Open live (`review.media`, `review.openlive`)
+
+- GPUI can't play a video or show a page yet, so a shot that's a clip or a
+  page shows its still on the stage, dimmed, with Play the clip or Open the
+  page over it. Each goes through the open gate (`open_file`), which opens
+  the clip in the app this computer plays videos in and the page in the
+  browser; nothing else is opened from the window. The Swift window plays
+  the clip on the stage with its sound (muted side by side) and shows the
+  page in place with its scripts off, so `review.media` stays pending here.
+  In the grid, a clip's or a page's still has a play or globe mark on it.
+  Zoom, the minimap and the title bar's zoom button are for pictures only,
+  as in the Swift window.
+- Open live, in the caption of an option that has a `url`, opens it in the
+  browser through the gate's `open_web`: only an http or https page, as the
+  url was already checked when the review was read.
+- Both apps' `review` command says what the stage draws (`stage`: picture,
+  player, page, or still here) and what Open live would open (`live`), so
+  the specs check them without opening anything on the machine running
+  them.
+- Files: `desktop/gpui/src/review_window/stage.rs` (the still and its
+  button, the grid's mark, the caption buttons' own symbol sizes),
+  `desktop/gpui/src/review_window.rs`,
+  `app/Sources/Threadbear/Automation+Waiting.swift`, `features/review.feature`,
+  `features/steps/review.steps.ts`.
+- Verification: review.feature on Tinker Desk: GPUI 16 of 16 (Open live
+  included; the clip-plays scenario fails as it should, `@gpui-pending`),
+  Swift 14 of 14 (media included). review-shot.ts's `shots-page`,
+  `shots-video` and `shots-all` in both apps: the Swift window plays the
+  clip and shows the page; the GPUI one shows each still with its button.
+
 ### 2026-11-11 The review window's stage: every shot, side by side, zoom, the minimap and today's version (`review.nav`, `review.zoom`, `review.minimap`, `review.holdspace`)
 
 - Back and next step through every shot of every option, then all of them

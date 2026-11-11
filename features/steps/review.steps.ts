@@ -29,6 +29,10 @@ type ReviewState = {
   peeking: boolean;
   minimap: boolean;
   error: string;
+  /** What the stage draws: "picture", "player", "page", "still" (a clip or a page as its still) or "all". */
+  stage: string;
+  /** What Open live would open, for the option on show. */
+  live: string;
 };
 
 async function review(world: ThreadbearWorld, cmd: Record<string, unknown> = {}): Promise<ReviewState> {
@@ -217,4 +221,25 @@ Then('the review shows today\'s version over option {string}', async function (t
 
 Then('the review shows option {string} again', async function (this: ThreadbearWorld, id: string) {
   await untilReview(this, `${id} again`, (s) => !s.peeking && s.focused === id && s.mode === 'Single');
+});
+
+// Media and Open live (review.media, review.openlive). The state says what
+// the stage draws ("picture", "player", "page", or "still" for a clip or a
+// page shown as its still) and what Open live would open, so nothing gets
+// opened on the machine running the specs.
+
+Then('the caption offers nothing to try live', async function (this: ThreadbearWorld) {
+  await untilReview(this, 'no Open live', (s) => s.mode === 'Single' && s.live === '');
+});
+
+Then('the caption offers {string} to try live', async function (this: ThreadbearWorld, url: string) {
+  await untilReview(this, `Open live for ${url}`, (s) => s.live === url);
+});
+
+Then('the stage plays the clip', async function (this: ThreadbearWorld) {
+  await untilReview(this, 'the clip playing on the stage', (s) => s.stage === 'player');
+});
+
+Then('the stage shows the page', async function (this: ThreadbearWorld) {
+  await untilReview(this, 'the page on the stage', (s) => s.stage === 'page');
 });

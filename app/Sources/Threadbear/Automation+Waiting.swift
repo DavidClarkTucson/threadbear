@@ -204,6 +204,9 @@ extension Automation {
             // What the window shows, for the specs (features/review.feature).
             "focused": session.focusedOption?.id ?? "", "sendLabel": session.sendLabel, "editable": session.editable,
             "minimap": find(ReviewImageScroll.self, in: controller.window?.contentView).map { !$0.minimap.isHidden } ?? false,
+            // What the stage draws, and what Open live would open.
+            "stage": session.mode == .all ? "all" : session.shownShot?.video != nil ? "player" : session.shownShot?.page != nil ? "page" : "picture",
+            "live": session.mode == .single ? (session.shownOption.flatMap { LinkPolicy.web($0.url) }?.absoluteString ?? "") : "",
         ] as [String: Any])
     }
 

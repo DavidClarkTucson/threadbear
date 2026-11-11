@@ -14,7 +14,8 @@ use gpui_kit::*;
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use threadbear_core::reducer::{ImageRef, ReviewOption};
+use threadbear_core::open_policy::Origin;
+use threadbear_core::reducer::{ImageRef, ReviewOption, ReviewShot};
 use threadbear_core::review::{self as rules, GalleryLayout, Point as StagePoint, ReviewMode, ScrollPhase, StageZoom, ZoomStep};
 
 /// ReviewWindow's spacing, in the stage's points.
@@ -165,7 +166,7 @@ impl ReviewWindow {
             buttons.push(
                 // Its words in a 140 wide frame, as the Swift label's
                 // `frame(maxWidth: 140)` takes all of that whatever they say.
-                crate::highlights::tipped(capsule_button("review-peek", Icon::new(IconName::ArrowLeftRight), &baseline.title, fg, bg, cx).w(px(140. + 22.)).justify_center(), tip)
+                crate::highlights::tipped(capsule_button("review-peek", Icon::new(IconName::ArrowLeftRight), 16., 12., &baseline.title, fg, bg).w(px(140. + 22.)).justify_center(), tip)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_peeking(!peeking, cx)))
                     .into_any_element(),
             );
@@ -173,7 +174,7 @@ impl ReviewWindow {
         if let Some(url) = option.url.clone() {
             let tip = format!("Try {} running live: {url}", option.id);
             buttons.push(
-                crate::highlights::tipped(capsule_button("review-open-live", Icon::new(IconName::ArrowUpRight), "Open live", style::label_text(cx), style::primary_opacity(cx, 0.08), cx), tip)
+                crate::highlights::tipped(capsule_button("review-open-live", Icon::new(IconName::ArrowUpRight), 12., 7., "Open live", style::label_text(cx), style::primary_opacity(cx, 0.08)), tip)
                     // Only a web page, which is all an option's url is for: a
                     // runner (maybe another Mac's) sends it, and anything else
                     // would open whatever it named here.
@@ -205,6 +206,9 @@ impl ReviewWindow {
     /// them; zoomed in, a press is for dragging.
     fn render_shot(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let (Some(shot), Some(room)) = (self.session.shown_shot(), self.stage.room()) else { return div().into_any_element() };
+        if shot.media.is_some() {
+            return self.render_media(&shot, room, cx);
+        }
         let scale = f64::from(window.scale_factor()).max(1.);
         let (w, h) = pixels(&shot.image);
         let peeking = self.session.peeking && self.session.can_peek();
@@ -248,6 +252,65 @@ impl ReviewWindow {
         } else {
             stage.into_any_element()
         }
+    }
+
+    /// A clip or a page, which this window can't play or show yet: its still,
+    /// fitted, with a button that opens it where it can, through the open
+    /// gate (the clip in the app this computer plays videos in, the page in
+    /// the browser). The Swift window plays the clip on the stage with its
+    /// sound, and shows the page in place with its scripts off.
+    fn render_media(&mut self, shot: &ReviewShot, room: Bounds<Pixels>, cx: &mut Context<Self>) -> AnyElement {
+        // Zoom is for pictures: a clip or page has its own ways to move round.
+        self.stage.zoom = None;
+        self.after_zoom();
+        let fit = GalleryLayout::fit(rules::aspect(&shot.image), f64::from(room.size.width), f64::from(room.size.height));
+        let (icon, words, tip, path) = match (shot.video(), shot.page()) {
+            (Some(video), _) => (IconName::Play, "Play the clip", "Play it in the app this computer plays videos in: this window can't play clips yet", video.to_owned()),
+            (_, Some(page)) => (IconName::Globe, "Open the page", "Open it in your browser: this window can't show pages yet", page.to_owned()),
+            _ => return div().into_any_element(),
+        };
+        let unavailable = style::secondary_text(cx);
+        let button = crate::highlights::tipped(
+            h_flex()
+                .id("review-open-media")
+                .h(px(40.))
+                .px(px(18.))
+                .gap(px(9.))
+                .items_center()
+                .rounded_full()
+                .bg(hsla(0., 0., 0., 0.72))
+                .border_1()
+                .border_color(hsla(0., 0., 1., 0.24))
+                .shadow_lg()
+                .cursor_pointer()
+                .hover(|s| s.bg(hsla(0., 0., 0., 0.85)))
+                .text_color(gpui_kit::white())
+                .child(Icon::new(icon).with_size(px(16.)).text_color(gpui_kit::white()))
+                .child(div().text_size(px(style::size::BODY)).font_weight(FontWeight::MEDIUM).child(words)),
+            tip,
+        )
+        .on_click(move |_, _, cx| crate::open_gate::open_file(&path, Origin::ThisMac, cx));
+        div()
+            .id("review-media")
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .w(pt(fit.0))
+                    .h(pt(fit.1))
+                    .child(img(PathBuf::from(shot.image.path.clone())).size_full().object_fit(ObjectFit::Fill).with_fallback(move || {
+                        div().size_full().flex().items_center().justify_center().child(Icon::new(IconName::ImageOff).with_size(gpui_kit::px(40.)).text_color(unavailable)).into_any_element()
+                    }))
+                    // Dimmed, so it reads as a still with something to open,
+                    // and the button stands out over any mockup.
+                    .child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.35)).flex().items_center().justify_center().child(button)),
+            )
+            .into_any_element()
     }
 
     /// The whole image small, top right, with a box for the part on show, while
@@ -321,14 +384,17 @@ impl ReviewWindow {
             .child(div().text_size(px(style::size::DETAIL)).line_height(px(style::natural_line(style::size::DETAIL))).font_weight(FontWeight::SEMIBOLD).text_color(id_color).child(option.id.clone()))
             .when(count > 1, |s| s.child(div().text_size(px(style::size::DETAIL)).line_height(px(style::natural_line(style::size::DETAIL))).text_color(style::tertiary_label(cx)).child(format!("{count} shots"))))
             .when(recommended, |s| s.child(super::rail::recommended_mark(cx)));
-        let picture = crate::highlights::tipped(div().id(("review-cell", index)).flex_none().w(pt(fit.0)).h(pt(fit.1)).cursor_pointer(), format!("{}: click to enlarge", option.id))
+        let picture = crate::highlights::tipped(div().id(("review-cell", index)).relative().flex_none().w(pt(fit.0)).h(pt(fit.1)).cursor_pointer(), format!("{}: click to enlarge", option.id))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.take_keys(window, cx);
                 this.enlarge(index, 0, cx);
             }))
             .child(img(PathBuf::from(path)).size_full().object_fit(ObjectFit::Fill).with_fallback(move || {
                 div().size_full().flex().items_center().justify_center().child(Icon::new(IconName::ImageOff).with_size(gpui_kit::px(28.)).text_color(unavailable)).into_any_element()
-            }));
+            }))
+            // Its first shot a clip or a page, which the Swift grid plays or
+            // shows: here a still, marked as one.
+            .children(media_badge(&option.shot(0)));
         v_flex()
             .relative()
             .flex_none()
@@ -565,6 +631,31 @@ pub(super) fn thumb(image: &ImageRef, width: f32, height: f32, radius: f32, cx: 
         .child(img(PathBuf::from(image.path.clone())).w(px((w * scale) as f32)).h(px((h * scale) as f32)).object_fit(ObjectFit::Fill))
 }
 
+/// A clip's or a page's mark on its still in the grid.
+fn media_badge(shot: &ReviewShot) -> Option<AnyElement> {
+    let icon = if shot.video().is_some() {
+        IconName::Play
+    } else if shot.page().is_some() {
+        IconName::Globe
+    } else {
+        return None;
+    };
+    Some(
+        div()
+            .absolute()
+            .left(px(8.))
+            .bottom(px(8.))
+            .size(px(26.))
+            .rounded_full()
+            .bg(hsla(0., 0., 0., 0.62))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(Icon::new(icon).with_size(px(13.)).text_color(gpui_kit::white()))
+            .into_any_element(),
+    )
+}
+
 /// The back and next buttons: a chevron in a 50 by 32 capsule, next a shade
 /// stronger, as it's the way on.
 fn step_button(id: &'static str, icon: IconName, tip: &'static str, enabled: bool, prominent: bool, cx: &App) -> gpui_kit::base::ObservedElement<Stateful<Div>> {
@@ -574,19 +665,21 @@ fn step_button(id: &'static str, icon: IconName, tip: &'static str, enabled: boo
         .child(Icon::new(icon).with_size(px(15.)).text_color(fg))
 }
 
-/// A capsule with a symbol and a few words over the stage (the caption's buttons).
-fn capsule_button(id: &'static str, icon: Icon, title: &str, fg: Hsla, bg: Hsla, _cx: &App) -> Stateful<Div> {
+/// A capsule with a symbol and a few words over the stage (the caption's
+/// buttons). The symbol's size and gap are each Swift button's own: its
+/// swap symbol is wider than its arrow.
+fn capsule_button(id: &'static str, icon: Icon, icon_size: f32, gap: f32, title: &str, fg: Hsla, bg: Hsla) -> Stateful<Div> {
     h_flex()
         .id(id)
         .flex_none()
         .h(px(26.))
         .px(px(11.))
-        .gap(px(12.))
+        .gap(px(gap))
         .items_center()
         .rounded_full()
         .bg(bg)
         .cursor_pointer()
         .text_color(fg)
-        .child(icon.with_size(px(16.)).text_color(fg))
+        .child(icon.with_size(px(icon_size)).text_color(fg))
         .child(div().min_w_0().truncate().text_size(px(style::size::DETAIL)).font_weight(FontWeight::MEDIUM).child(title.to_owned()))
 }
