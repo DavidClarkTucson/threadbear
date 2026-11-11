@@ -67,6 +67,13 @@ jobs:
     timeout-minutes: 30
     # The key's only way in: this environment gives its secrets to release/* tags alone.
     environment: android-release
+    # One release build at a time across every tag, so "latest" is worked
+    # out and set with no other release being made meanwhile (an older tag's
+    # run can't set itself latest after a newer one has). A run still
+    # waiting when another tag's comes is dropped; the newer one covers it.
+    concurrency:
+      group: android-release-publish
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
