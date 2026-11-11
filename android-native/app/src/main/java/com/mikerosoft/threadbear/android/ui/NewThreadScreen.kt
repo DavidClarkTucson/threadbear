@@ -237,7 +237,7 @@ fun NewThreadScreen(close: () -> Unit) {
                 // below stay live, as start() reads them once the photos are up.
                 PhotoField(
                     box, "What should it do?", TextFieldLineLimits.MultiLine(4, 12),
-                    onPasteImages = if (photosOn) ({ uris -> box.add(uris.map { PhotoDecoding.fromUri(context, it) }, model, scope) }) else null,
+                    onPasteImages = if (photosOn) ({ uris -> box.add(uris.map { PhotoDecoding.fromUri(context, it, imagesOnly = true) }, model, scope) }) else null,
                     modifier = Modifier.padding(end = 8.dp),
                     readOnly = busy,
                     fieldModifier = Modifier.focusRequester(focus),

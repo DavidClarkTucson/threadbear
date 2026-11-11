@@ -65,6 +65,8 @@ class Dictation(private val context: Context) {
     /** The current session's words so far, kept if it ends in an error rather than results. */
     private var session = ""
     private var onText: ((String) -> Unit)? = null
+    /** A session is open on the recognizer (not between one ending and the next starting). */
+    private var active = false
 
     /** Dictates into `text` at its cursor, each transcript replacing the last. */
     fun start(text: TextFieldState) {
@@ -104,15 +106,31 @@ class Dictation(private val context: Context) {
         if (!isListening) return
         isListening = false
         isFinishing = true
+        // A restart queued after a pause (or a busy recognizer) mustn't open the mic again.
+        main.removeCallbacksAndMessages(null)
+        // Between sessions: nothing's still to come.
+        if (!active) {
+            end()
+            return
+        }
         recognizer?.stopListening()
         val current = generation
-        // A recognizer that never answers mustn't hold Send for good.
-        main.postDelayed({ if (generation == current && isFinishing) end() }, 4000)
+        // A recognizer that never answers mustn't hold Send for good, nor keep
+        // the mic: it's cancelled as the bar goes.
+        main.postDelayed({
+            if (generation == current && isFinishing) {
+                generation++
+                recognizer?.cancel()
+                end()
+            }
+        }, 4000)
     }
 
     /** Off at once, whatever's still coming: a send, or the box going away. */
     fun stop() {
         generation++
+        // Nothing queued (a restart, the finishing timeout) outlives a stop.
+        main.removeCallbacksAndMessages(null)
         onText = null
         val held = isHearing
         isListening = false
@@ -120,6 +138,7 @@ class Dictation(private val context: Context) {
         startedAt = null
         // Only if it was listening: cancel() on an idle recognizer is harmless, but there's nothing to undo.
         if (held) recognizer?.cancel()
+        active = false
     }
 
     /** The screen's gone. */
@@ -136,13 +155,15 @@ class Dictation(private val context: Context) {
         onText = null
     }
 
+    /** Only ever for the listen Mike started and hasn't stopped: nothing else opens the mic. */
     private fun listen(current: Int) {
-        if (generation != current) return
+        if (generation != current || !isListening) return
         val r = recognizer ?: create().also { recognizer = it }
         r.setRecognitionListener(Listener(current))
         session = ""
         try {
             r.startListening(intent())
+            active = true
         } catch (e: Exception) {
             Log.e("Dictation", "startListening", e)
             problem = "Couldn't start the microphone. Tap the mic to try again."
@@ -200,6 +221,7 @@ class Dictation(private val context: Context) {
 
         override fun onResults(results: Bundle?) {
             if (!mine) return
+            active = false
             val text = words(results).ifEmpty { session }
             deliver(carry.commit(text))
             session = ""
@@ -209,6 +231,7 @@ class Dictation(private val context: Context) {
 
         override fun onError(error: Int) {
             if (!mine) return
+            active = false
             // The words of a session cut short stay.
             if (session.isNotEmpty()) {
                 deliver(carry.commit(session))

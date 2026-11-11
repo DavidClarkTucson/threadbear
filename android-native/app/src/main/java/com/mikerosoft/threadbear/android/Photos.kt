@@ -38,7 +38,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Uploads outlive the screen that started them (a photo taken out after
@@ -74,10 +75,27 @@ class PickedPhoto(val jpeg: ByteArray, val thumbnail: ImageBitmap) {
         state = PhotoUpload.State.GOING
         progress = 0f
         if (next == null) return
+        // Ends by itself once the upload's up or failed (both final: a retry
+        // is a new upload), so nothing global keeps the photo's bytes after;
+        // release() ends it sooner for one taken out while it's still going.
         watching = photoScope.launch {
-            launch { next.state.collect { state = it } }
-            next.progress.collect { progress = it }
+            val following = launch { next.progress.collect { progress = it } }
+            next.state.first { state = it; it != PhotoUpload.State.GOING }
+            progress = next.progress.value
+            following.cancel()
         }
+    }
+
+    /** Sent, taken out or left behind: stop following its upload. */
+    fun release() {
+        watching?.cancel()
+        watching = null
+    }
+
+    /** Not sent after all: its copy taken back, and nothing left holding it. */
+    fun abandon() {
+        upload?.drop()
+        release()
     }
 }
 
@@ -123,7 +141,7 @@ suspend fun AppModel.upload(photos: List<PickedPhoto>): List<String> {
 }
 
 /** They've gone with a message, so they're the backend's to delete now. */
-fun sent(photos: List<PickedPhoto>) = photos.forEach { it.upload?.keep() }
+fun sent(photos: List<PickedPhoto>) = photos.forEach { it.upload?.keep(); it.release() }
 
 /**
  * Reading and preparing photos with Android's ImageDecoder (PhotoPrep.swift's
@@ -138,7 +156,7 @@ object PhotoDecoding {
 
     /** Two at a time across the app, off the main thread. Null when it isn't a picture this can read, or it's too big. */
     suspend fun prepare(source: () -> ImageDecoder.Source, bytes: Long? = null): Prepared? = PhotoPrep.inTurn {
-        withContext(Dispatchers.Default) {
+        within(DECODE_MS) {
             try {
                 prepared(source(), bytes)
             } catch (e: CancellationException) {
@@ -150,14 +168,36 @@ object PhotoDecoding {
         }
     }
 
-    fun fromUri(context: Context, uri: Uri): suspend () -> Prepared? = {
+    /** Asking a provider about a uri: quick, or it's stalled. */
+    private const val ASK_MS = 5_000L
+    /** Reading and drawing a big photo takes a second or two; past this its provider's stalled. */
+    private const val DECODE_MS = 30_000L
+
+    /**
+     * `work` on a background thread, or null after `ms`. Another app's
+     * provider can stall a call for good, and a blocked read doesn't hear a
+     * cancel, so it's left to finish on its own thread rather than waited
+     * for (Codex's review): the photo is refused instead of the box hanging.
+     */
+    private suspend fun <T> within(ms: Long, work: () -> T?): T? =
+        withTimeoutOrNull(ms) { photoScope.async(Dispatchers.IO) { work() }.await() }
+
+    /**
+     * A uri from the picker, the camera or a paste. With `imagesOnly` (a
+     * paste, whose items nobody chose) it must say it's a picture first.
+     * Every call to its provider is off the main thread and timed.
+     */
+    fun fromUri(context: Context, uri: Uri, imagesOnly: Boolean = false): suspend () -> Prepared? = {
         val resolver = context.contentResolver
-        // Its file's size, before reading it, where the provider says.
-        val bytes = withContext(Dispatchers.IO) {
-            runCatching { resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull()
-                ?.takeIf { it != AssetFileDescriptor.UNKNOWN_LENGTH && it >= 0 }
+        val image = !imagesOnly || within(ASK_MS) { resolver.getType(uri)?.startsWith("image/") } == true
+        if (!image) null else {
+            // Its file's size, before reading it, where the provider says.
+            val bytes = within(ASK_MS) {
+                runCatching { resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull()
+                    ?.takeIf { it != AssetFileDescriptor.UNKNOWN_LENGTH && it >= 0 }
+            }
+            prepare({ ImageDecoder.createSource(resolver, uri) }, bytes)
         }
-        prepare({ ImageDecoder.createSource(resolver, uri) }, bytes)
     }
 
     fun fromFile(file: File): suspend () -> Prepared? = {
@@ -268,7 +308,7 @@ class PhotoBox(val text: TextFieldState) {
         if (index < 0) return
         val words = words
         photos.removeAt(index)
-        photo.upload?.drop()
+        photo.abandon()
         val out = InlinePictures.removingMark(index, words)
         text.edit { replace(0, length, out) }
     }
@@ -291,7 +331,7 @@ class PhotoBox(val text: TextFieldState) {
 
     /** The screen's gone: anything not sent is taken back. */
     fun dropAll() {
-        photos.forEach { it.upload?.drop() }
+        photos.forEach { it.abandon() }
     }
 
     /**
@@ -309,7 +349,7 @@ class PhotoBox(val text: TextFieldState) {
             for (j in range.max - 1 downTo range.min) if (j < length && charAt(j) == InlinePictures.MARK) replace(j, j + 1, "")
         }
         if (removed.isNotEmpty()) {
-            for (i in removed.sortedDescending()) if (i < photos.size) photos.removeAt(i).upload?.drop()
+            for (i in removed.sortedDescending()) if (i < photos.size) photos.removeAt(i).abandon()
         }
         // A paste is what came in at once: typing never brings a whole thread id in one change.
         val rewrite = pasteRewrite
