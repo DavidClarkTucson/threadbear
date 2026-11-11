@@ -7,6 +7,7 @@ import com.mikerosoft.threadbear.kit.CommandStatus
 import com.mikerosoft.threadbear.kit.InboxCleared
 import com.mikerosoft.threadbear.kit.InboxSections
 import com.mikerosoft.threadbear.kit.NotifyMode
+import com.mikerosoft.threadbear.kit.PhoneBackend
 import com.mikerosoft.threadbear.kit.PhoneRunner
 import com.mikerosoft.threadbear.kit.PhoneThread
 import com.mikerosoft.threadbear.kit.PocketCard
@@ -40,7 +41,7 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The inbox's and the app shell's own state, beside AppModel (the iPhone's
@@ -114,7 +115,7 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
         if (lastInbox.any { it.threadId == threadId }) takeOffInbox { archiving.update { it + threadId } }
         scope.launch {
             try {
-                val command = withTimeout(20_000) { b.update(threadId, ThreadChange.Archive) }
+                val command = sendWithin(b, threadId, ThreadChange.Archive)
                 val status = outcome(command)
                 if (status?.state == CommandState.FAILED) throw TransportError.Server(status.note ?: "The runner couldn't archive that thread.")
             } catch (e: CancellationException) {
@@ -138,7 +139,7 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
         if ((s.inbox + s.running).any { it.threadId == threadId }) takeOffInbox { tucks.update { it.tuck(threadId) } }
         scope.launch {
             try {
-                val command = withTimeout(20_000) { b.update(threadId, change) }
+                val command = sendWithin(b, threadId, change)
                 val status = outcome(command)
                 if (status?.state == CommandState.FAILED) throw TransportError.Server(status.note ?: "The runner couldn't hibernate that thread.")
             } catch (e: CancellationException) {
@@ -162,7 +163,7 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
         bringingBack.update { it + threadId }
         scope.launch {
             try {
-                val command = withTimeout(20_000) { b.update(threadId, change) }
+                val command = sendWithin(b, threadId, change)
                 val status = outcome(command)
                 if (status?.state == CommandState.FAILED) throw TransportError.Server(status.note ?: "The runner couldn't do that.")
                 // Done: a moment for the lists to follow before it's let go.
@@ -176,6 +177,17 @@ class ShellModel(private val app: AppModel, context: Context, private val scope:
             }
         }
     }
+
+    /**
+     * Sends a change with a deadline: on a client replaced meanwhile it may
+     * never answer. Running out of time is a failure like any other, so the
+     * caller rolls back and says so. withTimeout's own exception is a
+     * CancellationException, which the callers rethrow untouched (for a real
+     * cancellation of the scope), so this turns it into an error instead.
+     */
+    private suspend fun sendWithin(b: PhoneBackend, threadId: String, change: ThreadChange): String =
+        withTimeoutOrNull(20_000) { b.update(threadId, change) }
+            ?: throw TransportError.Server("The server didn't answer in time. Try again.")
 
     /**
      * How a command ended: failed or done, or null once it's gone from the
