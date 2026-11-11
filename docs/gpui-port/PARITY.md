@@ -267,6 +267,51 @@ built parsers and gates with no launch of the app, which is the trap.)
   panel and Highlights take the room in the same shares, the title in the
   same place after the traffic lights. thread-links.sh's Swift typechecked
   and run on Tinker Desk (it has no Threadbear, so "open nothing").
+### 2026-11-11 The login picker, a pinned thread's Unpin, and Claude's breakdown in the context ring (`composer.account`, `composer.modelpicker`, `composer.contextring`)
+
+- The login chip (with no pools: another Mac's thread, or a runner with
+  none) opens AccountPickerView's popover: a heading a provider, Claude then
+  Codex, each login by its address with its note and the room it has left
+  under it ("week 78%, resets Sat 7:49 pm", "Limit reached, resets 3:40
+  pm"), red at its limit and orange under a quarter, a tick on the one
+  chosen, and where the numbers came from at the foot ("Usage from Token
+  Stats at 9:49 pm"). 360 wide, a scroll past 420.
+- A thread pinned to a login (from before pools, or a script) has the model
+  picker's "Pinned to mike+3 · Unpin" under the effort levels: the first
+  shows that login's models, Unpin puts it back in a pool holding its login
+  (its folder's or the last picked first, `Pools.unpinTarget`) and closes the
+  picker. The picker's lines start with the pinned login's models, as the
+  Swift ones do.
+- The context ring's popover, on a Claude thread on this Mac's runner, asks
+  `threads.contextUsage` as it opens and from its refresh button (a spinner
+  while it asks; off once the runner says no CLI is running): "64% used
+  642k / 1M", the stacked bar (what's used from the left, the compacting
+  buffer at the right), a row each with its colour, tokens and share, the
+  tool schemas kept out of it hollow, and "Breakdown from just now". A
+  Codex thread, or another Mac's, keeps to the totals.
+- The three popovers sit centred over their chip, as an NSPopover does, and
+  their content goes to the popover's edges (the kit pads a popover 12 all
+  round, which put the context popover's words 26 in where Swift's are 14).
+- Not the same: the kit's popovers have no arrow, and are the flat popover
+  colour, where Swift's are the see-through material. The model picker's
+  rows are still taller than Swift's (an older difference).
+- Scripts: the GPUI app's `composer-menu` takes `account` (lines and
+  `click`, as the Swift one), `show` on the account and model chips and the
+  ring (a real click on it), and its `context` lines now carry the breakdown.
+  `features/tools/popover-shot.ts` takes a picture of a chip's popover in
+  both apps.
+- Files: `desktop/core/src/{login_picker,context_breakdown}.rs` (new, with
+  their tests), `desktop/gpui/src/{composer_account,composer_context}.rs`
+  (new), `desktop/gpui/src/{composer_chips,automation,main}.rs`,
+  `features/composer-chips.feature` and its steps,
+  `features/tools/popover-shot.ts`.
+- Verification: composer-chips.feature's model, account and context
+  scenarios (the breakdown one no longer pending on GPUI, and two new) on
+  Tinker Desk, 7 of 7 on each app; core's new tests. Pictures of the three
+  popovers in both apps in dark: the context popover lands on Swift's to the
+  point, with its words 14 in; the login picker's rows, headings and footer
+  line up within a point or two.
+
 ### 2026-11-11 Right-click Send to schedule the message (`composer.schedulefromsend`)
 
 - A right-click on the send button (or Stop, or its spinner) offers

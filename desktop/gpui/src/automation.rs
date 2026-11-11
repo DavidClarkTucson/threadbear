@@ -384,10 +384,43 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
                     }
                     Ok(json!(crate::composer_chips::permission_lines(&summary)))
                 }
-                "context" => match data.summary.as_ref().and_then(|t| threadbear_core::composer::ContextMeter::new(t.context_tokens, t.context_window)) {
-                    Some(meter) => Ok(json!([meter.amount(), format!("{}%", meter.percent())])),
+                "context" => match data.summary.as_ref().and_then(|t| threadbear_core::composer::ContextMeter::new(t.context_tokens, t.context_window).map(|m| (t.id.clone(), m))) {
+                    // `show`: the ring clicked, as a person does, which opens
+                    // its popover and asks what fills the context.
+                    Some((_, meter)) if cmd["show"].as_bool() == Some(true) => {
+                        window.render_frame(cx);
+                        let tip = meter.tip();
+                        let Some(ring) = window.find_all_by_label(&tip).into_iter().find(|e| e.visible()) else { return Err("no context ring on screen".into()) };
+                        let at = ring.bounds().center();
+                        window.pointer_move(at, None, cx);
+                        window.pointer_down(at, MouseButton::Left, cx);
+                        window.pointer_up(at, MouseButton::Left, cx);
+                        Ok(json!("ok window 0"))
+                    }
+                    // Its tokens and percent, then Claude's breakdown once the
+                    // runner has answered (composer_context.rs).
+                    Some((thread, meter)) => {
+                        let mut lines = vec![meter.amount(), format!("{}%", meter.percent())];
+                        lines.extend(crate::composer_context::breakdown_lines(&thread));
+                        Ok(json!(lines))
+                    }
                     None => Err("no context meter on this thread".into()),
                 },
+                // The login picker (composer_account.rs).
+                "account" if cmd["show"].as_bool() != Some(true) => crate::composer_account::menu_command(&composer, cmd, cx),
+                // `show`: the chip clicked, as a person does, which opens its
+                // picker over the box (the Swift command says the popover's
+                // window; here it's in the main one).
+                menu @ ("account" | "model" | "") if cmd["show"].as_bool() == Some(true) => {
+                    let title = crate::composer_chips::chip_title(&data, menu).ok_or("no chip like that here")?;
+                    window.render_frame(cx);
+                    let Some(chip) = window.find_all_by_label(&title).into_iter().find(|e| e.visible()) else { return Err(format!("no chip {title:?} on screen")) };
+                    let at = chip.bounds().center();
+                    window.pointer_move(at, None, cx);
+                    window.pointer_down(at, MouseButton::Left, cx);
+                    window.pointer_up(at, MouseButton::Left, cx);
+                    Ok(json!("ok window 0"))
+                }
                 _ => {
                     if let Some(title) = cmd["click"].as_str() {
                         return crate::composer_chips::picker_click(&composer, title, cx).map(|_| json!("ok"));

@@ -8,8 +8,7 @@ use crate::style::{self, size};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::popover::{Popover, PopoverState};
-use gpui_kit::component::progress::Progress;
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Selectable, Sizable as _};
 use gpui_kit::prelude::*;
@@ -131,7 +130,7 @@ impl Composer {
         self.change_thread(move |t| t.cwd = local, json!({ "cwd": folder }), cx);
     }
 
-    fn set_account(&self, account: String, cx: &mut App) {
+    pub(crate) fn set_account(&self, account: String, cx: &mut App) {
         let local = account.clone();
         self.change_thread(move |t| t.account_id = local, json!({ "accountId": account }), cx);
     }
@@ -376,24 +375,14 @@ impl Composer {
         let Some(settings) = data.settings() else { return div().into_any_element() };
         let title = settings.account_chip_title();
         let tip = settings.account_chip_help();
-        let current = settings.account.clone();
-        let accounts = data.logins.accounts.clone();
         let composer = cx.entity().downgrade();
         Popover::new("composer-account")
-            .anchor(Anchor::BottomLeft)
+            // Centred over its chip, as an NSPopover opens.
+            .anchor(Anchor::BottomCenter)
             .trigger(ChipTrigger { badge: settings.account_badge(), id: "composer-account-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(Icon::from(IconName::CircleUser)), tip: tip.into(), selected: false })
-            .content(move |_, window, cx| {
-                let popover = cx.entity();
-                v_flex().w(px(320.)).p(px(4.)).children(accounts.iter().enumerate().map(|(i, account)| {
-                    let (popover, composer, id) = (popover.clone(), composer.clone(), account.id.clone());
-                    menu_row(("account", i), None, &account.name(), account.note.as_deref(), account.id == current, window, cx, move |window, cx| {
-                        popover.update(cx, |s, cx| s.dismiss(window, cx));
-                        if let Some(c) = composer.upgrade() {
-                            c.update(cx, |c, cx| c.set_account(id.clone(), cx));
-                        }
-                    })
-                }))
-            })
+            // The logins by provider with their room (composer_account.rs),
+            // read live, so a pick shows at once.
+            .content(move |_, window, cx| crate::composer_account::picker(composer.clone(), window, cx))
             .into_any_element()
     }
 
@@ -416,40 +405,45 @@ impl Composer {
         };
         let picker = self.picker_state(window, cx);
         Popover::new("composer-model")
-            .anchor(Anchor::BottomLeft)
+            // Centred over its chip, as an NSPopover opens.
+            .anchor(Anchor::BottomCenter)
             .trigger(ChipTrigger { badge: settings.model_chip_badge(), id: "composer-model-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(icon), tip: tip.into(), selected: false })
-            .content(move |_, _, _| picker.clone())
+            // To the popover's edges, as the Swift picker's rail and dividers
+            // go: the kit's popover pads its content 12 all round.
+            .content(move |_, _, _| div().m(gpui_kit::px(-12.)).child(picker.clone()))
             .into_any_element()
     }
 
     fn render_context_ring(&self, meter: ContextMeter, data: &ChipData) -> impl IntoElement {
-        let model_line = data.settings().map(|s| threadbear_core::logins::chip_title(s.effective_model().as_deref(), s.effective_effort().as_deref(), s.choices())).unwrap_or_default();
-        let login_line = data.summary.as_ref().and_then(|t| data.logins.account(&t.account_id).map(|a| a.name())).unwrap_or_default();
+        let model = data.settings().map(|s| threadbear_core::logins::chip_title(s.effective_model().as_deref(), s.effective_effort().as_deref(), s.choices())).unwrap_or_default();
+        let login = data.summary.as_ref().map(|t| data.logins.account(&t.account_id).map_or_else(|| t.account_id.clone(), |a| a.name())).unwrap_or_default();
+        // Only this Mac's runner can ask a thread's CLI; another Mac's thread
+        // keeps to the totals, as the Swift app's does through the backend.
         let provider = data.summary.as_ref().map(|t| t.provider.clone()).unwrap_or_default();
-        let cost = data.summary.as_ref().and_then(|t| t.cost_usd).filter(|c| *c > 0.).map(|c| format!("${c:.2}"));
+        let facts = std::rc::Rc::new(crate::composer_context::ContextFacts {
+            thread: data.summary.as_ref().map(|t| t.id.clone()).unwrap_or_default(),
+            provider,
+            asks: data.away.is_none(),
+            meter,
+            model,
+            login,
+            cost: data.summary.as_ref().and_then(|t| t.cost_usd).filter(|c| *c > 0.).map(|c| format!("${c:.2}")),
+            client: self.client.clone(),
+        });
         let tip = meter.tip();
+        let opened = facts.clone();
         Popover::new("composer-context")
-            .anchor(Anchor::BottomRight)
+            // Centred over the ring, as an NSPopover opens.
+            .anchor(Anchor::BottomCenter)
             .trigger(ChipTrigger { badge: None, id: "composer-context-ring".into(), kind: TriggerKind::Ring(meter), title: SharedString::default(), icon: None, tip: tip.into(), selected: false })
-            .content(move |_, _, cx| {
-                let fraction = meter.fraction() as f32;
-                let note = format!("{} compacts it by itself when it's nearly full.", if provider == "codex" { "Codex" } else { "Claude" });
-                let row = |name: &'static str, value: String, cx: &mut Context<PopoverState>| {
-                    h_flex().justify_between().gap(px(12.)).text_size(px(12.)).child(div().text_color(cx.theme().muted_foreground).child(name)).child(div().truncate().child(value))
-                };
-                v_flex()
-                    .w(px(260.))
-                    .p(px(14.))
-                    .gap(px(6.))
-                    .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child("Context"))
-                    .child(Progress::new("context-fill").value(fraction * 100.).h(px(4.)))
-                    .child(h_flex().justify_between().text_size(px(12.)).child(meter.amount()).child(div().text_color(cx.theme().muted_foreground).child(format!("{}%", meter.percent()))))
-                    .child(div().text_size(px(11.)).text_color(cx.theme().muted_foreground).child(note.clone()))
-                    .child(div().h(px(1.)).bg(style::hairline(cx)))
-                    .child(row("Model", model_line.clone(), cx))
-                    .child(row("Login", login_line.clone(), cx))
-                    .when_some(cost.clone(), |s, cost| s.child(row("Cost so far", cost, cx)))
+            // What fills a Claude thread's context, asked each time it opens
+            // (composer_context.rs).
+            .on_open_change(move |open, _, cx| {
+                if *open {
+                    crate::composer_context::load(&opened, cx);
+                }
             })
+            .content(move |_, _, cx| crate::composer_context::popover(&facts, cx))
     }
 
     /// The machine chip on the new-thread box (`runsOnChip`): which Mac the
@@ -842,12 +836,16 @@ impl Render for ModelPickerView {
                     })
             }))
         });
+        // A thread pinned to a login (from before 28 Oct, or a script):
+        // "Pinned to … · Unpin" under the effort levels (PoolFooter).
+        let pinned = (pools && settings.pool().is_none()).then(|| self.render_pinned_footer(&settings, cx));
         let right = v_flex()
             .flex_1()
             .min_w_0()
             .child(h_flex().h(px(36.)).px(px(12.)).gap(px(6.)).border_b_1().border_color(style::hairline(cx)).child(Icon::from(IconName::Search).with_size(px(12.)).text_color(style::faint_text(cx))).child(div().flex_1().child(Input::new(&self.search).appearance(false).bordered(false).text_size(px(13.)))))
             .child(div().id("picker-list").max_h(px(320.)).overflow_y_scroll().child(list))
-            .children(effort.map(|e| div().border_t_1().border_color(style::hairline(cx)).child(e)));
+            .children(effort.map(|e| div().border_t_1().border_color(style::hairline(cx)).child(e)))
+            .children(pinned.map(|p| div().border_t_1().border_color(style::hairline(cx)).child(p)));
         // Stretched, so the rail runs down the whole popover beside the list.
         h_flex().w(px(width)).child(rail).child(div().w(px(1.)).bg(style::hairline(cx))).child(right).into_any_element()
     }
@@ -856,6 +854,64 @@ impl Render for ModelPickerView {
 impl ModelPickerView {
     fn chip_snapshot(&self, cx: &App) -> ChipData {
         self.composer.upgrade().map(|c| c.read(cx).chip_data(cx)).unwrap_or(ChipData { summary: None, logins: RunnerLogins::default(), is_new: false, away: None })
+    }
+
+    /// PoolFooter: "Pinned to gmail", which shows that login's models, and
+    /// Unpin, which hands the thread back to a pool and closes the picker.
+    fn render_pinned_footer(&self, settings: &ChipSettings<'_>, cx: &mut Context<Self>) -> AnyElement {
+        let line = threadbear_core::login_picker::pinned_line(&settings.account, &settings.logins.accounts);
+        let composer = self.composer.clone();
+        h_flex()
+            .px(px(12.))
+            .py(px(10.))
+            .gap(px(4.))
+            .text_size(px(11.))
+            .line_height(px(style::natural_line(11.)))
+            .child(
+                div()
+                    .id("picker-pinned")
+                    .cursor_pointer()
+                    .text_color(style::secondary_label(cx))
+                    .hover(|s| s.text_color(style::label_text(cx)))
+                    .tooltip(|window, cx| Tooltip::new("Show this login's models").build(window, cx))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.column = Some(PINNED_COLUMN.to_owned());
+                        cx.notify();
+                    }))
+                    .child(line),
+            )
+            .child(div().text_color(style::tertiary_label(cx)).child("\u{00B7}"))
+            .child(
+                div()
+                    .id("picker-unpin")
+                    .cursor_pointer()
+                    .text_color(style::label_text(cx))
+                    .hover(|s| s.opacity(0.75))
+                    .tooltip(|window, cx| Tooltip::new("Let the pool pick the login again").build(window, cx))
+                    .on_click(move |_, window, cx| {
+                        if let Some(c) = composer.upgrade() {
+                            c.update(cx, |c, cx| c.unpin(cx));
+                        }
+                        window.dispatch_action(Box::new(gpui_kit::base::actions::Cancel), cx);
+                    })
+                    .child("Unpin"),
+            )
+            .into_any_element()
+    }
+}
+
+impl Composer {
+    /// Unpin (AppModel.unpinThread): back in a pool holding its login, so it
+    /// stays where it is until that login runs dry; on the new-thread page,
+    /// the draft goes back to the pool a new thread starts in.
+    pub(crate) fn unpin(&self, cx: &mut App) {
+        let data = self.chip_data(cx);
+        let Some(thread) = data.summary.clone() else { return };
+        let home = std::env::var("HOME").unwrap_or_default();
+        let last = self.app.upgrade().and_then(|a| a.read(cx).new_thread.prefs.remembered.last_pool.clone());
+        let Some(target) = threadbear_core::login_picker::unpin_target(&data.logins.pools, &thread.account_id, &thread.cwd, &home, last.as_deref()) else { return };
+        let guess = target.clone();
+        self.change_thread(move |t| t.pool_id = Some(guess), json!({ "poolId": target }), cx);
     }
 }
 
@@ -906,6 +962,12 @@ pub(crate) fn picker_lines(data: &ChipData) -> Vec<String> {
             lines.push(line);
         }
     };
+    // A pinned thread's own login first, as the picker opens on it.
+    let pinned = (settings.uses_pools() && settings.pool().is_none()).then(|| threadbear_core::login_picker::pinned_line(&settings.account, &data.logins.accounts));
+    if let Some(line) = &pinned {
+        lines.push(format!("# {line}"));
+        add_rows(settings.rows(&settings.provider, ""), &mut lines);
+    }
     if settings.uses_pools() {
         for pool in &data.logins.pools {
             let is_own = settings.pool().is_some_and(|p| p.id == pool.id);
@@ -934,6 +996,9 @@ pub(crate) fn picker_lines(data: &ChipData) -> Vec<String> {
         }
         lines.push(line);
     }
+    if let Some(line) = pinned {
+        lines.push(format!("--- {line} \u{00B7} Unpin"));
+    }
     lines
 }
 
@@ -949,6 +1014,17 @@ pub(crate) fn badge_words(badge: &ChipBadge) -> String {
 #[cfg(feature = "automation")]
 pub(crate) fn model_chip_text(data: &ChipData) -> String {
     data.settings().map(|s| s.model_chip_title()).unwrap_or_default()
+}
+
+/// What the `account` or model chip is called (its words), for a script
+/// to click it; None where that chip isn't shown.
+#[cfg(feature = "automation")]
+pub(crate) fn chip_title(data: &ChipData, menu: &str) -> Option<String> {
+    let settings = data.settings()?;
+    match menu {
+        "account" => (!settings.uses_pools()).then(|| settings.account_chip_title()),
+        _ => Some(settings.model_chip_title()),
+    }
 }
 
 /// The model chip's badge as it reads, for the dump's `composer.chipBadge`.
@@ -980,6 +1056,14 @@ pub(crate) fn permission_lines(summary: &ThreadSummary) -> Vec<String> {
 pub(crate) fn picker_click(composer: &Entity<Composer>, title: &str, cx: &mut App) -> Result<(), String> {
     let data = composer.read(cx).chip_data(cx);
     let settings = data.settings().ok_or("no thread")?;
+    // The pinned line's Unpin, as its click does.
+    if title == "Unpin" {
+        if !settings.uses_pools() || settings.pool().is_some() {
+            return Err("it isn't pinned".into());
+        }
+        composer.update(cx, |c, cx| c.unpin(cx));
+        return Ok(());
+    }
     let columns: Vec<(String, String)> = if settings.uses_pools() {
         let mut order: Vec<&threadbear_core::logins::Pool> = data.logins.pools.iter().collect();
         if let Some(own) = settings.pool() {

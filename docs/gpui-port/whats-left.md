@@ -63,11 +63,11 @@ you go.
   `composer.cardmention`). In since 11 Nov, but for a click on a card on the
   Highlights' board, which waits for the board, and a thread dragged from the
   sidebar, whose drop the box takes once the rows start one (`drag.threadout`)
-- [ ] The login picker is one flat list: no room left per login, no provider
-  groups (`composer.account`)
-- [ ] No "Pinned to … · Unpin" line in the model picker, and no Claude
+- [x] The login picker is one flat list: no room left per login, no provider
+  groups (`composer.account`). In since 11 Nov
+- [x] No "Pinned to … · Unpin" line in the model picker, and no Claude
   breakdown in the context ring (`composer.modelpicker`,
-  `composer.contextring`)
+  `composer.contextring`). In since 11 Nov
 - [x] No right-click on Send to schedule the message
   (`composer.schedulefromsend`). In since 11 Nov
 - [ ] The slash palette can't be resized (`composer.slash.resize`)

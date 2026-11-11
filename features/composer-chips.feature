@@ -30,6 +30,24 @@ Feature: The chips under the message box
     When I pick "High" from the "model" menu
     Then the model chip says "Claude · Fable 5.1 · High"
 
+  @composer.modelpicker
+  Scenario: A thread pinned to a login says so in the model picker, and Unpin hands it back to a pool
+    When I open the thread "Compare SQLite and plain files for the runner"
+    Then the "model" menu has a row "# Pinned to mike+3"
+    And the "model" menu has a row "--- Pinned to mike+3 · Unpin"
+    When I pick "Unpin" from the "model" menu
+    Then the "model" menu has no row "--- Pinned to"
+
+  # Without pools there's a login chip: another Mac's thread, as bruce has none.
+  @composer.account @remote-threads
+  Scenario: The login picker groups the logins by provider, with the room each has left
+    When I open the thread "Check the photo library backup"
+    Then the "account" menu has a row "# Claude"
+    And the "account" menu has a row "[x] mike@example.com - week 78%, resets"
+    And the "account" menu has a row "# Codex"
+    And the "account" menu has a row "[ ] mike@example.com - week 64%, resets"
+    And the "account" menu has a row "--- Usage from Token Stats at"
+
   @composer.schedulefromsend
   Scenario: Right-clicking Send offers to send the message later
     When I type "Check the backups tonight" in the composer
@@ -48,7 +66,7 @@ Feature: The chips under the message box
     When I open the thread "Make uploads resume after a crash"
     Then the "context" menu says "642k of 1M tokens" and "64%"
 
-  @composer.contextring @gpui-pending
+  @composer.contextring
   Scenario: The context ring's popover says what fills a Claude thread's context
     When I open the thread "Make uploads resume after a crash"
     And I open the context ring's popover

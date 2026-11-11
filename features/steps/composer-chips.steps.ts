@@ -25,6 +25,17 @@ Then('the {string} menu has a row {string}', async function (this: ThreadbearWor
   assert.ok(lines.some((l) => l.startsWith(row)), `no row "${row}" in the ${menu} menu:\n${lines.join('\n')}`);
 });
 
+// Once a pick has landed, which takes a moment.
+Then('the {string} menu has no row {string}', async function (this: ThreadbearWorld, menu: string, row: string) {
+  let lines: string[] = [];
+  for (let tries = 0; tries < 40; tries += 1) {
+    lines = await menuLines(this, menu);
+    if (!lines.some((l) => l.startsWith(row))) return;
+    await sleep(150);
+  }
+  assert.fail(`the ${menu} menu still has "${row}":\n${lines.join('\n')}`);
+});
+
 When('I pick {string} from the {string} menu', async function (this: ThreadbearWorld, title: string, menu: string) {
   await this.app.do({ cmd: 'composer-menu', menu, click: title });
 });
