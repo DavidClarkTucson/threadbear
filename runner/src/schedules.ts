@@ -120,7 +120,7 @@ const ONLINE_MS = 3 * 60_000;
 // offered in runners.list: an old install, or a test's.
 const FORGET_MS = 30 * 86_400_000;
 
-export type ScheduleRunner = Pick<Runner, 'create' | 'send' | 'get' | 'hello' | 'onNotification' | 'publish' | 'patchTrust'>;
+export type ScheduleRunner = Pick<Runner, 'create' | 'send' | 'get' | 'hello' | 'onNotification' | 'publish' | 'patchTrust'> & { cfg?: Pick<Runner['cfg'], 'defaults'> };
 
 export type CreateScheduleParams = {
   // A card's approval of `check` (patch-trust.ts, approveCheck). Not from a client.
@@ -1395,6 +1395,13 @@ export class Scheduler {
 
   private view(rec: ScheduleRecord): Schedule {
     const v: Schedule = { ...rec, whenText: this.whenText(rec) };
+    // What one with no mode of its own runs with, as new-threads.ts picks it
+    // when it runs: so raising it is checked against that, not a guess of
+    // full (Daybreak, 10 Nov: on an Ask-default runner, an Ask thread set
+    // one to Auto as if lowering it). Only this runner's default is known.
+    const defaults = this.runner.cfg?.defaults;
+    if (!rec.threadId && !rec.permissionMode && this.mine(rec) && defaults) v.defaultMode = defaults.permissionMode ?? 'full';
+    else delete v.defaultMode;
     if (rec.runnerId) {
       const own = rec.runnerId === this.self.id;
       const name = own ? this.self.name : this.names.get(rec.runnerId);

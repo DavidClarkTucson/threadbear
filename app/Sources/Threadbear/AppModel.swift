@@ -77,6 +77,14 @@ struct AskPicks: Equatable {
     var notes: [Int: AskNote] = [:]
 }
 
+/// An answer sent from a decision card on the Projects page (the
+/// projectDecisions experiment), while it's on its way: which card it
+/// answered, and what was picked, for the card's "Sending to" line.
+struct DecisionSend: Equatable {
+    var asksSeq: Int
+    var answers: [String]
+}
+
 /// The follow-ups ticked on a thread's done card, and which card they're for.
 struct NextPicks: Equatable {
     var seq: Int
@@ -284,7 +292,14 @@ final class AppModel {
     /// id, or "new"): with threads open in several panels, only that one's.
     var focusRequests: [String: Int] = [:]
     var now = Date()
-    var drafts: [String: Draft] = [:]
+    var drafts: [String: Draft] = [:] {
+        // Kept on disk once the app has asked (DraftStore), so a quit or a
+        // relaunch can't take a message that never went (10 Nov).
+        didSet { draftStore?.changed(self) }
+    }
+    @ObservationIgnored var draftStore: DraftStore?
+    /// Set once this app has handed its drafts to a new build at "go".
+    @ObservationIgnored var handingOver = false
     /// Messages being edited, by thread id: the seq of the message the
     /// composer's draft will replace (docs/protocol.md, "Editing a
     /// message"), and whatever was in the box before, to put back after.
@@ -293,6 +308,9 @@ final class AppModel {
     /// thread id, waiting in the composer to go with his next message.
     /// Ones for an older card count as none.
     var askPicks: [String: AskPicks] = [:]
+    /// Answers sent from the Projects page's decision cards, by thread id,
+    /// until the thread takes them (ProjectDecisions.isSending).
+    var decisionSends: [String: DecisionSend] = [:]
     /// The seq of the card of asks collapsed on each thread, by thread id.
     /// By card, so the next one, something new to decide, always opens.
     var collapsedCards: [String: Int] = [:]
@@ -551,6 +569,10 @@ final class AppModel {
     /// The backend can't send phone notifications (a self-hosted one), from
     /// runner.status, so Phone & browser says so.
     var pushOff = false
+    /// The backend is on this Mac only (runner.status's sync.url on
+    /// 127.0.0.1): no phone can pair, and the website and share links only
+    /// open here.
+    var localOnly = false
     var devicesReason: String?
     var devicesError: String?
     var devicesUnsupported = false
@@ -596,6 +618,14 @@ final class AppModel {
             }
         }
     }
+    /// The Threads panel folded away with ⌘/ (Wayne, 8 Nov). Unlike Hide
+    /// Threads it stays in the dock layout, only unavailable (DockContent),
+    /// so it comes back where it was, as wide as it was, and the main panel
+    /// takes its room meanwhile. Remembered across launches.
+    var threadsCollapsed: Bool = UserDefaults.standard.bool(forKey: AppModel.threadsCollapsedKey) {
+        didSet { UserDefaults.standard.set(threadsCollapsed, forKey: Self.threadsCollapsedKey) }
+    }
+    static let threadsCollapsedKey = "threadsCollapsed"
     /// Inbox sections folded away under their heading, remembered across
     /// launches (Mike asked 27 Oct). Hibernating and Archive start folded.
     var collapsedSections: Set<InboxSection> = AppModel.storedCollapsedSections() {
@@ -627,6 +657,11 @@ final class AppModel {
     /// (SlashPalette.swift), for the composer's palette.
     var slashCommands: [String: [SlashCommand]] = [:]
     @ObservationIgnored var slashFetches: [String: Task<Void, Never>] = [:]
+    /// Each thread's last `threads.contextUsage` answer, for the context
+    /// ring's popover, and the threads it's being asked for (its refresh
+    /// button spins meanwhile).
+    var contextUsage: [String: ContextUsageAnswer] = [:]
+    var contextUsageLoading: Set<String> = []
     /// The sizes Mike dragged the palette and its columns to, kept for
     /// next time.
     var slashPaletteLayout: SlashPalette.Layout = (UserDefaults.standard.data(forKey: "slashPaletteLayout")).flatMap { try? JSONDecoder().decode(SlashPalette.Layout.self, from: $0) } ?? SlashPalette.Layout() {

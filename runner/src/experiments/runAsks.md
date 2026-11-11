@@ -9,7 +9,7 @@ reminder: c9e2765c
 
 ## What it does
 
-When something is yours to run and not the agent's (a production migration, a deploy), the agent can put the command on its card. You see the exact command and the folder it runs in, with a Run button. It runs once, on the machine the thread is on, and the output goes straight back to the agent, so it carries on with no copying or typing "done". Works from the Mac, the phone and the website. The command can't answer prompts, so one that asks "are you sure?" fails and the agent hears why. It stops after ten minutes.
+When something is yours to run and not the agent's (a production migration, a deploy), the agent can put the command on its card. You see the exact command and the folder it runs in, with a Run button. It runs once, on the machine the thread is on, and the output goes straight back to the agent, so it carries on with no copying or typing "done". Works from the Mac, the phone and the website, except a command the phone or website would show with a secret scrubbed out of it: that one runs only from the Mac app connected straight to the thread's runner. The command can't answer prompts, so one that asks "are you sure?" fails and the agent hears why. It stops after ten minutes.
 
 ## Lives in
 

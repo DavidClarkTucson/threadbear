@@ -253,7 +253,7 @@ impl SidePane {
                 if let Some(path) = &path2 {
                     this.preview_path(path, Some(title2.clone()), &thread3, cx);
                 } else if let Some(url) = &url2 {
-                    this.open_url(url, cx);
+                    this.follow_link(url, cx);
                 }
             });
             let (path3, url3, title3) = (path, url, title);

@@ -312,10 +312,32 @@ fn waiting_time<Tz: TimeZone>(until_ms: i64, now: &DateTime<Tz>) -> String {
     if until_ms <= now.timestamp_millis() {
         return "any moment now".into();
     }
+    match waiting_parts(until_ms, now) {
+        (Some(day), clock_text) => format!("{day} {clock_text}"),
+        (None, clock_text) => clock_text,
+    }
+}
+
+/// The open thread's line while it waits: "Every login in Evenings is out of
+/// room. It carries on by itself at 5:25 pm." (`Pools.waitingSentence`).
+pub fn waiting_sentence<Tz: TimeZone>(pool_title: &str, until_ms: i64, now: &DateTime<Tz>) -> String {
+    let start = format!("Every login in {pool_title} is out of room. ");
+    if until_ms <= now.timestamp_millis() {
+        return start + "It carries on any moment now.";
+    }
+    match waiting_parts(until_ms, now) {
+        (Some(day), clock_text) => format!("{start}It carries on by itself {day} at {clock_text}."),
+        (None, clock_text) => format!("{start}It carries on by itself at {clock_text}."),
+    }
+}
+
+/// "5:00 am", and the day when it isn't today ("tomorrow", "Thu")
+/// (`Pools.waitingParts`).
+fn waiting_parts<Tz: TimeZone>(until_ms: i64, now: &DateTime<Tz>) -> (Option<&'static str>, String) {
     let date = local(until_ms, &now.timezone());
     let clock_text = clock(&date);
     if same_day(&date, now) {
-        return clock_text;
+        return (None, clock_text);
     }
     let tomorrow = now.clone() + Duration::days(1);
     let yesterday = now.clone() - Duration::days(1);
@@ -326,7 +348,7 @@ fn waiting_time<Tz: TimeZone>(until_ms: i64, now: &DateTime<Tz>) -> String {
     } else {
         weekday_name(&date)
     };
-    format!("{day} {clock_text}")
+    (Some(day), clock_text)
 }
 
 /// Short, for the sidebar: "3 sub-agents", "1 job", "Finishing" when all
@@ -929,6 +951,9 @@ mod tests {
         assert_eq!(waiting_line(ms("2026-11-10T05:00:00+11:00"), &now), "Waiting for room · tomorrow 5:00 am");
         assert_eq!(waiting_line(ms("2026-11-12T05:00:00+11:00"), &now), "Waiting for room · Thu 5:00 am");
         assert_eq!(waiting_line(ms("2026-11-09T19:00:00+11:00"), &now), "Waiting for room · any moment now");
+        assert_eq!(waiting_sentence("Evenings", ms("2026-11-09T21:25:00+11:00"), &now), "Every login in Evenings is out of room. It carries on by itself at 9:25 pm.");
+        assert_eq!(waiting_sentence("Evenings", ms("2026-11-10T05:00:00+11:00"), &now), "Every login in Evenings is out of room. It carries on by itself tomorrow at 5:00 am.");
+        assert_eq!(waiting_sentence("Evenings", ms("2026-11-09T19:00:00+11:00"), &now), "Every login in Evenings is out of room. It carries on any moment now.");
     }
 
     #[test]

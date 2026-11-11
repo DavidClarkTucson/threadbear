@@ -204,6 +204,7 @@ actions!(
         TogglePanels,
         ToggleTerminal,
         ResetPanelLayout,
+        ToggleFrameRate,
         AboutApp,
         TakeTheTour,
         FinishSettingUp,
@@ -273,6 +274,7 @@ commands!(
     (TogglePanels, TogglePanels, Some(ShortcutCommand::TogglePanels)),
     (ToggleTerminal, ToggleTerminal, Some(ShortcutCommand::ToggleTerminal)),
     (ResetPanelLayout, ResetPanelLayout, Some(ShortcutCommand::ResetPanelLayout)),
+    (ToggleFrameRate, ToggleFrameRate, None),
     (About, AboutApp, None),
     (TakeTheTour, TakeTheTour, None),
     (FinishSettingUp, FinishSettingUp, None),
@@ -538,6 +540,7 @@ impl Threadbear {
             Command::TogglePanels => self.toggle_panels(cx),
             Command::ToggleTerminal => self.toggle_terminal(cx),
             Command::ResetPanelLayout => self.reset_panel_layout(cx),
+            Command::ToggleFrameRate => self.toggle_frame_rate(window, cx),
             Command::About => window.push_notification("Threadbear (GPUI)", cx),
             Command::TakeTheTour | Command::FinishSettingUp => window.push_notification("That isn't in this app yet.", cx),
             Command::HibernateHour => self.hibernate_open("hour", window, cx),
@@ -893,7 +896,10 @@ impl Threadbear {
                     item(if panels_shown { "Hide Panels" } else { "Show Panels" }, Command::TogglePanels),
                     item(if terminal_shown { "Hide Terminal" } else { "Show Terminal" }, Command::ToggleTerminal),
                     item("Reset Panel Layout", Command::ResetPanelLayout),
-                ],
+                ]
+                .into_iter()
+                .chain(self.frame_rate_items())
+                .collect(),
             ),
             TopMenu::new(
                 "Go",
@@ -924,6 +930,29 @@ impl Threadbear {
             ),
             TopMenu::new("Help", vec![item("Take the Tour", Command::TakeTheTour), item("Finish Setting Up", Command::FinishSettingUp)]),
         ]
+    }
+
+    /// Show Frame Rate, in a build that can measure it (`frame-stats`).
+    fn frame_rate_items(&self) -> Vec<MenuEntry> {
+        #[cfg(feature = "frame-stats")]
+        {
+            let title = if self.frame_rate.is_some() { "Hide Frame Rate" } else { "Show Frame Rate" };
+            vec![MenuEntry::Separator, MenuEntry::item(title, Command::ToggleFrameRate)]
+        }
+        #[cfg(not(feature = "frame-stats"))]
+        Vec::new()
+    }
+
+    fn toggle_frame_rate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(feature = "frame-stats")]
+        {
+            self.frame_rate = match self.frame_rate.take() {
+                Some(_) => None,
+                None => Some(cx.new(|cx| crate::frame_stats::FrameRate::new(window, cx))),
+            };
+            cx.notify();
+        }
+        let _ = (window, cx);
     }
 
     fn hibernate_menu_items(&self) -> Vec<MenuEntry> {
@@ -1000,16 +1029,29 @@ impl Threadbear {
     /// What a panel shows (`RootView.content`'s `view`).
     pub(crate) fn panel_view(&mut self, panel: &str, ghost: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match panel {
-            THREADS => match self.mode {
-                SidebarMode::Inbox => self.render_sidebar(cx).into_any_element(),
-                other => self.render_mode_sidebar(other, cx).into_any_element(),
-            },
+            // A drag's ghost of it is drawn in place, not from the cached view,
+            // which is already drawn where the panel sits.
+            THREADS if ghost => self.render_threads_panel(window, cx),
+            THREADS => {
+                let app = cx.entity();
+                let view = self.sidebar_view.get_or_insert_with(|| cx.new(|cx| crate::sidebar::SidebarView::new(&app, cx))).clone();
+                AnyView::from(view).cached(StyleRefinement::default().size_full()).into_any_element()
+            }
             MAIN => self.render_main_panel(window, cx).into_any_element(),
             // Highlights, Files, Patches and a patch's own panels are sections of
             // the one pane beside the thread (highlights.rs), each its own panel
             // in the dock, as in the Swift app.
             _ if !ghost && self.is_side_section(panel) => self.render_side_section(panel, cx),
             _ => self.render_pane_placeholder(panel, cx).into_any_element(),
+        }
+    }
+
+    /// What the Threads panel shows: the thread list, or the page of the
+    /// rail's other modes (drawn by `SidebarView`).
+    pub(crate) fn render_threads_panel(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        match self.mode {
+            SidebarMode::Inbox => self.render_sidebar(cx).into_any_element(),
+            other => self.render_mode_sidebar(other, cx).into_any_element(),
         }
     }
 
@@ -1073,7 +1115,10 @@ impl Threadbear {
                 cx.defer(move |cx| side.update(cx, |side, cx| side.choose_section(&thread.id, &section, cx)));
             }
         }
-        div().size_full().child(self.side.clone()).into_any_element()
+        // Cached, like the Threads panel, so scrolling the transcript doesn't
+        // redraw it every frame: it draws again when the app changes
+        // (SidePane::app_changed) or its own state does.
+        AnyView::from(self.side.clone()).cached(StyleRefinement::default().size_full()).into_any_element()
     }
 }
 

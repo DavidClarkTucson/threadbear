@@ -135,6 +135,10 @@ export const buttonsPart = {
           ...(s.model ? { model: s.model } : {}),
           ...(s.effort ? { effort: s.effort } : {}),
           permissionMode: s.permissionMode,
+          // Mike's press, of a button he allowed when a sandboxed thread
+          // made it (add_button's card says "outside the sandbox"). One
+          // into a sandbox folder is still shut in there.
+          unconfine: true,
           startedBy: { kind: 'thread', label: 'Button', threadId: st.rec.id, threadTitle: st.rec.title, ...(s.why ? { why: s.why } : {}) },
         });
         next = { ...button, pressed: { at: this.isoNow(), threadId: r.thread.id } };

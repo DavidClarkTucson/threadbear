@@ -123,6 +123,9 @@ struct AsksCard: View {
         }
     }
 
+    /// The muted gold of the Mac's "Recommended" star.
+    static let recommendedStar = Color(red: 0.86, green: 0.70, blue: 0.33)
+
     private func choiceButton(_ label: String, note: String? = nil, index: Int, choice: Int, suggested: Bool) -> some View {
         let picked = picks[index] == choice
         return Button {
@@ -141,8 +144,12 @@ struct AsksCard: View {
                 // A row: the answer, then what it does, full width.
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
-                        if suggested && !picked { Image(systemName: "star.fill").imageScale(.small).foregroundStyle(.secondary) }
                         Text(label).fontWeight(.medium).spinning(picked && busy && asks.count == 1, tint: .white)
+                        // The agent's pick: a small gold star and "Recommended", as on the Mac.
+                        if suggested && !picked {
+                            Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(Self.recommendedStar)
+                            Text("Recommended").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     Text(note).font(.footnote).foregroundStyle(picked ? .white.opacity(0.85) : .secondary)
                         .multilineTextAlignment(.leading)
@@ -151,7 +158,7 @@ struct AsksCard: View {
             } else {
                 HStack(spacing: 4) {
                     // The agent's own pick, as the Mac marks it.
-                    if suggested && !picked { Image(systemName: "star.fill").imageScale(.small).foregroundStyle(.secondary) }
+                    if suggested && !picked { Image(systemName: "star.fill").imageScale(.small).foregroundStyle(Self.recommendedStar).accessibilityLabel("Recommended") }
                     Text(label).spinning(picked && busy && asks.count == 1, tint: .white)
                 }
             }

@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-108 of 326 features have a spec so far, across 194 scenarios.
+114 of 329 features have a spec so far, across 202 scenarios.
 
-Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linux: 192 of 194.
+Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linux: 193 of 202.
 
 
 ### 0. Foundations everything else needs
@@ -28,6 +28,7 @@ Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linu
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `dock.layout` Layout tree | pass | pass | pass | pass |
+| `dock.titlebar` No title bar | pending | pending | pending | pending |
 | `dock.frame` Window frame memory | pending | pending | pending | pending |
 | `dock.reset` Default layout and Reset | pass | pass | pass | pass |
 
@@ -72,6 +73,7 @@ Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linu
 | `header.more` ... menu | pass | pass | pass | pass |
 | `banner.connection` Connection banner | pass | pass | pass | pass |
 | `banner.error` Error banner | pass | pass | pass | pass |
+| `banner.limit` Limit banner | pass | pass | pending | pass |
 | `toast.archived` Archived toast | pass | pass | pass | pass |
 | `toast.inboxend` Inbox end toast | pass | pass | pass | pass |
 | `thread.newpage` New-thread page | pass | pass | pass | pass |
@@ -115,7 +117,7 @@ Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linu
 | `composer.runner` Runner chip | pass | pass | pass | pass |
 | `composer.modelpicker` Model picker | pass | pass | pass | pass |
 | `composer.permission` Permission chip | pass | pass | pass | pass |
-| `composer.contextring` Context ring | pass | pass | pass | pass |
+| `composer.contextring` Context ring | pass | partly | partly | partly |
 | `composer.send` Send and Stop | pass | pass | pass | pass |
 | `composer.starting` Starting state | pass | pass | pass | pass |
 | `composer.slash` Slash palette | pass | pass | pass | pass |
@@ -126,6 +128,7 @@ Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linu
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `card.done` Done card | pass | pass | pass | pass |
+| `composer.recap` Recap box | pass | pending | pending | pending |
 | `card.needsyou` Needs you card | pass | pass | pass | pass |
 | `card.collapse` Collapse | pass | pass | pass | pass |
 | `card.somethingelse` Something else box | pass | pass | pass | pass |
@@ -169,6 +172,14 @@ Scenarios passing: Swift: 188 of 194, Mac: 192 of 194, Windows: 192 of 194, Linu
 | `folder.menu` Folder menu | pass | pass | pass | pass |
 | `folder.filespanel` Files panel | pass | pass | pass | pass |
 
+### 13. Terminal
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `terminal.panel` Terminal panel | pending | pending | pending | pending |
+| `cards.run` Run on the card | pending | pending | pending | pending |
+| `terminal.putcommand` Put a command in the Terminal | pending | pending | pending | pending |
+
 ### 17. Navigation, shortcuts, main menu
 
 | Feature | Swift | Mac | Windows | Linux |
@@ -192,6 +203,118 @@ One entry a slice, newest first. Every entry has a `Verification:` line: a spec
 run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
+
+### 2026-11-10 One gate for opening links and files (Daybreak 58, 59, 63, 64, 67)
+
+- Every link and file the app hands to the system goes through
+  `desktop/gpui/src/open_gate.rs`, on the rules of the Swift app's OpenGate,
+  written in `desktop/core/src/open_policy.rs`: a web page opens, any other
+  scheme asks by name, a file is judged and opened as its real target after
+  symlinks, a known document opens and anything else (a program, a bundle, a
+  script, an unknown kind, a document whose app runs it, which macOS's Launch
+  Services is asked) asks first, and another runner's file never opens here.
+  File URLs are built from the path with `#` and `?` escaped, never pasted.
+  `desktop/core/tests/open_gate_source.rs` fails on an opener anywhere else.
+- The slash palette's Open file previews the skill in the pane; a file link in
+  another runner's thread previews there too, read through that runner.
+- Every rich text view (replies, plan and ask text, Markdown previews) is made
+  by the gate's `text_view` or `markdown_view`, as the kit's own TextView opens
+  a link with the system's opener when it has no handler; a link in a
+  previewed Markdown file to another file previews in the pane.
+- Threadbear's own approval cards show the runner's words under the title
+  (`ApprovalText::runner_reason`), in both apps. File cards show every line
+  of the diff, any argument it doesn't draw (`replace_all`, a notebook cell)
+  and a line break at an edit's end in words, in both apps (and the runner
+  sends an edit's card whole, refusing one too long to show), and Return on a stacked card allows only the ticked
+  calls, as its Allow button does.
+- Pasted pictures are staged in a fresh 0700 folder (`XDG_RUNTIME_DIR` when
+  there is one), written 0600, and removed once the runner has its copy.
+- Remaining: the Swift app's forwarding page for a local `.html` link's
+  `?query` and `#fragment`, which the gate drops; previewing transcript file
+  links in the pane on this runner's threads (they open in their app).
+- Verification: `cargo test --workspace` on Tinker Desk (macOS, with the Launch
+  Services code); the open policy's own tests and the source scan on Linux;
+  the whole spec suite on Linux (see the report for the run).
+### 2026-11-10 Looking like the Swift app, and the pool limit line
+
+- Found by putting both apps' pictures of every demo thread side by side
+  (`features/tools/compare.ts`, which Mike's "a number of things that are
+  off" asked for).
+- Dark mode was near-black: gpui-kit's own dark theme is #0a0a0a, where the
+  Swift app draws on the system's window colour (#1e1e1e on macOS 26 and 27).
+  The GPUI themes now take NSColor.windowBackgroundColor from AppKit on the
+  Mac, and those values elsewhere (`style::install_window_colours`). Menus
+  and popovers sit a little lighter, as macOS's do.
+- Scroll bars show only while scrolling, as the Swift transcript sets them,
+  whatever the system's setting. The side pane's second "Highlights" title
+  under the dock's is gone. Rows name their Mac ("• m5") once there's
+  another, as Swift's have since 9 Nov, and a long status gives way before
+  the folder does. The thread's bar shows the project's own icon, not its
+  letter.
+- A thread waiting on a permission card counts as busy, as Swift's
+  `isBusy` has it, so the composer offers Stop.
+- `banner.limit`: a pool thread out of room says "Every login in Evenings is
+  out of room. It carries on by itself at …" with a quiet clock and "Pin to
+  mike (78% left)"; an account at its limit names its short login, when it
+  resets, and the login with most room. The model chip says "Limit reached"
+  (or "· 12%" running low) when every login in its pool is, and the account
+  chip for its login. Ported from Swift's `limitAdvice`, `Pools.chipBadge`,
+  `AccountUsageText.switchTarget` and `switchTitle` into `desktop/core`.
+- Files: `desktop/gpui/src/{style,app,header,highlights,sidebar,remote,
+  composer_chips,automation}.rs`, `desktop/core/src/{inbox,new_thread,
+  logins,sidebar}.rs`, `AppDump.swift` (`limit`, `composer.chipBadge`),
+  `features/header.feature`.
+- Remaining from the pictures: reply buttons drawn as pills, the thread chips
+  bar ("Review design options"), the rail's Connectors, Runners, Updates and
+  Setup buttons and the Librarian's count, and the providers' logos on the
+  model chip.
+- Codex (gpt-6.1-sol) tried to break the drag, the caching, the sort, `busy()`
+  and the limit port. It found no stale views, no lease panic and no change of
+  order, and two real problems, both fixed: a torn-out window got its last
+  move from a press that ended without a mouse-up, so it could jump to where
+  the pointer had gone since (`pointer_up(released, ..)` in
+  `desktop/dock/src/windows.rs`); and the limit line lacked Swift's case for a
+  turn that failed on its limit while the account still says it has room
+  (`failedOnAccount`, now `note_failed_account` in `header.rs`). That case
+  looks for the newest turn footer, as Swift's does, and the demo thread that
+  failed on its limit has none for the failed turn, so neither app shows a
+  line there; there's no scenario for it yet.
+- Idle frames: an open thread draws nothing once it has settled (four seconds,
+  no frames); the readout's 30 fps was the second after opening one.
+- Verification: `features/tools/compare.ts` pictures of the changed threads
+  beside the Swift app's; specs 193 of 193 on Tinker Desk's Mac and on Linux
+  (`cloud`), the Swift app 191 of 191 there, the new `banner.limit` scenario
+  passing on both apps; `cargo test -p threadbear-core` 163 of 163.
+
+### 2026-11-10 Dragging the window, and smooth scrolling at 120 Hz
+
+- Mike couldn't move the installed app's window by its top. The strips that
+  start the OS's window drag on the press worked; the panels' bars and the
+  thread's title didn't, as they only know it's a drag once the pointer moves,
+  and AppKit won't start a window drag from a move event. On the Mac those now
+  move the window by hand, as Swift's dock does (`platform::grab_window`), and
+  a drag from the title no longer starts a rename (`DockView::press_moved`).
+- Scrolling: every frame rebuilt the whole window, thread list included. The
+  Threads panel and the side pane are cached views now, the Inbox sorts by
+  keys worked out once, and the menu bar and the Inbox badge are worked out
+  only when the app changes. Tinker Desk (M2, 60 Hz), 6,000 rows and 60
+  threads, real flings: work per frame 7.8 ms in the middle, 13.4 at 90% and
+  21.8 at 99% before; 6.3, 7.9 and 9.7 after (28 late frames to 1).
+- View > Show Frame Rate in the installed build (`frame-stats`, GPUI's frame
+  profiler) shows frames a second, late frames and the slowest frame.
+- Files: `desktop/dock/src/{platform,view,windows}.rs`, `desktop/gpui/src/
+  {frame_stats,sidebar,shell,app,rails,header,composer_chips}.rs`,
+  `desktop/core/src/inbox.rs`, `features/tools/{window-drag,scroll-perf,
+  real-screen}.ts`.
+- Remaining: the root, the dock's bars and the thread pane still draw again on
+  every frame of a scroll (the dock would have to hand out its bars as views).
+- Verification: `features/tools/window-drag.ts` on Tinker Desk's desktop,
+  every part of the top moves the window and a click on the title renames;
+  `features/tools/scroll-perf.ts` for the numbers above; specs 192 of 192 on
+  Tinker Desk's Mac and 191 of 192 on Linux (`cloud`). The one was a step
+  that took an older reply for the streaming one when the stream was slow to
+  start; it now tells them apart, and passes 4 of 4 on Linux and on both apps
+  on the Mac.
 
 ### 2026-11-10 Every spec on real Windows
 
@@ -337,9 +460,9 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Files: `desktop/gpui/src/slash_palette.rs`, `desktop/gpui/src/composer.rs`,
   `desktop/core/src/slash.rs`, `features/slash-palette.feature`,
   `app/Sources/Threadbear/AppDump.swift` and `ComposerView.swift` (debug only).
-- Remaining: `composer.slash.resize` (dragging its edges and columns); Open file
-  opens the system's app until file previews land; descriptions read as plain text
-  rather than inline markdown.
+- Remaining: `composer.slash.resize` (dragging its edges and columns);
+  descriptions read as plain text rather than inline markdown. (Open file now
+  previews the skill in the pane, as the Swift app does: see the 10 Nov entry.)
 - Verification: `@composer.slash` and `@composer.slash.keys`, 9 of 9 on both apps
   on Tinker Desk, and in the whole-suite runs under the new-thread page's entry
   below; `cargo test -p threadbear-core` (the palette's own rules, 18 tests); a

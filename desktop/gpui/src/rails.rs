@@ -103,8 +103,13 @@ impl Threadbear {
 
     /// The Inbox's thread count, for the Threads button's badge.
     fn inbox_count(&self, cx: &App) -> usize {
+        if let Some(count) = self.inbox_count_cache.get() {
+            return count;
+        }
         let now = crate::now_ms();
-        self.shown_sections(cx, now).iter().find(|s| s.key == "inbox").map_or(0, |s| s.rows.len())
+        let count = self.shown_sections(cx, now).iter().find(|s| s.key == "inbox").map_or(0, |s| s.rows.len());
+        self.inbox_count_cache.set(Some(count));
+        count
     }
 
     /// `WindowGrip`: the strip under the traffic lights, which moves the

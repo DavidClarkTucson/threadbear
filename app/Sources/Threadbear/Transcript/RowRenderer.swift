@@ -1108,6 +1108,11 @@ enum RowRenderer {
                 output.append(NSAttributedString(string: "  " + ApprovalText.shown(folder), attributes: attributes))
             }
         }
+        // Threadbear's own gates say what they'd do ("Switch this thread to
+        // Full access"), which the generic title doesn't.
+        if let why = ApprovalText.runnerReason(item.request) {
+            output.append(NSAttributedString(string: "\n" + why, attributes: Theme.text(Theme.detailFont, color: .labelColor, line: TypeScale.scaled(19))))
+        }
         // Why it's asking: Claude's CLI says (Auto's safety check, a rule, a
         // hook), and Codex says in the model's own words ("Allow creating
         // b.txt in the current directory?").
@@ -1117,8 +1122,8 @@ enum RowRenderer {
         return output
     }
 
-    /// The command, the start of what would be written to a file, the page,
-    /// or the tool's input, in a monospaced block. The file's name and
+    /// The command, what would be written to a file, the page, or the
+    /// tool's input, in a monospaced block. The file's name and
     /// folder are in the title above it. A command and a tool's input are
     /// shown whole, every line and field, as Allow allows all of them: the
     /// card grows to fit (Daybreak, 7 Nov 2026, a long command's tail was
@@ -1130,7 +1135,7 @@ enum RowRenderer {
             // are part of what Allow allows; a reason or description isn't.
             // Characters that hide, break or reorder text are named, not
             // drawn: the card shows what the shell will read (ApprovalText.shown).
-            let output = NSMutableAttributedString(attributedString: mono(ApprovalText.shown(command), .labelColor))
+            let output = NSMutableAttributedString(attributedString: mono(ApprovalText.shownExactly(command), .labelColor))
             let extra = ApprovalText.shown(ToolPresentation.fields(input, whole: true).filter { !["command", "description", "reason"].contains($0.key) })
             if !extra.isEmpty {
                 output.append(mono("\n", .labelColor))
@@ -1145,19 +1150,28 @@ enum RowRenderer {
                                 title: request.title, input: input)
             if var diff = DiffBuilder.diff(forTool: call), !diff.hunks.isEmpty {
                 // What it writes, with any character that hides, breaks or
-                // reorders a line named, as for a command.
+                // reorders a line named, and tabs and spaces at a line's end
+                // shown, as for a command.
                 diff.hunks = diff.hunks.map { hunk in
                     var hunk = hunk
-                    hunk.lines = hunk.lines.map(ApprovalText.shown)
+                    hunk.lines = hunk.lines.map(ApprovalText.shownExactly)
                     return hunk
                 }
-                // A file Threadbear runs as code, or can't rule out, shows
-                // every line it writes: a hook past the eighth line is still a hook.
-                let code = request.title.contains("Threadbear runs this file as code")
-                    || request.title.contains("Threadbear can't tell whether this file runs as code")
-                return diffText([diff], maxLines: code ? 1_000_000 : 8, inset: 0).0
+                // Every line it writes, and every argument the diff doesn't
+                // draw: Allow allows all of it, so the card grows to fit, as
+                // for a command (Codex review, 10 Nov 2026: a ninth line past
+                // eight harmless ones was hidden with no note).
+                let output = NSMutableAttributedString(attributedString: diffText([diff], maxLines: 1_000_000, inset: 0).0)
+                let extra = ApprovalText.fieldsBeyondDiff(input)
+                if !extra.isEmpty {
+                    output.append(mono("\n", .labelColor))
+                    output.append(fieldsText(extra))
+                }
+                return output
             }
-            return mono(ApprovalText.shown(ToolPresentation.shortTitle(ApprovalText.filePath(request) ?? "", limit: 300)), Theme.quietText)
+            // Nothing a diff can draw (a notebook cell, say): every field.
+            let fields = ApprovalText.shown(ToolPresentation.fields(input, whole: true)) + ApprovalText.lineBreakNotes(input)
+            if !fields.isEmpty { return fieldsText(fields) }
         }
         if !request.name.hasPrefix("mcp__"), let url = input["url"]?.stringValue {
             return mono(ApprovalText.shown(url), .labelColor)
@@ -1655,7 +1669,7 @@ enum RowRenderer {
     }
 
     /// An ask's answers as rows (one reply, docs/reply-card-design A): a
-    /// circle, the label, "my pick" on the agent's, and under it what
+    /// circle, the label, a star and "Recommended" on the agent's, and under it what
     /// picking it does, in a box with a line between rows, then "Something
     /// else…". The whole row is the click (`.tbRow`, `pick:<ask>:<n>`), as
     /// on the done card; picking fills its circle. Each row is one
@@ -1700,13 +1714,17 @@ enum RowRenderer {
             let isSuggested = !own && ask.suggested == n
             output.append(isPicked
                 ? symbol("checkmark.circle.fill", label: "Picked", font: font, attributes: attributes, color: .controlAccentColor)
-                : symbol("circle", label: "Not picked", font: font, attributes: attributes, color: isSuggested ? .controlAccentColor : Theme.faintText))
+                : symbol("circle", label: "Not picked", font: font, attributes: attributes))
             output.append(NSAttributedString(string: "\t" + (own ? "Something else…" : choices[n]), attributes: attributes))
             if isSuggested {
+                // A small gold star and "Recommended" in grey, after Ghostex's:
+                // quieter than the accent-blue "my pick" it replaces (Mike, 9 Nov 2026).
                 var pickAttributes = attributes
                 pickAttributes[.font] = small
-                pickAttributes[.foregroundColor] = NSColor.controlAccentColor
-                output.append(NSAttributedString(string: "  my pick", attributes: pickAttributes))
+                pickAttributes[.foregroundColor] = NSColor.secondaryLabelColor
+                output.append(NSAttributedString(string: "  ", attributes: pickAttributes))
+                output.append(symbol("star.fill", label: "Recommended", font: NSFont.systemFont(ofSize: small.pointSize - 2), attributes: pickAttributes, color: Theme.recommendedStar))
+                output.append(NSAttributedString(string: " Recommended", attributes: pickAttributes))
             }
             if !own, n < ask.optionNotes.count, !ask.optionNotes[n].isEmpty {
                 var noteAttributes = attributes

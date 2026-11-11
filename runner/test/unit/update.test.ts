@@ -888,3 +888,12 @@ test('followOrigin: a stuck clone does not clear an hours-behind warning', async
   await u.check();
   assert.match(u.status().followProblem ?? '', /30 hours behind/);
 });
+
+test('the follower compares the same release paths deploy.mjs records, or it rebuilds the same commit for ever', async () => {
+  const { RELEASE_PATHS } = await import('../../src/update.ts');
+  const deploy = fs.readFileSync(new URL('../../scripts/deploy.mjs', import.meta.url), 'utf8');
+  const m = deploy.match(/const RELEASE_PATHS = (\[[^\]]*\]);/);
+  assert.ok(m, 'deploy.mjs has RELEASE_PATHS');
+  const recorded = JSON.parse(m[1].replace(/'/g, '"')) as string[];
+  assert.deepEqual([...RELEASE_PATHS].sort(), [...recorded].sort());
+});

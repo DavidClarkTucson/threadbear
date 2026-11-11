@@ -27,6 +27,7 @@ website, which read every thread through Convex.
 | The slash command list | `threads.commands` | Yes | Yes |
 | Hibernate until something happens | `threads.hibernateWhen` | Yes | No: The phone hibernates until a time only. |
 | The long-thread card's Continue in a new thread | `threads.continueFresh` | No: David's fork only; the card shows on this runner's own threads. | No: The long-thread card is on the Mac only. |
+| What fills its context | `threads.contextUsage` | No: Asked of the CLI on that Mac; the ring's popover there shows the totals only. | No: Not on the phone. |
 | Ticking an ask on the card | `threads.tickAsk` | No: Ticks stay on that Mac. | No: The phone sends picks with its answer instead. |
 | Editing a message | `threads.edit` | No: It undoes file changes on that Mac, so it waits for a way to show what it undid. | No: Not on the phone. |
 | Deleting it | `threads.delete` | No: Done on that Mac. | No: Not on the phone. |
