@@ -97,6 +97,76 @@ pub(crate) fn starts_with_heading(text: &str) -> bool {
 /// link's destination for the parser, and agents write `[tests pass](work:npm
 /// test)`. The arrow says the link goes up the thread, not out of it, and goes
 /// in the link's own words so it's coloured and selected with them.
+/// `![alt](url)` in a reply (`MarkdownRenderer`'s images): a picture on this
+/// Mac is drawn in the text; a web address, another Mac's file or one that's
+/// gone stays a link with its alt text, "[alt]". A web picture is never
+/// fetched: what an agent writes can't make the app load an address by
+/// itself.
+pub(crate) fn pictures(text: &str, local: bool) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    if !text.contains("![") {
+        return Cow::Borrowed(text);
+    }
+    let Ok(tree) = markdown::to_mdast(text, &markdown::ParseOptions::gfm()) else { return Cow::Borrowed(text) };
+    let mut swaps: Vec<(usize, usize, String)> = Vec::new();
+    collect_images(&tree, &mut |image| {
+        let Some(at) = &image.position else { return };
+        if local && picture_path(&image.url).is_some_and(|path| is_picture_file(&path)) {
+            return;
+        }
+        let alt = if image.alt.is_empty() { image.url.as_str() } else { image.alt.as_str() };
+        let words: String = alt.chars().flat_map(|c| if matches!(c, '[' | ']' | '\\') { vec!['\\', c] } else { vec![c] }).collect();
+        swaps.push((at.start.offset, at.end.offset, format!("[\\[{words}\\]](<{}>)", image.url.replace('>', "%3E"))));
+    });
+    if swaps.is_empty() {
+        return Cow::Borrowed(text);
+    }
+    swaps.sort_by_key(|s| s.0);
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut at = 0;
+    for (start, end, link) in swaps {
+        if start < at || end > text.len() || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
+            continue;
+        }
+        out.push_str(&text[at..start]);
+        out.push_str(&link);
+        at = end;
+    }
+    out.push_str(&text[at..]);
+    Cow::Owned(out)
+}
+
+fn collect_images(node: &markdown::mdast::Node, found: &mut impl FnMut(&markdown::mdast::Image)) {
+    if let markdown::mdast::Node::Image(image) = node {
+        found(image);
+    }
+    for child in node.children().into_iter().flatten() {
+        collect_images(child, found);
+    }
+}
+
+/// The file a picture's address names on this Mac, if it's a file.
+pub(crate) fn picture_path(url: &str) -> Option<std::path::PathBuf> {
+    if let Some(rest) = url.strip_prefix("file://") {
+        let path = rest.strip_prefix("localhost").unwrap_or(rest);
+        return path.starts_with('/').then(|| crate::files::percent_decode(path).into());
+    }
+    url.starts_with('/').then(|| url.into())
+}
+
+/// A picture the app can draw, there now.
+fn is_picture_file(path: &std::path::Path) -> bool {
+    let kind = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+    matches!(kind.as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff")) && path.is_file()
+}
+
+/// The text view's pictures: only files on this Mac reach it (`pictures`
+/// turned the rest into links), and anything else draws nothing.
+pub(crate) fn picture_source(uri: &gpui_kit::SharedUri) -> gpui_kit::ImageSource {
+    let path = picture_path(uri.as_ref()).unwrap_or_default();
+    gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(std::sync::Arc::from(path.as_path())))
+}
+
 pub(crate) fn prepare(text: &str) -> String {
     link_code_paths(&escape_work_links(&crate::reply_buttons::unknown_as_words(text)))
 }
@@ -399,7 +469,23 @@ const DOCUMENTS_KEPT: usize = 600;
 
 #[cfg(test)]
 mod tests {
-    use super::{looks_like_path, prepare};
+    use super::{looks_like_path, pictures, prepare};
+
+    #[test]
+    fn a_web_picture_or_another_macs_stays_a_link() {
+        assert_eq!(pictures("see ![chart](https://x.y/c.png)", true), "see [\\[chart\\]](<https://x.y/c.png>)");
+        assert_eq!(pictures("![](/nowhere/gone.png)", true), "[\\[/nowhere/gone.png\\]](</nowhere/gone.png>)", "a file that's gone");
+        assert_eq!(pictures("no pictures here", true), "no pictures here");
+        assert_eq!(pictures("`![x](https://a.b)` in code", true), "`![x](https://a.b)` in code", "code is left as written");
+        let dir = std::env::temp_dir().join(format!("tb-pictures-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shot = dir.join("shot.png");
+        std::fs::write(&shot, b"not really a png, but there").unwrap();
+        let reply = format!("![shot]({})", shot.display());
+        assert_eq!(pictures(&reply, true), reply, "a picture on this Mac is drawn");
+        assert!(pictures(&reply, false).starts_with("[\\[shot\\]]"), "another Mac's thread draws none from here");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn reads_paths_as_paths_and_commands_as_commands() {

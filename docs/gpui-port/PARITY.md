@@ -277,6 +277,37 @@ built parsers and gates with no launch of the app, which is the trap.)
   minute on as the clock moved between runs). The drip, in a build with the
   pot slowed tenfold, as the debug build's pictures come too slowly to catch
   it.
+### 2026-11-11 An agent's show_panel, and pictures in replies (`panel.requests`, `rich.localpicture`)
+
+- A panel an agent asks to show (`show_panel`, and `pin` with `show`) comes up
+  once Mike is looking at its thread: straight away if he is, else when he
+  next opens it or comes back to the app. Highlights, Patches and the
+  thread's own panels become its chosen section and open beside the other
+  pane sections (or as a tab, on a side or in a window of their own, as asked);
+  Usage, Updates and Connectors open under the threads list; one already open
+  comes to the front. A pin opens in the pane (fetched first if it isn't in
+  Highlights yet), never in its own app, and one unpinned since still opens
+  Highlights. The app then says so (`threads.panelShown`), which clears it;
+  each request is shown once (core's `panel_requests.rs`, from PanelRequests
+  and PanelRequestGate). One the thread hasn't got is left for the runner to
+  clear with Mike's next message.
+- `![alt](path)` in a reply draws the picture when it's a file on this Mac
+  that's there; a web address, another Mac's file or one that's gone stays a
+  link with its alt text, "[alt]", as the Swift app's does. A web picture is
+  never fetched.
+- Not here: `reload` (web panels aren't in this app yet), the Browser pane,
+  and the Swift app's 420 by 320 cap on a reply's picture (the kit draws it
+  the column's width).
+- Files: `desktop/core/src/{panel_requests,inbox,lib}.rs`,
+  `desktop/gpui/src/{app,rows}.rs`, `desktop/gpui/src/rows/markdown.rs`,
+  `features/panel-requests.feature` and its steps.
+- Verification: on Tinker Desk, `@panel.requests` passes on both apps (2 of
+  2: the Updates panel comes up and the mock hears it was shown; a panel the
+  thread hasn't got stays waiting), with the reply scenarios on GPUI; core's
+  tests (the gate's and the request's) and the markdown tests (a web picture,
+  a missing file, code left as written, a file on this Mac, another Mac's
+  thread).
+
 ### 2026-11-11 Queued messages, kept output, footer tips and row menus (`transcript.pending`, `transcript.heldback`, `transcript.turnfooter`, `transcript.rowmenu`, `transcript.lightup`, `menu.thread`)
 
 - A message the runner takes but holds behind a running turn says so under

@@ -279,13 +279,15 @@ impl ThreadPane {
             })
             // `[title](button:<id>)` as a pill that presses it.
             .plugin(crate::reply_buttons::Pills)
+            // Pictures from files on this Mac (`markdown::pictures`).
+            .image_source(markdown::picture_source)
     }
 
     /// The reading column's text: markdown, selectable, links going where they
     /// go. `row.rs`'s `TextItem::text` is the whole reply so far; `prepare`
     /// escapes work links and `set_text` appends what's new.
     fn assistant_row(&mut self, _ix: usize, row: &Row, item: &TextItem, cx: &mut Context<Self>) -> AnyElement {
-        let source = markdown::prepare(&item.text);
+        let source = markdown::prepare(&markdown::pictures(&item.text, self.summary.runner_id.is_none()));
         let doc = self.markdown_state(&item.item_id, &source, cx);
         let text_style = self.reading_style(cx);
         let text = self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);

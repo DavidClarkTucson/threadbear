@@ -81,6 +81,9 @@ pub struct ThreadSummary {
     /// `ThreadSummary.runnerId`), and `remote::summary` sets it.
     #[serde(skip)]
     pub runner_id: Option<String>,
+    /// A panel the agent asked to show Mike, waiting for him to look at the
+    /// thread (panel_requests.rs).
+    pub panel_request: Option<crate::panel_requests::PanelRequest>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

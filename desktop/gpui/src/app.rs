@@ -139,6 +139,11 @@ pub struct Threadbear {
     pub(crate) pending_open: Option<String>,
     /// What the Dock badge says now (notify.rs), so it's only set when that changes.
     pub(crate) dock_badge: Option<String>,
+    /// An agent's show_panel requests shown so far (`panelRequestGate`).
+    pub(crate) panel_gate: threadbear_core::panel_requests::Gate,
+    /// Pin requests whose highlights have been fetched once for them, so a
+    /// pin unpinned since opens Highlights rather than fetching for good.
+    pub(crate) pins_fetched: HashSet<String>,
     /// Why the connection last went, kept while it tries again, so the banner
     /// says what's wrong rather than flicking to "Connecting" on each try
     /// (`connection()`). Cleared when it's back, and by Try again.
@@ -276,6 +281,9 @@ impl Threadbear {
         // Settings window says so too (`SettingsWindow::new`).
         crate::thread::set_looking(crate::thread::window_key(window), window.is_window_active());
         let looking = cx.observe_window_activation(window, |this, window, cx| this.looking_changed(crate::thread::window_key(window), window.is_window_active(), cx));
+        // A pin an agent asked to show may only be in Highlights once they've
+        // been fetched: their coming is a moment to try it again.
+        let side_changed = cx.observe(&side, |this: &mut Threadbear, _, cx| this.serve_panel_request(cx));
         // Everything the menus say is the app's state, which notifies when it
         // changes (the dock's layout too: `dock_layout_changed`).
         // Its 20-second tick notifies too (SidebarState), so the badge's
@@ -358,6 +366,8 @@ impl Threadbear {
             main_window: window.window_handle(),
             pending_open: None,
             dock_badge: None,
+            panel_gate: Default::default(),
+            pins_fetched: HashSet::new(),
             last_drop: None,
             starting_runner: false,
             runner_checkout: None,
@@ -379,7 +389,7 @@ impl Threadbear {
             side,
             sidebar_view: None,
             _events: events,
-            _subs: vec![appearance, searching, frame, menus, looking, quitting],
+            _subs: vec![appearance, searching, frame, menus, looking, quitting, side_changed],
         };
         // The window starts on the Inbox with nothing open (`noteNavigation`
         // on launch), so Back from the first thread comes back here.
@@ -450,6 +460,89 @@ impl Threadbear {
         if let (true, Some(pane)) = (crate::thread::is_looking(), self.pane.clone()) {
             pane.read(cx).mark_seen();
         }
+        self.serve_panel_request(cx);
+    }
+
+    /// An agent's `show_panel` on the open thread, once Mike's looking at it
+    /// (`servePanelRequest`): the panel brought up where it asked, or to the
+    /// front where it is, a pin opened in the pane, and the runner told.
+    pub(crate) fn serve_panel_request(&mut self, cx: &mut Context<Self>) {
+        use threadbear_core::panel_requests::{self as requests, RequestedPanel, RequestedPlace};
+        if self.shows_home {
+            return;
+        }
+        let Some(thread) = self.open_thread().cloned() else { return };
+        let Some(request) = self.panel_gate.take(Some(&thread), crate::thread::is_looking()) else { return };
+        if let Some(pin) = request.highlight.clone() {
+            let item = self.side.read(cx).highlights.get(&thread.id).and_then(|h| h.highlights.iter().find(|x| x.id == pin).cloned());
+            if item.is_none() && self.pins_fetched.insert(request.id.clone()) {
+                // Fetched first; their coming tries it again.
+                self.panel_gate.release(&request.id);
+                let id = thread.id.clone();
+                self.side.update(cx, |side, cx| side.refresh_highlights(id, std::time::Duration::ZERO, cx));
+                return;
+            }
+            self.show_requested(&RequestedPanel::Section(requests::HIGHLIGHTS.to_owned()), &RequestedPlace::Usual, &thread, cx);
+            // Only the pane: an agent showing a file never starts its app.
+            // One unpinned since still opens Highlights.
+            if let Some((path, title)) = item.and_then(|i| i.path.clone().map(|p| (p, i.title.clone()))) {
+                let shown = thread.clone();
+                self.side.update(cx, |side, cx| side.preview_path(&path, Some(title), &shown, cx));
+            }
+            self.tell_panel_shown(&request, &thread);
+            return;
+        }
+        // One the thread hasn't got is left for the runner to clear with
+        // Mike's next message.
+        let Some(panel) = requests::panel(&request, &thread) else { return };
+        self.show_requested(&panel, &requests::place(&request), &thread, cx);
+        self.tell_panel_shown(&request, &thread);
+    }
+
+    /// Opens the panel at `place`, or brings it to the front where it is. A
+    /// pane section becomes the thread's chosen one, as a click on its rail
+    /// button makes it (`showRequested`).
+    fn show_requested(&mut self, panel: &threadbear_core::panel_requests::RequestedPanel, place: &threadbear_core::panel_requests::RequestedPlace, thread: &ThreadSummary, cx: &mut Context<Self>) {
+        use threadbear_core::panel_requests::{RequestedPanel, RequestedPlace};
+        use threadbear_dock::{DockDrop, DockEdge};
+        let id = match panel {
+            RequestedPanel::Section(section) => {
+                let (thread_id, section) = (thread.id.clone(), section.clone());
+                self.side.update(cx, |side, cx| side.choose_section(&thread_id, &section, cx));
+                section
+            }
+            RequestedPanel::Usage => shell::USAGE.to_owned(),
+            RequestedPanel::Updates => shell::UPDATES.to_owned(),
+            RequestedPanel::Connectors => shell::CONNECTORS.to_owned(),
+        };
+        if self.dock.read(cx).layout().contains(&id) {
+            self.dock.update(cx, |m, cx| m.show(&id, &[], DockDrop::window(DockEdge::Right), cx));
+            return;
+        }
+        match place {
+            RequestedPlace::Usual => match panel {
+                RequestedPanel::Section(_) => self.show_pane(&id, cx),
+                _ => self.toggle_under_threads(&id, cx),
+            },
+            RequestedPlace::Tab => self.dock.update(cx, |m, cx| m.show(&id, &[shell::MAIN], DockDrop::window(DockEdge::Right), cx)),
+            RequestedPlace::Side(side) => {
+                let edge = match side.as_str() {
+                    "left" => DockEdge::Left,
+                    "top" => DockEdge::Top,
+                    "bottom" => DockEdge::Bottom,
+                    _ => DockEdge::Right,
+                };
+                self.dock.update(cx, |m, cx| m.open(&id, DockDrop::window(edge), cx));
+            }
+            RequestedPlace::Window => self.dock.update(cx, |m, cx| m.open_in_new_window(&id, threadbear_dock::Size::new(520.0, 640.0), cx)),
+        }
+    }
+
+    /// `threads.panelShown`, which clears the request on the runner.
+    fn tell_panel_shown(&self, request: &threadbear_core::panel_requests::PanelRequest, thread: &ThreadSummary) {
+        let client = self.client.clone();
+        let params = json!({ "threadId": thread.id, "requestId": request.id });
+        RT.spawn(async move { client.call("threads.panelShown", params).await });
     }
 
     fn on_seen(&mut self, seen: Seen, cx: &mut Context<Self>) {
@@ -505,6 +598,9 @@ impl Threadbear {
                         let before = self.threads.insert(t.id.clone(), t.clone());
                         self.note_failed_account(before.as_ref(), &t);
                         self.thread_changed_outside(before.as_ref(), &t, cx);
+                        if t.panel_request.is_some() && self.selected.as_deref() == Some(t.id.as_str()) {
+                            self.serve_panel_request(cx);
+                        }
                     }
                 }
                 "thread.deleted" => {
