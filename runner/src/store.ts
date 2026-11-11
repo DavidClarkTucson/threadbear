@@ -1,11 +1,19 @@
 import type { HighlightState } from './highlights.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { WaitingForRoom, Ask, AskAnswer, NeedsWho, DesignReview, ReplyButton, ReviewDraft, EffortLevel, MessageOrigin, PanelRequest, PermissionMode, ThreadShare, PersistedEvent, Provider, ArchivedBy, ArchiveVerdict, Subagent, ThreadProject, ThreadSchedule, ThreadStartedBy, ThreadStatus, ImageRef, LooseEnd, ContextUsage } from './protocol.ts';
+import type { WaitingForRoom, Ask, AskAnswer, NeedsWho, DesignReview, ReplyButton, ReviewDraft, EffortLevel, MessageOrigin, PanelRequest, PermissionMode, ThreadShare, PersistedEvent, Provider, ArchivedBy, ArchiveVerdict, Subagent, ThreadProject, ThreadSchedule, ThreadStartedBy, ThreadStatus, ImageRef, LooseEnd, ContextUsage, LabReviewLedger, ReviewFinding } from './protocol.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { paths } from './config.ts';
 import type { WorktreeRecord } from './worktrees.ts';
 import type { WakeWhen } from './wake-when.ts';
+
+// Review by another lab's ledger as the runner keeps it: what goes on the
+// card (LabReviewLedger), plus where it is. delivered: the latest round's
+// findings went to the agent; answered: the round whose answers the
+// agent's turn gave (and the card showed).
+export type LabLedger = LabReviewLedger & { delivered?: number; answered?: number };
+// A reviewer's verdict: its findings, none when nothing holds up.
+export type ReviewVerdict = { findings: Pick<ReviewFinding, 'severity' | 'claim' | 'where' | 'case'>[] };
 
 export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number };
 
@@ -94,6 +102,12 @@ export type ThreadRecord = {
   // review of its own; labReviews counts the reviews since Mike last wrote.
   reviewOf?: string;
   labReviews?: number;
+  // The ledger of the review under way (lab-review.ts, LabLedger): its
+  // findings and the agent's answers, until Mike next writes.
+  labReview?: LabLedger;
+  // On a review thread: the verdict its end_turn gave (findings), for the
+  // thread it reviewed.
+  reviewVerdict?: ReviewVerdict;
   // A review a draining, restarting or stopping runner couldn't start (it
   // makes no threads), for the runner that adopts or loads this one to start.
   // `seq`: where that turn's events end, which its diff is read back from.

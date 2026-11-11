@@ -24,6 +24,11 @@ Then('the card offers the follow-up {string}', async function (this: ThreadbearW
   await this.until(`the card offering "${followUp}"`, (d) => cardLines(d).some((l) => l.includes(followUp)));
 });
 
+// Any line of the card: a review's heading or one of its findings.
+Then('the card shows {string}', async function (this: ThreadbearWorld, words: string) {
+  await this.until(`the card showing "${words}"`, (d) => cardLines(d).some((l) => l.includes(words)));
+});
+
 Then('the follow-up {string} is ticked', async function (this: ThreadbearWorld, followUp: string) {
   await this.until(`"${followUp}" ticked`, (d) => cardLines(d).some((l) => l.startsWith('[x] ') && l.includes(followUp)));
 });

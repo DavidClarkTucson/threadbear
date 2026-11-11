@@ -155,7 +155,7 @@ import { contextUsagePart, type ContextUsageAnswer, type ContextUsagePart } from
 import type { SlashCommand } from './slash-commands.ts';
 import { hibernationPart, type HibernationPart } from './runner/hibernation.ts';
 import { newThreadsPart, type NewThreadsPart } from './runner/new-threads.ts';
-import { labReviewPart, type LabReviewPart } from './runner/lab-review.ts';
+import { LAB_REVIEW_ROUNDS, applyAnswers, fixedSinceLastRound, labReviewPart, ledgerCard, parseVerdict, type LabReviewPart } from './runner/lab-review.ts';
 import { looseEndsPart, type LooseEndsPart } from './runner/loose-ends.ts';
 import { CONFINED_NO_SANDBOX, sandboxFor } from './sandbox.ts';
 
@@ -1424,6 +1424,7 @@ export class Runner {
       delete rec.stoppedWorkWakes;
       // A new ask from Mike: its change can be reviewed afresh.
       delete rec.labReviews;
+      delete rec.labReview;
     }
     // Copy images into the thread's own media folder now, so a queued
     // message still works if inbox/ is cleaned before it's sent.
@@ -2285,6 +2286,24 @@ export class Runner {
     // leaves the asks in the reply's text, and that thread never heard
     // Mike had restarted (29 Oct 2026).
     if (said?.needs === 'you' && asksForAppRestart(said.asks)) this.appRestartAsked?.(rec.id);
+    // Review by another lab (runner/lab-review.ts): a review thread's
+    // verdict is kept for the thread it reviewed (deliverReview), and the
+    // turn that answers a round's findings takes the ledger to its card.
+    if (outcome === 'completed' && !turn.local) {
+      const verdict = rec.reviewOf ? parseVerdict(turn.endTurn) : undefined;
+      if (verdict) {
+        rec.reviewVerdict = verdict;
+        this.markDirty(st);
+      }
+      const ledger = rec.labReview;
+      if (ledger && ledger.delivered === ledger.rounds && ledger.answered !== ledger.rounds) {
+        applyAnswers(ledger, turn.endTurn);
+        // Fixes in the last round there is: no review will look at them.
+        if (ledger.rounds >= LAB_REVIEW_ROUNDS && fixedSinceLastRound(ledger)) ledger.unchecked = true;
+        body.review = ledgerCard(ledger);
+        this.markDirty(st);
+      }
+    }
     const ev = this.emit(st, body, turn.turnId);
     // Any completed turn replaces the last one's card; one that said
     // neither leaves no card, and counts as before.

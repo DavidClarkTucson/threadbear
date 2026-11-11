@@ -604,6 +604,11 @@ export class ThreadRouter implements ThreadControl {
     return this.runner.openSubagentCards(threadId);
   }
 
+  // Always this runner's, for the session it runs itself, as above.
+  reviewOwes(threadId: string): ReturnType<Runner['reviewOwes']> {
+    return this.runner.reviewOwes(threadId);
+  }
+
   async list(include: Bucket[] = ['inbox']): Promise<ThreadSummary[]> {
     const local = this.runner.list(include);
     const e = this.elsewhere();

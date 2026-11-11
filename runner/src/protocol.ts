@@ -680,6 +680,28 @@ export type TurnOutcome = 'completed' | 'interrupted' | 'failed';
 // connection), so the runner carries the turn on once it's back.
 export type TurnErrorKind = 'usageLimit' | 'contextWindow' | 'auth' | 'network';
 
+// Review by another lab's ledger (runner/lab-review.ts). Each finding has
+// an id that stays the same across rounds; outcome is the reviewed
+// agent's answer (end_turn's findings), absent until it gives one.
+export type ReviewSeverity = 'high' | 'medium' | 'low';
+export type ReviewOutcome = 'fixed' | 'disputed' | 'left';
+export type ReviewFinding = { id: number; round: number; severity: ReviewSeverity; claim: string; where?: string; case?: string; outcome?: ReviewOutcome; note?: string };
+export type LabReviewLedger = {
+  reviewer: string; // "Codex (codex-1)"
+  independent: boolean; // another lab, not a fresh session of the same one
+  rounds: number;
+  threadId: string; // the latest round's review thread
+  // The latest round found nothing that holds up.
+  passed: boolean;
+  // A round whose reviewer gave no verdict in end_turn: its reply is all
+  // there is, so it has no findings here.
+  unstructured?: true;
+  // Fixes made since the latest round that no review has looked at: the
+  // rounds ran out.
+  unchecked?: true;
+  findings: ReviewFinding[];
+};
+
 // turn.completed's `usage`, per provider.
 export type ClaudeTurnUsage = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number };
 export type CodexTurnUsage = {
@@ -821,6 +843,10 @@ export type EventBody =
       // With needs "nothing": end_turn's suggested follow-ups.
       next?: string[];
       needsFrom?: 'tool' | 'text';
+      // Review by another lab: what the reviewer found so far and what the
+      // agent did about each, on the turn that answered them
+      // (runner/lab-review.ts; docs/protocol.md, "Review by another lab").
+      review?: LabReviewLedger;
     }
   // The ticks on a card of asks, the whole set each time. Outside any turn.
   | { type: 'asks.ticked'; asksSeq: number; ticked: number[] }

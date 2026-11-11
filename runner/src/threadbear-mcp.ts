@@ -41,6 +41,7 @@ import type { StartRequest } from './cross-runner.ts';
 import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN } from './secrets.ts';
 import { cutSafely, firstLineSafely } from './safe-cut.ts';
 import { pickRunner } from './moves.ts';
+import { FINDINGS_REFUSALS, FINDINGS_REFUSED, MAX_FINDINGS, findingsProblem, refusalsThisTurn } from './runner/lab-review.ts';
 
 // What the tools drive: the Runner itself, or during a handover
 // (docs/protocol.md) a ThreadRouter (handover.ts) that reaches threads on
@@ -57,6 +58,8 @@ export type ThreadControl = {
   endTurnNudged?: (threadId: string) => boolean;
   // What this thread's subagents are parked on (approvals.ts).
   openSubagentCards?: (threadId: string) => string[];
+  // What end_turn owes a review by another lab (runner/lab-review.ts).
+  reviewOwes?: (threadId: string) => ReturnType<Runner['reviewOwes']>;
   requestSecret?: (threadId: string, req: SecretRequest) => Promise<SecretAnswer>;
   // A card a threadbear tool puts up itself, with no "Always allow": for a
   // call from a thread not in full mode that would raise access (below).
@@ -1249,6 +1252,21 @@ export function buildThreadbearTools(
     }
   };
 
+  // Review by another lab (runner/lab-review.ts): a review thread's
+  // end_turn gives its verdict, and the thread it reviewed answers each
+  // finding, before either can end. Refused at most FINDINGS_REFUSALS
+  // times a turn, then taken as it is: a session that kept end_turn's
+  // older form can't send findings.
+  const checkFindings = (input: Record<string, unknown>, needs: string, events: PersistedEvent[]): void => {
+    const problem = findingsProblem(control.reviewOwes?.(selfId), input, needs);
+    if (problem && refusalsThisTurn(events, FINDINGS_REFUSED) < FINDINGS_REFUSALS) throw new Error(problem);
+  };
+  const findingsArg = z
+    .array(z.record(z.string(), z.unknown()))
+    .max(MAX_FINDINGS)
+    .optional()
+    .describe('Only when a code review asks, in the shape its message gives.');
+
   const waitForArg = z
     .array(z.union([z.string(), z.object({ thread: z.string(), until: z.string().max(MAX_UNTIL) })]))
     .max(MAX_WAIT_FOR)
@@ -1323,6 +1341,7 @@ export function buildThreadbearTools(
           .optional()
           .describe('Hibernates this thread once the turn is over, until 2h, 1d, tomorrow, an ISO time with its offset, "restart" (the runner next starting), "release" (it starting on a new release) or words saying when ("when the phone arrives"), with needs "nothing": when the user asked for that, or when the rest waits on a message (one wakes it), until it should have come. Asked after you called end_turn? Call it again with this.'),
         waitFor: waitForArg,
+        findings: findingsArg,
       },
       handle(sayingOpenCards(async (input) => {
         checkSnooze(input.snooze);
@@ -1339,6 +1358,7 @@ export function buildThreadbearTools(
         const events = await turnEvents();
         const repeat = repeatEndTurn(events, input);
         if (repeat) return repeat;
+        checkFindings(input, needs, events);
         const missing = uncovered(await turnSignIns(events, opts.gateway?.(), opts.gatewayHealth), needs === 'you' ? asks : []);
         if (missing.length && !nudgedThisTurn(events)) throw new Error(signInNudge(missing));
         if (needs === 'you' && offersToTakeItBack(asks) && !triedFirstNudged(events)) throw new Error(tryFirstNudge());
@@ -1423,6 +1443,7 @@ export function buildThreadbearTools(
           .optional()
           .describe('Hibernate this thread once the turn is over, until 30m, 2h, 1d, tomorrow, an ISO time with its offset, "restart" (until the runner next starts), "release" (until it starts on a new release), or words saying when ("when the phone arrives"). Only with needs "nothing": when the user has asked for this thread to be snoozed or hibernated, or when the rest waits on a message (one wakes it), until it should have come. If they ask after you have called end_turn, call it again with this.'),
         waitFor: waitForArg,
+        findings: findingsArg,
       },
       handle(sayingOpenCards(async (args) => {
         checkSnooze(args.snooze);
@@ -1460,6 +1481,7 @@ export function buildThreadbearTools(
         // and where, so Mike gets an ask with the page to do it on rather
         // than an error buried in a work group (connectors.ts).
         const events = await turnEvents();
+        checkFindings(args, needs, events);
         const missing = uncovered(await turnSignIns(events, opts.gateway?.(), opts.gatewayHealth), needs === 'you' ? asks : []);
         if (missing.length && !nudgedThisTurn(events)) throw new Error(signInNudge(missing));
         if (needs === 'you' && offersToTakeItBack(asks ?? []) && !triedFirstNudged(events)) throw new Error(tryFirstNudge());

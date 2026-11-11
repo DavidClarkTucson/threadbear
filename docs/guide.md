@@ -1071,11 +1071,19 @@ finishes with nothing for you to do, Threadbear has your other provider try
 to break the change: Codex reviews a Claude thread's change, and Claude a
 Codex one's. The review runs in a thread of its own in the same folder, with
 the same permissions as the thread it reviews, and is told not to edit
-anything. Your thread says who is reviewing and waits. Then it wakes with
-the findings, fixes what holds up, and says in its reply what was found and
-what it did. The review thread is archived when it's done, so it stays out
-of your inbox; the link in the note opens it. A thread gets at most two
-reviews between your messages.
+anything. Your thread says who is reviewing and waits. The reviewer gives a
+verdict: a list of concrete findings, or nothing that holds up. Then your
+thread wakes with them numbered, and it can't finish until it has answered
+each one: fixed, disputed (saying why), or left for you to decide, which
+comes to you as a question. Anything it fixed gets reviewed again, just the
+new change, until a round finds nothing. The done card shows who reviewed,
+how it came out, and each finding with what was done about it; the line
+over them opens the review thread. The review thread is archived when it's
+done, so it stays out of your inbox. A thread gets at most three reviews
+between your messages, and if the last one's fixes weren't looked at, the
+card says so. For now the findings only show on the Mac whose runner ran
+the thread; the phone, the website and your other Macs see the agent's
+reply, which says the same in words.
 
 With no login of another provider, a fresh session of the same one
 reviews, and the note says it isn't another lab. A thread shut in a sandbox

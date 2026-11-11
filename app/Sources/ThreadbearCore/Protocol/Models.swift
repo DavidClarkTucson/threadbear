@@ -1029,6 +1029,103 @@ public struct LooseEnds: Sendable, Hashable, Codable {
     public var anyOpen: Bool { ends.contains { !$0.isBooked } }
 }
 
+/// Review by another lab's ledger (protocol "Review by another lab"):
+/// what the reviewer found, round by round, and what the agent did about
+/// each, on the turn that answered them (`turn.completed`'s `review`).
+public struct LabReview: Sendable, Hashable, Decodable {
+    public struct Finding: Sendable, Hashable, Decodable {
+        public var id: Int
+        public var round: Int
+        /// high, medium or low.
+        public var severity: String
+        public var claim: String
+        public var `where`: String?
+        public var `case`: String?
+        /// fixed, disputed or left; nil when the agent didn't answer.
+        public var outcome: String?
+        public var note: String?
+
+        public init(id: Int, round: Int = 1, severity: String = "medium", claim: String, where: String? = nil, case: String? = nil, outcome: String? = nil, note: String? = nil) {
+            self.id = id
+            self.round = round
+            self.severity = severity
+            self.claim = claim
+            self.where = `where`
+            self.case = `case`
+            self.outcome = outcome
+            self.note = note
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = (try? c.decodeIfPresent(Int.self, forKey: .id)) ?? 0
+            round = (try? c.decodeIfPresent(Int.self, forKey: .round)) ?? 1
+            severity = (try? c.decodeIfPresent(String.self, forKey: .severity)) ?? "medium"
+            claim = (try? c.decodeIfPresent(String.self, forKey: .claim)) ?? ""
+            `where` = (try? c.decodeIfPresent(String.self, forKey: .where)) ?? nil
+            `case` = (try? c.decodeIfPresent(String.self, forKey: .case)) ?? nil
+            outcome = (try? c.decodeIfPresent(String.self, forKey: .outcome)) ?? nil
+            note = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? nil
+        }
+
+        enum CodingKeys: String, CodingKey { case id, round, severity, claim, `where`, `case`, outcome, note }
+    }
+
+    /// "Codex (codex-1)".
+    public var reviewer: String
+    /// Another lab, not a fresh session of the same one.
+    public var independent: Bool
+    public var rounds: Int
+    /// The latest round's review thread.
+    public var threadId: String
+    /// The latest round found nothing that holds up.
+    public var passed: Bool
+    /// A round's reviewer gave no verdict, so there are no findings to list.
+    public var unstructured: Bool
+    /// Fixes made in the last round there is, which no review looked at.
+    public var unchecked: Bool
+    public var findings: [Finding]
+
+    public init(reviewer: String, independent: Bool = true, rounds: Int = 1, threadId: String = "", passed: Bool = false, unstructured: Bool = false, unchecked: Bool = false, findings: [Finding] = []) {
+        self.reviewer = reviewer
+        self.independent = independent
+        self.rounds = rounds
+        self.threadId = threadId
+        self.passed = passed
+        self.unstructured = unstructured
+        self.unchecked = unchecked
+        self.findings = findings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reviewer = (try? c.decodeIfPresent(String.self, forKey: .reviewer)) ?? "Another lab"
+        independent = (try? c.decodeIfPresent(Bool.self, forKey: .independent)) ?? true
+        rounds = (try? c.decodeIfPresent(Int.self, forKey: .rounds)) ?? 1
+        threadId = (try? c.decodeIfPresent(String.self, forKey: .threadId)) ?? ""
+        passed = (try? c.decodeIfPresent(Bool.self, forKey: .passed)) ?? false
+        unstructured = (try? c.decodeIfPresent(Bool.self, forKey: .unstructured)) ?? false
+        unchecked = (try? c.decodeIfPresent(Bool.self, forKey: .unchecked)) ?? false
+        findings = c.lossyArray(Finding.self, forKey: .findings).filter { !$0.claim.isEmpty }
+    }
+
+    enum CodingKeys: String, CodingKey { case reviewer, independent, rounds, threadId, passed, unstructured, unchecked, findings }
+
+    /// The one line over the findings: who, how many rounds, how it came out.
+    public var heading: String {
+        let who = independent ? "Reviewed by \(reviewer)" : "Reviewed by a fresh \(reviewer) session"
+        let rounds = self.rounds > 1 ? ", \(self.rounds) rounds" : ""
+        let open = findings.filter { $0.outcome == nil || $0.outcome == "left" }.count
+        let result: String
+        if unstructured { result = "see its reply" }
+        else if unchecked { result = "last fixes not re-reviewed" }
+        else if passed { result = findings.isEmpty ? "nothing found" : "passed" }
+        else if open > 0 { result = "\(open) open" }
+        else { result = "all answered" }
+        return "\(who)\(rounds): \(result)"
+    }
+}
+
 public struct LooseEnd: Sendable, Hashable, Codable {
     /// unlanded, uncommitted, unpushed, thread, open (the agent's word) or scheduled; a later kind shows as its text.
     public var kind: String

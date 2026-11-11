@@ -19,7 +19,7 @@ import { call, load, memoryBackend } from './convex-memory.ts';
 import { ConvexSync } from '../../src/sync.ts';
 import { Relay } from '../../src/relay.ts';
 import { nullLogger } from '../../src/log.ts';
-import type { ImageRef } from '../../src/protocol.ts';
+import type { ImageRef, LabReviewLedger } from '../../src/protocol.ts';
 import type { Post } from '../../src/sync.ts';
 
 const OWNER = 'owner-key';
@@ -35,6 +35,8 @@ export type View = {
   next: string[];
   // The done card's loose ends (experiment looseEnds), as their words.
   looseEnds: string[];
+  // Review by another lab's ledger on the last turn's card.
+  review?: unknown;
   messages: { role: 'user' | 'assistant'; text: string; pictures: number }[];
 };
 
@@ -51,6 +53,9 @@ export type Play = {
   proposePlan(text: string): void;
   /** Turns on the done card's loose ends, with a check-in booked for this thread. */
   looseEnds(checkIn: { title: string; at: string }): void;
+  /** A review by another lab has given this ledger's findings to the
+   * agent (runner/lab-review.ts), so the next end_turn answers them. */
+  reviewed(ledger: LabReviewLedger): void;
 };
 
 export async function threeWays(play: (p: Play) => void | Promise<void>) {
@@ -91,7 +96,7 @@ export async function threeWays(play: (p: Play) => void | Promise<void>) {
   const here = (): View => {
     const t = h.runner.get(id);
     const events = h.runner.events(id, {}).events as Record<string, any>[];
-    return { needs: t.needs, asks: (t.asks ?? []) as Ask[], next: lastNext(events), looseEnds: (t.looseEnds?.ends ?? []).map((e) => e.text), messages: messagesOf(events) };
+    return { needs: t.needs, asks: (t.asks ?? []) as Ask[], next: lastNext(events), looseEnds: (t.looseEnds?.ends ?? []).map((e) => e.text), review: events.filter((e) => e.type === 'turn.completed').at(-1)?.review, messages: messagesOf(events) };
   };
   const viaRelay = async (): Promise<View> => {
     // A turn's end is held back until that runner's row has said so for 4 s.
@@ -99,11 +104,11 @@ export async function threeWays(play: (p: Play) => void | Promise<void>) {
     h.clock.advance(5000);
     const { events } = (await relay.call(id, 'threads.events', { threadId: id })) as { events: Record<string, any>[] };
     const end = events.filter((e) => e.type === 'turn.completed').at(-1);
-    return { needs: end?.needs, asks: (end?.asks ?? []) as Ask[], next: (end?.next ?? []) as string[], looseEnds: [], messages: messagesOf(events) };
+    return { needs: end?.needs, asks: (end?.asks ?? []) as Ask[], next: (end?.next ?? []) as string[], looseEnds: [], review: end?.review, messages: messagesOf(events) };
   };
   const viaPhone = async (): Promise<View> => {
     const r = (await call(b.ctx, mods.phone.thread!, { token: TOKEN, threadId: id })) as { thread: Record<string, any>; messages: { role: 'user' | 'assistant'; text: string }[] };
-    return { needs: r.thread.needs, asks: (r.thread.asks ?? []) as Ask[], next: (r.thread.next ?? []) as string[], looseEnds: ((r.thread.looseEnds ?? []) as { text: string }[]).map((e) => e.text), messages: r.messages.map((m) => ({ role: m.role, text: m.text, pictures: 0 })) };
+    return { needs: r.thread.needs, asks: (r.thread.asks ?? []) as Ask[], next: (r.thread.next ?? []) as string[], looseEnds: ((r.thread.looseEnds ?? []) as { text: string }[]).map((e) => e.text), review: r.thread.review, messages: r.messages.map((m) => ({ role: m.role, text: m.text, pictures: 0 })) };
   };
   const views = { here: here(), relay: await viaRelay(), phone: await viaPhone() };
   await sync.stop();
@@ -145,6 +150,9 @@ export async function playInto(post: Post, runner: { key: string; runnerId: stri
       send: (text, images = []) => {
         h.runner.send(thread.id, text, images, {});
         h.adapter.last.init();
+      },
+      reviewed: (ledger) => {
+        h.runner.threads.get(thread.id)!.rec.labReview = { ...ledger, delivered: ledger.rounds };
       },
       runAsks: () => {
         const file = path.join(h.cfg.home, 'runner.json');

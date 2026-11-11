@@ -60,6 +60,20 @@ export const SCENARIOS: Scenario[] = [
       p.looseEnds({ title: 'Look at how the experiment went', at: '2026-11-15T01:30:00.000Z' });
       p.say('Checked it in.');
       p.endTurn({ needs: 'nothing' });
+    // Review by another lab (runner/lab-review.ts): the turn that answered
+    // the reviewer's findings carries the ledger to its done card.
+    name: "a done card with another lab's review findings and what was done about each",
+    shows: ['Fixed the refresh bug.', 'Drops the session on refresh.', 'Logs the token.'],
+    play: (p) => {
+      p.reviewed({
+        reviewer: 'Codex (codex-1)', independent: true, rounds: 1, threadId: 'review-1', passed: false,
+        findings: [
+          { id: 1, round: 1, severity: 'high', claim: 'Drops the session on refresh.', where: 'src/app.ts:3' },
+          { id: 2, round: 1, severity: 'low', claim: 'Logs the token.' },
+        ],
+      });
+      p.say('Fixed the refresh bug.');
+      p.endTurn({ needs: 'nothing', findings: [{ id: 1, outcome: 'fixed' }, { id: 2, outcome: 'disputed', note: 'It logs a hash.' }] });
     },
   },
   {

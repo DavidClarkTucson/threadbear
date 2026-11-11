@@ -1043,7 +1043,7 @@ Persisted event types (stored in `events.ndjson`, returned by `threads.events`):
 | `plan.proposed` | `itemId`, `text` (Markdown): a "Plan first" plan waiting for Mike (see "Plan first") |
 | `plan.resolved` | `itemId`, `decision` (`go` \| `revise`): it was approved, or sent back for another go |
 | `turn.started` | `turnId`, `wokeBy?: {kind, description}[]`. A turn the agent starts by itself (a background task finished) has no `user.message` before it. `wokeBy` is on such a turn when background work finishing started it: each task that had finished since the last turn, `kind` as in `BackgroundTask` (`agent` \| `shell` \| `monitor` \| `other`), its `description` possibly empty. Clients mark the time between that turn and the one before it in the transcript (a "6 min later" divider, Mike 3 Nov). A `user.message` after `turn.started` was sent while the turn ran and went into it |
-| `turn.completed` | `turnId`, `outcome` (`completed` \| `interrupted` \| `failed`), `durationMs`, `costUsd?` (Codex turns have none), `usage?` (Claude: `{inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}`; Codex: `{inputTokens, cachedInputTokens, cacheWriteTokens?, outputTokens, reasoningTokens}`), `error?`, `errorKind?` (`usageLimit` \| `contextWindow` \| `auth` \| `network`, when a failed turn's cause is known, so a client can offer the fix without reading `error`), `needs?` (`you` \| `nothing`), `asks?: Ask[]`, `next?: string[]` (with `nothing`: suggested follow-ups), `needsFrom?` (`tool` \| `text`): what a completed turn said it needs from Mike (Needs you) |
+| `turn.completed` | `turnId`, `outcome` (`completed` \| `interrupted` \| `failed`), `durationMs`, `costUsd?` (Codex turns have none), `usage?` (Claude: `{inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}`; Codex: `{inputTokens, cachedInputTokens, cacheWriteTokens?, outputTokens, reasoningTokens}`), `error?`, `errorKind?` (`usageLimit` \| `contextWindow` \| `auth` \| `network`, when a failed turn's cause is known, so a client can offer the fix without reading `error`), `needs?` (`you` \| `nothing`), `asks?: Ask[]`, `next?: string[]` (with `nothing`: suggested follow-ups), `needsFrom?` (`tool` \| `text`): what a completed turn said it needs from Mike (Needs you), `review?: LabReviewLedger` (on the turn that answered a review by another lab's findings: see that) |
 | `asks.ticked` | `asksSeq`, `ticked: number[]` (indexes into that turn's `asks`, the whole set now ticked). Outside any turn. The latest one for an `asksSeq` is that card's ticks |
 | `system.note` | `text` (e.g. "Resumed session", "Compacted the conversation", "Patch reseed added: action Reseed dev DB."), `wake?: true` on a background task's notification that went into the running turn, which the agent reads at its next step (see "Once a turn, or once a message") |
 | `error` | `message` |
@@ -3018,7 +3018,7 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   until 10 Nov 2026). A turn that would count as finished
   (as for Waiting on threads, below) and whose `edit.diff` events change
   at least 5 lines outside `.md`/`.txt` files, in a thread that isn't
-  itself a review, with fewer than 2 reviews since Mike's last message
+  itself a review, with fewer than 3 reviews since Mike's last message
   (`labReviews` in thread.json; any message not from the runner resets
   it), isn't marked finished. Instead the runner creates a thread in the
   same folder (no worktree of its own), with the first thread's
@@ -3051,6 +3051,47 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   change if it made one worth it, else the owed one, and one that
   doesn't (it needs Mike, or waits) drops it. An archived thread, or an
   edit that cuts the owed turn, drops it too.
+
+  The review is a gate (Mike picked a findings ledger, 11 Nov 2026,
+  thread d42a3d91): pass or fail on concrete findings, not a score, as
+  labs score differently and a loop chases a number. `end_turn` takes
+  `findings?: object[]` (at most 20) for it. The reviewer's brief asks
+  for its verdict there, `{ severity: "high" | "medium" | "low", where,
+  claim, case }` per finding that holds up, or `[]` for a pass, and its
+  `end_turn` is refused without one (`reviewVerdict` on its record; an
+  entry with no `claim` isn't a finding, severity defaults to medium).
+  The verdict's findings go into the reviewed thread's ledger
+  (`labReview` in thread.json, cleared with `labReviews`), numbered on
+  from earlier rounds' (`ReviewFinding.id`, stable), and its wake
+  message lists them by number and asks for an answer to each in its
+  own `end_turn`: `{ id, outcome: "fixed" | "disputed" | "left", note? }`.
+  Until it gives one for every finding of the round, with a note on each
+  disputed one and `needs: "you"` for any left, its `end_turn` is
+  refused (`Not ended: the review`, at most twice a turn, then taken as
+  it is, as a session holding the older form of the tool can't send
+  them). The turn that answers carries the ledger on its
+  `turn.completed` as `review`:
+
+  ```ts
+  type ReviewFinding = { id: number, round: number, severity: "high" | "medium" | "low",
+    claim: string, where?: string, case?: string, outcome?: "fixed" | "disputed" | "left", note?: string }
+  type LabReviewLedger = { reviewer: string /* "Codex (codex-1)" */, independent: boolean,
+    rounds: number, threadId: string /* the latest round's review thread */, passed: boolean,
+    unstructured?: true /* a round gave no verdict: its reply is all there is */,
+    unchecked?: true /* fixes in the last round, which no review looked at */,
+    findings: ReviewFinding[] }
+  ```
+
+  A finding it fixed gets another round on that turn's change whatever
+  its size (the 5-line minimum doesn't apply), with the earlier
+  findings and answers in the brief, so the reviewer checks the fixes
+  and the disputes; a round that finds nothing passes and the agent
+  finishes. Disputed or left alone start no round. The ledger is drawn
+  on the done card (or the card of asks) on this runner's own threads;
+  it isn't in the Convex mirror yet, so another Mac and the phone show
+  the agent's reply (scenarios.test.ts, KNOWN). A reviewer that gives no
+  verdict (after the refusals) is handled as before: its reply goes
+  across and nothing is enforced.
 - **Waiting on threads.** `end_turn` also takes `waitFor?: string[]`, up
   to 5 thread ids (or unique prefixes) on this runner, with `needs:
   "nothing"`. Once the turn is over it hibernates on the same terms as
