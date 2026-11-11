@@ -1,6 +1,7 @@
 // Runner entry point: `node src/main.ts`. launchd runs this (see
 // scripts/install-runner.sh); tests run it with THREADBEAR_HOME and
 // THREADBEAR_PORT pointing at temp places.
+import { realCopy } from './real-copy.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -87,6 +88,13 @@ export const REPORTS_LISTENING = true;
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
+  // A dev runner on a copy of the real data dir (real-copy.ts): whatever
+  // came with the copy, it never syncs as Mike's runner (nor relays or
+  // takes moves, which go through sync), fires schedules, has the
+  // librarian send copied conversations to a model, or stops process
+  // groups a copied run/ names, which are the live runner's.
+  const copyOfReal = realCopy(cfg.home);
+  if (copyOfReal) cfg.sync.enabled = false;
   ensureHome(cfg.home);
   const log = createLogger(cfg.logFile, { echo: process.env.THREADBEAR_LOG_STDERR === '1', debug: process.env.THREADBEAR_DEBUG === '1', onError: reportLoggedError, onWarn: reportLoggedWarning });
   // Only the installed runner reports to Sentry (sentry.ts says why).
@@ -120,7 +128,9 @@ async function main(): Promise<void> {
 
   const registry = new ProcessRegistry(paths.run(cfg.home), log);
   // Waits until the old CLIs are gone, so a resume never runs beside them.
-  const swept = await registry.sweepOrphans();
+  // A copy's run/ lists the live runner's CLIs: forgotten, never stopped.
+  if (copyOfReal) registry.removeFile();
+  const swept = copyOfReal ? 0 : await registry.sweepOrphans();
   if (swept) log.warn('stopped process groups left from a previous run', { count: swept });
 
   const store = new ThreadStore(cfg.home);
@@ -380,14 +390,14 @@ async function main(): Promise<void> {
     self: { id: syncRunnerId, name: cfg.sync.name ?? defaultRunnerName(), icon: runnerIcon, version: RUNNER_VERSION, release: RELEASE.release, startedAt },
     syncOn: Boolean(cfg.sync.enabled && cfg.sync.url && readSyncKey(cfg.home)),
   });
-  scheduler.start();
+  if (!copyOfReal) scheduler.start();
   // The done card's loose ends list the check-ins booked for a thread.
   runner.schedulesFor = (id) => scheduler.list(id);
   // Projects need the threads loaded (their counts, and the thread side of
   // membership); the librarian needs both.
   projects.start(runner);
   const librarian = new Librarian({ host: runner, projects, models, clock: realClock, log, home: cfg.home, pocket: pocketControl });
-  librarian.start();
+  if (!copyOfReal) librarian.start();
   // Background jobs that look stuck get their thread a message.
   const stuckJobs = new StuckJobs({ host: runner, clock: realClock, log, home: cfg.home });
   stuckJobs.start();

@@ -2,6 +2,7 @@
 // Part of the Runner (runner.ts), split out on 4 Nov 2026 as a plain move so a
 // fork's change to one area doesn't clash with another's. Each method's `this`
 // is the Runner; runner.ts puts them on its prototype.
+import { neutraliseCopied, realCopy } from '../real-copy.ts';
 import type { Runner } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import type { ThreadSummary } from '../protocol.ts';
@@ -183,6 +184,9 @@ export const handoversPart = {
       this.log.warn('a handed-over thread is gone', { threadId });
       return undefined;
     }
+    // Neutralised like the ones loaded at start (real-copy.ts).
+    const copy = realCopy(this.store.home);
+    if (copy) this.store.save(neutraliseCopied(rec, copy.work));
     rec.lastSeq = this.store.log(rec.id).lastSeq;
     const st: ThreadState = { rec, rt: newRuntime(Date.parse(rec.lastActivityAt) || 0) };
     this.threads.set(rec.id, st);

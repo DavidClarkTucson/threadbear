@@ -69,9 +69,11 @@ export function cloneRealHome(from: string, to: string, work: string, now = new 
   if (fs.existsSync(path.join(to, 'threads'))) throw new Error(`${to} already has threads; clone into an empty folder.`);
   // Written first, so a runner started on a half-made copy still treats it as one.
   atomicWriteFileSync(path.join(to, REAL_COPY_FILE), JSON.stringify({ from, at: now.toISOString(), work } satisfies RealCopy, null, 1) + '\n');
+  // dereference: a link to the real data dir's threads would otherwise be
+  // written through by the neutralising below, and by the runner after.
   for (const name of COPIED) {
     const src = path.join(from, name);
-    if (fs.existsSync(src)) fs.cpSync(src, path.join(to, name), { recursive: true, verbatimSymlinks: true });
+    if (fs.existsSync(src)) fs.cpSync(src, path.join(to, name), { recursive: true, dereference: true });
   }
   fs.mkdirSync(work, { recursive: true });
   let threads = 0;

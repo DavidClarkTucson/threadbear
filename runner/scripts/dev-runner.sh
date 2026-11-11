@@ -6,7 +6,7 @@
 #
 #   --home DIR   data dir (default: a new temp folder). The real one, any
 #                data dir an installed runner uses, and one holding threads
-#                this script didn't make (a copy of the real one) are refused.
+#                from real folders (a copy of the real one) are refused.
 #   --clone-real [FROM]
 #                a new temp data dir with a copy of the real one's threads
 #                and projects (FROM: another data dir), for trying a change
@@ -93,17 +93,29 @@ if [ -e "$DATA_HOME/runner/launch.mjs" ]; then
   echo "$DATA_HOME belongs to an installed runner. Use another --home." >&2
   exit 1
 fi
-# A data dir with threads this script didn't make is most likely a copy of
-# the real one, whose threads name Mike's real sessions and folders: on 11
-# Nov 2026 a dev runner on one carried on a thread that had been mid-turn,
-# in his real session. --clone-real makes a copy that's safe.
-if [ -z "$CLONE_FROM" ] && [ ! -e "$DATA_HOME/.dev-runner" ] && [ ! -e "$DATA_HOME/copy-of-real.json" ] \
-  && [ -n "$(ls -A "$DATA_HOME/threads" 2>/dev/null)" ]; then
-  echo "$DATA_HOME has threads this script didn't make (a copy of a real data dir?)." >&2
-  echo "Their sessions and folders are real ones, so it won't start on it. For real-sized data use" >&2
-  echo "  scripts/dev-runner.sh --clone-real [FROM]" >&2
-  echo "which copies the threads with nothing that runs. Only if it is a dev data dir you made yourself before 11 Nov: touch $DATA_HOME/.dev-runner" >&2
-  exit 1
+# A data dir with threads from somewhere real is most likely a copy of the
+# real one, whose threads name Mike's real sessions and folders: on 11 Nov
+# 2026 a dev runner on one carried on a thread that had been mid-turn, in
+# his real session. Dev threads live under $TMPDIR, and --clone-real's are
+# marked copied; any other thread's folder means real ones.
+if [ -z "$CLONE_FROM" ] && [ ! -e "$DATA_HOME/copy-of-real.json" ] && [ -d "$DATA_HOME/threads" ]; then
+  REAL_ONE="$("$NODE" -e 'const fs = require("fs"), path = require("path");
+  const [dir, ...tmps] = process.argv.slice(1);
+  const inTmp = (p) => tmps.some((t) => t && p.startsWith(t.replace(/\/+$/, "") + "/"));
+  for (const id of fs.readdirSync(dir)) {
+    let r; try { r = JSON.parse(fs.readFileSync(path.join(dir, id, "thread.json"), "utf8")); } catch { continue; }
+    if (r.copied) continue;
+    const cwd = typeof r.cwd === "string" ? r.cwd : "";
+    let real = cwd; try { real = fs.realpathSync(cwd); } catch {}
+    if (!inTmp(real) && !inTmp(cwd)) { console.log(`${id} (in ${cwd})`); break; }
+  }' "$DATA_HOME/threads" "$(real_dir "${TMPDIR:-/tmp}")" "${TMPDIR:-/tmp}")"
+  if [ -n "$REAL_ONE" ]; then
+    echo "$DATA_HOME has a thread from a real folder, $REAL_ONE: a copy of a real data dir?" >&2
+    echo "Its sessions and folders are real ones, so it won't start on it. For real-sized data use" >&2
+    echo "  scripts/dev-runner.sh --clone-real [FROM]" >&2
+    echo "which copies the threads with nothing that runs." >&2
+    exit 1
+  fi
 fi
 
 if [ ! -d "$RUNNER_DIR/node_modules/@anthropic-ai/claude-agent-sdk" ] || [ ! -d "$RUNNER_DIR/node_modules/ws" ]; then
@@ -133,7 +145,6 @@ if [ -n "$CLONE_FROM" ]; then
   (cd "$RUNNER_DIR" && "$NODE" src/real-copy.ts "$CLONE_FROM" "$DATA_HOME" "$WORK") || exit 1
 fi
 if [ ! -e "$DATA_HOME/runner.json" ]; then
-  : > "$DATA_HOME/.dev-runner"
   mkdir -p "$WORK"
   # With CLI updates off, the runner takes the codex beside its Node's real
   # file (process.execPath, past links: Homebrew's bin/node is in its

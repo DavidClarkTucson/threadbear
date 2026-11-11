@@ -214,13 +214,17 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   `--clone-real` makes a new temp data dir with only the threads and
   projects (`runner/src/real-copy.ts`; no `runner.json`, secrets,
   schedules, backend keys or sync state) and a `copy-of-real.json`
-  marker. A runner that finds the marker makes every thread it loads idle,
-  strips its session id, queue, carry-ons, waits, schedule and worktree,
-  moves its folder to `<home>/work/<the real folder's name>`, and never
-  starts a CLI for it (a send fails with a note saying why); threads you
-  start there run as usual. `--home` on a folder with threads the script
-  didn't make (no `.dev-runner` file) is refused. `test/unit/real-copy.test.ts`
-  covers it.
+  marker. A runner that finds the marker makes every thread it loads (or
+  takes in later) idle, strips its session id, queue, carry-ons, waits,
+  schedule and worktree, moves its folder to `<home>/work/<the real
+  folder's name>`, and never starts a CLI for one or goes back to an
+  earlier message in it, which would put files back in the real folder
+  (a send fails with a note saying why). Threads you start there run as
+  usual. It also turns sync off (so no relay or moves either), fires no
+  schedules, keeps the librarian off and forgets a copied `run/` rather
+  than stopping the live runner's CLIs it names. `--home` on a folder
+  holding a thread whose folder isn't under `$TMPDIR` is refused.
+  `test/unit/real-copy.test.ts` covers it.
 - `./check.sh [--quick | --app] [--e2e] [--shots DIR]` at the repo root:
   runner typecheck, unit tests and deploy tests, app `swift build` and
   `swift test` (with the mock runner's packages installed and its tests
