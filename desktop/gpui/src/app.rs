@@ -1119,7 +1119,7 @@ impl Threadbear {
         if self.mode == SidebarMode::Projects {
             sidebar["sections"] = self.projects_sidebar_dump();
         }
-        json!({
+        let mut dump = json!({
             "connection": connection,
             "selection": self.selection_dump(),
             "sidebar": sidebar,
@@ -1165,8 +1165,6 @@ impl Threadbear {
             "zoom": crate::style::zoom_percent(),
             "archivedNote": self.archived_note.as_ref().map(|n| n.thread.clone()),
             "inboxEndNote": self.inbox_end_note.as_ref().map(|n| if n.empty { "empty" } else { "end" }),
-            // What came across from the Swift app, while its note's up.
-            "importNote": self.import_note.clone(),
             "rails": self.rails_dump(cx),
             // What the activity bar's Runners, Updates and Connectors panels say.
             "runners": self.runners_dump(cx),
@@ -1183,7 +1181,11 @@ impl Threadbear {
             "webPanels": crate::web_panels::dump(cx),
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
             "terminal": crate::terminal::dump(self, cx),
-        })
+        });
+        // What came across from the Swift app, while its note's up. Set
+        // after, as the literal above is as long as serde_json's macro goes.
+        dump["importNote"] = json!(self.import_note);
+        dump
     }
 
     /// The composer's part of the dump (AppDump.composer).
