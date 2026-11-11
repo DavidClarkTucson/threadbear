@@ -277,6 +277,13 @@ impl<V: Clone> PictureBudget<V> {
     /// (the caller frees their decoded copies). The newest is always kept,
     /// even alone over the budget, as it's what's being drawn.
     pub fn keep(&mut self, key: String, value: V, cost: usize) -> Vec<V> {
+        self.keep_with(key, value, cost, |_| false)
+    }
+
+    /// `keep`, never letting go of what `pinned` says is being drawn: it
+    /// goes over the budget for them rather than take a picture off the
+    /// screen (they're FrameBudget's, which holds half of it).
+    pub fn keep_with(&mut self, key: String, value: V, cost: usize, pinned: impl Fn(&V) -> bool) -> Vec<V> {
         let mut gone = Vec::new();
         if let Some(at) = self.entries.iter().position(|(k, ..)| *k == key) {
             let (_, old, old_cost) = self.entries.remove(at).expect("there");
@@ -285,8 +292,14 @@ impl<V: Clone> PictureBudget<V> {
         }
         self.entries.push_back((key, value, cost));
         self.used += cost;
-        while self.used > self.budget && self.entries.len() > 1 {
-            let (_, old, old_cost) = self.entries.pop_front().expect("more than one");
+        // Oldest first, never the newest.
+        let mut at = 0;
+        while self.used > self.budget && at + 1 < self.entries.len() {
+            if pinned(&self.entries[at].1) {
+                at += 1;
+                continue;
+            }
+            let (_, old, old_cost) = self.entries.remove(at).expect("there");
             self.used -= old_cost;
             gone.push(old);
         }
@@ -342,6 +355,10 @@ pub struct FrameBudget {
 impl FrameBudget {
     /// Whether pictures `ids` costing `cost` may be drawn this frame: always
     /// the first, and those already handed out.
+    /// What one frame may draw: half the pictures' budget, so pictures the
+    /// frame holds and a newly drawn one fit in it together.
+    pub const BYTES: usize = PictureBudget::<()>::BYTES / 2;
+
     pub fn hand_out(&mut self, ids: [u64; 2], cost: usize, budget: usize) -> bool {
         if ids.iter().all(|id| self.ids.contains(id)) {
             return true;
@@ -529,5 +546,12 @@ mod tests {
         assert_eq!((kept.len(), kept.get("huge")), (1, Some('h')));
         assert_eq!(kept.remove("huge"), Some('h'));
         assert_eq!((kept.len(), kept.used(), kept.remove("huge")), (0, 0, None));
+        // What's being drawn stays, over the budget if it must.
+        assert!(kept.keep("a".into(), 'a', 60).is_empty());
+        assert!(kept.keep("b".into(), 'b', 30).is_empty());
+        assert_eq!(kept.keep_with("c".into(), 'c', 60, |v| *v == 'a'), ['b']);
+        assert_eq!(kept.keep_with("d".into(), 'd', 60, |v| *v == 'a' || *v == 'c'), Vec::<char>::new());
+        assert_eq!(kept.used(), 180);
+        assert_eq!(kept.keep("e".into(), 'e', 1), ['a', 'c'], "under the budget once a and c go");
     }
 }

@@ -155,6 +155,7 @@ pub(crate) struct RichStore {
     /// The pictures handed to boxes in the frame being drawn (`FrameBudget`),
     /// and whether the frame's end is waited for.
     in_frame: FrameBudget,
+    frame_images: HashMap<u64, Arc<Image>>,
     frame_hooked: bool,
     queue: VecDeque<(String, RichBlock, u32)>,
     /// Asked for while the runtime couldn't draw them: asked again once it can.
@@ -200,6 +201,7 @@ pub(crate) fn init(cx: &mut App) {
             let_go: Vec::new(),
             textures: HashMap::new(),
             in_frame: FrameBudget::default(),
+            frame_images: HashMap::new(),
             frame_hooked: false,
             queue: VecDeque::new(),
             asked: HashSet::new(),
@@ -325,7 +327,10 @@ impl RichStore {
 
     fn keep_pictures(&mut self, key: String, pictures: (Arc<Image>, Arc<Image>), cx: &mut App) {
         let cost = png_cost(&pictures.0.bytes).saturating_add(png_cost(&pictures.1.bytes));
-        for (dark, light) in self.pictures.keep(key, pictures, cost) {
+        // One allocation for the same picture however many blocks drew it.
+        let pictures = (self.shared(pictures.0), self.shared(pictures.1));
+        let in_frame = &self.in_frame;
+        for (dark, light) in self.pictures.keep_with(key, pictures, cost, |(dark, light)| in_frame.holds(dark.id()) || in_frame.holds(light.id())) {
             self.let_go.extend([dark, light]);
         }
         self.release(cx);
@@ -346,6 +351,7 @@ impl RichStore {
     /// pixels, which gpui keeps until an image is removed, and for one that
     /// was drawn its texture in every window, after the frame being drawn.
     fn release(&mut self, cx: &mut App) {
+        let mut dropped = false;
         for picture in std::mem::take(&mut self.let_go) {
             // Still kept under another key (two blocks drawn the same):
             // still wanted.
@@ -359,8 +365,17 @@ impl RichStore {
             }
             if let Some(texture) = self.textures.remove(&picture.id()) {
                 cx.defer(move |cx| cx.drop_image(texture, None));
+                dropped = true;
             }
             picture.remove_asset(cx);
+        }
+        // A thread drawn before (its scene kept, not built again) may still
+        // show it: the panes watching the store draw again, and a box still
+        // there asks for its pictures afresh.
+        if dropped {
+            if let Some(store) = store(cx) {
+                cx.defer(move |cx| store.update(cx, |_, cx| cx.notify()));
+            }
         }
     }
 
@@ -368,13 +383,32 @@ impl RichStore {
     /// boxes may take up together (the first always does).
     fn hand_out(&mut self, pictures: &(Arc<Image>, Arc<Image>)) -> bool {
         let cost = png_cost(&pictures.0.bytes).saturating_add(png_cost(&pictures.1.bytes));
-        self.in_frame.hand_out([pictures.0.id(), pictures.1.id()], cost, PictureBudget::<(Arc<Image>, Arc<Image>)>::BYTES)
+        let fits = self.in_frame.hand_out([pictures.0.id(), pictures.1.id()], cost, FrameBudget::BYTES);
+        if fits {
+            for picture in [&pictures.0, &pictures.1] {
+                self.frame_images.entry(picture.id()).or_insert_with(|| picture.clone());
+            }
+        }
+        fits
+    }
+
+    /// The picture already in memory with the same bytes, if there is one
+    /// (another block that drew the same, or one drawn this frame), so a
+    /// reply of many blocks drawn alike holds one copy, not one each
+    /// (Codex's third look at Daybreak 92).
+    fn shared(&self, picture: Arc<Image>) -> Arc<Image> {
+        let id = picture.id();
+        if let Some(found) = self.frame_images.get(&id) {
+            return found.clone();
+        }
+        self.pictures.values().flat_map(|(dark, light)| [dark, light]).find(|p| p.id() == id).cloned().unwrap_or(picture)
     }
 
     /// The frame's drawn: what was let go during it goes now.
-    fn end_frame(&mut self, cx: &mut App) {
+    fn end_frame(&mut self, cx: &mut Context<Self>) {
         self.frame_hooked = false;
         self.in_frame.end();
+        self.frame_images.clear();
         self.release(cx);
     }
 
