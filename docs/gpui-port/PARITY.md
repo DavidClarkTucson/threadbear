@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-114 of 329 features have a spec so far, across 202 scenarios.
+119 of 329 features have a spec so far, across 217 scenarios.
 
-Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linux: 193 of 202.
+Scenarios passing: Swift: 206 of 217, Mac: 205 of 217, Windows: 192 of 217, Linux: 205 of 217.
 
 
 ### 0. Foundations everything else needs
@@ -179,11 +179,22 @@ Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linu
 | `cards.run` Run on the card | pending | pending | pending | pending |
 | `terminal.putcommand` Put a command in the Terminal | pending | pending | pending | pending |
 
+### 14. Projects, Librarian, Schedules, Usage, Runners, Connectors, Updates
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `projects.decisions` Decisions on the Projects page | pass | pending | pending | pending |
+| `librarian.page` Librarian page | pass | pass | pending | pass |
+| `librarian.log` Librarian log | pass | pass | pending | pass |
+| `schedule.page` Scheduled page | pass | pass | pending | pass |
+| `schedule.list` Scheduled list | pass | pass | pending | pass |
+| `schedule.editor` Schedule editor | pass | pass | pending | pass |
+
 ### 17. Navigation, shortcuts, main menu
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `nav.history` Back/forward history | partly | pass | pass | pass |
+| `nav.history` Back/forward history | partly | pass | partly | pass |
 | `nav.sidebuttons` Mouse side buttons | pass | pass | pass | pass |
 | `nav.nextinbox` Next Inbox Thread | pass | pass | pass | pass |
 | `menu.app` App menu | pass | pass | pass | pass |
