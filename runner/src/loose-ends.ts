@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { LooseEnd, Schedule } from './protocol.ts';
 import { git, MAIN, type WorktreeRecord } from './worktrees.ts';
+import { untrustedGit } from './safe-git.ts';
 
 // The thread's own worktree: commits on its branch that main doesn't have,
 // and files in it that aren't committed. Untracked ones count, as a new
@@ -38,16 +39,27 @@ export async function worktreeLooseEnds(w: WorktreeRecord): Promise<LooseEnd[]> 
 // the card could only see threads and check-ins. `skip` is the thread's
 // own worktree, which worktreeLooseEnds covers.
 // `pushed` are the commits its Highlights saw it push: the ones that can
-// be pushed and still not finished (unmergedLooseEnds).
-export async function editedLooseEnds(edited: string[], commits: string[], skip?: string, pushed: string[] = [], prs: PrLookup = githubPr): Promise<LooseEnd[]> {
+// be pushed and still not finished (unmergedLooseEnds). `dirs` are more
+// folders to look in for its commits, the thread's own folder: a thread
+// that only changed files through a shell has no `edited` to find its repo
+// by (Codex's review, 11 Nov 2026).
+export type EditedOptions = { pushed?: string[]; dirs?: string[]; prs?: PrLookup };
+
+// Any repo a thread touched can be anyone's (a clone it just made), so these
+// reads go through safe-git: no hooks, fsmonitor or lazy fetch through the
+// repo's own config (Codex's review, 11 Nov 2026).
+const readGit = (dir: string, args: string[]) => untrustedGit(dir, args, { timeoutMs: 30_000 });
+
+export async function editedLooseEnds(edited: string[], commits: string[], skip?: string, opts: EditedOptions = {}): Promise<LooseEnd[]> {
+  const { pushed = [], dirs = [], prs = githubPr } = opts;
   const repos = new Map<string, string[]>();
   const tops = new Map<string, string | undefined>();
-  const topOf = async (file: string): Promise<string | undefined> => {
-    let dir = path.dirname(file);
+  const topOf = async (file: string, isDir = false): Promise<string | undefined> => {
+    let dir = isDir ? file : path.dirname(file);
     // A file since deleted, in a folder since deleted: its nearest folder.
     while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir);
     if (!tops.has(dir)) {
-      const r = await git(dir, ['rev-parse', '--show-toplevel']);
+      const r = await readGit(dir, ['rev-parse', '--show-toplevel']);
       tops.set(dir, r.ok ? r.stdout.trim() : undefined);
     }
     return tops.get(dir);
@@ -59,19 +71,27 @@ export async function editedLooseEnds(edited: string[], commits: string[], skip?
     if (!top || (skip && inside(top, skip))) continue;
     repos.set(top, [...(repos.get(top) ?? []), path.relative(top, file)]);
   }
+  // Its own folder, for the commits only: no files of it count as changed.
+  if (commits.length || pushed.length) {
+    for (const dir of dirs) {
+      if (!path.isAbsolute(dir) || (skip && inside(dir, skip))) continue;
+      const top = await topOf(dir, true);
+      if (top && !(skip && inside(top, skip)) && !repos.has(top)) repos.set(top, []);
+    }
+  }
   const out: LooseEnd[] = [];
   for (const [top, files] of repos) {
     const name = path.basename(top);
-    const status = await git(top, ['status', '--porcelain', '--untracked-files=all', '--', ...files]);
-    const n = status.ok ? status.stdout.split('\n').filter((l) => l.trim()).length : 0;
+    const status = files.length ? await readGit(top, ['status', '--porcelain', '--untracked-files=all', '--', ...files]) : undefined;
+    const n = status?.ok ? status.stdout.split('\n').filter((l) => l.trim()).length : 0;
     if (n > 0) out.push({ kind: 'uncommitted', text: `${n === 1 ? '1 file' : `${n} files`} it changed in ${name} ${n === 1 ? "isn't" : "aren't"} committed` });
     // A commit the thread made is in this repo if git knows it here.
-    const remotes = await git(top, ['remote']);
+    const remotes = await readGit(top, ['remote']);
     if (!remotes.ok || !remotes.stdout.trim()) continue;
     let unpushed = 0;
     for (const sha of commits) {
-      if (!(await git(top, ['cat-file', '-e', `${sha}^{commit}`])).ok) continue;
-      const on = await git(top, ['branch', '-r', '--contains', sha]);
+      if (!(await readGit(top, ['cat-file', '-e', `${sha}^{commit}`])).ok) continue;
+      const on = await readGit(top, ['branch', '-r', '--contains', sha]);
       if (on.ok && !on.stdout.trim()) unpushed++;
     }
     if (unpushed > 0) out.push({ kind: 'unpushed', text: `${unpushed === 1 ? '1 commit' : `${unpushed} commits`} it made in ${name} ${unpushed === 1 ? "isn't" : "aren't"} pushed` });
@@ -83,47 +103,60 @@ export async function editedLooseEnds(edited: string[], commits: string[], skip?
 // Pushed isn't finished. On 11 Nov 2026 the examples thread (0222c475) said
 // Done with its work pushed to three stacked draft PRs in convex/website,
 // none merged, and the card showed a plain Done: Mike nearly archived it.
-// So a commit it pushed that's on a remote branch but not the remote's
-// default one is open, one line per branch, naming the PR when GitHub has
-// one. A merged or closed PR isn't (a squash merge leaves the commits off
-// main for good), and a commit no remote branch has any more (rebased and
-// force-pushed) can't be told, so it's left out.
+// So a commit it pushed that's on an origin branch but not origin's default
+// one is open, one line per branch, naming the PR when GitHub has one. A
+// merged or closed PR whose head is still the branch's tip isn't (a squash
+// merge leaves the commits off main for good); one from before newer pushes
+// to a reused branch doesn't cover them. A commit no remote branch has any
+// more (rebased and force-pushed) can't be told, so it's left out. Known
+// gaps (Codex's review): only origin is looked at, so work pushed to a fork
+// remote isn't seen, and a branch squashed into another thread's stacked
+// base counts as done there.
 const MAX_UNMERGED = 3;
+// Bounds on the work, as a thread can push many commits to many branches.
+const MAX_PUSHED = 40;
+const MAX_LOOKUPS = 6;
 async function unmergedLooseEnds(top: string, pushed: string[], prs: PrLookup): Promise<LooseEnd[]> {
   if (!pushed.length) return [];
-  const head = await git(top, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+  const head = await readGit(top, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
   let main = head.ok ? head.stdout.trim() : '';
   for (const guess of ['origin/main', 'origin/master']) {
     if (main) break;
-    if ((await git(top, ['rev-parse', '--verify', '--quiet', `refs/remotes/${guess}`])).ok) main = guess;
+    if ((await readGit(top, ['rev-parse', '--verify', '--quiet', `refs/remotes/${guess}`])).ok) main = guess;
   }
-  if (!main) return [];
+  if (!main.startsWith('origin/')) return [];
   const branches = new Set<string>();
-  for (const sha of pushed) {
-    if (!(await git(top, ['cat-file', '-e', `${sha}^{commit}`])).ok) continue;
-    if ((await git(top, ['merge-base', '--is-ancestor', sha, main])).ok) continue;
-    const on = await git(top, ['branch', '-r', '--format=%(refname:short)', '--contains', sha]);
+  for (const sha of pushed.slice(-MAX_PUSHED)) {
+    if (!/^[0-9a-f]{7,64}$/i.test(sha)) continue;
+    if (!(await readGit(top, ['cat-file', '-e', `${sha}^{commit}`])).ok) continue;
+    if ((await readGit(top, ['merge-base', '--is-ancestor', sha, `refs/remotes/${main}`])).ok) continue;
+    const on = await readGit(top, ['for-each-ref', '--format=%(refname)', '--contains', sha, 'refs/remotes/origin/']);
     if (!on.ok) continue;
-    for (const b of on.stdout.split('\n').map((l) => l.trim())) {
-      // origin/<branch> only: other remotes are someone else's forks.
-      if (b.startsWith('origin/') && b !== main && b !== 'origin/HEAD' && b !== 'origin') branches.add(b.slice('origin/'.length));
+    for (const ref of on.stdout.split('\n').map((l) => l.trim())) {
+      const b = ref.slice('refs/remotes/origin/'.length);
+      if (ref.startsWith('refs/remotes/origin/') && b && b !== 'HEAD' && `origin/${b}` !== main) branches.add(b);
     }
   }
   if (!branches.size) return [];
   const name = path.basename(top);
   const into = main.slice('origin/'.length);
-  const url = await git(top, ['remote', 'get-url', 'origin']);
+  const url = await readGit(top, ['remote', 'get-url', 'origin']);
   const repo = url.ok ? githubRepo(url.stdout.trim()) : undefined;
   const out: LooseEnd[] = [];
+  let lookups = 0;
   for (const branch of [...branches].sort()) {
-    const pr = repo ? await prs(repo, branch) : undefined;
-    if (pr && pr.state !== 'OPEN') continue;
+    if (out.length >= MAX_UNMERGED) break;
+    const pr = repo && lookups++ < MAX_LOOKUPS ? await prs(repo, branch) : undefined;
+    if (pr && pr.state !== 'OPEN') {
+      const tip = await readGit(top, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}^{commit}`]);
+      if (tip.ok && tip.stdout.trim() === pr.headRefOid) continue;
+    }
     out.push({
       kind: 'unmerged',
-      text: pr ? `PR #${pr.number} in ${name} ${pr.isDraft ? 'is still a draft' : "isn't merged"}` : `Work it pushed to ${branch} in ${name} isn't on ${into}`,
+      text: pr?.state === 'OPEN' ? `PR #${pr.number} in ${name} ${pr.isDraft ? 'is still a draft' : "isn't merged"}` : `Work it pushed to ${branch} in ${name} isn't on ${into}`,
     });
   }
-  return out.slice(0, MAX_UNMERGED);
+  return out;
 }
 
 // "owner/name" for a github.com remote, else undefined.
@@ -132,24 +165,23 @@ export function githubRepo(url: string): string | undefined {
   return m ? `${m[1]}/${m[2]}` : undefined;
 }
 
-export type Pr = { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED'; isDraft: boolean };
+export type Pr = { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED'; isDraft: boolean; headRefOid?: string };
 export type PrLookup = (repo: string, branch: string) => Promise<Pr | undefined>;
 
 // The newest PR from that branch, through the gh CLI, or undefined (no gh,
 // not signed in, offline, no PR). Run outside the repo with -R, so the
-// repo's own git config (an fsmonitor, a hook) never runs under gh: the
-// runner's git goes through safe-git for the same reason. Kept a minute,
-// as opening a thread checks again every few seconds.
+// repo's own git config never runs under gh. Kept a minute, the lookup
+// itself included, as opening a thread checks again every few seconds.
 const PR_TTL_MS = 60_000;
-const prCache = new Map<string, { at: number; pr: Pr | undefined }>();
-export const githubPr: PrLookup = async (repo, branch) => {
+const prCache = new Map<string, { at: number; pr: Promise<Pr | undefined> }>();
+export const githubPr: PrLookup = (repo, branch) => {
   const key = `${repo}#${branch}`;
   const hit = prCache.get(key);
   if (hit && Date.now() - hit.at < PR_TTL_MS) return hit.pr;
-  const pr = await new Promise<Pr | undefined>((resolve) => {
+  const pr = new Promise<Pr | undefined>((resolve) => {
     execFile(
       'gh',
-      ['pr', 'list', '-R', repo, '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,state,isDraft'],
+      ['pr', 'list', '-R', repo, '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,state,isDraft,headRefOid'],
       { cwd: os.tmpdir(), timeout: 15_000, killSignal: 'SIGKILL', env: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0' } },
       (err, stdout) => {
         if (err) return resolve(undefined);

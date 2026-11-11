@@ -44,7 +44,7 @@ export const looseEndsPart = {
       const made = (hl?.items ?? []).filter((h) => h.kind === 'commit' && h.sha);
       const commits = made.filter((h) => !h.pushed).map((h) => h.sha!);
       const pushed = made.filter((h) => h.pushed).map((h) => h.sha!);
-      ends.push(...(await editedLooseEnds(hl?.edited ?? [], commits, own?.path, pushed)));
+      ends.push(...(await editedLooseEnds(hl?.edited ?? [], commits, own?.path, { pushed, dirs: [rec.cwd] })));
       ends.push(...agentLooseEnds(rec.needs?.open));
       const children: ChildThread[] = [];
       for (const other of this.threads.values()) {
