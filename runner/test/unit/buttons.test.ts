@@ -343,3 +343,19 @@ test('no press goes untold however many there are', () => {
   assert.match(text, /go ahead with those$/);
   for (let i = 0; i < 25; i++) assert.match(text, new RegExp(`"Job ${i}"`));
 });
+
+// Codex's third look: a press mid-turn doesn't push out ones still in flight.
+test('presses in flight survive more presses, and a failed turn tells them all again', () => {
+  const { h, thread } = fixture();
+  const other = h.runner.create({ text: 'Jobs', accountId: 'claude-3' }).thread;
+  const session = h.adapter.sessions.find((s) => s.opts.threadId === thread.id)!;
+  session.result();
+  const press = (i: number) => h.runner.pressButton(thread.id, h.runner.createButton(thread.id, { title: `Job ${i}`, send: { threadId: other.id, text: `Do job ${i}` } }).button.id);
+  for (let i = 0; i < 25; i++) press(i);
+  h.runner.send(thread.id, 'go ahead');
+  press(25);
+  session.result('failed', undefined, 'overloaded');
+  h.runner.send(thread.id, 'again');
+  const text = allSent(h, thread.id).at(-1)!;
+  for (let i = 0; i <= 25; i++) assert.match(text, new RegExp(`"Job ${i}"`));
+});

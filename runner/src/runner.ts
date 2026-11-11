@@ -77,7 +77,6 @@ import { cutOut } from './store.ts';
 
 // The presses a thread keeps for its agent to hear of (Runner.notePress).
 const MAX_PRESS_NOTES = 20;
-const MAX_PRESSES_UNTOLD = 100;
 import { appliedChanges, undoChanges } from './undo-edits.ts';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
@@ -3467,12 +3466,13 @@ export class Runner {
     const line = `- "${b.title}" ${where} (${b.pressed.threadId.slice(0, 8)}): ${brief.length > 200 ? `${brief.slice(0, 200)}...` : brief}`;
     const list = (rec.presses ?? []).filter((p) => p.id !== b.id);
     list.push({ id: b.id, line });
-    // Bounded: the last MAX_PRESS_NOTES told ones are kept for an edit or a
-    // fresh session; untold ones go only past MAX_PRESSES_UNTOLD, which
-    // nobody presses between two messages.
-    const told = list.filter((p) => p.told);
-    const untold = list.filter((p) => !p.told);
-    rec.presses = [...told.slice(-MAX_PRESS_NOTES), ...untold.slice(-MAX_PRESSES_UNTOLD)];
+    // Bounded: of the ones a completed turn heard, the last MAX_PRESS_NOTES
+    // are kept for an edit or a fresh session. Untold and in-flight ones all
+    // stay (Codex's third look); each is a press of a different button, and
+    // a thread keeps at most MAX_BUTTONS.
+    const settled = list.filter((p) => p.told && !p.told.inFlight);
+    const pending = list.filter((p) => !p.told || p.told.inFlight);
+    rec.presses = [...settled.slice(-MAX_PRESS_NOTES), ...pending.slice(-MAX_BUTTONS)];
   }
 
   pressNewsText(lines: string[]): string {
