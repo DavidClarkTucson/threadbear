@@ -1632,6 +1632,25 @@ async function dispatch(client, method, p) {
       return { clis };
     case 'mock.stream':
       return startStream(need(p.threadId).summary.id, p);
+    case 'mock.review': {
+      // As an agent's show_options would: {threadId, review: { id?, title,
+      // note?, recommended?, options }}, the options as DesignReview has them
+      // (shots, media, url). For a review the demo thread's hasn't the like
+      // of: several shots an option, a page, a clip (features/review.feature).
+      const t = need(p.threadId);
+      const now = iso();
+      const review = {
+        id: p.review?.id ?? 'review_' + crypto.randomBytes(4).toString('hex'), title: p.review?.title ?? 'Design options',
+        ...(p.review?.note ? { note: p.review.note } : {}), ...(p.review?.recommended ? { recommended: p.review.recommended } : {}),
+        options: (p.review?.options ?? []).map((option) => ({ reference: false, ...option })),
+        status: 'pending', revision: 0, createdAt: now, updatedAt: now, draft: { notes: {}, pickedIds: [] },
+      };
+      t.reviews ??= new Map();
+      t.reviews.set(review.id, review);
+      updateReviewCount(t);
+      persist(t.summary.id, { type: 'review.updated', review });
+      return { review: structuredClone(review) };
+    }
     case 'mock.approval': {
       const t = need(p.threadId);
       const approvalId = 'ap_' + crypto.randomBytes(4).toString('hex');

@@ -163,7 +163,9 @@ impl ReviewWindow {
             let tip = if peeking { format!("Back to {focused} (or let go of Space)") } else { format!("Flick to {}: click, or hold Space", baseline.title) };
             let (fg, bg) = if peeking { (gpui_kit::white(), style::control_accent(cx)) } else { (style::label_text(cx), style::primary_opacity(cx, 0.08)) };
             buttons.push(
-                crate::highlights::tipped(capsule_button("review-peek", Icon::new(IconName::ArrowLeftRight), &baseline.title, fg, bg, cx).max_w(px(140. + 22. + 20.)), tip)
+                // Its words in a 140 wide frame, as the Swift label's
+                // `frame(maxWidth: 140)` takes all of that whatever they say.
+                crate::highlights::tipped(capsule_button("review-peek", Icon::new(IconName::ArrowLeftRight), &baseline.title, fg, bg, cx).w(px(140. + 22.)).justify_center(), tip)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_peeking(!peeking, cx)))
                     .into_any_element(),
             );
@@ -448,7 +450,7 @@ impl ReviewWindow {
                             .child(thumb(&shot.image, STRIP_THUMB.0, STRIP_THUMB.1, 4., cx).opacity(if current { 1. } else { 0.55 }))
                             .when(current, |s| s.child(div().absolute().top(px(-3.)).left(px(-3.)).w(px(STRIP_THUMB.0 + 6.)).h(px(STRIP_THUMB.1 + 6.)).rounded(px(5.)).border_2().border_color(primary))),
                     )
-                    .child(div().w(px(STRIP_THUMB.0)).truncate().text_size(px(style::size::DETAIL - 1.)).text_color(if current { primary } else { secondary }).child(title)),
+                    .child(div().w(px(STRIP_THUMB.0)).truncate().text_size(px(style::size::DETAIL - 1.)).line_height(px(style::natural_line(style::size::DETAIL - 1.))).text_color(if current { primary } else { secondary }).child(title)),
             );
         }
         div().flex_none().w(px(width.max(0.))).overflow_hidden().child(strip).into_any_element()

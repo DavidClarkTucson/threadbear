@@ -235,11 +235,13 @@ impl Threadbear {
 }
 
 impl crate::thread::ThreadPane {
-    /// The review card's button (rows/cards.rs).
+    /// The review card's button (rows/cards.rs). Once this update is over,
+    /// as a link can be followed from inside the app's own update (an ask's
+    /// link, a script's `link`), when the app can't be updated again.
     pub(crate) fn open_review(&mut self, review: DesignReview, window: &mut Window, cx: &mut Context<Self>) {
         let Some(app) = self.composer.read(cx).app.upgrade() else { return };
         let id = self.summary.id.clone();
-        app.update(cx, |t, cx| t.open_review(&id, review, window, cx));
+        window.defer(cx, move |window, cx| app.update(cx, |t, cx| t.open_review(&id, review, window, cx)));
     }
 
     /// A `review:` link in a reply or on an ask (`openReviewLink`): the
@@ -252,7 +254,8 @@ impl crate::thread::ThreadPane {
             Some(review) => self.open_review(review, window, cx),
             None => {
                 if let Some(app) = self.composer.read(cx).app.upgrade() {
-                    app.update(cx, |t, cx| t.show_error(format!("That review isn't in this thread's loaded messages ({id}). Its card further up opens it, or Review design options over the thread."), cx));
+                    let said = format!("That review isn't in this thread's loaded messages ({id}). Its card further up opens it, or Review design options over the thread.");
+                    window.defer(cx, move |_, cx| app.update(cx, |t, cx| t.show_error(said, cx)));
                 }
             }
         }
@@ -710,6 +713,13 @@ impl ReviewWindow {
     /// without first clicking the stage.
     fn key_down(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let m = &ev.keystroke.modifiers;
+        // ⌘W closes it, from the reply box too, as File > Close does the
+        // Swift window; the draft's kept.
+        if m.platform && !m.shift && !m.control && !m.alt && ev.keystroke.key == "w" {
+            self.close(cx);
+            cx.stop_propagation();
+            return;
+        }
         if self.reply_focused(window, cx) || m.control || m.alt {
             return;
         }

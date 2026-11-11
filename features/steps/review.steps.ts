@@ -2,13 +2,17 @@
 // `review` command, which opens the open thread's review as its card does and
 // says where the window has got to; `"open": false` only reads one that's
 // open. Clicks go to the review's own window by tooltip, as a person's would.
-import { Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import { okValue, sleep } from '../support/driver.ts';
+import { SHOTS_REVIEW, shotsReview } from '../support/review-demo.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 
 /** The demo thread's review (app/Tools/mock-runner/fixtures/demo-design-review). */
-const REVIEW = 'review_account_picker';
+const DEMO_REVIEW = 'review_account_picker';
+/** The review each scenario opened: the demo's unless it made another. */
+const opened = new WeakMap<ThreadbearWorld, string>();
+const reviewId = (world: ThreadbearWorld) => opened.get(world) ?? DEMO_REVIEW;
 
 type ReviewState = {
   id: string;
@@ -28,7 +32,7 @@ type ReviewState = {
 };
 
 async function review(world: ThreadbearWorld, cmd: Record<string, unknown> = {}): Promise<ReviewState> {
-  return JSON.parse(okValue(await world.app.do({ cmd: 'review', ...cmd }, 30))) as ReviewState;
+  return JSON.parse(okValue(await world.app.do({ cmd: 'review', id: reviewId(world), ...cmd }, 30))) as ReviewState;
 }
 
 /** Waits for the open review window to pass `check`, without opening one. */
@@ -63,7 +67,7 @@ async function untilClosed(world: ThreadbearWorld): Promise<void> {
 
 /** A control in the review's window, by its tooltip. */
 async function press(world: ThreadbearWorld, tip: string): Promise<void> {
-  await world.app.do({ cmd: 'click', tip, review: REVIEW });
+  await world.app.do({ cmd: 'click', tip, review: reviewId(world) });
 }
 
 When('I open the review', async function (this: ThreadbearWorld) {
@@ -71,8 +75,13 @@ When('I open the review', async function (this: ThreadbearWorld) {
 });
 
 When('I close the review', async function (this: ThreadbearWorld) {
-  await this.app.do({ cmd: 'review', close: true });
+  await this.app.do({ cmd: 'review', id: reviewId(this), close: true });
   await untilClosed(this);
+});
+
+When('I follow the link {string} in the agent\'s last reply', async function (this: ThreadbearWorld, url: string) {
+  const row = await this.until('a reply from the agent', (d) => [...d.transcript.rows].reverse().find((r) => r.kind === 'assistant'));
+  await this.app.do({ cmd: 'link', row: row.id, url });
 });
 
 Then('the review window is open on option {string}, one at a time', async function (this: ThreadbearWorld, id: string) {
@@ -152,4 +161,60 @@ Then('nothing can be changed in the review', async function (this: ThreadbearWor
   const s = await review(this, { open: false });
   assert.equal(s.editable, false, 'it can still be changed');
   await assert.rejects(press(this, 'Pick A'), 'a tick is still there to press');
+});
+
+// Stepping, zoom and today's version (review.nav, review.zoom, review.minimap,
+// review.holdspace).
+
+Given('the agent shows options with several shots each', async function (this: ThreadbearWorld) {
+  const d = await this.app.dump();
+  const threadId = d.selection?.id;
+  assert.ok(threadId, 'no thread open');
+  await this.app.do({ cmd: 'mock', method: 'review', params: { threadId, review: shotsReview() } });
+  await this.until('the new review\'s card', (dump) => dump.transcript.rows.some((r) => r.kind === 'review' && r.text.includes('Picker, step by step')));
+  opened.set(this, SHOTS_REVIEW);
+});
+
+When('I open that review', async function (this: ThreadbearWorld) {
+  await review(this);
+});
+
+When('I press {string} in the review', async function (this: ThreadbearWorld, tip: string) {
+  await press(this, tip);
+});
+
+When('I press the {string} key in the review', async function (this: ThreadbearWorld, key: string) {
+  await this.app.do({ cmd: 'menu-key', key, modifiers: [], review: reviewId(this) });
+});
+
+Then('the review is on option {string}, shot {int}', async function (this: ThreadbearWorld, id: string, shot: number) {
+  await untilReview(this, `${id}'s shot ${shot} on the stage`, (s) => s.mode === 'Single' && s.focused === id && s.shot === shot - 1);
+});
+
+Then('the review shows them all', async function (this: ThreadbearWorld) {
+  await untilReview(this, 'all of them side by side', (s) => s.mode === 'All');
+});
+
+When('I show the shot at full size', async function (this: ThreadbearWorld) {
+  await review(this, { open: false, actual: true });
+});
+
+When('I fit the shot in its space', async function (this: ThreadbearWorld) {
+  await review(this, { open: false, actual: false });
+});
+
+Then('the shot is zoomed in, with the minimap showing', async function (this: ThreadbearWorld) {
+  await untilReview(this, 'the shot zoomed in with its minimap', (s) => s.actual && s.minimap);
+});
+
+Then('the shot fits, with no minimap', async function (this: ThreadbearWorld) {
+  await untilReview(this, 'the shot fitting, with no minimap', (s) => !s.actual && !s.minimap);
+});
+
+Then('the review shows today\'s version over option {string}', async function (this: ThreadbearWorld, id: string) {
+  await untilReview(this, `today's version over ${id}`, (s) => s.peeking && s.focused === id && s.mode === 'Single');
+});
+
+Then('the review shows option {string} again', async function (this: ThreadbearWorld, id: string) {
+  await untilReview(this, `${id} again`, (s) => !s.peeking && s.focused === id && s.mode === 'Single');
 });

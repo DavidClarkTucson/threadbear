@@ -1,7 +1,8 @@
 // Pictures of the design review window in both apps, for checking the GPUI
 // one against the Swift one (settings-shot.ts does Settings, compare.ts the
-// threads). Opens the mock's "Compare account picker designs" review and
-// takes the window in each state below.
+// threads). Opens the mock's "Compare account picker designs" review, or for
+// the states starting "shots" one with several shots an option, a page and a
+// clip (support/review-demo.ts), and takes the window in each state below.
 //
 //   node features/tools/review-shot.ts <out folder> [state ...]
 //
@@ -16,6 +17,7 @@ import path from 'node:path';
 import { GpuiDriver } from '../support/gpui.ts';
 import { SwiftDriver } from '../support/swift.ts';
 import { okValue, sleep, type Driver } from '../support/driver.ts';
+import { SHOTS_REVIEW, shotsReview } from '../support/review-demo.ts';
 
 const [outArg, ...wanted] = process.argv.slice(2);
 if (!outArg) throw new Error('usage: review-shot.ts <out folder> [state ...]');
@@ -32,6 +34,12 @@ const states: Record<string, Record<string, unknown>[]> = {
   actual: [{ show: 0, actual: true }],
   reference: [{ show: 3 }],
   answered: [{ pick: 'C', reply: 'C, please.' }, { submit: true }, { mode: 'All' }],
+  // A's second shot, with the film strip of its three; all of them; B's page
+  // and C's clip on the stage, as stills here with a button to open them.
+  shots: [{ show: 0, shot: 1 }],
+  'shots-all': [{ mode: 'All' }],
+  'shots-page': [{ show: 1, shot: 1 }],
+  'shots-video': [{ show: 2 }],
 };
 const names = wanted.length ? wanted : Object.keys(states);
 const apps = (process.env.TB_APPS ?? 'swift,gpui').split(',');
@@ -55,13 +63,23 @@ async function shoot(name: 'swift' | 'gpui', app: Driver): Promise<void> {
         await sleep(50);
       }
       let review = '';
+      const shots = state.startsWith('shots');
+      // A fresh copy each time, as the mock's review.updated replaces it.
+      if (shots) {
+        await app.do({ cmd: 'mock', method: 'review', params: { threadId: id, review: shotsReview() } });
+        for (let i = 0; i < 200; i += 1) {
+          const d = await app.dump();
+          if (d.transcript.rows.some((r) => r.kind === 'review' && r.text.includes('Picker, step by step'))) break;
+          await sleep(50);
+        }
+      }
       for (const step of states[state] ?? []) {
-        const answer = JSON.parse(okValue(await app.do({ cmd: 'review', ...step }, 30))) as { id: string };
+        const answer = JSON.parse(okValue(await app.do({ cmd: 'review', ...(shots ? { id: SHOTS_REVIEW } : {}), ...step }, 30))) as { id: string };
         review = answer.id;
       }
       await sleep(1500);
       await app.do({ cmd: 'screenshot', review, path: path.join(out, `${state}-${name}.png`) });
-      await app.do({ cmd: 'review', close: true });
+      await app.do({ cmd: 'review', ...(shots ? { id: SHOTS_REVIEW } : {}), close: true });
       console.log(`${name}: ${state}`);
     }
   } finally {

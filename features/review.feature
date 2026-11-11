@@ -14,6 +14,11 @@ Feature: Design reviews
     When I press "Compare 4 images"
     Then the review window is open on option "A", one at a time
 
+  @review.window
+  Scenario: A review: link in the agent's reply opens that review
+    When I follow the link "review:review_account" in the agent's last reply
+    Then the review window is open on option "A", one at a time
+
   @header.pendingreviews
   Scenario: The bar over the thread says how many reviews are waiting
     Then the bar over the thread says "Review design options (1)"
@@ -61,3 +66,71 @@ Feature: Design reviews
     When I press "Open review"
     Then the review window shows what was sent: "C" and "C, please."
     And nothing can be changed in the review
+
+  @review.nav
+  Scenario: Next steps through every option, then shows them all to choose from
+    When I open the review
+    And I press "Next (→)" in the review
+    Then the review is on option "B", shot 1
+    When I press "Next (→)" in the review
+    And I press "Next (→)" in the review
+    Then the review is on option "D", shot 1
+    When I press "See them all and choose (→)" in the review
+    Then the review shows them all
+    When I press "Back to the last one (←)" in the review
+    Then the review is on option "D", shot 1
+
+  @review.nav
+  Scenario: Every shot of an option comes before the next option
+    Given the agent shows options with several shots each
+    When I open that review
+    Then the review is on option "A", shot 1
+    When I press "Next (→)" in the review
+    Then the review is on option "A", shot 2
+    When I press "Next (→)" in the review
+    And I press "Next (→)" in the review
+    Then the review is on option "B", shot 1
+    When I press "Previous (←)" in the review
+    Then the review is on option "A", shot 3
+    When I press "B. One picker, shot 2" in the review
+    Then the review is on option "B", shot 2
+
+  # The Swift scripts' keys go to the main window, not a review's.
+  @review.nav @swift-pending
+  Scenario: The arrow keys step through the shots, and Return shows them all
+    Given the agent shows options with several shots each
+    When I open that review
+    And I press the "right" key in the review
+    Then the review is on option "A", shot 2
+    When I press the "down" key in the review
+    Then the review is on option "B", shot 1
+    When I press the "enter" key in the review
+    Then the review shows them all
+    When I press the "enter" key in the review
+    Then the review is on option "B", shot 1
+
+  @review.zoom @review.minimap
+  Scenario: Full size shows the shot at its own size, with a minimap of all of it
+    When I open the review
+    And I show the shot at full size
+    Then the shot is zoomed in, with the minimap showing
+    When I fit the shot in its space
+    Then the shot fits, with no minimap
+
+  # The Swift scripts' keys go to the main window, not a review's.
+  @review.zoom @swift-pending
+  Scenario: Esc takes a zoomed shot back to fitting, then shows them all
+    When I open the review
+    And I show the shot at full size
+    And I press the "escape" key in the review
+    Then the shot fits, with no minimap
+    When I press the "escape" key in the review
+    Then the review shows them all
+
+  @review.holdspace
+  Scenario: Today's version can be flicked to and back
+    When I open the review
+    And I press "Flick to Moving mid-thread: click, or hold Space" in the review
+    Then the review shows today's version over option "A"
+    When I press "Back to A (or let go of Space)" in the review
+    Then the review shows option "A" again

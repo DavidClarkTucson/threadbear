@@ -585,6 +585,46 @@ built parsers and gates with no launch of the app, which is the trap.)
   the new choice at once. Left as they are, as they're the whole app's: every
   panel sits 2 points higher under the dock's bar, bruce's Mac mini is the
   icon set's server, and GPUI's text draws a little lighter.
+### 2026-11-11 The review window's stage: every shot, side by side, zoom, the minimap and today's version (`review.nav`, `review.zoom`, `review.minimap`, `review.holdspace`)
+
+- Back and next step through every shot of every option, then all of them
+  side by side to choose from (a grid of as many columns as make them
+  biggest), and stop at either end; the up and down arrows jump between
+  options, Return goes in and out, Esc out of a zoom then out to all of
+  them. Under the stage, the option's shots in a strip and a mark for every
+  shot of every option (a reference's hollow), each a click away, the row
+  kept on the one on show; the rail has an option's shots too.
+- Zoom: the title bar's button (full size from the top, or fit), ⌘= ⌘- ⌘0
+  on a shot, the wheel and a pinch zoom round the pointer, a trackpad swipe
+  zooms from fit and moves round once zoomed (decided as it starts, so it
+  doesn't turn from one to the other), dragging moves round, a double click
+  fits. The minimap shows the whole shot with the part on show while some
+  of it's off the stage, and goes where it's pressed or dragged.
+- Holding Space, or the caption's button, shows today's version (the first
+  reference option) over the shot on show: its shot of the same name, at
+  the same zoom and place; moving anywhere lets go.
+- ⌘W closes the window, from the reply box too, and the draft's kept.
+- The mock runner's `mock.review` puts a review on a thread as show_options
+  would, with several shots an option, a page, a clip and a live url
+  (`features/support/review-demo.ts`), for the specs and review-shot.ts's
+  new states.
+- Left: the stage has no scroll bars when zoomed (the minimap says where),
+  and two-finger double tap doesn't zoom (GPUI has no smart magnify).
+  Holding Space can't be scripted (a scripted key goes down and up at once),
+  so its spec presses the caption's button. The window opens with the keys
+  on the stage, so the arrows step at once, as the Swift code means them
+  to; the Swift window's reply box takes the keys as it opens.
+- Files: `desktop/gpui/src/review_window.rs` (keys, ⌘W, a link followed
+  from inside the app's own update), `review_window/stage.rs` (the strip's
+  titles on SwiftUI's line, the peek button's 140), `features/review.feature`,
+  `features/steps/review.steps.ts`, `features/support/review-demo.ts`,
+  `features/tools/review-shot.ts`, `app/Tools/mock-runner/server.mjs`.
+- Verification: review.feature on Tinker Desk, GPUI 15 of 15 and Swift 12
+  of 12 (keys and the bar's list can't be scripted in the Swift window).
+  review-shot.ts's `shots` and `shots-all` in both apps, overlaid: the
+  strip, the marks with several dots, the rail's shots and the grid land on
+  the Swift window's points.
+
 ### 2026-11-11 The design review window: answering an agent's options (`review.window`, `review.picks`, `transcript.review`, `header.pendingreviews`)
 
 - An agent's `show_options` can be answered here now. The review card's
