@@ -498,6 +498,10 @@ uses the picker's selection model; `{"cmd":"convex"}` reports the selection
 and browser URL. Calling `mock.convexPanel` again reports key requests so
 switching can be checked without a real Convex account.
 
+`{"cmd":"mock","method":"urlPanel","params":{"threadId":"demo_dark_mode","url":"http://127.0.0.1:8000/"}}`
+gives a thread a patch's url panel (`mock.page`) showing that page, so a
+page's links and what closing the panel does to its sound can be tried.
+
 `start` also takes `--appearance light|dark`, `--size WxH` and `--id NAME`;
 every other command takes `--id` (default: your newest), and `status` lists
 them, saying when an app's runner has stopped (`do`, `shot`, `dump` and
