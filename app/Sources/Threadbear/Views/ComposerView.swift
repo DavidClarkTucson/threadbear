@@ -73,8 +73,12 @@ struct ComposerView: View {
                 .padding(.bottom, -0.5)
                 .zIndex(1)
         }
-        // The box: the open card over a line, then the message.
+        // The box: the limit box and the open card, each over a line, then
+        // the message.
         VStack(alignment: .leading, spacing: 0) {
+        if let thread, !moving {
+            LimitBox(thread: thread, padding: Self.padding)
+        }
         if let cardRow, let controller {
             ComposerCard(row: cardRow, threadId: thread?.id, collapsed: cardCollapsed, controller: controller)
                 .allowsHitTesting(!moving)
@@ -226,11 +230,16 @@ struct ComposerView: View {
     /// The palette for what's typed, or nil when it's closed.
     private func paletteContent(_ draft: Binding<Draft>) -> SlashPaletteView? {
         let text = draft.wrappedValue.text
-        let typed = paletteTyped(text)
-        let commands = typed.flatMap { paletteCommands($0) }
+        guard let typed = paletteTyped(text) else {
+            #if DEBUG
+            AppDump.slashPalette = nil
+            #endif
+            return nil
+        }
+        let commands = paletteCommands(typed)
         // Partway through a message the palette only opens on a match, so
         // a slash in other words ("the /tmp folder") doesn't get in the way.
-        guard let typed, !(typed.midMessage && SlashPalette.matches(commands ?? [], query: typed.query, category: .all, recent: []).isEmpty) else {
+        if typed.midMessage, SlashPalette.matches(commands ?? [], query: typed.query, category: .all, recent: []).isEmpty {
             #if DEBUG
             AppDump.slashPalette = nil
             #endif

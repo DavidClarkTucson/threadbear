@@ -124,8 +124,11 @@ export THREADBEAR_NODE="$NODE"
 # Every test makes its own temp data dir; none may find the real one.
 # THREADBEAR_CHECK_BUSY_EXIT is only for sending this run to a host: the
 # check-remote tests run under it would otherwise exit with it (Codex, 9 Nov).
+# THREADBEAR_THREAD_KEY too: with THREADBEAR_RUNNER_HOME gone, tb would take
+# the thread's key for any test runner's home and send it there, where it's
+# refused (tb.test.ts and worktrees-landing.test.ts, David's Mac, 11 Nov).
 unset THREADBEAR_HOME THREADBEAR_DATA_DIR THREADBEAR_PORT THREADBEAR_URL THREADBEAR_LOG \
-  THREADBEAR_THREAD_ID THREADBEAR_RUNNER_VERSION THREADBEAR_RUNNER_HOME THREADBEAR_CHECK_BUSY_EXIT
+  THREADBEAR_THREAD_ID THREADBEAR_THREAD_KEY THREADBEAR_RUNNER_VERSION THREADBEAR_RUNNER_HOME THREADBEAR_CHECK_BUSY_EXIT
 # And their old names, which the runner and tb would otherwise take for these.
 for v in $(compgen -e | grep '^THREADBARE_' || true); do unset "$v"; done
 # No runner a check starts may install or update a CLI.
@@ -170,6 +173,22 @@ done < <(find "$ROOT_REAL/ios" -type l -not -path '*/.build/*' 2>/dev/null)
 
 skip() {
   printf 'skip  %-20s (%s; --all runs it)\n' "$1" "$2"
+}
+
+# Swift's test modules (XCTest, Testing) come with Xcode, not the Command
+# Line Tools: with only those, swift test can't build a test target, so its
+# steps are skipped and say why (the app's build still runs).
+# (An if, not a case: patch trust follows check.sh, and it reads no case.)
+XCODE_DIR="${DEVELOPER_DIR:-}"
+if [ -z "$XCODE_DIR" ]; then XCODE_DIR="$(xcode-select -p 2>/dev/null || true)"; fi
+NO_XCODE=""
+if [ -z "$XCODE_DIR" ] || [ "${XCODE_DIR%/CommandLineTools}" != "$XCODE_DIR" ]; then NO_XCODE=1; fi
+swift_test_step() {
+  if [ -n "$NO_XCODE" ]; then
+    printf 'skip  %-20s (needs Xcode; only the Command Line Tools are here)\n' "$1"
+  else
+    step "$@"
+  fi
 }
 
 TMP_ROOT="${TMPDIR:-/tmp}"
@@ -294,10 +313,10 @@ if [ "$QUICK" = 0 ]; then
     step "mock runner packages" "$ROOT/app/Tools/mock-runner" npm ci --no-audit --no-fund
   fi
   step "app build" "$ROOT/app" "${LIMITED[@]}" swift build --disable-keychain
-  step "app tests" "$ROOT/app" env THREADBEAR_REQUIRE_MOCK=1 "${LIMITED[@]}" swift test --disable-keychain
+  swift_test_step "app tests" "$ROOT/app" env THREADBEAR_REQUIRE_MOCK=1 "${LIMITED[@]}" swift test --disable-keychain
   # BearDock, the window's docking panels: its layout tests.
   if needed '^dock/'; then
-    step "dock tests" "$ROOT/dock" "${LIMITED[@]}" swift test --disable-keychain
+    swift_test_step "dock tests" "$ROOT/dock" "${LIMITED[@]}" swift test --disable-keychain
   else
     skip "dock tests" "nothing in dock/ changed"
   fi
@@ -308,10 +327,10 @@ if [ "$RUNNER_ONLY" = 1 ]; then
   :
 # Convex's Swift library (convex-swift) ships for Apple silicon only, so
 # on an Intel Mac the kit can't build at all.
-elif [ "$(uname -m)" != arm64 ]; then
+elif [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" != arm64 ]; then
   printf 'skip  %-20s (%s)\n' "iphone kit tests" "Convex's Swift library is Apple silicon only"
 elif needed "$IOS_NEEDS"; then
-  step "iphone kit tests" "$ROOT/ios/ThreadbearKit" "${LIMITED[@]}" swift test --disable-keychain
+  swift_test_step "iphone kit tests" "$ROOT/ios/ThreadbearKit" "${LIMITED[@]}" swift test --disable-keychain
 else
   skip "iphone kit tests" "nothing in ios/ changed"
 fi

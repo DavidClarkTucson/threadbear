@@ -516,11 +516,26 @@ test('calls queued on a card: listed by approval.queued, grown, and answered in 
   assert.deepEqual(h.events(thread.id).filter((e) => e.type === 'approval.queued').at(-1).calls.map((c: { itemId: string }) => c.itemId), ['w1', 'b1']);
   h.runner.respondApproval({ threadId: thread.id, approvalId: req.approvalId, decision: 'deny', queued: { w1: 'allow', b1: 'deny', x9: 'allow' } });
   assert.deepEqual(await answer, { decision: 'deny', message: undefined, queued: { w1: 'allow', b1: 'deny' } });
-  // From the phone, which never saw the list, only the card's own call counts.
-  const again = s.sink.requestApproval({ toolUseId: 'e2', name: 'Edit', title: 'Edit a.txt', input: {}, canAlwaysAllow: true, signal: new AbortController().signal, queued: [w1] });
+  // From the phone, which never saw the list, only the card's own call
+  // counts. (A command: an edit can't be allowed from the phone at all.)
+  const again = s.sink.requestApproval({ toolUseId: 'e2', name: 'Bash', title: 'npm test', input: { command: 'npm test' }, canAlwaysAllow: true, signal: new AbortController().signal, queued: [w1] });
   const req2 = h.events(thread.id).filter((e) => e.type === 'approval.requested').at(-1);
   h.runner.respondApproval({ threadId: thread.id, approvalId: req2.approvalId, decision: 'allow', queued: { w1: 'allow' }, remote: true });
   assert.deepEqual(await again, { decision: 'allow', message: undefined });
+});
+
+// Mike, 10 Nov 2026: the phone shows only an edit's path, and Allow writes
+// all of it, so an edit is allowed only in the Mac app.
+test("an edit can't be allowed from the phone, website or another Mac, only denied", async () => {
+  const h = makeHarness();
+  const { thread } = create(h, { permissionMode: 'ask' });
+  const s = h.adapter.last;
+  s.init();
+  const answer = s.sink.requestApproval({ toolUseId: 'w9', name: 'Write', title: 'Write build.sh', input: { file_path: '/tmp/build.sh', content: '# fine\nrm -rf ~\n' }, canAlwaysAllow: true, signal: new AbortController().signal });
+  const req = h.events(thread.id).filter((e) => e.type === 'approval.requested').at(-1);
+  assert.throws(() => h.runner.respondApproval({ threadId: thread.id, approvalId: req.approvalId, decision: 'allow', remote: true }));
+  h.runner.respondApproval({ threadId: thread.id, approvalId: req.approvalId, decision: 'allow' });
+  assert.equal((await answer).decision, 'allow', 'the Mac app connected straight to the runner can');
 });
 
 test('questions are answered by question text, header or index', async () => {

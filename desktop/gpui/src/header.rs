@@ -50,6 +50,9 @@ struct Banner {
 pub(crate) struct LimitAdvice {
     text: String,
     target: Option<(String, String)>,
+    /// A pool thread waiting for room: it carries on by itself, so a quiet
+    /// clock rather than the red gauge, and the button pins it outside the pool.
+    waiting: bool,
 }
 
 impl Threadbear {
@@ -81,8 +84,14 @@ impl Threadbear {
                     .hover(move |s| s.bg(hover)),
                 "Click to rename",
             )
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_renaming(id.clone(), window, cx)))
+            // The press goes on to the bar under it, so a drag from the title
+            // moves the window, as dragging a title bar does (and Swift's
+            // tap gesture let it). Only a press that didn't is a click.
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                if !this.dock_view.read(cx).press_moved() {
+                    this.start_renaming(id.clone(), window, cx);
+                }
+            }))
             .child(title)
             .into_any_element()
         };
@@ -123,6 +132,8 @@ impl Threadbear {
         }
         let tile_fill = style::primary_opacity(cx, 0.08);
         let hover = style::primary_opacity(cx, 0.08);
+        let icons_by_project = self.sidebar.project_icons.clone();
+        let icon_of = move |id: &str| icons_by_project.get(id).cloned();
         h_flex()
             .flex_none()
             .gap(px(3.))
@@ -146,7 +157,7 @@ impl Threadbear {
                             this.open_menu(Some(thread), rows, ev.position, false, window, cx);
                         }),
                     )
-                    .child(div().size(px(16.)).flex().items_center().justify_center().rounded(px(4.)).bg(tile_fill).text_size(px(10.)).font_weight(FontWeight::SEMIBOLD).child(letter))
+                    .child(project_face(icon_of(&project.id), letter, tile_fill, secondary))
             }))
             .into_any_element()
     }
@@ -339,7 +350,7 @@ impl Threadbear {
                 .items_center()
                 .child(div().flex_1().min_w_0().truncate().text_size(px(style::size::DETAIL)).text_color(secondary).child(link))
                 .child(self.small_button("share-new", "arrow.triangle.2.circlepath", "Make a new link. The old one stops working.", cx.listener(move |this, _: &ClickEvent, _, cx| this.set_share(id_for_new.clone(), "link", true, cx)), cx))
-                .child(self.small_button("share-open", "arrow.up.right", "Open the shared page in your browser", cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&open)), cx))
+                .child(self.small_button("share-open", "arrow.up.right", "Open the shared page in your browser", cx.listener(move |_, _: &ClickEvent, _, cx| { crate::open_gate::open_web(&open, cx); }), cx))
                 .child(tipped!(div().id("share-copy").px(px(8.)).py(px(3.)).rounded(px(6.)).bg(style::primary_opacity(cx, 0.08)).text_size(px(style::size::DETAIL)), "Copy the link to paste anywhere").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))).child("Copy link"))
         });
         deferred(
@@ -457,7 +468,7 @@ impl Threadbear {
             column = column.child(self.render_error_banner(error, cx));
         }
         if let Some(thread) = &thread {
-            if let Some(advice) = self.limit_advice(thread) {
+            if let Some(advice) = self.limit_advice(thread, cx) {
                 column = column.child(self.render_limit_banner(thread, advice, cx));
             }
             if let Some(account) = self.sign_in_account(thread, cx) {
@@ -571,16 +582,78 @@ impl Threadbear {
             .into_any_element()
     }
 
-    /// `limitAdvice`: the open thread's account has reached its limit.
-    fn limit_advice(&self, thread: &ThreadSummary) -> Option<LimitAdvice> {
-        let account = self.logins.account(&thread.account_id)?;
-        let blocked = account.usage.as_ref().is_some_and(|u| u["blocked"].as_bool() == Some(true));
-        if !blocked {
+    /// `noteFailedAccounts`: the login a thread was on as it went into
+    /// error, kept until it leaves error.
+    pub(crate) fn note_failed_account(&mut self, before: Option<&ThreadSummary>, now: &ThreadSummary) {
+        if now.status == "error" {
+            if before.is_none_or(|b| b.status != "error") || !self.failed_on_account.contains_key(&now.id) {
+                self.failed_on_account.insert(now.id.clone(), now.account_id.clone());
+            }
+        } else {
+            self.failed_on_account.remove(&now.id);
+        }
+    }
+
+    /// The same over a new list of every thread, against the one before it.
+    pub(crate) fn note_failed_accounts(&mut self, before: &std::collections::HashMap<String, ThreadSummary>) {
+        let now: Vec<ThreadSummary> = self.threads.values().cloned().collect();
+        for t in &now {
+            self.note_failed_account(before.get(&t.id), t);
+        }
+        let known: std::collections::HashSet<String> = self.threads.keys().cloned().collect();
+        self.failed_on_account.retain(|id, _| known.contains(id));
+    }
+
+    /// `limitAdvice`: when the open thread can't go on where it is, says so,
+    /// and where it could go instead.
+    fn limit_advice(&self, thread: &ThreadSummary, cx: &App) -> Option<LimitAdvice> {
+        use threadbear_core::new_thread::{has_room, pool_logins, switch_target, switch_title, usage_of};
+        let accounts = &self.logins.accounts;
+        let target = switch_target(accounts, &thread.account_id).map(|a| (a.id.clone(), switch_title(a, accounts)));
+        // A pool thread is the runner's to move: nothing while its pool has a
+        // login with room, and when it carries on once it's waiting. The
+        // button still offers a login outside the pool, which pins it there.
+        if self.logins.uses_pools() {
+            if let Some(pool) = thread.pool_id.as_deref().and_then(|id| self.logins.pool(id)) {
+                if let Some(until) = thread.waiting_for_room_until_ms() {
+                    let now = threadbear_core::sidebar::local_now();
+                    return Some(LimitAdvice { text: threadbear_core::sidebar::waiting_sentence(&pool.title, until, &now), target, waiting: true });
+                }
+                if pool_logins(pool, accounts, None).into_iter().any(has_room) {
+                    return None;
+                }
+            }
+        }
+        let usage = self.logins.account(&thread.account_id).and_then(usage_of);
+        let blocked = usage.as_ref().is_some_and(|u| u.blocked);
+        // Only while the thread is still on the login the turn failed on:
+        // after "Switch to ..." the status stays error until the next turn,
+        // and the line would blame the new login.
+        let failed_on_limit = thread.status == "error"
+            && self.failed_on_account.get(&thread.id) == Some(&thread.account_id)
+            && self.latest_completion(cx).is_some_and(|c| c.error_kind == Some(TurnErrorKind::UsageLimit));
+        if !blocked && !failed_on_limit {
             return None;
         }
-        let name = account.name();
-        let target = self.logins.accounts.iter().find(|a| a.id != account.id && !a.usage.as_ref().is_some_and(|u| u["blocked"].as_bool() == Some(true))).map(|a| (a.id.clone(), format!("Switch to {}", a.name())));
-        Some(LimitAdvice { text: format!("{name} has reached its limit."), target })
+        let mut text = format!("{} has reached its limit", threadbear_core::logins::short_account_name(&thread.account_id, accounts));
+        // The soonest of the windows that are used up (`mainWindows`).
+        let reset = usage.as_ref().and_then(|u| threadbear_core::new_thread::main_windows(u).into_iter().filter(|w| w.remaining_percent < 1.).filter_map(|w| w.resets_at).min());
+        if let Some(ms) = reset {
+            let now = threadbear_core::sidebar::local_now();
+            let at = threadbear_core::chrono::TimeZone::timestamp_millis_opt(&now.timezone(), ms).single();
+            if let Some(at) = at {
+                text.push_str(&format!(", resets {}", threadbear_core::new_thread::reset_time(&at, &now)));
+            }
+        }
+        text.push('.');
+        Some(LimitAdvice { text, target, waiting: false })
+    }
+
+    /// `limit` in the dump (`AppDump.LimitInfo`): the line's words and its button.
+    #[cfg(feature = "automation")]
+    pub(crate) fn limit_dump(&self, cx: &App) -> Value {
+        let Some(advice) = self.open_thread().and_then(|t| self.limit_advice(t, cx)) else { return Value::Null };
+        json!({ "text": advice.text, "button": advice.target.map(|(_, title)| limit_button_title(title, advice.waiting)) })
     }
 
     fn render_limit_banner(&mut self, thread: &ThreadSummary, advice: LimitAdvice, cx: &mut Context<Self>) -> AnyElement {
@@ -596,9 +669,12 @@ impl Threadbear {
             .border_b_1()
             .border_color(hairline)
             .text_size(px(style::size::LABEL))
-            .child(icon("gauge.with.dots.needle.100percent", 13., red))
-            .child(div().flex_1().min_w_0().truncate().child(advice.text))
-            .when_some(advice.target, |s, (account, title)| {
+            .child(if advice.waiting { icon("clock", 13., style::secondary_text(cx)) } else { icon("gauge.with.dots.needle.100percent", 13., red) })
+            .child({
+                let tip = advice.text.clone();
+                tipped!(div().id("limit-text").flex_1().min_w_0().truncate(), tip).child(advice.text)
+            })
+            .when_some(advice.target.map(|(account, title)| (account, limit_button_title(title, advice.waiting))), |s, (account, title)| {
                 s.child(
                     tipped!(div().id("limit-switch").px(px(8.)).py(px(3.)).rounded(px(5.)).bg(style::primary_opacity(cx, 0.08)), "Carry on this thread on that account, from where it is")
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.switch_account(&id, account.clone(), cx)))
@@ -982,5 +1058,32 @@ fn abbreviate(path: &str) -> String {
         Ok(home) if !home.is_empty() && path == home => "~".into(),
         Ok(home) if !home.is_empty() && path.starts_with(&format!("{home}/")) => format!("~{}", &path[home.len()..]),
         _ => path.to_string(),
+    }
+}
+
+/// `ProjectIconView` at 16 pt: the project's picture, else its symbol from
+/// the bundled set, else its first letter on a faint tile (the header showed
+/// only the letter, where the Swift app shows the bear or the picture).
+fn project_face(icon: Option<crate::sidebar::ProjectIcon>, letter: SharedString, fill: Hsla, secondary: Hsla) -> AnyElement {
+    let letter_tile = move || div().size(px(16.)).flex().items_center().justify_center().rounded(px(4.)).bg(fill).text_size(px(10.)).font_weight(FontWeight::SEMIBOLD).child(letter.clone()).into_any_element();
+    match icon {
+        Some(crate::sidebar::ProjectIcon { image_path: Some(path), .. }) => {
+            let fallback = letter_tile.clone();
+            img(std::path::PathBuf::from(path)).size(px(16.)).rounded(px(4.)).object_fit(ObjectFit::Contain).with_fallback(fallback).into_any_element()
+        }
+        Some(crate::sidebar::ProjectIcon { symbol: Some(symbol), .. }) if crate::icons::try_symbol(&symbol).is_some() => {
+            div().size(px(16.)).flex().items_center().justify_center().child(crate::icons::symbol(&symbol).with_size(px(13.)).text_color(secondary)).into_any_element()
+        }
+        _ => letter_tile(),
+    }
+}
+
+/// The limit line's button: "Switch to mike (78% left)", or "Pin to ..." on a
+/// pool thread waiting for room, as a login outside the pool pins it there.
+fn limit_button_title(title: String, waiting: bool) -> String {
+    if waiting {
+        title.replacen("Switch to", "Pin to", 1)
+    } else {
+        title
     }
 }

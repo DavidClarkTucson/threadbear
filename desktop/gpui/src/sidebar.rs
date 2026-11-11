@@ -28,6 +28,33 @@ use threadbear_core::sidebar::{self as rows, RowAction, RowLook, RowMode, Tile, 
 
 type Clock = threadbear_core::chrono::DateTime<threadbear_core::chrono::Local>;
 
+/// The Threads panel as a view of its own, so the dock can reuse its last
+/// frame (`cached` in shell.rs). Scrolling the transcript redraws the window
+/// every frame, and before this every frame rebuilt every row of the thread
+/// list as well: with 60 threads, about half the frames on a 120 Hz screen
+/// were late. Everything it draws is the app's state, so it draws again
+/// whenever the app notifies, which the scroll doesn't.
+pub(crate) struct SidebarView {
+    app: WeakEntity<Threadbear>,
+    _app_changed: Subscription,
+}
+
+impl SidebarView {
+    pub(crate) fn new(app: &Entity<Threadbear>, cx: &mut Context<Self>) -> Self {
+        let app_changed = cx.observe(app, |_, _, cx| cx.notify());
+        Self { app: app.downgrade(), _app_changed: app_changed }
+    }
+}
+
+impl Render for SidebarView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.app.upgrade() {
+            Some(app) => app.update(cx, |t, cx| t.render_threads_panel(window, cx)),
+            None => div().into_any_element(),
+        }
+    }
+}
+
 /// A project's icon (protocol `ProjectIcon`): a picture, else a symbol.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ProjectIcon {
@@ -619,7 +646,7 @@ impl Threadbear {
             }
             MenuAction::OpenOnWeb => {
                 if let Some(link) = self.thread_web_link(&id) {
-                    cx.open_url(&link);
+                    crate::open_gate::open_web(&link, cx);
                 }
             }
             // A project's page isn't in this app yet: the Projects view is
@@ -1077,6 +1104,7 @@ impl Threadbear {
 
         let byline = rows::byline(t);
         let place = t.place();
+        let runner_label = self.runner_label(t);
         let place_tip_text = if byline.is_some() { byline.as_ref().unwrap().tip.clone() } else { rows::place_tip(t) };
         let place_id: ElementId = ElementId::Name(format!("place-{id}").into());
 
@@ -1104,6 +1132,25 @@ impl Threadbear {
                     .when_some(byline.as_ref(), |s, b| s.child(icons::try_symbol(&b.symbol).unwrap_or_else(|| icons::symbol("wrench.and.screwdriver")).with_size(px(style::size::SIDEBAR_META)).text_color(secondary).flex_none()))
                     .child(div().min_w_0().truncate().text_size(px(style::size::SIDEBAR_META + 1.)).line_height(px(15.)).child(place)),
             )
+            // Its own text after the place, kept whole while a long project
+            // name is cut short, and capped, as a runner's name can be any
+            // length (`CappedWidth(limit: 100)` in ThreadRowView).
+            .when_some(runner_label, |s, runner| {
+                let tip = format!("On {runner}");
+                s.child(
+                    div()
+                        .id(ElementId::Name(format!("runner-{id}").into()))
+                        .flex_none()
+                        .max_w(px(100.))
+                        .truncate()
+                        .ml(px(-2.))
+                        .text_size(px(style::size::SIDEBAR_META + 1.))
+                        .line_height(px(15.))
+                        .text_color(secondary)
+                        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                        .child(format!("\u{2022} {runner}")),
+                )
+            })
             .child(div().flex_1().min_w(px(6.)))
             .when(!show_buttons, |s| s.child(render_trailing(&trailing, id.clone(), p)));
 
@@ -1373,8 +1420,17 @@ fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyEle
     let text = trailing.text.clone();
     let meta = px(style::size::SIDEBAR_META);
     let tip = trailing.tip.clone();
+    // A long status ("Waiting for room · 2:51 pm") gives way before the
+    // folder and the machine do, as SwiftUI lays out ThreadRowView's line:
+    // the shorter text keeps its width and the longer one is cut short.
+    // Shrinking twenty times as readily does the same in a flex row.
+    let gives_way = |d: Div| {
+        let mut d = d.min_w_0().truncate();
+        d.style().flex_shrink = Some(20.);
+        d
+    };
     let el = match trailing.kind {
-        TrailingKind::Quiet => div().flex_none().text_size(meta).line_height(px(15.)).text_color(p.faint).child(text).into_any_element(),
+        TrailingKind::Quiet => gives_way(div()).text_size(meta).line_height(px(15.)).text_color(p.faint).child(text).into_any_element(),
         TrailingKind::Working => h_flex()
             .flex_none()
             .items_baseline()
@@ -1395,12 +1451,12 @@ fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyEle
             .child(div().flex_none().size(px(12.)).child(Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(p.secondary).with_size(px(12.))))
             .child(text)
             .into_any_element(),
-        TrailingKind::Failed => div().flex_none().text_size(meta).line_height(px(15.)).font_medium().text_color(p.failed).child(text).into_any_element(),
-        TrailingKind::Stopped => div().flex_none().text_size(meta).line_height(px(15.)).text_color(p.secondary).child(text).into_any_element(),
-        TrailingKind::Woke => div().flex_none().text_size(meta).line_height(px(15.)).font_medium().text_color(p.accent).child(text).into_any_element(),
+        TrailingKind::Failed => gives_way(div()).text_size(meta).line_height(px(15.)).font_medium().text_color(p.failed).child(text).into_any_element(),
+        TrailingKind::Stopped => gives_way(div()).text_size(meta).line_height(px(15.)).text_color(p.secondary).child(text).into_any_element(),
+        TrailingKind::Woke => gives_way(div()).text_size(meta).line_height(px(15.)).font_medium().text_color(p.accent).child(text).into_any_element(),
     };
     match tip {
-        Some(tip) => div().id(ElementId::Name(format!("trailing-{id}").into())).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)).child(el).into_any_element(),
+        Some(tip) => gives_way(div()).id(ElementId::Name(format!("trailing-{id}").into())).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)).child(el).into_any_element(),
         None => el,
     }
 }

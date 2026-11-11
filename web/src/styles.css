@@ -443,7 +443,9 @@ button.fold:hover > svg:last-child, button.fold:focus-visible > svg:last-child {
 .choice .radio.check { border-radius: 4px; }
 .choice.on .radio { border: 5px solid var(--accent); }
 .choice.on .radio.check { border: 0; background: var(--accent); }
-.choice .pick { color: var(--link); font-size: 12px; margin-left: 6px; }
+/* The agent's pick: a small gold star and "Recommended" in grey, as on the Mac (after Ghostex's, 9 Nov 2026). */
+.choice .pick { color: var(--muted); font-size: 12px; margin-left: 8px; }
+.choice .pick .star { color: #d9b154; font-size: 10px; }
 .choice .desc { display: block; color: var(--muted); font-size: 12.5px; }
 .ask-links { display: flex; gap: 8px; flex-wrap: wrap; }
 .approval-input { margin: 0; background: var(--code); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; max-height: 200px; overflow: auto; }

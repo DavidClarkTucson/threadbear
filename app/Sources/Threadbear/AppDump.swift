@@ -105,6 +105,8 @@ struct AppDump: Encodable {
         var pool: String? = nil
         /// The model chip as it reads ("Claude · Opus 5.5 · High").
         var chip: String = ""
+        /// After its title: "Limit reached", or "· 12%" running low.
+        var chipBadge: String? = nil
         /// The other runner it runs on ("bruce"); nil for this Mac.
         var runner: String? = nil
         /// The open card in the box, for the behaviour specs: "Done" with
@@ -278,6 +280,11 @@ struct AppDump: Encodable {
         var buttons: [String]? = nil
     }
 
+    struct LimitInfo: Encodable {
+        var text: String
+        var button: String?
+    }
+
     struct Transcript: Encodable {
         var threadId: String
         var state: String
@@ -291,6 +298,9 @@ struct AppDump: Encodable {
     var connection: String
     var runnerVersion: String
     var banner: BannerInfo?
+    /// The line under the bar when the open thread can't go on where it is
+    /// (LimitBanner): what it says and its button.
+    var limit: LimitInfo?
     /// The Archived note with Undo at the top of the thread panel: its thread.
     var archivedNote: String?
     /// The milestone note at the top of the thread panel: its first line.
@@ -320,6 +330,11 @@ struct AppDump: Encodable {
     var usage: Usage? = nil
     /// The project page showing in place of the thread, if one is.
     var project: ProjectInfo? = nil
+    /// The open project page's decisions (the projectDecisions experiment),
+    /// one line a thread: "Title: first ask | second ask", "(sending)" at
+    /// the end while an answer's on its way. Nil with the experiment off or
+    /// no project page open.
+    var projectDecisions: [String]? = nil
     /// The Projects page's cards, while it's showing: "Title: 1 needs
     /// you · 2 working" (or "Title: quiet").
     var projectCards: [String]? = nil
@@ -592,6 +607,7 @@ struct AppDump: Encodable {
             connection: connectionName(app.connection),
             runnerVersion: app.runnerVersion,
             banner: app.banner.map { BannerInfo(style: $0.style.rawValue, text: $0.text, detail: $0.detail) },
+            limit: app.selectedThread.flatMap { limitInfo(app, thread: $0) },
             archivedNote: app.archivedNote?.threadId,
             milestoneNote: app.milestoneNote.map { ThreadMilestones.title($0.tier) },
             error: app.errorMessage,
@@ -617,6 +633,7 @@ struct AppDump: Encodable {
                 return ProjectInfo(id: project.id, title: project.title, folders: project.folders, threads: threads.map(\.id),
                                    patches: PatchGroups.patches(of: project, in: threads).map(\.patch.id), archived: project.archived)
             },
+            projectDecisions: app.openProject.flatMap { projectDecisionLines($0, app: app) },
             projectCards: app.openProject == nil && app.showsProjectsHome ? app.projectCards.map { card in
                 card.project.title + ": " + (card.status.isQuiet ? "quiet" : card.status.parts.map(\.text).joined(separator: " · "))
             } : nil,
@@ -979,6 +996,22 @@ struct AppDump: Encodable {
         return "\"\(note.text)\"" + pictures
     }
 
+    /// The threads with decisions on a project's page, as it lists them.
+    @MainActor
+    static func projectDecisionThreads(_ project: Project, app: AppModel) -> [ThreadSummary] {
+        ProjectDecisions.threads(app.projectSections.sections.first { $0.id == project.id }?.threads ?? [])
+    }
+
+    @MainActor
+    static func projectDecisionLines(_ project: Project, app: AppModel) -> [String]? {
+        guard app.projectDecisionsOn else { return nil }
+        return projectDecisionThreads(project, app: app).map { thread in
+            let asks = thread.asks.filter { !$0.ticked }.map(\.plainAction).joined(separator: " | ")
+            let sending = ProjectDecisions.isSending(thread, sentFor: app.decisionSends[thread.id]?.asksSeq)
+            return "\(thread.title): \(asks)" + (sending ? " (sending)" : "")
+        }
+    }
+
     /// "2 picked", then each ask with its choices, "*" on the agent's
     /// pick, its links and the answer picked.
     @MainActor
@@ -1019,8 +1052,29 @@ struct AppDump: Encodable {
                         editing: app.editing[key]?.seq,
                         cwd: settings.cwd, account: settings.account, model: settings.model, ask: settings.ask, mode: settings.mode, effort: settings.effort,
                         pool: settings.pool, chip: ThreadSettings(app: app, thread: app.selectedThread).modelChipTitle,
+                        chipBadge: badgeWords(ThreadSettings(app: app, thread: app.selectedThread).modelChipBadge),
                         runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil),
                         card: cardLines(app, key: key), recap: recapLines(app), creating: key == "new" && app.creatingThread)
+    }
+
+    /// LimitBanner's words and button, as it draws them.
+    @MainActor private static func limitInfo(_ app: AppModel, thread: ThreadSummary) -> LimitInfo? {
+        guard let advice = app.limitAdvice(for: thread) else { return nil }
+        let waiting = thread.waitingForRoom != nil && app.usesPools
+        let button = advice.target.map { target -> String in
+            let title = AccountUsageText.switchTitle(target, accounts: app.accounts)
+            return waiting ? title.replacingOccurrences(of: "Switch to", with: "Pin to") : title
+        }
+        return LimitInfo(text: advice.text, button: button)
+    }
+
+    /// A chip's badge as it reads after the title.
+    private static func badgeWords(_ badge: AccountUsageText.ChipBadge?) -> String? {
+        switch badge {
+        case .low(let percent)?: return "· " + percent
+        case .blocked?: return "Limit reached"
+        case nil: return nil
+        }
     }
 
     /// The recap box as lines (`composer.recap`), nil unless it's up.
@@ -1032,18 +1086,25 @@ struct AppDump: Encodable {
 
     /// The open card as lines (`composer.card`): "Done" with a "[x]" or
     /// "[ ]" line per follow-up, "(?)" on one asked about; or "Needs you"
-    /// ("(collapsed)" when folded) with a line per ask.
+    /// ("(collapsed)" when folded) with a line per ask, and under an ask
+    /// with a command to run, "    $ <command>" (a line of its own, so a
+    /// spec matching an ask's line by its end still finds it).
     @MainActor
     private static func cardLines(_ app: AppModel, key: String) -> [String]? {
         guard let row = app.sessions[key]?.openCard, case .asks(let card) = row.content else { return nil }
+        return cardLines(card, collapsed: app.collapsedCards[key] == row.seq)
+    }
+
+    static func cardLines(_ card: AsksCard, collapsed: Bool) -> [String] {
         if card.isDone {
             return ["Done"] + card.next.enumerated().map { i, text in
                 (card.pickedNext.contains(i) ? "[x] " : "[ ] ") + text + (card.explainNext.contains(i) ? " (?)" : "")
             }
         }
-        var lines = [app.collapsedCards[key] == row.seq ? "Needs you (collapsed)" : "Needs you"]
+        var lines = [collapsed ? "Needs you (collapsed)" : "Needs you"]
         for (i, ask) in card.asks.enumerated() {
             lines.append((card.picks[i] != nil ? "[x] " : "[ ] ") + "\(i + 1). \(ask.action)")
+            if let run = ask.run { lines.append("    $ " + run.command) }
         }
         return lines
     }

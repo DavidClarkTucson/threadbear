@@ -636,7 +636,8 @@ pub fn started_rows<'a>(parent: &ThreadSummary, threads: impl Iterator<Item = &'
             (started || waited.contains(t.id.as_str())).then(|| StartedRow { thread: t.clone(), state: started_state(t, now_ms), started })
         })
         .collect();
-    rows.sort_by(|a, b| a.state.cmp(&b.state).then_with(|| b.thread.activity_ms().cmp(&a.thread.activity_ms())));
+    // Keys worked out once per row: a time is text to read (inbox.rs, `sections_ordered`).
+    rows.sort_by_cached_key(|r| (r.state.clone(), std::cmp::Reverse(r.thread.activity_ms())));
     rows
 }
 

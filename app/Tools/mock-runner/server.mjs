@@ -292,11 +292,15 @@ const devices = [
   { id: 'tok3', kind: 'browser', name: 'Safari', createdAt: '2026-07-01T08:00:00.000Z', expiresAt: '2026-09-29T08:00:00.000Z', expired: true },
 ];
 let deviceSeq = devices.length;
-const deviceList = () => ({ devices: [...devices], site: DEMO_SITE });
+// MOCK_LOCAL_ONLY=1: a backend on this Mac only (setup --self-hosted
+// --local, docs/self-hosting.md), so Settings › Phone & browser can be seen
+// saying why a phone can't pair.
+const LOCAL_ONLY = process.env.MOCK_LOCAL_ONLY === '1';
+const deviceList = () => ({ devices: [...devices], site: LOCAL_ONLY ? 'http://127.0.0.1:13211' : DEMO_SITE });
 
 let mockInstructions = { text: '' };
 const settings = {
-  defaultCwd: defaults.cwd, idleMinutes: 30, maxLiveCLIs: 6, followMain: true, bulletReplies: true, oneReply: true,
+  defaultCwd: defaults.cwd, idleMinutes: 30, maxLiveCLIs: 6, followMain: true, bulletReplies: true, oneReply: true, labReview: true, keepAwake: true,
   models: {
     pool: 'claude',
     privateFolders: ['~/dev/clients/acme'],
@@ -381,6 +385,10 @@ let connectors = {
   ],
 };
 addDemoProjects();
+// Decisions on the Projects page (the projectDecisions experiment): three of
+// Threadbear's threads waiting on a card of asks, with what they're for. Only
+// when asked, as it changes those threads' rows and the Projects page.
+if (process.env.TB_MOCK_DECISIONS) addDemoDecisions();
 
 const token = crypto.randomBytes(24).toString('hex');
 fs.mkdirSync(path.join(dataDir, 'secrets'), { recursive: true });
@@ -526,7 +534,7 @@ async function dispatch(client, method, p) {
       }
       return {
         runnerVersion, protocol: 1, accounts: publicAccounts(),
-        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools, experiments: ['moveToRunner'] }),
+        defaults: oldRunner ? { ...defaults, poolId: undefined } : defaults, ...(oldRunner ? {} : { clis, updates, pools, experiments: ['moveToRunner', ...(process.env.TB_MOCK_DECISIONS ? ['projectDecisions'] : [])] }),
       };
     // Moving a thread to another runner (docs/protocol.md): a guess from
     // "that runner", and a move that only marks the row, for the app's
@@ -538,7 +546,7 @@ async function dispatch(client, method, p) {
       return {
         cwd: p.cwd || `${home}/dev/me/threadbear-threads/slot-4`,
         accountId: p.accountId || 'claude-main',
-        accounts: [{ id: 'claude-main', provider: 'claude', title: 'Claude', email: 'mike.cann@gmail.com' }, { id: 'claude-1', provider: 'claude', title: 'Claude', email: 'mike@gangbusters.io' }],
+        accounts: [{ id: 'claude-main', provider: 'claude', title: 'Claude', email: 'mike@example.com' }, { id: 'claude-1', provider: 'claude', title: 'Claude', email: 'mike@work.example.com' }],
         leftBehind: moveLeftBehind,
         sourceChecked: true,
         problems: p.cwd && !String(p.cwd).startsWith(home) ? [`There's no folder ${p.cwd} on ${runner?.name ?? 'it'}.`] : [],
@@ -592,7 +600,7 @@ async function dispatch(client, method, p) {
       if (!oldRunner) status.clis = clis;
       // Sync on, to the made-up deployment, so the website's links and
       // sharing show (their links open nothing).
-      if (!oldRunner) status.sync = { state: 'ok', url: DEMO_DEPLOYMENT };
+      if (!oldRunner) status.sync = LOCAL_ONLY ? { state: 'ok', url: 'http://127.0.0.1:13210', site: 'http://127.0.0.1:13211', pushOff: true } : { state: 'ok', url: DEMO_DEPLOYMENT };
       return status;
     }
     // The CLI requests only report and pretend: nothing is checked or
@@ -1121,10 +1129,49 @@ async function dispatch(client, method, p) {
       if (p.question) return { answer: `About "${sel}": ${p.question} That's the mock runner's answer to a follow-up.`, model: 'mock' };
       return { answer: `**${sel}** is what the agent called this step. It means the smallest piece to move first, so the rest can follow.\n\n- It's in \`runner/src/explain.ts\`\n- Nothing here goes into the thread`, model: 'mock' };
     }
+    case 'threads.contextUsage': {
+      // What fills the context (docs/protocol.md, "Context breakdown"), the
+      // rows Ghostex showed on 9 Nov, scaled to the thread's own total. A
+      // moment's wait, like the CLI's count; Codex threads have none.
+      const t = need(p.threadId);
+      if (t.summary.provider === 'codex' || !t.summary.contextTokens) return { live: false };
+      await new Promise((r) => setTimeout(r, 700));
+      const max = t.summary.contextWindow ?? 1_000_000;
+      const fixed = { system_prompt: 4_500, system_tools: 2_300, mcp_instructions: 596, mcp_tools: 1_700, memory_files: 15_000, skills: 8_100 };
+      const messages = Math.max(0, t.summary.contextTokens - Object.values(fixed).reduce((a, b) => a + b, 0));
+      const buffer = 33_000;
+      const used = messages + Object.values(fixed).reduce((a, b) => a + b, 0);
+      const row = (id, name, tokens, kind = 'used') => ({ id, name, tokens, kind });
+      return {
+        live: true,
+        usage: {
+          at: new Date().toISOString(),
+          model: 'claude-opus-5-5',
+          totalTokens: used,
+          maxTokens: max,
+          categories: [
+            row('system_prompt', 'System prompt', fixed.system_prompt),
+            row('system_tools', 'System tools', fixed.system_tools),
+            row('mcp_instructions', 'MCP server instructions', fixed.mcp_instructions),
+            row('mcp_tools', 'MCP tools', fixed.mcp_tools),
+            row('mcp_tools_deferred', 'MCP tools (deferred)', 173_000, 'deferred'),
+            row('system_tools_deferred', 'System tools (deferred)', 16_000, 'deferred'),
+            row('memory_files', 'Memory files', fixed.memory_files),
+            row('skills', 'Skills', fixed.skills),
+            row('messages', 'Messages', messages),
+            row('autocompact_buffer', 'Autocompact buffer', buffer, 'buffer'),
+            row('free_space', 'Free space', Math.max(0, max - used - buffer), 'free'),
+          ],
+        },
+      };
+    }
+    case 'folders.commands':
     case 'threads.commands': {
       // The palette's list (docs/protocol.md, "Slash commands"): Threadbear's
       // own, the CLI's, then skills, as a real Claude thread lists them.
-      const t = need(p.threadId);
+      // folders.commands is a new thread's box asking before there's a
+      // thread: the same list for the folder it would start in.
+      const t = method === 'folders.commands' ? { summary: { provider: 'claude', cwd: p.cwd ?? os.homedir() } } : need(p.threadId);
       const codex = t.summary.provider === 'codex';
       const own = [
         { name: 'model', description: "Switch this thread's model", argumentHint: '[model]', source: 'threadbear' },
@@ -1375,6 +1422,8 @@ async function dispatch(client, method, p) {
       }
       if (p.followMain !== undefined) settings.followMain = Boolean(p.followMain);
       if (p.bulletReplies !== undefined) settings.bulletReplies = Boolean(p.bulletReplies);
+      if (p.labReview !== undefined) settings.labReview = Boolean(p.labReview);
+      if (p.keepAwake !== undefined) settings.keepAwake = Boolean(p.keepAwake);
       const m = p.models ?? {};
       if (m.pool !== undefined) {
         if (m.pool !== null && !poolOf(m.pool)) throw rpcError(-32602, `No pool called ${m.pool}`);
@@ -1396,6 +1445,7 @@ async function dispatch(client, method, p) {
     case 'devices.pair': {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (!['phone', 'browser'].includes(p.kind)) throw rpcError(-32602, 'kind must be one of phone, browser');
+      if (LOCAL_ONLY && p.kind === 'phone') throw rpcError(-32000, "Your backend is on this Mac only (setup --self-hosted --local), so a phone can't reach it.");
       const name = typeof p.name === 'string' && p.name.trim() ? p.name.trim() : p.kind === 'phone' ? 'iPhone' : 'Browser';
       const days = p.days ?? 90;
       const device = { id: `tok${++deviceSeq}`, kind: p.kind, name, createdAt: iso(), expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(), expired: false };
@@ -2636,6 +2686,46 @@ function listedProjects(archived) {
 
 function membersOf(projectId) {
   return [...threads.values()].map((t) => t.summary).filter((s) => s.projects?.some((x) => x.id === projectId));
+}
+
+/**
+ * TB_MOCK_DECISIONS: cards of asks on three of the Threadbear project's idle
+ * threads, as one-reply cards (options with what each does, the agent's pick),
+ * each with the librarian's recap, for the projectDecisions experiment's
+ * Decisions section (features/projects.feature, its screenshots).
+ */
+function addDemoDecisions() {
+  const cards = {
+    demo_settings_tabs: {
+      minutesAgo: 35, recap: 'Renames the Settings tabs in the Mac app so each says what it holds.\n- General, Accounts and Advanced renamed',
+      asks: [{ action: 'Call the Advanced tab "Machine" or "Runner"?', why: 'It holds the runner\'s folder, the check hosts and the logs.',
+        options: ['Runner', 'Machine'], optionNotes: ['Matches the runner menu', ''], suggested: 0 }],
+    },
+    demo_sqlite_vs_files: {
+      minutesAgo: 60, recap: 'Weighs SQLite against plain files for the runner\'s thread store.\n- Benchmarks done: files win under 10k threads',
+      asks: [{ action: 'Keep plain files for now?', why: 'Files were faster for every size we have. SQLite only wins past about 10,000 threads.',
+        options: ['Keep files', 'Move to SQLite'], optionNotes: ['Revisit at 5,000 threads', 'About two days of work'], suggested: 0 }],
+    },
+    demo_release_notes: {
+      minutesAgo: 180, recap: 'Drafts the release notes for 0.4 from this week\'s commits.\n- Draft written',
+      asks: [
+        { action: 'Lead with projects or with the librarian?', options: ['Projects', 'The librarian'], suggested: 0 },
+        { action: 'Mention the Windows build?', why: 'It runs, but nobody outside has tried it yet.', options: ['Not yet', 'As a preview'], suggested: 0 },
+      ],
+    },
+  };
+  for (const [id, card] of Object.entries(cards)) {
+    const t = threads.get(id);
+    if (!t) continue;
+    const done = t.events.findLast((e) => e.type === 'turn.completed');
+    if (done) Object.assign(done, { needs: 'you', asks: card.asks });
+    Object.assign(t.summary, {
+      status: 'idle', needs: 'you', needsYou: true, asks: card.asks, asksSeq: done?.seq ?? t.summary.lastSeq, recap: card.recap,
+      lastActivityAt: new Date(Date.now() - card.minutesAgo * 60_000).toISOString(),
+    });
+    // Waiting on Mike, not on a login with room.
+    delete t.summary.waitingForRoom;
+  }
 }
 
 function join(summary, project, by, pinned, at = iso(), why) {

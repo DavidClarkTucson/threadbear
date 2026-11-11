@@ -70,6 +70,67 @@ pub const COMPOSER_RADIUS: f32 = 20.;
 pub const COMPOSER_PADDING: f32 = 14.;
 pub const COMPOSER_GAP: f32 = 10.;
 
+/// The window's background in each look, as the Swift app draws its panels,
+/// sidebar and transcript (NSColor.windowBackgroundColor, BearDock's
+/// `DockTheme.panel`). gpui-kit's own dark theme is a near-black #0a0a0a, so the
+/// whole GPUI app looked much darker than the Swift one (10 Nov). Put into
+/// gpui-kit's light and dark themes before the first switch to either, so
+/// every switch after (the system's, the automation's `appearance`) keeps it.
+/// Popovers and menus get it lifted a little, as macOS's own menus are on dark.
+pub(crate) fn install_window_colours(cx: &mut App) {
+    use gpui_kit::component::Theme;
+    use std::rc::Rc;
+    let (light, dark) = window_backgrounds();
+    let hex = |c: Rgba| -> SharedString { format!("#{:02x}{:02x}{:02x}", (c.r * 255.).round() as u8, (c.g * 255.).round() as u8, (c.b * 255.).round() as u8).into() };
+    let lift = |c: Rgba, by: f32| Rgba { r: c.r + (1. - c.r) * by, g: c.g + (1. - c.g) * by, b: c.b + (1. - c.b) * by, a: 1. };
+    let theme = Theme::global_mut(cx);
+    for (config, background, popover) in [(&mut theme.light_theme, light, light), (&mut theme.dark_theme, dark, lift(dark, 0.06))] {
+        let mut changed = (**config).clone();
+        changed.colors.background = Some(hex(background));
+        changed.colors.sidebar = Some(hex(background));
+        changed.colors.popover = Some(hex(popover));
+        *config = Rc::new(changed);
+    }
+}
+
+/// NSColor.windowBackgroundColor in the light and dark looks. On the Mac it's
+/// read from AppKit, so it follows whatever this macOS draws; elsewhere it's
+/// what macOS 26 and 27 give, so the app looks the same everywhere.
+fn window_backgrounds() -> (Rgba, Rgba) {
+    let fallback = (srgb_rgba(1., 1., 1.), srgb_rgba(30. / 255., 30. / 255., 30. / 255.));
+    #[cfg(target_os = "macos")]
+    {
+        let light = system_window_background(false).unwrap_or(fallback.0);
+        let dark = system_window_background(true).unwrap_or(fallback.1);
+        (light, dark)
+    }
+    #[cfg(not(target_os = "macos"))]
+    fallback
+}
+
+fn srgb_rgba(r: f32, g: f32, b: f32) -> Rgba {
+    Rgba { r, g, b, a: 1. }
+}
+
+// A dynamic colour resolves for the current appearance. The block form
+// (performAsCurrentDrawingAppearance) needs block2; setting it is deprecated
+// but does the same for a moment on the main thread.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn system_window_background(dark: bool) -> Option<Rgba> {
+    use objc2_app_kit::{NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSColor, NSColorSpace};
+    unsafe {
+        let name = if dark { NSAppearanceNameDarkAqua } else { NSAppearanceNameAqua };
+        let appearance = NSAppearance::appearanceNamed(name)?;
+        let previous = NSAppearance::currentAppearance();
+        NSAppearance::setCurrentAppearance(Some(&appearance));
+        let color = NSColor::windowBackgroundColor().colorUsingColorSpace(&NSColorSpace::sRGBColorSpace());
+        NSAppearance::setCurrentAppearance(previous.as_deref());
+        let c = color?;
+        Some(srgb_rgba(c.redComponent() as f32, c.greenComponent() as f32, c.blueComponent() as f32))
+    }
+}
+
 fn pick(cx: &App, dark: Hsla, light: Hsla) -> Hsla {
     if cx.theme().is_dark() {
         dark
@@ -211,6 +272,12 @@ pub fn pane_icon(cx: &App) -> Hsla {
 /// `Theme.answerRowsFill`.
 pub fn answer_rows_fill(cx: &App) -> Hsla {
     pick(cx, white(0.02), black(0.015))
+}
+
+/// The small star beside "Recommended" on the agent's own pick: a muted gold,
+/// as on the Mac app (Theme.recommendedStar), after Ghostex's (Mike, 9 Nov 2026).
+pub fn recommended_star(cx: &App) -> Hsla {
+    pick(cx, srgb(0.86, 0.70, 0.33, 1.), srgb(0.72, 0.54, 0.12, 1.))
 }
 
 fn srgb(r: f32, g: f32, b: f32, a: f32) -> Hsla {

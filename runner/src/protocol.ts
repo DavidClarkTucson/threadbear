@@ -193,6 +193,20 @@ export type ArchivedBy = 'mike' | 'agent' | 'threadbear';
 export type ArchiveVerdict = 'worked' | 'didntWork' | 'notNeeded';
 export const ARCHIVE_VERDICTS: readonly ArchiveVerdict[] = ['worked', 'didntWork', 'notNeeded'];
 
+// What fills a thread's context, in Claude's own words (threads.contextUsage,
+// docs/protocol.md "Context breakdown"). Rows are the CLI's /context rows:
+// `id` names a row (absent from a CLI that predates it, and a later CLI may
+// add ids), `kind` says whether it counts: 'used' is in the window, 'buffer'
+// the autocompact reserve, 'free' the rest, 'deferred' tool schemas kept out
+// of the window until loaded.
+export type ContextUsage = {
+  at: string; // when Claude answered
+  model?: string;
+  totalTokens: number; // in the window now
+  maxTokens: number; // the window it's measured against
+  categories: { id?: string; name: string; tokens: number; kind: string }[];
+};
+
 export type ThreadSummary = {
   id: string;
   title: string;
@@ -200,6 +214,9 @@ export type ThreadSummary = {
   accountId: string;
   poolId?: string; // absent: pinned to accountId
   waitingForRoom?: WaitingForRoom;
+  // Off: a turn that hits its login's limit doesn't wait for room and
+  // carry on by itself (Mike turned it off on the limit box). Absent: on.
+  carryOnAtReset?: false;
   // Its last turn couldn't reach the API; it carries on by itself once
   // the runner reaches it again (Runner.onNetworkLost).
   waitingForNetwork?: { since: string };
@@ -692,7 +709,7 @@ export type DesignReview = {
   id: string;
   title: string;
   note?: string;
-  // The option id the agent would pick, marked "my pick" in the window.
+  // The option id the agent would pick, marked with a star and "Recommended" in the window.
   recommended?: string;
   // image is the option's first shot, kept for clients that only show one.
   // shots, when given, is every shot in order, image included. url: the
@@ -926,6 +943,12 @@ export type Schedule = {
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
+  // Set by the runner when there's no permissionMode: the mode its runs start
+  // with, this runner's default (runner.json's defaults.permissionMode, else
+  // full). Absent for another runner's schedule, whose default isn't known
+  // here. Raising a schedule's mode is checked against it (threadbear-mcp.ts,
+  // scheduleModes); never stored.
+  defaultMode?: PermissionMode;
   // A shell command run first, in its folder; a run whose check prints
   // nothing is skipped (experiment scheduleChecks, schedule-check.ts).
   check?: string;

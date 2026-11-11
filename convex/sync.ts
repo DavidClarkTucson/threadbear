@@ -1720,11 +1720,32 @@ const UPLOAD_BYTES_PER_HOUR = 200 * 1024 * 1024;
 const STORED_BYTES_PER_RUNNER = 150 * 1024 * 1024;
 const MIN_UPLOAD_CHARGE = 64 * 1024;
 
+// A move's chunk may also take up to a whole move's worth on top of what
+// the runner may keep, so a thread as big as a move can be still moves
+// from a runner with pictures stored; only while the move holds them, as
+// they go (and are given back) when it ends.
+const MOVE_ROOM_BYTES = 12 * MAX_RUNNER_UPLOAD_BYTES; // MAX_MOVE_CHUNKS (moves.ts) chunks
+
+// A move ticket is good only while its move takes chunks from its runner:
+// one left over from a move that ended (failed, cancelled, packed) stores
+// nothing.
+async function moveTakesChunks(ctx: QueryCtx | MutationCtx, row: { moveId?: string; runnerId: string }): Promise<boolean> {
+  if (!row.moveId) return true;
+  const m = await ctx.db
+    .query('threadMoves')
+    .withIndex('by_moveId', (q) => q.eq('moveId', row.moveId!))
+    .unique();
+  return !!m && m.state === 'packing' && m.from === row.runnerId;
+}
+
 // For /runner/upload, before it stores anything.
 export const uploadTicketOk = internalQuery({
   args: { ticket: v.string() },
   returns: v.boolean(),
-  handler: async (ctx, { ticket }) => (await liveTicket(ctx, ticket)) !== null,
+  handler: async (ctx, { ticket }) => {
+    const row = await liveTicket(ctx, ticket);
+    return row !== null && (await moveTakesChunks(ctx, row));
+  },
 });
 
 // The stored file is the ticket's runner's. False (the route then deletes
@@ -1743,12 +1764,23 @@ export const redeemUpload = internalMutation({
       await ctx.db.patch(row._id, { usedAt: now, bytes: MAX_RUNNER_UPLOAD_BYTES });
       return false;
     }
-    // A move's chunk (moves.ts moveChunkUrl) is the move's, not one of the
-    // runner's pictures: bounded by the move's tickets, kept with nothing
-    // counted against the runner, and deleted when the move ends.
+    // A move's chunk (moves.ts moveChunkUrl): only while its move takes
+    // chunks, charged to the runner's stored bytes like any upload (with a
+    // move's worth of room on top, MOVE_ROOM_BYTES), and named with the
+    // move, so it goes and is given back when the move ends however it ends
+    // (moves.ts dropChunks), not only if movePacked listed it (security
+    // review, 10 Nov 2026: a runner could keep 24 uploads of 10 MB from a
+    // move it then failed, uncharged and never cleaned up). Outside the
+    // hour's allowance, which the move's 24 tickets bound instead.
     if (row.moveId) {
+      bytes = Math.max(bytes, MIN_UPLOAD_CHARGE);
       await ctx.db.patch(row._id, { usedAt: now, bytes });
-      await ctx.db.insert('storageOwners', { storageId, runnerId: row.runnerId, at: now, bytes: 0, attachedAt: now });
+      if (!(await moveTakesChunks(ctx, row))) return false;
+      const usage = await ctx.db.query('runnerStorage').withIndex('by_runnerId', (q) => q.eq('runnerId', row.runnerId)).unique();
+      if ((usage?.bytes ?? 0) + bytes > STORED_BYTES_PER_RUNNER + MOVE_ROOM_BYTES) return 'later';
+      if (usage) await ctx.db.patch(usage._id, { bytes: usage.bytes + bytes });
+      else await ctx.db.insert('runnerStorage', { runnerId: row.runnerId, bytes });
+      await ctx.db.insert('storageOwners', { storageId, runnerId: row.runnerId, at: now, bytes, attachedAt: now, moveId: row.moveId });
       return true;
     }
     // Each file counts as at least MIN_UPLOAD_CHARGE, so how many a runner key

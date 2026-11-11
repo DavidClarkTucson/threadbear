@@ -19,6 +19,13 @@ public extension RPCClient {
         return try await call("threads.list", params, as: ThreadsResult.self).threads
     }
 
+    /// One thread's summary, whichever list it's in; nil if the runner
+    /// doesn't have it. An older runner ignores `ids`, so it's picked out.
+    func threadSummary(_ threadId: String) async throws -> ThreadSummary? {
+        let params: JSONValue = .object(["include": .array(ThreadListScope.allCases.map { .string($0.rawValue) }), "ids": .array([.string(threadId)])])
+        return try await call("threads.list", params, as: ThreadsResult.self).threads.first { $0.id == threadId }
+    }
+
     func deleteThread(_ threadId: String) async throws {
         _ = try await call("threads.delete", .object(["threadId": .string(threadId)]), as: EmptyResult.self)
     }
@@ -137,6 +144,14 @@ public extension RPCClient {
     /// starts a CLI to list them, which takes a second or two.
     func threadCommands(threadId: String) async throws -> [SlashCommand] {
         try await call("threads.commands", .object(["threadId": .string(threadId)]), as: SlashCommandList.self, timeout: .seconds(30)).commands
+    }
+
+    /// What fills the thread's context, in Claude's own words, for the
+    /// composer ring's popover (docs/protocol.md, "Context breakdown").
+    /// Asked of the thread's running CLI, about a second; without one, the
+    /// breakdown the runner kept. Codex threads have none.
+    func contextUsage(threadId: String) async throws -> ContextUsageAnswer {
+        try await call("threads.contextUsage", .object(["threadId": .string(threadId)]), as: ContextUsageAnswer.self, timeout: .seconds(30))
     }
 
     /// The same list for a new thread's box, before the thread exists: the
@@ -426,8 +441,12 @@ public struct ThreadUpdate: Sendable, Hashable {
     /// logins at once if its current one isn't in it); `.some(nil)` sends
     /// null, which pins it to the login it's on. `accountId` pins too.
     public var poolId: String??
+    /// Whether a turn that hits its login's limit waits for room and
+    /// carries on by itself (the limit box's menu). false also ends a wait.
+    public var carryOnAtReset: Bool?
 
-    public init(title: String? = nil, cwd: String? = nil, accountId: String? = nil, model: String?? = nil, effort: String?? = nil, permissionMode: PermissionMode? = nil, snoozedUntil: Date?? = nil, snoozeUntilRestart: Bool = false, archived: Bool? = nil, verdict: ArchiveVerdict? = nil, starred: Bool? = nil, poolId: String?? = nil) {
+    public init(title: String? = nil, cwd: String? = nil, accountId: String? = nil, model: String?? = nil, effort: String?? = nil, permissionMode: PermissionMode? = nil, snoozedUntil: Date?? = nil, snoozeUntilRestart: Bool = false, archived: Bool? = nil, verdict: ArchiveVerdict? = nil, starred: Bool? = nil, poolId: String?? = nil, carryOnAtReset: Bool? = nil) {
+        self.carryOnAtReset = carryOnAtReset
         self.verdict = verdict
         self.title = title
         self.cwd = cwd
@@ -459,6 +478,7 @@ public struct ThreadUpdate: Sendable, Hashable {
         if archived == true, let verdict { params["verdict"] = .string(verdict.rawValue) }
         if let starred { params["starred"] = .bool(starred) }
         if let poolId { params["poolId"] = poolId.map { .string($0) } ?? .null }
+        if let carryOnAtReset { params["carryOnAtReset"] = .bool(carryOnAtReset) }
         return params
     }
 
@@ -486,6 +506,11 @@ public struct ThreadUpdate: Sendable, Hashable {
         }
         if let archived { thread.archivedAt = archived ? (thread.archivedAt ?? now) : nil }
         if let starred { thread.starredAt = starred ? (thread.starredAt ?? now) : nil }
+        // Off ends a wait at once; on may start one, which the runner says.
+        if let carryOnAtReset {
+            thread.carryOnAtReset = carryOnAtReset
+            if !carryOnAtReset { thread.waitingForRoom = nil }
+        }
         return thread
     }
 }

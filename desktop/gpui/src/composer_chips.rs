@@ -1,6 +1,8 @@
 // The row under the composer's text: "+" (pictures and the folder), the
 // account, model and permission chips and the context ring (ComposerControls.swift).
 // The numbers are the Swift app's, at 100% zoom.
+use threadbear_core::new_thread::ChipBadge;
+use crate::app::Threadbear;
 use crate::composer::Composer;
 use crate::style::{self, size};
 use gpui_kit::assets::IconName;
@@ -182,11 +184,13 @@ impl Composer {
 
     /// The folders "+" > Folder offers (ThreadSettings.recentFolders): this
     /// thread's, the default, then the ones most recently used, eight at most.
-    fn recent_folders(&self, current: &str, data: &ChipData, cx: &App) -> Vec<String> {
-        let mut folders: Vec<String> = vec![current.to_owned(), data.logins.defaults.cwd.clone()];
-        if let Some(app) = self.app.upgrade() {
+    /// Worked out when the menu opens, not at every render: it looks at every
+    /// thread, and the box is drawn on every frame of a scroll.
+    fn recent_folders(app: &WeakEntity<Threadbear>, current: &str, default_folder: &str, cx: &App) -> Vec<String> {
+        let mut folders: Vec<String> = vec![current.to_owned(), default_folder.to_owned()];
+        if let Some(app) = app.upgrade() {
             let mut threads: Vec<&ThreadSummary> = app.read(cx).threads.values().collect();
-            threads.sort_by_key(|t| std::cmp::Reverse(t.activity_ms()));
+            threads.sort_by_cached_key(|t| std::cmp::Reverse(t.activity_ms()));
             folders.extend(threads.into_iter().map(|t| t.cwd.clone()));
         }
         let mut out = Vec::new();
@@ -285,12 +289,13 @@ impl Composer {
     fn render_plus(&self, data: &ChipData, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let composer = cx.entity().downgrade();
         let current = data.summary.as_ref().map(|t| t.cwd.clone()).unwrap_or_default();
-        let folders = self.recent_folders(&current, data, cx);
         let default_folder = data.logins.defaults.cwd.clone();
+        let app = self.app.clone();
         Popover::new("composer-plus")
             .anchor(Anchor::BottomLeft)
-            .trigger(ChipTrigger { id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images, change the folder or schedule the message".into(), selected: false })
+            .trigger(ChipTrigger { badge: None, id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images, change the folder or schedule the message".into(), selected: false })
             .content(move |_, window, cx| {
+                let folders = Self::recent_folders(&app, &current, &default_folder, cx);
                 let popover = cx.entity();
                 let c1 = composer.clone();
                 let (popover2, c2) = (popover.clone(), composer.clone());
@@ -334,7 +339,7 @@ impl Composer {
         let provider = self.chip_data(cx).summary.map(|t| t.provider).unwrap_or_default();
         Popover::new("composer-permission")
             .anchor(Anchor::BottomLeft)
-            .trigger(ChipTrigger { id: "composer-permission-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(icon), tip: help.into(), selected: false })
+            .trigger(ChipTrigger { badge: None, id: "composer-permission-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(icon), tip: help.into(), selected: false })
             .content(move |_, window, cx| {
                 let popover = cx.entity();
                 let modes: &[&str] = if threadbear_core::logins::has_auto_mode(&provider) || mode == "auto" { &["full", "auto", "ask", "plan"] } else { &["full", "ask", "plan"] };
@@ -360,7 +365,7 @@ impl Composer {
         let composer = cx.entity().downgrade();
         Popover::new("composer-account")
             .anchor(Anchor::BottomLeft)
-            .trigger(ChipTrigger { id: "composer-account-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(IconName::CircleUser), tip: tip.into(), selected: false })
+            .trigger(ChipTrigger { badge: settings.account_badge(), id: "composer-account-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(IconName::CircleUser), tip: tip.into(), selected: false })
             .content(move |_, window, cx| {
                 let popover = cx.entity();
                 v_flex().w(px(320.)).p(px(4.)).children(accounts.iter().enumerate().map(|(i, account)| {
@@ -385,7 +390,7 @@ impl Composer {
         let picker = self.picker_state(window, cx);
         Popover::new("composer-model")
             .anchor(Anchor::BottomLeft)
-            .trigger(ChipTrigger { id: "composer-model-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(icon), tip: tip.into(), selected: false })
+            .trigger(ChipTrigger { badge: settings.model_chip_badge(), id: "composer-model-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(icon), tip: tip.into(), selected: false })
             .content(move |_, _, _| picker.clone())
             .into_any_element()
     }
@@ -398,7 +403,7 @@ impl Composer {
         let tip = meter.tip();
         Popover::new("composer-context")
             .anchor(Anchor::BottomRight)
-            .trigger(ChipTrigger { id: "composer-context-ring".into(), kind: TriggerKind::Ring(meter), title: SharedString::default(), icon: None, tip: tip.into(), selected: false })
+            .trigger(ChipTrigger { badge: None, id: "composer-context-ring".into(), kind: TriggerKind::Ring(meter), title: SharedString::default(), icon: None, tip: tip.into(), selected: false })
             .content(move |_, _, cx| {
                 let fraction = meter.fraction() as f32;
                 let note = format!("{} compacts it by itself when it's nearly full.", if provider == "codex" { "Codex" } else { "Claude" });
@@ -491,6 +496,10 @@ struct ChipTrigger {
     icon: Option<IconName>,
     tip: SharedString,
     selected: bool,
+    /// After the title: "· 12%" in orange, "Limit reached" in red
+    /// (`ComposerChip.badge`). Colour only here, where it means the login,
+    /// or every login in the pool, is running out.
+    badge: Option<ChipBadge>,
 }
 
 impl Selectable for ChipTrigger {
@@ -523,9 +532,12 @@ impl RenderOnce for ChipTrigger {
                 .rounded(px(7.))
                 .hover(|s| s.bg(style::chip_hover_fill(cx)))
                 .when_some(self.icon, |s, icon| s.child(Icon::from(icon).with_size(px(size::CHIP - 1.)).text_color(style::faint_icon(cx))))
-                .when(!self.title.is_empty(), |s| {
-                    s.child(div().text_size(px(size::CHIP)).text_color(style::quiet_text(cx)).whitespace_nowrap().child(self.title.clone())).child(Icon::from(IconName::ChevronDown).with_size(px(9.)).text_color(style::faint_icon(cx)))
+                .when(!self.title.is_empty(), |s| s.child(div().text_size(px(size::CHIP)).text_color(style::quiet_text(cx)).whitespace_nowrap().child(self.title.clone())))
+                .when_some(self.badge.clone(), |s, badge| {
+                    let color = if badge == ChipBadge::Blocked { cx.theme().danger } else { style::needs_you(cx) };
+                    s.child(div().text_size(px(size::CHIP)).text_color(color).whitespace_nowrap().child(badge_words(&badge)))
                 })
+                .when(!self.title.is_empty(), |s| s.child(Icon::from(IconName::ChevronDown).with_size(px(9.)).text_color(style::faint_icon(cx))))
                 .into_any_element(),
         }
     }
@@ -841,10 +853,24 @@ pub(crate) fn picker_lines(data: &ChipData) -> Vec<String> {
     lines
 }
 
+/// A chip's badge as it reads after its title (`ComposerChip`).
+pub(crate) fn badge_words(badge: &ChipBadge) -> String {
+    match badge {
+        ChipBadge::Low(percent) => format!("\u{00B7} {percent}"),
+        ChipBadge::Blocked => "Limit reached".to_owned(),
+    }
+}
+
 /// The model chip's words, for the dump's `composer.chip`.
 #[cfg(feature = "automation")]
 pub(crate) fn model_chip_text(data: &ChipData) -> String {
     data.settings().map(|s| s.model_chip_title()).unwrap_or_default()
+}
+
+/// The model chip's badge as it reads, for the dump's `composer.chipBadge`.
+#[cfg(feature = "automation")]
+pub(crate) fn model_chip_badge_text(data: &ChipData) -> Option<String> {
+    data.settings().and_then(|s| s.model_chip_badge()).map(|b| badge_words(&b))
 }
 
 /// The modes the permission menu offers, in its order.

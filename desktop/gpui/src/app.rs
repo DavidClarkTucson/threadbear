@@ -55,6 +55,9 @@ pub struct Threadbear {
     pub(crate) settings_save_task: Option<Task<()>>,
     pub(crate) dock: Entity<DockModel>,
     pub(crate) dock_view: Entity<DockView>,
+    /// View > Show Frame Rate's readout, while it's showing.
+    #[cfg(feature = "frame-stats")]
+    pub(crate) frame_rate: Option<Entity<crate::frame_stats::FrameRate>>,
     /// The pane sections Hide Panels closed, for Show Panels (`hiddenPanes`).
     pub(crate) hidden_panes: Vec<String>,
     pub(crate) mode: SidebarMode,
@@ -66,6 +69,18 @@ pub struct Threadbear {
     pub(crate) shortcuts_path: Option<PathBuf>,
     /// What the menu bar says, so it's rebuilt only when that changes.
     pub(crate) menu_signature: String,
+    /// Something changed since the menu bar was last worked out. It's
+    /// rebuilt only then, not every frame: scrolling redraws the window as
+    /// fast as the screen refreshes, and this was a noticeable part of each
+    /// frame (set by an observer of the app itself, in `new`).
+    pub(crate) menus_stale: bool,
+    /// The login each thread was on when it went into error
+    /// (`failedOnAccount`), so the limit line blames that login only while
+    /// the thread's still on it, not the one it's just been switched to.
+    pub(crate) failed_on_account: HashMap<String, String>,
+    /// The Threads button's badge, kept until the app next changes (the same
+    /// observer clears it), as working it out sorts every thread.
+    pub(crate) inbox_count_cache: std::cell::Cell<Option<usize>>,
     pub(crate) last_window_title: String,
     pub(crate) archived_note: Option<ArchivedNote>,
     pub(crate) inbox_end_note: Option<InboxEndNote>,
@@ -104,6 +119,9 @@ pub struct Threadbear {
     pub(crate) move_sheet: Option<Entity<crate::move_sheet::MoveSheet>>,
     /// The pane beside the thread: Highlights, previews, Patches, Files (highlights.rs).
     pub(crate) side: Entity<SidePane>,
+    /// The Threads panel's view, made the first time the dock asks for it
+    /// (sidebar.rs, `SidebarView`).
+    pub(crate) sidebar_view: Option<Entity<crate::sidebar::SidebarView>>,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -111,7 +129,12 @@ pub struct Threadbear {
 impl Threadbear {
     pub(crate) fn new(settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // gpui-kit starts in its light theme whatever the system says; follow
-        // the system's light or dark, and keep following it when it changes.
+        // the system's light or dark, and keep following it when it changes,
+        // in the system's own window colours (style.rs). Scroll bars show only
+        // while scrolling, whatever the system's set to, as the Swift app's
+        // transcript and composer have them (`scrollerStyle = .overlay`).
+        crate::style::install_window_colours(cx);
+        Theme::set_scrollbar_mode(gpui_kit::component::scroll::ScrollbarMode::Scrolling, cx);
         Theme::sync_system_appearance(Some(window), cx);
         let appearance = window.observe_window_appearance(|window, cx| Theme::sync_system_appearance(Some(window), cx));
         crate::style::set_zoom_percent(settings.zoom_percent());
@@ -131,6 +154,7 @@ impl Threadbear {
         let side_client = client.clone();
         let side = cx.new(|cx| SidePane::new(weak_app, side_client, window, cx));
         crate::viewer::viewer_handle_global(side.downgrade(), cx);
+        crate::open_gate::install(cx.entity().downgrade(), cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
         // The filter is worked out at render, so a change only needs a redraw.
         let searching = cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
@@ -166,6 +190,14 @@ impl Threadbear {
             cx.new(|cx| DockView::new(model, content, options, cx))
         };
         let frame = cx.observe_window_bounds(window, |this, window, cx| this.window_frame_changed(window, cx));
+        // Everything the menus say is the app's state, which notifies when it
+        // changes (the dock's layout too: `dock_layout_changed`).
+        // Its 20-second tick notifies too (SidebarState), so the badge's
+        // count follows a snooze running out as the list does.
+        let menus = cx.observe(&cx.entity(), |this: &mut Threadbear, _, _| {
+            this.menus_stale = true;
+            this.inbox_count_cache.set(None);
+        });
 
         let mut sidebar = crate::sidebar::SidebarState::new(cx);
         sidebar.order = settings.inbox_order();
@@ -194,6 +226,8 @@ impl Threadbear {
             settings_save_task: None,
             dock,
             dock_view,
+            #[cfg(feature = "frame-stats")]
+            frame_rate: None,
             hidden_panes: Vec::new(),
             mode: SidebarMode::Inbox,
             history: NavigationHistory::default(),
@@ -202,6 +236,9 @@ impl Threadbear {
             shortcuts_watch: None,
             shortcuts_path: None,
             menu_signature: String::new(),
+            menus_stale: true,
+            failed_on_account: HashMap::new(),
+            inbox_count_cache: Default::default(),
             last_window_title: String::new(),
             archived_note: None,
             inbox_end_note: None,
@@ -227,8 +264,9 @@ impl Threadbear {
             slash: Default::default(),
             move_sheet: None,
             side,
+            sidebar_view: None,
             _events: events,
-            _subs: vec![appearance, searching, frame],
+            _subs: vec![appearance, searching, frame, menus],
         };
         // The window starts on the Inbox with nothing open (`noteNavigation`
         // on launch), so Back from the first thread comes back here.
@@ -270,11 +308,14 @@ impl Threadbear {
                         if let Some(pane) = &self.pane {
                             pane.update(cx, |p, cx| p.summary_changed(&t, cx));
                         }
-                        self.threads.insert(t.id.clone(), t);
+                        let before = self.threads.insert(t.id.clone(), t.clone());
+                        self.note_failed_account(before.as_ref(), &t);
                     }
                 }
                 "thread.deleted" => {
-                    self.threads.remove(params["threadId"].as_str().unwrap_or(""));
+                    let id = params["threadId"].as_str().unwrap_or("");
+                    self.threads.remove(id);
+                    self.failed_on_account.remove(id);
                 }
                 "runner.notice" => {
                     // The runner said it's restarting: the connection going
@@ -314,7 +355,9 @@ impl Threadbear {
                 match res {
                     Ok(v) => {
                         let list: Vec<ThreadSummary> = serde_json::from_value(v["threads"].clone()).unwrap_or_default();
+                        let before = std::mem::take(&mut this.threads);
                         this.threads = list.into_iter().map(|t| (t.id.clone(), t)).collect();
+                        this.note_failed_accounts(&before);
                         // Other runners' rows stay listed beside these.
                         this.apply_remote_index(cx);
                         this.list_error = None;
@@ -500,6 +543,7 @@ impl Threadbear {
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": self.banner_dump(),
+            "limit": self.limit_dump(cx),
             "error": self.error_message.clone(),
             "dock": dock,
             "zoom": crate::style::zoom_percent(),
@@ -534,6 +578,7 @@ impl Threadbear {
                 out["runner"] = json!(away.name);
             }
             out["chip"] = json!(crate::composer_chips::model_chip_text(&data));
+            out["chipBadge"] = json!(crate::composer_chips::model_chip_badge_text(&data));
             if let Some(card) = composer.card_lines(cx) {
                 out["card"] = json!(card);
             }
@@ -567,8 +612,12 @@ fn schedule_is_active(schedule: &Value) -> bool {
 
 impl Render for Threadbear {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_menus(cx);
+        if std::mem::take(&mut self.menus_stale) {
+            self.sync_menus(cx);
+        }
         let open_menu = self.render_open_menu();
+        #[cfg(feature = "frame-stats")]
+        let open_menu = open_menu.into_iter().map(IntoElement::into_any_element).chain(self.frame_rate.clone().map(|f| f.into_any_element()));
         self.render_shell(window, cx).children(open_menu)
     }
 }

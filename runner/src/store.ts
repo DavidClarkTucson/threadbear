@@ -1,7 +1,7 @@
 import type { HighlightState } from './highlights.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { WaitingForRoom, Ask, AskAnswer, NeedsWho, DesignReview, ReplyButton, ReviewDraft, EffortLevel, MessageOrigin, PanelRequest, PermissionMode, ThreadShare, PersistedEvent, Provider, ArchivedBy, ArchiveVerdict, Subagent, ThreadProject, ThreadSchedule, ThreadStartedBy, ThreadStatus, ImageRef, LooseEnd } from './protocol.ts';
+import type { WaitingForRoom, Ask, AskAnswer, NeedsWho, DesignReview, ReplyButton, ReviewDraft, EffortLevel, MessageOrigin, PanelRequest, PermissionMode, ThreadShare, PersistedEvent, Provider, ArchivedBy, ArchiveVerdict, Subagent, ThreadProject, ThreadSchedule, ThreadStartedBy, ThreadStatus, ImageRef, LooseEnd, ContextUsage } from './protocol.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { paths } from './config.ts';
 import type { WorktreeRecord } from './worktrees.ts';
@@ -22,6 +22,12 @@ export type ThreadRecord = {
   // itself at `until` (an ISO time). Kept here so the wait survives a
   // restart; start() re-arms its timer.
   waitingForRoom?: WaitingForRoom;
+  // Mike turned off carrying on by itself once its login has room again
+  // (the limit box by the composer). Absent: on, the default.
+  carryOnAtReset?: false;
+  // The turn that stopped at its login's limit, until the next turn
+  // starts, so turning carryOnAtReset back on knows it's still stuck there.
+  limitHitTurn?: string;
   // The id of the runner's own carry-on turn after a login ran dry, so a
   // carry-on that runs dry straight away waits rather than move again.
   autoCarryOn?: string;
@@ -111,6 +117,9 @@ export type ThreadRecord = {
   keepWarm?: { seq: number; pings: number; at: string };
   contextWindow?: number; // the model's window, when the CLI reports it
   continuedIn?: { threadId: string; title: string }; // Continue in a new thread (runner/long-threads.ts)
+  // Claude's last breakdown of the context (threads.contextUsage), for when
+  // its CLI has gone: only for the native session it was asked of.
+  contextUsage?: ContextUsage & { sessionId: string };
   costUsd?: number;
   reviews?: DesignReview[];
   reviewDeliveries?: string[]; // review IDs whose reply reached session.send
