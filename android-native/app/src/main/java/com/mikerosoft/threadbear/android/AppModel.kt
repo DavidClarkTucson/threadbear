@@ -240,6 +240,9 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
      * anew, so the old backend's sealed notifications can't be opened.
      */
     private fun pairingChanged(forget: Boolean) {
+        // Another server (or none): its notifications come down and any being
+        // opened are dropped, before anything else of the new pairing's.
+        Push.pairingChanged(appContext, clear = forget)
         pairingEpoch++
         _pushToken.value = null
         shell.pushToken.value = null
@@ -249,7 +252,6 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     fun unpair() {
         store.clear()
         pairingChanged(forget = true)
-        Push.clearAll(appContext)
         shell.clear()
         transport?.close()
         transport = null

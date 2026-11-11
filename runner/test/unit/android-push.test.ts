@@ -27,7 +27,11 @@ test('a Firebase token is letters, digits and _ - : of a sane length', () => {
 
 test('Firebase says a phone is gone with 404 UNREGISTERED, and only its status word is kept', () => {
   assert.equal(fcmGone(404, 'UNREGISTERED'), true);
-  assert.equal(fcmGone(404), true);
+  // A 404 without Firebase's verdict says nothing about the phone (a wrong URL, a deleted project)
+  assert.equal(fcmGone(404), false);
+  assert.equal(fcmGone(404, 'NOT_FOUND'), false);
+  // What Firebase really sends for a removed app: NOT_FOUND, with UNREGISTERED in the details
+  assert.equal(fcmReason({ error: { code: 404, status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }), 'UNREGISTERED');
   assert.equal(fcmGone(200), false);
   assert.equal(fcmGone(400, 'INVALID_ARGUMENT'), false, 'a bad payload is not a gone phone');
   assert.equal(fcmGone(503, 'UNAVAILABLE'), false);
@@ -79,6 +83,9 @@ test('with two keys, the answer is the one that worked, else the token\'s own pr
   assert.equal(fcmGone(gone.status, gone.reason), true);
   // ...and the same the other way round
   assert.deepEqual(fcmPick([{ status: 404, reason: 'UNREGISTERED' }, wrong]), { status: 404, reason: 'UNREGISTERED' });
+  // A bare 404 next to another project's no: not gone either
+  const bare = fcmPick([{ status: 404, reason: 'NOT_FOUND' }, wrong])!;
+  assert.equal(fcmGone(bare.status, bare.reason), false);
   // Neither project knows it: the first answer, which is not "gone"
   assert.deepEqual(fcmPick([wrong, wrong]), wrong);
   assert.equal(fcmGone(wrong.status, wrong.reason), false);

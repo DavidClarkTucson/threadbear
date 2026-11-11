@@ -21,10 +21,14 @@ export function fcmMessage(a: { deviceToken: string; threadId: string; encrypted
   };
 }
 
-// Firebase says a token is no good with 404 UNREGISTERED (the app was removed
-// or its data cleared). The backend then forgets the phone.
-export function fcmGone(status: number, reason?: string): boolean {
-  return status === 404 || reason === 'UNREGISTERED';
+// Firebase says a token is no good with 404 NOT_FOUND whose error code is
+// UNREGISTERED (the app was removed or its data cleared), which fcmReason
+// reads. The backend then forgets the phone. Only that verdict counts, not
+// any 404: with two keys a 404 could come from a project the token isn't
+// even in, and a bare 404 (a wrong URL, a deleted project) says nothing
+// about the phone.
+export function fcmGone(_status: number, reason?: string): boolean {
+  return reason === 'UNREGISTERED';
 }
 
 // The word Firebase puts in an error answer ({ error: { status: "UNREGISTERED" } }),

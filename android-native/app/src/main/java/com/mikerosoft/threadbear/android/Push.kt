@@ -38,6 +38,22 @@ import kotlinx.coroutines.tasks.await
 object Push {
     const val CHANNEL = "threads"
 
+    /**
+     * Posting a notification and changing the pairing take this lock, and
+     * the pairing's generation goes up with each change (AppModel's
+     * pairingChanged): a notification opened for one pairing is never posted
+     * once it's gone, rather than posted and then taken back down.
+     */
+    val lock = Any()
+    @Volatile var generation = 0
+        private set
+
+    /** The pairing changed: in-flight notifications are dropped, and with [clear] the shown ones go. */
+    fun pairingChanged(context: Context, clear: Boolean) = synchronized(lock) {
+        generation++
+        if (clear) clearAll(context)
+    }
+
     /** Off for a build without a google-services.json (app/build.gradle.kts). */
     val available: Boolean get() = BuildConfig.FIREBASE_APP_ID.isNotEmpty()
 
@@ -72,6 +88,7 @@ object Push {
     /** Shows one: the sealed title and text opened with this phone's key, else the stand-in. */
     fun show(context: Context, threadId: String, sealed: String?) {
         if (!permitted(context)) return
+        val opening = generation
         // Unpaired: whatever's still on its way from the old backend isn't shown.
         if (!PairingStore(context).paired()) return
         val key = PushKeyStore(context).load()
@@ -93,13 +110,15 @@ object Push {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        try {
-            NotificationManagerCompat.from(context).notify(threadId, 1, n)
-            // Unpaired while this was being opened (Firebase calls us off the
-            // main thread): take it straight back down.
-            if (!PairingStore(context).paired()) clear(context, threadId)
-        } catch (_: SecurityException) {
-            // The permission was taken away between the check and here.
+        synchronized(lock) {
+            // The pairing changed while this was being opened (Firebase calls
+            // us off the main thread): it was for the old one, so it's dropped.
+            if (opening != generation || !PairingStore(context).paired()) return
+            try {
+                NotificationManagerCompat.from(context).notify(threadId, 1, n)
+            } catch (_: SecurityException) {
+                // The permission was taken away between the check and here.
+            }
         }
     }
 
