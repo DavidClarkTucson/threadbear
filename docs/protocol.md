@@ -3159,12 +3159,23 @@ itself), the runner checks:
 - `unlanded`: commits on the thread's worktree branch that `main` lacks
   (`git rev-list --count main..<branch>` in the main checkout);
 - `uncommitted`: files in its worktree, tracked or untracked, that
-  `git status --porcelain` lists (ignored ones don't show);
+  `git status --porcelain` lists (ignored ones don't show); and outside
+  a worktree of its own (a shared checkout, another repo), the files it
+  changed (its Highlights' `edited`) that git lists, per repo, never the
+  rest of that checkout's status, which holds other threads' work;
+- `unpushed`: commits it made (its Highlights' commits) in a repo outside
+  its worktree that has a remote, which no remote branch contains;
 - `thread`: a thread it started (`startedBy.threadId`), not archived,
   that's running or waiting on Mike, with `threadId`;
 - `scheduled`: a schedule that sends to it and will run again (`at`:
   `nextRunAt`), at most three. It doesn't stop an archive: an archived
-  thread comes back when one runs.
+  thread comes back when one runs;
+- `open`: what the agent said is still open, from end_turn's `open`
+  (up to three short lines; offered only while the experiment is on):
+  what the runner can't see, like a reply worth sending, a decision
+  waiting elsewhere or a job still running. `[]` is the agent's word
+  that nothing is. The check-in of 11 Nov found Mike's typed "anything
+  else?" asks were mostly about these, in threads without a worktree.
 
 The result goes on `ThreadSummary.looseEnds`: `{ seq, ends, at }`, where
 `seq` is the done card's `turn.completed`. `ends: []` means it checked and
@@ -3178,7 +3189,12 @@ archived. Clients show an unknown `kind` as its `text`.
 The Mac app lists them under "Still open" (a `thread` one links
 `thread:<id>`); `scheduled` ones alone go under "Coming back". With none
 left it shows just Done (a "Nothing left open" label beside it was cut on
-9 Nov). The phone doesn't show them yet.
+9 Nov). The phone and the website show them the same way on their done
+cards, from the thread row's `looseEnds` (backend API 73: the summary's
+`ends`, sent only while its card stands, so idle, `needs: "nothing"` and
+not archived; an older backend's row goes without it). Another runner's
+thread on the Mac doesn't show them: the relay reads its sidebar row,
+which doesn't carry them (`KNOWN` in `scenarios.test.ts`).
 
 ## Secrets
 

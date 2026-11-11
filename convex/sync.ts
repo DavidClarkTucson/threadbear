@@ -450,8 +450,8 @@ function tooMany(what: string, max: number): ConvexError<{ kind: string; message
 }
 
 // A runner key's thread row cut to fit, or undefined: its text fields cut,
-// then the open card, follow-ups, links and projects dropped if it's still
-// too big (the phone shows the thread without them).
+// then the done card's loose ends, the open card, follow-ups, links and
+// projects dropped if it's still too big (the phone shows the thread without them).
 function fitThread<T extends Record<string, any>>(t: T): T | undefined {
   const out: Record<string, any> = { ...t };
   // Never in the future: lists are by activity, and a far-off time would
@@ -459,6 +459,7 @@ function fitThread<T extends Record<string, any>>(t: T): T | undefined {
   if (typeof out.lastActivityMs === 'number') out.lastActivityMs = Math.min(out.lastActivityMs, Date.now());
   for (const f of ['title', 'preview', 'cwd', 'working', 'asked']) if (typeof out[f] === 'string') out[f] = cutBytes(out[f], f === 'title' ? 300 : CAP.threadText);
   if (typeof out.recap === 'string') out.recap = cutBytes(out.recap, CAP.recap);
+  if (Array.isArray(out.looseEnds)) out.looseEnds = out.looseEnds.slice(0, 10).map((e: any) => ({ ...e, text: cutBytes(String(e.text ?? ''), 300) }));
   if (out.startedBy) out.startedBy = { ...out.startedBy, label: cutBytes(String(out.startedBy.label ?? ''), 100), ...(out.startedBy.why !== undefined ? { why: cutBytes(String(out.startedBy.why), 300) } : {}) };
   // The card waiting on Mike is cut, never dropped: the phone shows the
   // thread waiting, and its push goes, with shorter text.
@@ -469,7 +470,9 @@ function fitThread<T extends Record<string, any>>(t: T): T | undefined {
   if (docBytes(out) > CAP.threadDoc && Array.isArray(out.asks) && out.asks.some((a: any) => a?.optionNotes)) {
     out.asks = out.asks.map(({ optionNotes: _notes, ...a }: any) => a);
   }
-  for (const f of ['asks', 'next', 'links', 'projects']) {
+  // The done card's loose ends go first: the Mac has them, and the card
+  // still says Done without them.
+  for (const f of ['looseEnds', 'asks', 'next', 'links', 'projects']) {
     if (docBytes(out) <= CAP.threadDoc) break;
     delete out[f];
   }

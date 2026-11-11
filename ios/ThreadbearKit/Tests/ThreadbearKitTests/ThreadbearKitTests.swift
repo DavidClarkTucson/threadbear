@@ -528,6 +528,25 @@ import UniformTypeIdentifiers
         #expect(row.snoozedUntil == nil)
     }
 
+    /// The done card's loose ends (backend API 73): an odd entry reads as
+    /// what it can, rather than losing the thread row.
+    @Test func looseEndsReadLeniently() throws {
+        let json = """
+        {"threadId":"t","runnerId":"m5","title":"A","cwd":"/","accountId":"a","provider":"claude","status":"idle",
+         "needsYou":false,"unread":false,"preview":"","lastActivityAt":"2026-10-27T08:23:19.962Z","lastActivityMs":1,
+         "view":"inbox","createdAt":"2026-10-27T08:00:00Z","needs":"nothing",
+         "looseEnds":[{"kind":"thread","text":"\\"Side job\\", a thread it started, is still working","threadId":"c1"},
+                      {"kind":"scheduled","text":"Review the week","at":"2026-11-13T01:30:00.000Z"},
+                      {"kind":"later","text":5}]}
+        """
+        let row = try JSONDecoder().decode(PhoneThread.self, from: Data(json.utf8))
+        let ends = try #require(row.looseEnds)
+        #expect(ends.map(\.kind) == ["thread", "scheduled", "later"])
+        #expect(ends[0].threadId == "c1")
+        #expect(ends[1].isBooked)
+        #expect(ends[2].text == "")
+    }
+
     @Test func notFoundBecomesNilForAThread() async throws {
         let backend = ConvexBackend(transport: FailingTransport(error: .notFound("no such thread")), token: "t")
         var iterator = backend.thread("x").makeAsyncIterator()

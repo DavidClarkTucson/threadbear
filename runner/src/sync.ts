@@ -133,7 +133,7 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 72;
+export const BACKEND_API_VERSION = 73;
 // From this one sync:sharedThreads lists a runner's rows shared by link, which
 // it checks against its own threads on every start and every
 // SHARE_RECONCILE_MS (reconcileShares).
@@ -316,6 +316,10 @@ export const RUNNER_STATS_API_VERSION = 45;
 export const FOLLOW_PROBLEM_API_VERSION = 67;
 // An ask's `run` (end_turn's asks[].run), the command and its Run button.
 export const RUN_ASKS_API_VERSION = 71;
+// The done card's loose ends (docs/protocol.md, "Loose ends") on a thread
+// row, for the phone's done card. An older backend's validator would turn
+// the row down, so it goes without.
+export const LOOSE_ENDS_API_VERSION = 73;
 // How far back a start looks for pictures, as new ones go up as they come.
 // Reading a whole log for each thread is too much to do for all of them on
 // every start, and it's the threads in use that Mike opens on the phone.
@@ -410,6 +414,7 @@ export type ThreadDoc = {
   asks?: PhoneAsk[];
   asksSeq?: number;
   next?: string[];
+  looseEnds?: { kind: string; text: string; threadId?: string; at?: string }[];
   needs?: 'you' | 'nothing';
   pendingReviews?: number;
   waitingForRoom?: { until: string; accountId?: string };
@@ -875,6 +880,13 @@ export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pen
     doc.asksSeq = t.asksSeq;
   }
   if (next?.length) doc.next = next;
+  // The done card's loose ends (docs/protocol.md, "Loose ends"), for the
+  // phone's done card. The runner only has them for the card standing now
+  // (runner/loose-ends.ts); the same test as nextSteps keeps an older
+  // check off a thread that's moved on.
+  if (t.looseEnds && t.status === 'idle' && t.needs === 'nothing' && !t.archivedAt) {
+    doc.looseEnds = t.looseEnds.ends.map((e) => ({ kind: e.kind, text: e.text, ...(e.threadId ? { threadId: e.threadId } : {}), ...(e.at ? { at: e.at } : {}) }));
+  }
   // The phone files a thread whose turn said "you" in the inbox whatever's
   // running, and its working line can't tell a sub-agent from a shell job. So
   // it isn't told until the agents are done, which goes for phones already
@@ -952,7 +964,7 @@ function phoneAnswers(raw: unknown): AskAnswer[] | undefined {
 export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   const asks = d.asks !== undefined || d.asksSeq !== undefined || d.next !== undefined;
   const sections = d.needs !== undefined || d.pendingReviews !== undefined || d.waitingForRoom !== undefined;
-  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
+  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= LOOSE_ENDS_API_VERSION || !d.looseEnds) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
   const out = { ...d };
   if (v < SECTIONS_API_VERSION) {
     delete out.needs;
@@ -985,6 +997,7 @@ export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   if (v < RUN_ASKS_API_VERSION && out.asks?.some((a) => a.run)) {
     out.asks = out.asks.map(({ run: _run, ...a }) => a);
   }
+  if (v < LOOSE_ENDS_API_VERSION) delete out.looseEnds;
   if (v < OPTION_NOTES_API_VERSION && out.asks?.some((a) => a.optionNotes)) {
     out.asks = out.asks.map(({ optionNotes: _notes, ...a }) => a);
   }

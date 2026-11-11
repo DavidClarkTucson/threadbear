@@ -372,7 +372,8 @@ extension Automation {
     /// draws a transcript row as hovered; neither clears both.
     /// The activity log (ActivityRecorder). `"on": true | false` sets the
     /// Settings switch. `"click": "<tip>"` gives the recorder a click on the
-    /// control with that tooltip (without pressing it), and `"key": "n"`
+    /// control with that tooltip (without pressing it), `"cardAction"` one on
+    /// a transcript card's button (below), and `"key": "n"`
     /// with `"command": true` presses a key through the app's own event
     /// dispatch, so a menu's shortcut comes back as its item. Says whether
     /// it's on, how many lines today has and the last few (`"last": N`).
@@ -387,6 +388,16 @@ extension Automation {
             guard let event = NSEvent.mouseEvent(with: type, location: center, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
             else { return "error no event" }
+            ActivityRecorder.shared.click(event)
+        }
+        // `"cardAction": "archive"`: a click on the transcript's card button
+        // with that action (the done card's Archive), again without pressing it.
+        if let action = c["cardAction"] as? String {
+            guard let window = mainWindow, let content = window.contentView,
+                  let point = all(TranscriptTextView.self, in: content).lazy.compactMap({ $0.windowPoint(ofAction: action) }).first,
+                  let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            else { return "error no card button \(action)" }
             ActivityRecorder.shared.click(event)
         }
         if let key = c["key"] as? String {

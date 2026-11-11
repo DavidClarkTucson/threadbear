@@ -436,6 +436,13 @@ button.fold:hover > svg:last-child, button.fold:focus-visible > svg:last-child {
 .choice:hover { background: var(--hover); }
 .choice .radio { width: 15px; height: 15px; margin-top: 3px; border-radius: 50%; border: 1.5px solid var(--faint); flex: none; }
 .choice .radio.check { border-radius: 4px; }
+/* The done card's loose ends (docs/protocol.md, "Loose ends"), above its follow-ups. */
+.loose-ends { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.loose-label { font-size: 12px; color: var(--muted); }
+.loose { display: flex; gap: 10px; align-items: baseline; }
+.loose-mark { flex: none; width: 16px; text-align: center; font-weight: 700; }
+.loose.open .loose-mark { color: #f09a37; }
+.loose.booked .loose-mark { font-size: 12px; }
 .choice.on .radio { border: 5px solid var(--accent); }
 .choice.on .radio.check { border: 0; background: var(--accent); }
 /* The agent's pick: a small gold star and "Recommended" in grey, as on the Mac (after Ghostex's, 9 Nov 2026). */

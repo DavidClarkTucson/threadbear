@@ -209,7 +209,7 @@ struct ThreadView: View {
                     } else if isDone(thread, messages: messages) {
                         // Ticked follow-ups go from the card's Send on their
                         // own; anything typed stays in the box for later.
-                        DoneCard(next: thread.next ?? [], picked: $nextPicks, busy: sendingCard) {
+                        DoneCard(next: thread.next ?? [], looseEnds: thread.looseEnds ?? [], openThread: { pushThread($0) }, picked: $nextPicks, busy: sendingCard) {
                             sendCard(thread, lastSeq: messages.last?.seq)
                         } archive: {
                             archive()

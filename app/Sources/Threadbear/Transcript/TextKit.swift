@@ -810,6 +810,33 @@ final class TranscriptTextView: NSTextView {
         if changed { placeRichTips() }
     }
 
+    /// The kind of card button under a click, for the activity log
+    /// (ActivityRecorder): "archive", "next", "explain". Only the name
+    /// before any ":", never what follows, which can be an answer's index
+    /// or a page; and only a plain word, so no text of a card gets out.
+    func activityAction(atWindow windowPoint: NSPoint) -> String? {
+        let point = convert(windowPoint, from: nil)
+        guard let action = row(at: point)?.action ?? character(at: point).flatMap({ textStorage?.attribute(.tbAction, at: $0, effectiveRange: nil) as? String }) else { return nil }
+        let name = action.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
+        return name.range(of: "^[a-z][a-z-]{0,30}$", options: .regularExpression) != nil ? name : nil
+    }
+
+    /// Where the first run with this `.tbAction` is drawn, in window
+    /// coordinates (scripted runs only: Automation's activity command).
+    func windowPoint(ofAction action: String) -> NSPoint? {
+        guard let storage = textStorage, let layoutManager, let textContainer else { return nil }
+        var found: NSRange?
+        storage.enumerateAttribute(.tbAction, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
+            if value as? String == action { found = range; stop.pointee = true }
+        }
+        guard let found else { return nil }
+        let glyphs = layoutManager.glyphRange(forCharacterRange: found, actualCharacterRange: nil)
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        rect.origin.x += textContainerOrigin.x
+        rect.origin.y += textContainerOrigin.y
+        return convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+    }
+
     private func character(at point: NSPoint) -> Int? {
         guard let layoutManager, let textContainer, let storage = textStorage, storage.length > 0 else { return nil }
         let origin = textContainerOrigin

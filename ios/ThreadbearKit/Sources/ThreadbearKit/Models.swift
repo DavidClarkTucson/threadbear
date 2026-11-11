@@ -279,6 +279,11 @@ public struct PhoneThread: Codable, Sendable, Hashable, Identifiable {
     /// A finished turn's suggested follow-ups (end_turn's `next`), for the
     /// done card.
     public var next: [String]?
+    /// What the runner found still open on a thread whose last turn needs
+    /// nothing (docs/protocol.md, "Loose ends"; backend API 73), for the
+    /// done card's "Still open" list. Nil when it hasn't checked, and from
+    /// an older runner; empty when nothing's left.
+    public var looseEnds: [PhoneLooseEnd]?
     /// What the last completed turn said it needs from Mike, "you" or
     /// "nothing" (backend API 15). Absent: it said neither.
     public var needs: String?
@@ -302,8 +307,9 @@ public struct PhoneThread: Codable, Sendable, Hashable, Identifiable {
         pendingApproval: PendingApproval? = nil, earliestSeq: Double? = nil,
         asks: [PhoneAsk]? = nil, asksSeq: Double? = nil, next: [String]? = nil,
         needs: String? = nil, pendingReviews: Double? = nil, waitingForRoom: PhoneWaitingForRoom? = nil,
-        links: [PhoneLink]? = nil, asked: String? = nil
+        links: [PhoneLink]? = nil, asked: String? = nil, looseEnds: [PhoneLooseEnd]? = nil
     ) {
+        self.looseEnds = looseEnds
         self.asked = asked
         self.threadId = threadId
         self.runnerId = runnerId
@@ -383,6 +389,39 @@ public struct PhoneThread: Codable, Sendable, Hashable, Identifiable {
         guard let why = startedBy.why, !why.isEmpty else { return who }
         return who + " (" + why + ")"
     }
+}
+
+/// One of the done card's loose ends, as the Mac's LooseEnd: a branch not
+/// on main, files not committed or pushed, a thread it started that's still
+/// going, a booked check-in, or the agent's own word. A kind this phone
+/// doesn't know shows as its text.
+public struct PhoneLooseEnd: Codable, Sendable, Hashable {
+    public var kind: String
+    public var text: String
+    /// The thread it's about (kind thread): its line opens it.
+    public var threadId: String?
+    /// When a booked check-in runs (kind scheduled), ISO.
+    public var at: String?
+
+    public init(kind: String, text: String, threadId: String? = nil, at: String? = nil) {
+        self.kind = kind
+        self.text = text
+        self.threadId = threadId
+        self.at = at
+    }
+
+    /// Lenient, so one odd entry can't lose the whole thread row.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? ""
+        text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
+        threadId = (try? c.decodeIfPresent(String.self, forKey: .threadId)) ?? nil
+        at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? nil
+    }
+
+    /// A booked check-in: it doesn't stop an archive, as the thread comes
+    /// back by itself when it runs.
+    public var isBooked: Bool { kind == "scheduled" }
 }
 
 /// Who started a thread, when Mike didn't (the Mac's ThreadStartedBy).

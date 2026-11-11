@@ -1030,7 +1030,7 @@ public struct LooseEnds: Sendable, Hashable, Codable {
 }
 
 public struct LooseEnd: Sendable, Hashable, Codable {
-    /// unlanded, uncommitted, thread or scheduled; a later kind shows as its text.
+    /// unlanded, uncommitted, unpushed, thread, open (the agent's word) or scheduled; a later kind shows as its text.
     public var kind: String
     public var text: String
     /// The thread it's about (kind thread).

@@ -3464,3 +3464,30 @@ test("a Run is checked against the runner's own scrub: a value it knows, in the 
   // A scrub that fails holds it too.
   assert.equal(toPhoneAsk({ action: 'Go?', run: { command: 'ls', cwd: '/w', buttonId: 'abcd1234' } }, () => { throw new Error('boom'); }).run, undefined);
 });
+
+import { LOOSE_ENDS_API_VERSION } from '../../src/sync.ts';
+
+test("loose ends go up on a done thread's row for the phone's done card, and not to an older backend", () => {
+  const now = Date.parse('2026-11-11T10:00:00.000Z');
+  const base = {
+    id: 't1', title: 'T', cwd: '/w', accountId: 'claude-3', provider: 'claude' as const, permissionMode: 'full' as const, status: 'idle' as const, live: false, needsYou: false,
+    createdAt: '2026-11-11T09:00:00.000Z', updatedAt: '2026-11-11T09:30:00.000Z', lastActivityAt: '2026-11-11T09:30:00.000Z', preview: 'p', lastSeq: 3, lastSeenSeq: 3,
+    needs: 'nothing' as const,
+    looseEnds: { seq: 3, at: '2026-11-11T09:30:00.000Z', ends: [
+      { kind: 'thread' as const, text: '"Side job", a thread it started, is still working', threadId: 'c1' },
+      { kind: 'scheduled' as const, text: 'Review the week', at: '2026-11-13T01:30:00Z' },
+    ] },
+  };
+  const doc = toThreadDoc(base, 'r', now);
+  assert.deepEqual(doc.looseEnds, [
+    { kind: 'thread', text: '"Side job", a thread it started, is still working', threadId: 'c1' },
+    { kind: 'scheduled', text: 'Review the week', at: '2026-11-13T01:30:00Z' },
+  ]);
+  // Nothing left still goes, so the phone knows it checked.
+  assert.deepEqual(toThreadDoc({ ...base, looseEnds: { ...base.looseEnds, ends: [] } }, 'r', now).looseEnds, []);
+  // Only on the done card it was checked for.
+  assert.equal(toThreadDoc({ ...base, status: 'running' }, 'r', now).looseEnds, undefined);
+  assert.equal(toThreadDoc({ ...base, archivedAt: '2026-11-11T09:40:00.000Z' }, 'r', now).looseEnds, undefined);
+  assert.deepEqual(forBackend(doc, LOOSE_ENDS_API_VERSION, now).looseEnds, doc.looseEnds);
+  assert.equal(forBackend(doc, LOOSE_ENDS_API_VERSION - 1, now).looseEnds, undefined);
+});

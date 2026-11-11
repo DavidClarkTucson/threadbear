@@ -52,6 +52,17 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The done card's loose ends (experiment looseEnds): a check-in it
+    // booked, under "Coming back" with its time (API 73 for the phone).
+    name: 'a done card with a check-in booked',
+    shows: ['Checked it in.', 'Coming back', 'Look at how the experiment went'],
+    play: (p) => {
+      p.looseEnds({ title: 'Look at how the experiment went', at: '2026-11-15T01:30:00.000Z' });
+      p.say('Checked it in.');
+      p.endTurn({ needs: 'nothing' });
+    },
+  },
+  {
     // Plan first: the plan in full goes to the phone as a plan row (API 72).
     name: 'a Plan first plan',
     shows: ['Bots and webhook triggers', 'Add a bots table'],

@@ -327,4 +327,8 @@
 //    card and reads the whole plan before Go ahead. An older backend's
 //    validator refuses the field, so a runner sends it only from 72 and as
 //    an ordinary reply before; an older phone shows it as one too.
-export const API_VERSION = 72;
+// 73: threads rows carry `looseEnds`, the done card's loose ends (what the
+//    runner found still open: a branch, files, a thread it started, a
+//    check-in, or the agent's own word), so the phone's done card lists
+//    them as the Mac's does. A runner sends it only from 73.
+export const API_VERSION = 73;
