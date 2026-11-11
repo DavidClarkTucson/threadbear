@@ -41,6 +41,21 @@ Feature: Scheduled messages
     Then no page is in place of the thread
     And the sidebar shows the "scheduled" view
 
+  # Back to a page put the thread behind it back first and recorded that
+  # as a place of its own, which cut off Forward (Codex's review, 11 Nov).
+  @schedule.page @nav.history
+  Scenario: Back from a thread picked beside the page brings the page back, and Forward the thread
+    Given the thread "Rename the Settings tabs" is in the inbox
+    When I open the thread "Morning brief"
+    And I click "Scheduled" in the activity bar
+    And I pick the thread "Rename the Settings tabs" from where I am
+    Then no page is in place of the thread
+    When I press the mouse's "back" button
+    Then the Scheduled page is in place of the thread
+    When I press the mouse's "forward" button
+    Then no page is in place of the thread
+    And the open thread is "Rename the Settings tabs"
+
   @schedule.list
   Scenario: Pausing a schedule moves it under Paused at once, and Resume brings it back
     When I click "Scheduled" in the activity bar

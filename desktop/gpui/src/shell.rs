@@ -649,14 +649,22 @@ impl Threadbear {
         NavPlace { mode: self.mode, thread: self.selected.clone(), home: self.home_page().is_some() }
     }
 
-    /// `noteNavigation`: one step per place the window has been.
+    /// `noteNavigation`: one step per place the window has been. Not while
+    /// Back or Forward is putting a place back: the steps on the way (the
+    /// thread opened before its page goes back over it) aren't places, and
+    /// recording one cut off the history ahead.
     pub(crate) fn note_navigation(&mut self) {
+        if self.restoring_place {
+            return;
+        }
         let place = self.place();
         self.history.record(place);
     }
 
+    /// A place can be gone back to while what it showed is still there: its
+    /// thread, unless a page was over it (the thread behind a page can go).
     fn can_show(&self, place: &NavPlace) -> bool {
-        place.thread.as_ref().is_none_or(|id| self.threads.contains_key(id))
+        place.home || place.thread.as_ref().is_none_or(|id| self.threads.contains_key(id))
     }
 
     pub(crate) fn can_go_back(&self) -> bool {
@@ -669,14 +677,14 @@ impl Threadbear {
 
     pub(crate) fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let threads = self.threads.keys().cloned().collect::<std::collections::HashSet<_>>();
-        if let Some(place) = self.history.back(|p| p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
+        if let Some(place) = self.history.back(|p| p.home || p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
             self.show_place(place, window, cx);
         }
     }
 
     pub(crate) fn go_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let threads = self.threads.keys().cloned().collect::<std::collections::HashSet<_>>();
-        if let Some(place) = self.history.forward(|p| p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
+        if let Some(place) = self.history.forward(|p| p.home || p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
             self.show_place(place, window, cx);
         }
     }
@@ -684,8 +692,10 @@ impl Threadbear {
     /// Puts the window back at `place`; the history already moved, so the step
     /// this records is where it is now and adds nothing.
     fn show_place(&mut self, place: NavPlace, window: &mut Window, cx: &mut Context<Self>) {
+        self.restoring_place = true;
         self.mode = place.mode;
-        match place.thread {
+        // A page's thread behind it may have gone since.
+        match place.thread.filter(|id| self.threads.contains_key(id)) {
             Some(id) => self.open(id, window, cx),
             None => {
                 self.select_none(cx);
@@ -693,6 +703,7 @@ impl Threadbear {
         }
         // After the thread: opening one takes a page away.
         self.shows_home = place.home;
+        self.restoring_place = false;
         self.note_navigation();
         cx.notify();
     }

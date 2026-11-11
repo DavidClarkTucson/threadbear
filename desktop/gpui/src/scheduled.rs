@@ -100,17 +100,28 @@ impl Threadbear {
     }
 
     /// A reply's schedule goes in straight away; `schedules.updated` brings
-    /// the whole list (in order) a moment later anyway.
-    fn replace_schedule(&mut self, schedule: Schedule) {
+    /// the whole list (in order) a moment later anyway. Only a new schedule
+    /// is added: a Run now or Pause answered after the schedule was deleted
+    /// would otherwise bring it back as a row with nothing behind it.
+    fn replace_schedule(&mut self, schedule: Schedule, insert: bool) {
         match self.scheduled.list.iter_mut().find(|s| s.id == schedule.id) {
             Some(old) => *old = schedule,
-            None => self.scheduled.list.insert(0, schedule),
+            None if insert => self.scheduled.list.insert(0, schedule),
+            None => {}
         }
     }
 
+    /// The schedule in a reply about one already listed.
     pub(crate) fn schedule_reply(&mut self, reply: &Value) {
         if let Ok(schedule) = serde_json::from_value::<Schedule>(reply["schedule"].clone()) {
-            self.replace_schedule(schedule);
+            self.replace_schedule(schedule, false);
+        }
+    }
+
+    /// The schedule `schedules.create` made.
+    pub(crate) fn schedule_created(&mut self, reply: &Value) {
+        if let Ok(schedule) = serde_json::from_value::<Schedule>(reply["schedule"].clone()) {
+            self.replace_schedule(schedule, true);
         }
     }
 
@@ -126,6 +137,18 @@ impl Threadbear {
         }
         let id = schedule.runner_id.as_deref()?;
         Some(schedule.runner_name.clone().or_else(|| self.remote.all_runners.iter().find(|r| r.id == id).map(|r| r.name.clone())).unwrap_or_else(|| "another Mac".into()))
+    }
+
+    /// The Mac the editor treats a schedule as running on, when it isn't
+    /// this one. Until this Mac's own runner is known (`runners.list` at
+    /// connect), a schedule that names a runner might be another Mac's, so
+    /// it's taken to be: saving it then sends its own folder back as it was,
+    /// rather than this Mac's default folder and models.
+    pub(crate) fn editor_away_name(&self, schedule: &Schedule) -> Option<String> {
+        self.away_runner_name(schedule).or_else(|| match (schedule.runner_id.as_ref(), self.self_runner_id()) {
+            (Some(_), None) => Some(schedule.runner_name.clone().unwrap_or_else(|| "another Mac".into())),
+            _ => None,
+        })
     }
 
     /// The icon of the runner a schedule runs on (`runnerIcon`).
@@ -193,7 +216,7 @@ impl Threadbear {
         let Some(before) = self.schedule(&id).cloned() else { return };
         let mut guess = before.clone();
         guess.paused = paused;
-        self.replace_schedule(guess.clone());
+        self.replace_schedule(guess.clone(), false);
         self.scheduled.busy.insert(key.clone());
         cx.notify();
         let client = self.client.clone();
@@ -205,7 +228,7 @@ impl Threadbear {
                     Ok(reply) => this.schedule_reply(&reply),
                     Err(e) => {
                         if this.schedule(&id) == Some(&guess) {
-                            this.replace_schedule(before);
+                            this.replace_schedule(before, false);
                         }
                         this.show_error(e.message, cx);
                     }

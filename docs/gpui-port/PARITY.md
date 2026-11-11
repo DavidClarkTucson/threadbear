@@ -233,10 +233,25 @@ built parsers and gates with no launch of the app, which is the trap.)
   GPUI app takes the Swift app's `schedule` and `close-schedule` commands,
   and its `select` now picks a thread without leaving the view, as Swift's
   does.
-- Remaining: Schedule… from a composer's + menu and from Send's menu
-  (`composer.plus`, `composer.schedulefromsend`), the header's schedule chip,
-  the picture's wobble, Return in the message box saving.
-- Verification: scheduled.feature's 8 scenarios on Linux, and on Tinker Desk
+- Schedule… in a composer's + menu opens the editor on the box's words and
+  its thread (the new-thread box's: a new thread each time on its folder,
+  login and model), and they leave the box once it's saved. Pictures are
+  chips in the GPUI box's text, so a box with any is left as it is, and the
+  editor says so.
+- Codex's review found five things, all fixed: an editor opened before this
+  Mac's runner was known saved another Mac's schedule with this Mac's
+  folder and models (it's now taken to be the other Mac's until known); a
+  Run now or Pause answered after the schedule was deleted brought its row
+  back (fixed in the Swift app too: only a new schedule's reply adds a
+  row); Back to a page recorded the thread behind it as a step, which cut
+  off Forward (a scenario now covers it, on both apps); Save's answer could
+  close Delete's question instead of the editor (Delete is off while
+  saving, and only the editor that saved closes); and a page's place in
+  the history needed the thread behind it to still exist.
+- Remaining: Schedule… from Send's right-click menu
+  (`composer.schedulefromsend`), the header's schedule chip, the picture's
+  wobble, Return in the message box saving.
+- Verification: scheduled.feature's 9 scenarios on Linux, and on Tinker Desk
   against both apps; pictures of both apps' list, page and editor side by
   side (the spacing was brought in to match after the first pair).
 

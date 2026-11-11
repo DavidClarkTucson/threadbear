@@ -68,6 +68,9 @@ pub(crate) struct EditorState {
     pub(crate) runner_id: Option<String>,
     /// That runner's name, for an existing schedule's read-only line.
     pub(crate) runner_name: Option<String>,
+    /// Pictures in the composer's draft it came from, which a schedule
+    /// can't send.
+    pub(crate) draft_images: usize,
 }
 
 impl EditorState {
@@ -121,10 +124,39 @@ impl Threadbear {
         self.open_schedule_editor(state, window, cx);
     }
 
+    /// Schedule… in a composer's + menu (`newSchedule(from:draftKey:)`): its
+    /// words, and its thread (or for the new-thread box, a new thread each
+    /// time on the box's folder, login and model). Once saved, the words
+    /// leave the box.
+    pub(crate) fn new_schedule_from_composer(&mut self, composer: &Entity<crate::composer::Composer>, window: &mut Window, cx: &mut Context<Self>) {
+        let (text, images, thread_id) = {
+            let c = composer.read(cx);
+            let (text, images) = c.schedule_draft(cx);
+            (text, images, c.thread_id.clone())
+        };
+        let thread = thread_id.as_ref().and_then(|id| self.threads.get(id)).cloned();
+        let settings = thread.clone().unwrap_or_else(|| self.draft_summary());
+        let state = EditorState {
+            text,
+            draft_images: images,
+            at_ms: rules::default_once_ms(now_ms()),
+            thread_id: thread.as_ref().map(|t| t.id.clone()),
+            from_thread_id: thread.as_ref().map(|t| t.id.clone()),
+            cwd: settings.cwd.clone(),
+            account_id: Some(settings.account_id.clone()).filter(|a| !a.is_empty()),
+            pool_id: settings.pool_id.clone(),
+            model: settings.model.clone(),
+            effort: settings.effort.clone(),
+            permission_mode: if settings.permission_mode.is_empty() { "full".into() } else { settings.permission_mode.clone() },
+            ..EditorState::default()
+        };
+        self.open_schedule_editor_with(state, Some(composer.downgrade()), window, cx);
+    }
+
     /// Editing a schedule from its row (`editSchedule`).
     pub(crate) fn edit_schedule(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(schedule) = self.schedule(id).cloned() else { return };
-        let away = self.away_runner_name(&schedule);
+        let away = self.editor_away_name(&schedule);
         let mut state = EditorState {
             schedule_id: Some(id.to_owned()),
             text: schedule.text.clone(),
@@ -154,11 +186,15 @@ impl Threadbear {
     }
 
     fn open_schedule_editor(&mut self, state: EditorState, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_schedule_editor_with(state, None, window, cx);
+    }
+
+    fn open_schedule_editor_with(&mut self, state: EditorState, draft: Option<WeakEntity<crate::composer::Composer>>, window: &mut Window, cx: &mut Context<Self>) {
         let app = cx.entity().downgrade();
         // Handed the client, as it can't read the app while the app is the
         // one making it.
         let client = self.client.clone();
-        let view = cx.new(|cx| ScheduleEditor::new(app.clone(), client, state, window, cx));
+        let view = cx.new(|cx| ScheduleEditor::new(app.clone(), client, state, draft, window, cx));
         self.schedule_editor = Some(view.clone());
         cx.notify();
         // The cursor in the message, ready to type, as the Swift sheet has it:
@@ -188,6 +224,8 @@ impl Threadbear {
 pub(crate) struct ScheduleEditor {
     app: WeakEntity<Threadbear>,
     client: Arc<Client>,
+    /// The composer whose words it came from, emptied once it's saved.
+    draft: Option<WeakEntity<crate::composer::Composer>>,
     pub(crate) state: EditorState,
     message: Entity<TextareaState>,
     title: Entity<InputState>,
@@ -208,7 +246,7 @@ pub(crate) struct ScheduleEditor {
 }
 
 impl ScheduleEditor {
-    fn new(app: WeakEntity<Threadbear>, client: Arc<Client>, state: EditorState, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(app: WeakEntity<Threadbear>, client: Arc<Client>, state: EditorState, draft: Option<WeakEntity<crate::composer::Composer>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let message = cx.new(|cx| TextareaState::new(window, cx).default_value(state.text.clone()));
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Optional").default_value(state.title.clone()));
         let cron = cx.new(|cx| InputState::new(window, cx).placeholder("0 9 * * 1-5").default_value(state.repeat.custom.clone()));
@@ -267,7 +305,7 @@ impl ScheduleEditor {
             }),
         ];
         let local_cwd = if state.is_away() { String::new() } else { state.cwd.clone() };
-        let mut editor = ScheduleEditor { app, client, state, message, title, cron, at, time, away_folder, local_cwd, preview: None, asks: 0, saving: false, save_error: None, _subs: subs };
+        let mut editor = ScheduleEditor { app, client, draft, state, message, title, cron, at, time, away_folder, local_cwd, preview: None, asks: 0, saving: false, save_error: None, _subs: subs };
         editor.when_changed(cx);
         editor
     }
@@ -475,14 +513,33 @@ impl ScheduleEditor {
                 this.saving = false;
                 match res {
                     Ok(reply) => {
+                        // Closed already (Cancel, Escape) while it was on its
+                        // way: nothing of this editor's to close, and closing
+                        // the top dialog would close something else.
+                        let me = cx.entity_id();
+                        let mut still_open = false;
                         if let Some(app) = this.app.upgrade() {
+                            let is_new = this.state.is_new();
                             app.update(cx, |app, cx| {
-                                app.schedule_reply(&reply);
-                                app.schedule_editor = None;
+                                if is_new {
+                                    app.schedule_created(&reply);
+                                } else {
+                                    app.schedule_reply(&reply);
+                                }
+                                still_open = app.schedule_editor.as_ref().is_some_and(|e| e.entity_id() == me);
+                                if still_open {
+                                    app.schedule_editor = None;
+                                }
                                 cx.notify();
                             });
                         }
-                        window.close_dialog(cx);
+                        if still_open {
+                            window.close_dialog(cx);
+                        }
+                        // The words have gone into the schedule.
+                        if let Some(composer) = this.draft.as_ref().and_then(|d| d.upgrade()) {
+                            composer.update(cx, |c, cx| c.clear_scheduled_draft(window, cx));
+                        }
                     }
                     Err(e) => this.save_error = Some(e.message),
                 }
@@ -504,6 +561,9 @@ impl ScheduleEditor {
     }
 
     fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.saving {
+            return;
+        }
         let (Some(id), Some(app)) = (self.state.schedule_id.clone(), self.app.upgrade()) else { return };
         // Asks over the sheet; yes closes both (scheduled.rs).
         app.update(cx, |app, cx| app.delete_schedule(id, window, cx));
@@ -644,7 +704,7 @@ impl Render for ScheduleEditor {
         let state = self.state.clone();
         let header = if state.is_new() { "Schedule a message" } else { "Edit schedule" };
 
-        let message = div()
+        let message_box = div()
             .id("schedule-message")
             .h(px(84.))
             .rounded(px(6.))
@@ -652,6 +712,13 @@ impl Render for ScheduleEditor {
             .border_color(style::hairline(cx))
             .bg(style::primary_opacity(cx, 0.035))
             .child(Textarea::new(&self.message).h(px(84.)).appearance(false));
+        // Pictures are chips in the box's text here, so the box keeps them
+        // and its words both.
+        let images_note = (state.draft_images > 0).then(|| {
+            let what = if state.draft_images == 1 { "The picture stays in the box: a schedule sends only text." } else { "The pictures stay in the box: a schedule sends only text." };
+            div().text_size(px(style::size::SIDEBAR_META)).line_height(px(14.)).text_color(secondary).child(what)
+        });
+        let message = v_flex().gap(px(4.)).child(message_box).children(images_note);
         let title = div().id("schedule-title").tooltip(|window, cx| Tooltip::new("Its name in the Scheduled list. Left empty, it's named after the message's first line.").build(window, cx)).child(Input::new(&self.title).small());
 
         let once = state.once;
@@ -850,7 +917,11 @@ impl Render for ScheduleEditor {
         let buttons = h_flex()
             .gap(px(8.))
             .items_center()
-            .when(!state.is_new(), |s| s.child(Button::new("schedule-delete").label("Delete…").small().outline().tooltip("Delete this schedule").on_click(cx.listener(|this, _, window, cx| this.delete(window, cx)))))
+            // Not while a save is on its way: its answer closes the editor,
+            // and would close the question over it instead.
+            .when(!state.is_new(), |s| {
+                s.child(Button::new("schedule-delete").label("Delete…").small().outline().disabled(self.saving).tooltip(if self.saving { "Saving…" } else { "Delete this schedule" }).on_click(cx.listener(|this, _, window, cx| this.delete(window, cx))))
+            })
             .child(div().flex_1())
             .child(Button::new("schedule-cancel").label("Cancel").small().outline().tooltip("Close without saving (Esc)").on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))))
             .child(

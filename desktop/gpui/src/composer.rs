@@ -158,6 +158,23 @@ impl Composer {
         cx.notify();
     }
 
+    /// What Schedule… takes from the box: its words, without the pictures'
+    /// marks (a schedule sends only text), and how many pictures there are.
+    pub(crate) fn schedule_draft(&self, cx: &App) -> (String, usize) {
+        let (text, images) = self.draft(cx);
+        (text.replace(PICTURE_MARK, "").trim().to_owned(), images.len())
+    }
+
+    /// The schedule's made from the box's words: they leave it. Pictures are
+    /// chips in the text, so a box with any is left as it is.
+    pub(crate) fn clear_scheduled_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.draft(cx).1.is_empty() {
+            self.input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.pictures.clear();
+            cx.notify();
+        }
+    }
+
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.input.update(cx, |s, cx| s.focus(window, cx));
     }

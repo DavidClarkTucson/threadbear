@@ -291,6 +291,9 @@ impl Composer {
         let current = data.summary.as_ref().map(|t| t.cwd.clone()).unwrap_or_default();
         let default_folder = data.logins.defaults.cwd.clone();
         let app = self.app.clone();
+        // Not for another Mac's thread or a new one for another Mac: its
+        // schedules are made there (the Swift app's Send menu says the same).
+        let can_schedule = data.away.is_none() && self.app.upgrade().is_some_and(|a| a.read(cx).schedules_supported);
         Popover::new("composer-plus")
             .anchor(Anchor::BottomLeft)
             .trigger(ChipTrigger { badge: None, id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images, change the folder or schedule the message".into(), selected: false })
@@ -327,6 +330,19 @@ impl Composer {
                                 c.update(cx, |c, cx| c.choose_folder(window, cx));
                             }
                         })
+                    })
+                    // Sending the message later, from what's in the box.
+                    .when(can_schedule, |menu| {
+                        let (popover, c) = (popover2.clone(), c2.clone());
+                        menu.child(div().my(px(4.)).h(gpui_kit::px(1.)).bg(style::hairline(cx))).child(menu_row("schedule", Some(IconName::Clock), "Schedule…", None, false, window, cx, move |window, cx| {
+                            popover.update(cx, |s, cx| s.dismiss(window, cx));
+                            if let Some(c) = c.upgrade() {
+                                let app = c.read(cx).app.clone();
+                                if let Some(app) = app.upgrade() {
+                                    app.update(cx, |app, cx| app.new_schedule_from_composer(&c, window, cx));
+                                }
+                            }
+                        }))
                     })
             })
     }
@@ -639,6 +655,9 @@ fn menu_row(id: impl Into<ElementId>, icon: Option<IconName>, title: &str, subti
     let _ = window;
     h_flex()
         .id(id.into())
+        // Found by its words, as scripts click a menu's line.
+        .test_support()
+        .aria_label(title.to_owned())
         .gap(px(8.))
         .px(px(10.))
         .py(px(6.))

@@ -112,6 +112,9 @@ pub struct Threadbear {
     /// (`showsScheduledHome` and friends), not the selected thread. Picking a
     /// thread puts the thread back.
     pub(crate) shows_home: bool,
+    /// Back or Forward is putting a place back (`navigationPending`): the
+    /// steps on the way aren't recorded.
+    pub(crate) restoring_place: bool,
     pub(crate) projects_supported: bool,
     /// Every project's id, title and whether it's archived, for the
     /// header's chips (`projects.list`).
@@ -268,6 +271,7 @@ impl Threadbear {
             scheduled,
             schedule_editor: None,
             shows_home: false,
+            restoring_place: false,
             projects_supported: false,
             all_projects: Vec::new(),
             new_thread: crate::new_thread::NewThreadState::new(),
