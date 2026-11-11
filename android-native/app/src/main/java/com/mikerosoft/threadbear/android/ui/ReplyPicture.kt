@@ -97,6 +97,8 @@ class LoadedPicture(
     val height: Int,
     val moving: AnimatedImageDrawable? = null,
     val video: File? = null,
+    /** A moving picture's file, which it plays from. */
+    val file: File? = null,
 )
 
 /**
@@ -121,7 +123,8 @@ object PictureLoader {
     /** Null `maxSide`: full screen, still held to PictureLimits.MAX_FULL_SCREEN_SIDE. */
     suspend fun picture(context: Context, url: String, maxSide: Int?): LoadedPicture {
         val key = "${maxSide ?: 0} $url"
-        decoded.value(key)?.let { return it }
+        // A moving picture whose file the disk budget let go is fetched again.
+        decoded.value(key)?.takeIf { p -> listOfNotNull(p.video, p.file).all { it.exists() } }?.let { return it }
         if (!allowed(url)) throw PictureDownloadError.BadStatus(0)
         val data = downloads.run { withContext(Dispatchers.IO) { CappedDownload.data(url) } }
         val picture = withContext(Dispatchers.Default) { decode(context, data, url, maxSide ?: PictureLimits.MAX_FULL_SCREEN_SIDE) }
@@ -154,7 +157,7 @@ object PictureLoader {
             // review, Daybreak finding 8).
             val file = runCatching { saved(context, data, url, "anim") }.getOrNull()
             val drawable = file?.let { runCatching { ImageDecoder.decodeDrawable(ImageDecoder.createSource(it), listener) }.getOrNull() }
-            if (drawable is AnimatedImageDrawable) return LoadedPicture(bitmap.asImageBitmap(), bitmap.width, bitmap.height, moving = drawable)
+            if (drawable is AnimatedImageDrawable) return LoadedPicture(bitmap.asImageBitmap(), bitmap.width, bitmap.height, moving = drawable, file = file)
         }
         return LoadedPicture(bitmap.asImageBitmap(), bitmap.width, bitmap.height)
     }
@@ -186,11 +189,43 @@ object PictureLoader {
         val name = MessageDigest.getInstance("SHA-256").digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
         val file = File(folder, "$name.$ext")
         if (!file.exists()) {
+            trim(folder, room = data.size.toLong())
             val tmp = File(folder, "$name.$ext.part")
             tmp.writeBytes(data)
             tmp.renameTo(file)
         }
+        file.setLastModified(System.currentTimeMillis())
         return file
+    }
+
+    /** The files moving pictures play from, held to a disk budget (Codex review, 11 Nov: they piled up). */
+    private const val DISK_BUDGET = 150L * 1024 * 1024
+    private const val DISK_FILES = 200
+    private var swept = false
+
+    /**
+     * Makes room for `room` more bytes, the least recently used files going
+     * first. The first time in a run it starts afresh: nothing on screen yet
+     * plays from the files of an earlier run. A file going while a row still
+     * plays it is fine (an open file outlives its name), and the cache hands
+     * out a new one next time.
+     */
+    @Synchronized
+    private fun trim(folder: File, room: Long) {
+        val files = folder.listFiles()?.filter { it.isFile } ?: return
+        if (!swept) {
+            swept = true
+            files.forEach { it.delete() }
+            return
+        }
+        var total = files.sumOf { it.length() } + room
+        var count = files.size + 1
+        for (f in files.sortedBy { it.lastModified() }) {
+            if (total <= DISK_BUDGET && count <= DISK_FILES) break
+            total -= f.length()
+            count--
+            f.delete()
+        }
     }
 }
 

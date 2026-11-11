@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -169,10 +170,16 @@ private fun RichBlockSheet(kind: MarkdownBlock.RichKind, source: String, close: 
 @Composable
 private fun RichWebView(kind: MarkdownBlock.RichKind, source: String, fullScreen: Boolean, height: (Float) -> Unit) {
     val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    // A new view for a new kind, never one reused across kinds: a diagram's
+    // view has scripts on and the diagram client, and a page must have
+    // neither (Codex review, 11 Nov: a list row going from mermaid to html
+    // kept them).
+    key(kind) {
     AndroidView(
-        // A new view for a new kind: scripts are set when it's made.
+        // Scripts are set when it's made, and checked again on every update.
         factory = { context -> RichSandbox.webView(context, kind, fullScreen, height) },
         update = { view ->
+            view.settings.javaScriptEnabled = kind == MarkdownBlock.RichKind.MERMAID
             // The same block with new source (a message edited): drawn again.
             val key = "$dark\u0000$source"
             if (view.tag != key) {
@@ -186,6 +193,7 @@ private fun RichWebView(kind: MarkdownBlock.RichKind, source: String, fullScreen
         },
         modifier = Modifier.fillMaxSize(),
     )
+    }
 }
 
 /**
