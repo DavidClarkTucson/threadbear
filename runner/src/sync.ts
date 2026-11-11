@@ -65,6 +65,9 @@ export const SYNC_BATCH = 50;
 export const MESSAGE_BATCH = 100;
 // A message longer than this is cut on the phone; the Mac has it all.
 export const MESSAGE_CHARS = 8000;
+// A plan gets more room: it's read whole on the phone before Go ahead, and
+// one cut at 8,000 would hide the steps at the end that it approves.
+export const PLAN_CHARS = 24_000;
 // Older messages per "Load earlier messages" on the phone.
 export const PAGE_SIZE = 50;
 // How many events are read back for a page or the first text message.
@@ -130,7 +133,7 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 71;
+export const BACKEND_API_VERSION = 72;
 // From this one sync:sharedThreads lists a runner's rows shared by link, which
 // it checks against its own threads on every start and every
 // SHARE_RECONCILE_MS (reconcileShares).
@@ -296,6 +299,10 @@ export const WOKE_BY_API_VERSION = 33;
 // pressed, and the phone can queue a `press` command. An older backend's
 // validator would turn the row down, so it goes without.
 export const BUTTONS_API_VERSION = 59;
+// From this one a message row can be `plan`: a Plan first plan
+// (plan.proposed) in full, for the phone's plan card and sheet. An older
+// backend's validator would turn the row down, so it goes as a plain reply.
+export const PLAN_API_VERSION = 72;
 // From this one a thread row's pendingApproval can be a secret (docs/protocol.md,
 // "Secrets"), answered with phone:secret. An older backend's validator would
 // turn the whole row down, so it goes without the card.
@@ -368,7 +375,7 @@ export type SyncStatus = {
 // The approval or question a thread is waiting on, as the phone sees it.
 export type PendingApproval =
   // seq: the event's (API 44), for the main Mac's transcript of this thread.
-  | { approvalId: string; kind: 'approval'; seq?: number; name: string; title: string; options: ApprovalOption[]; inputSummary?: string }
+  | { approvalId: string; kind: 'approval'; seq?: number; name: string; title: string; options: ApprovalOption[]; inputSummary?: string; planSeq?: number }
   | { approvalId: string; kind: 'question'; seq?: number; questions: Question[] }
   // docs/protocol.md, "Secrets": key is the runner's public key, which the
   // phone seals its answer to.
@@ -424,7 +431,7 @@ export type PhoneAsk = { action: string; why?: string; reply?: string; options?:
 // A text message, or one line for a tool call (role "tool", since backend
 // API 2): what the phone and the website show of a thread.
 export type WokeByDoc = { kind: string; description: string };
-export type MessageDoc = { threadId: string; seq: number; role: 'user' | 'assistant' | 'tool'; text: string; origin?: string; toolKind?: string; summary?: true; turn?: string; wokeBy?: WokeByDoc[]; buttons?: MessageButton[]; at: string; pagedAt?: number };
+export type MessageDoc = { threadId: string; seq: number; role: 'user' | 'assistant' | 'tool'; text: string; origin?: string; toolKind?: string; summary?: true; plan?: true; turn?: string; wokeBy?: WokeByDoc[]; buttons?: MessageButton[]; at: string; pagedAt?: number };
 // A reply button as a message row carries it (API 59): enough to draw it
 // and say where it goes, never its brief or message, which stay on the Mac.
 // target: the new thread's folder name, or the title of the thread it messages.
@@ -951,7 +958,7 @@ function phoneAnswers(raw: unknown): AskAnswer[] | undefined {
 export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   const asks = d.asks !== undefined || d.asksSeq !== undefined || d.next !== undefined;
   const sections = d.needs !== undefined || d.pendingReviews !== undefined || d.waitingForRoom !== undefined;
-  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined)) return d;
+  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
   const out = { ...d };
   if (v < SECTIONS_API_VERSION) {
     delete out.needs;
@@ -963,6 +970,10 @@ export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   if (v < SECRETS_API_VERSION && out.pendingApproval?.kind === 'secret') delete out.pendingApproval;
   if (v < RELAY_API_VERSION && out.pendingApproval?.seq !== undefined) {
     const { seq: _seq, ...rest } = out.pendingApproval;
+    out.pendingApproval = rest as PendingApproval;
+  }
+  if (v < PLAN_API_VERSION && out.pendingApproval?.kind === 'approval' && out.pendingApproval.planSeq !== undefined) {
+    const { planSeq: _planSeq, ...rest } = out.pendingApproval;
     out.pendingApproval = rest as PendingApproval;
   }
   if (v < WOKE_API_VERSION) delete out.woke;
@@ -1006,6 +1017,13 @@ export function toMessageDoc(threadId: string, e: PersistedEvent, scrub: (text: 
   // message.
   const turn = e.turnId ? { turn: e.turnId.slice(0, 8) } : {};
   if (e.type === 'tool.call') return { threadId, seq: e.seq, role: 'tool', text: toolLine(e, scrub), toolKind: e.kind, ...turn, at: e.ts };
+  if (e.type === 'plan.proposed') {
+    // The plan in full (up to PLAN_CHARS), scrubbed as a reply is, so the
+    // phone can read what its Go ahead approves.
+    const clean = scrub(e.text);
+    const text = clean.length > PLAN_CHARS ? clean.slice(0, PLAN_CHARS) + '\n\n[cut: the rest is on the Mac]' : clean;
+    return text.trim() ? { threadId, seq: e.seq, role: 'assistant', text, plan: true, ...turn, at: e.ts } : undefined;
+  }
   if (e.type !== 'user.message' && e.type !== 'assistant.text') return undefined;
   const clean = scrub(e.text);
   const cut = clean.length > MESSAGE_CHARS ? clean.slice(0, MESSAGE_CHARS) + '\n\n[cut: the rest is on the Mac]' : clean;
@@ -1333,6 +1351,9 @@ export class ConvexSync {
   private scrubber: Scrubber;
   // Tool calls on a file of secrets that haven't finished.
   private secretCalls = new Map<string, string>();
+  // A plan's seq by "<threadId> <itemId>", for the ExitPlanMode card that
+  // waits on it (its planSeq): the card goes up before the plan's row.
+  private planSeqs = new Map<string, number>();
   // Full sync: following events into bodies, and those waiting to go up.
   private bodyCollector = new BodyCollector();
   private bodies: RawBody[] = [];
@@ -2148,6 +2169,11 @@ export class ConvexSync {
       this.onButton(threadId, e.button);
       return;
     }
+    if (e.type === 'plan.proposed') {
+      this.planSeqs.set(`${threadId} ${e.itemId}`, e.seq);
+      // Only the newest few are ever waited on.
+      if (this.planSeqs.size > 100) this.planSeqs.delete(this.planSeqs.keys().next().value!);
+    }
     const m = toMessageDoc(threadId, e, this.scrubber.safeText);
     if (m) {
       this.messages.push(this.woke.take(m, e));
@@ -2169,11 +2195,13 @@ export class ConvexSync {
       const raw = summaryField(e.input);
       const shownAsIs = raw === undefined || this.scrubber.safeText(raw) === raw;
       const whole = shownAsIs && remoteCardShowsAll(e.name, e.input, this.threadCwd(threadId), e.title);
+      const planSeq = e.name === 'ExitPlanMode' && e.itemId ? this.planSeqs.get(`${threadId} ${e.itemId}`) : undefined;
       this.addCard(threadId, {
         approvalId: e.approvalId, kind: 'approval', seq: e.seq, name: e.name,
         title: whole ? e.title : `${e.title}. ${REMOTE_ALLOW_REFUSED}`,
         options: whole ? e.options : e.options.filter((o) => o !== 'allow' && o !== 'allowAlways'),
         ...(summary ? { inputSummary: summary } : {}),
+        ...(planSeq !== undefined ? { planSeq } : {}),
       });
     } else if (e.type === 'question.requested') {
       this.addCard(threadId, { approvalId: e.approvalId, kind: 'question', seq: e.seq, questions: e.questions });
@@ -3274,6 +3302,8 @@ export class ConvexSync {
     if (v === undefined || v < ASKS_API_VERSION) messages = messages.map((m) => (m.summary ? (({ summary, ...rest }) => rest)(m) : m));
     if (v === undefined || v < TURNS_API_VERSION) messages = messages.map((m) => (m.turn ? (({ turn, ...rest }) => rest)(m) : m));
     if (v === undefined || v < WOKE_BY_API_VERSION) messages = messages.map((m) => (m.wokeBy ? (({ wokeBy, ...rest }) => rest)(m) : m));
+    // Before API 72 a plan goes as an ordinary reply, still readable whole.
+    if (v === undefined || v < PLAN_API_VERSION) messages = messages.map((m) => (m.plan ? (({ plan, ...rest }) => rest)(m) : m));
     // The buttons' state as it is now, not when the row was made: a press
     // while the row waited would otherwise go up stale.
     if (v !== undefined && v >= BUTTONS_API_VERSION) messages = messages.map((m) => this.withButtons(m));

@@ -628,7 +628,7 @@ test('a saved command rule covers that folder only: another, two at once, or any
   const viaLink = fakeRequest(r, s, { toolCallId: 'l3', kind: 'execute', rawInput: { command, workdir: path.join(home, 'link') } });
   await until(() => viaLink.length === 1);
   assert.deepEqual(viaLink[0], allowed, 'the link, where it points now, is the folder the rule is for');
-  fs.rmSync(path.join(home, 'link'));
+  fs.unlinkSync(path.join(home, 'link'));
   fs.symlinkSync(path.join(home, 'packages'), path.join(home, 'link'));
   const moved = fakeRequest(r, s, { toolCallId: 'l4', kind: 'execute', rawInput: { command, workdir: path.join(home, 'link') } });
   await until(() => moved.length === 1);
@@ -660,7 +660,7 @@ test('a folder that changes while its card waits is refused, and the card shows 
   const link = path.join(home, 'link');
   fs.symlinkSync(path.join(home, 'safe'), link);
   swap = () => {
-    fs.rmSync(link);
+    fs.unlinkSync(link);
     fs.symlinkSync(path.join(home, 'valuable'), link);
   };
   const replies = fakeRequest(r, s, { toolCallId: 't1', kind: 'execute', rawInput: { command: 'rm -rf generated', workdir: link } });

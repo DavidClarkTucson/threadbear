@@ -83,7 +83,7 @@ import UniformTypeIdentifiers
         #expect(rows[0].placeText == "Threadbear")
         #expect(rows[1].status == .unknown)
         #expect(rows[1].folderName == "x")
-        guard case let .approval(_, _, _, options, summary) = rows[1].pendingApproval else {
+        guard case let .approval(_, _, _, options, summary, _) = rows[1].pendingApproval else {
             Issue.record("expected an approval")
             return
         }

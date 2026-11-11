@@ -32,10 +32,13 @@ const WAITING_LIMIT = 50;
 
 const row = v.object({ ...threadFields, view: v.union(...views.map((x) => v.literal(x))) });
 const message = v.object({ seq: v.number(), role: v.union(v.literal('user'), v.literal('assistant')), text: v.string(), origin: v.optional(v.string()), at: v.string() });
-const pageMessage = v.object({ seq: v.number(), role: v.union(v.literal('user'), v.literal('assistant'), v.literal('tool')), text: v.string(), origin: v.optional(v.string()), toolKind: v.optional(v.string()), summary: v.optional(v.boolean()), turn: v.optional(v.string()), wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))), buttons: v.optional(v.array(messageButton)), at: v.string() });
+const pageMessage = v.object({ seq: v.number(), role: v.union(v.literal('user'), v.literal('assistant'), v.literal('tool')), text: v.string(), origin: v.optional(v.string()), toolKind: v.optional(v.string()), summary: v.optional(v.boolean()), plan: v.optional(v.boolean()), turn: v.optional(v.string()), wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))), buttons: v.optional(v.array(messageButton)), at: v.string() });
 // phone:thread's newest text messages for an old phone, and how far back it
 // looks past tool rows for them.
 const MESSAGES_SHOWN = 20;
+// How much text phone:thread reads of the rows an old phone paged in: a
+// page of 50 full-size messages, with room to spare.
+const PAGED_BYTES = 4 * 1024 * 1024;
 const THREAD_SCAN = 400;
 // phone:messages page sizes.
 const PAGE_DEFAULT = 50;
@@ -271,7 +274,16 @@ export const thread = query({
       add(m);
       if (++text >= MESSAGES_SHOWN) break;
     }
-    for await (const m of ctx.db.query('messages').withIndex('by_thread_pagedAt', (q) => q.eq('threadId', threadId).gt('pagedAt', 0))) add(m);
+    // What an old phone paged in, up to PAGED_BYTES: a runner key can mark
+    // its own rows paged, and enough plan rows (80 KB each, API 72) would
+    // take the read past Convex's limit and the thread wouldn't open
+    // (Codex review, 11 Nov).
+    let pagedBytes = 0;
+    for await (const m of ctx.db.query('messages').withIndex('by_thread_pagedAt', (q) => q.eq('threadId', threadId).gt('pagedAt', 0))) {
+      pagedBytes += m.text.length * 3;
+      if (pagedBytes > PAGED_BYTES) break;
+      add(m);
+    }
     const messages = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
     return { thread: stripThread(t), messages };
   },
@@ -366,7 +378,7 @@ export const messages = query({
         hasMore = true;
         break;
       }
-      out.push({ seq: m.seq, role: m.role, text: m.text, ...(m.origin ? { origin: m.origin } : {}), ...(m.toolKind ? { toolKind: m.toolKind } : {}), ...(m.summary ? { summary: true } : {}), ...(m.turn ? { turn: m.turn } : {}), ...(m.wokeBy ? { wokeBy: m.wokeBy } : {}), ...(m.buttons?.length ? { buttons: m.buttons } : {}), at: m.at });
+      out.push({ seq: m.seq, role: m.role, text: m.text, ...(m.origin ? { origin: m.origin } : {}), ...(m.toolKind ? { toolKind: m.toolKind } : {}), ...(m.summary ? { summary: true } : {}), ...(m.plan ? { plan: true } : {}), ...(m.turn ? { turn: m.turn } : {}), ...(m.wokeBy ? { wokeBy: m.wokeBy } : {}), ...(m.buttons?.length ? { buttons: m.buttons } : {}), at: m.at });
     }
     out.reverse();
     const from = hasMore || beforeSeq !== undefined ? out[0]?.seq ?? 0 : 0;

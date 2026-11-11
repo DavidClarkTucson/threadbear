@@ -2246,6 +2246,26 @@ Ayush's "Plan View UI".
   that don't know these events still see Claude's approval as an ordinary
   one ("Finish the plan"). A thread on another Mac (Other runners'
   threads) can't take `plans.approve` yet; writing to it still works.
+- **On the phone.** Sync sends each `plan.proposed` as a message row with
+  `plan: true` (backend API 72): the whole plan, scrubbed as a reply is,
+  up to 24,000 characters. The iPhone app draws it as a plan card that
+  opens the plan in a sheet (Copy, and Share as a `.md` file), and Claude's
+  `ExitPlanMode` card as "The plan is ready" with Read plan. That card's
+  `planSeq` is the seq of the plan row it waits on, as the card can reach
+  the phone before the row: the phone pairs the card with that row only,
+  never just the newest plan. Go ahead would be `allow` on that card, but
+  `remoteCardShowsAll` never passes `ExitPlanMode` (the card shows the
+  plan's title, and Go ahead starts on all of it), so the runner offers
+  only Deny there and Go ahead stays on the Mac; the phone shows its
+  button only where the card offers Allow. The sheet's Send back is a
+  message, which sends the plan back as anything Mike writes does, and
+  only from the plan the waiting card names. phone:thread reads at most
+  4 MB of rows an old phone paged in (`PAGED_BYTES`). A Codex plan has
+  no card, so the phone only sends it back. The website shows it as a reply
+  kept out of the turn's fold, and another Mac (Other runners' threads) as
+  an ordinary reply. An older backend gets the plan as an ordinary reply. A runner key
+  other than the main Mac's may write a plan row up to 80,000 bytes
+  (`planMessage` in convex/sync.ts), against 10,000 for other messages.
 
 ## Slash commands
 

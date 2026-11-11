@@ -196,6 +196,28 @@ class PhoneBackend(private val transport: ConvexTransport, private val token: St
         pushKey?.let { a += "pushKey" to JsonPrimitive(it) }
         transport.mutation("phone:registerDevice", args(*a.toTypedArray()))
     }
+
+    /** Archived threads past the den's newest 100 with these words in (backend API 16). */
+    suspend fun search(text: String): List<PhoneThread> =
+        parseJson(transport.query("phone:search", args("text" to JsonPrimitive(text)))).lossyList(PhoneThread::read)
+
+    /** The Pocket's cards (backend API 19), live. */
+    fun pocket(): Flow<List<PocketCard>> = live("phone:pocket", args()) { it.lossyList(PocketCard::read) }
+
+    /** Straight to the table, not a command: the Mac may well be asleep. */
+    suspend fun removePocketCard(id: String) {
+        transport.mutation("phone:removePocketCard", args("id" to JsonPrimitive(id)))
+    }
+
+    /** When this phone is notified (backend API 3), by its push token. */
+    suspend fun setNotifications(pushToken: String, notify: NotifyMode) {
+        transport.mutation("phone:setNotifications", args("apnsToken" to JsonPrimitive(pushToken), "notify" to JsonPrimitive(notify.wire)))
+    }
+
+    /** New threads start on the first of these that's online (backend API 56). */
+    suspend fun setRunnerOrder(runnerIds: List<String>) {
+        transport.mutation("phone:setRunnerOrder", args("runnerIds" to JsonArray(runnerIds.map(::JsonPrimitive))))
+    }
 }
 
 /** phone:threadsSince: rows written since, in any view, and threads gone. */

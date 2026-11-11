@@ -48,6 +48,8 @@ export type Play = {
   librarianWrites(text: string, purpose: string): void;
   /** Turns on Run on the card, for the next end_turn. */
   runAsks(): void;
+  /** The agent puts a Plan first plan to Mike (plan.proposed). */
+  proposePlan(text: string): void;
 };
 
 export async function threeWays(play: (p: Play) => void | Promise<void>) {
@@ -134,6 +136,7 @@ export async function playInto(post: Post, runner: { key: string; runnerId: stri
     let n = 0;
     await play({
       say: (text) => s.text(`m${++n}`, text),
+      proposePlan: (text) => s.out({ kind: 'planProposed', itemId: `p${++n}`, text }),
       endTurn: (input) => {
         const id = `e${++n}`;
         s.out({ kind: 'event', event: { type: 'tool.call', itemId: id, name: END_TURN, kind: 'mcp', title: 'threadbear: end_turn', input } });
@@ -176,9 +179,11 @@ function lastNext(events: Record<string, any>[]): string[] {
   return (events.filter((e) => e.type === 'turn.completed').at(-1)?.next ?? []) as string[];
 }
 
-// Mike's messages and the agent's text, in order; tool rows left out.
+// Mike's messages and the agent's text, in order; tool rows left out. A
+// plan is the agent's words too: the Mac draws it as its plan card, the
+// phone as its own (API 72), another Mac as a reply.
 function messagesOf(events: Record<string, any>[]): View['messages'] {
   return events
-    .filter((e) => e.type === 'user.message' || e.type === 'assistant.text')
+    .filter((e) => e.type === 'user.message' || e.type === 'assistant.text' || e.type === 'plan.proposed')
     .map((e) => ({ role: e.type === 'user.message' ? ('user' as const) : ('assistant' as const), text: String(e.text ?? ''), pictures: Array.isArray(e.images) ? e.images.length : 0 }));
 }

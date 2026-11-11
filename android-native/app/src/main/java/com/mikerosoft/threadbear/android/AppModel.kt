@@ -74,6 +74,9 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     /** Stop pressed, until the turn ends. */
     val stopping = MutableStateFlow<Set<String>>(emptySet())
 
+    /** The inbox's and the shell's own state (ShellModel.kt): Pocket, Settings, row moves. */
+    val shell: ShellModel by lazy { ShellModel(this, context, scope) }
+
     init {
         store.load()?.let { connect(it) }
     }
@@ -210,7 +213,16 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
                 val key = PushKeyStore(appContext).loadOrCreate()?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
                 try {
                     b.registerDevice(token, "production", "android", key)
-                    if (epoch == pairingEpoch) _pushToken.value = token
+                    if (epoch == pairingEpoch) {
+                        _pushToken.value = token
+                        // Settings' Notify me picker shows once there's a token.
+                        shell.pushToken.value = token
+                        // As the iPhone: the phone's own choice goes with each
+                        // registration (a backend before the setting notifies every time).
+                        if (apiVersion >= com.mikerosoft.threadbear.kit.BackendApi.NOTIFICATION_SETTING) {
+                            runCatching { b.setNotifications(token, shell.notifyMode.value) }
+                        }
+                    }
                 } catch (_: Exception) {
                 }
             }
@@ -230,6 +242,7 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     private fun pairingChanged(forget: Boolean) {
         pairingEpoch++
         _pushToken.value = null
+        shell.pushToken.value = null
         if (forget) scope.launch { pushLock.withLock { Push.forget(appContext) } }
     }
 
@@ -237,6 +250,7 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
         store.clear()
         pairingChanged(forget = true)
         Push.clearAll(appContext)
+        shell.clear()
         transport?.close()
         transport = null
         _backend.value = null
@@ -247,6 +261,12 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     // Changes, each showing at once
 
     fun change(threadId: String, change: ThreadChange) {
+        // Archive and hibernate wait for the runner to say, as the iPhone's do (ShellModel).
+        when (change) {
+            ThreadChange.Archive -> return shell.archive(threadId)
+            is ThreadChange.Snooze, ThreadChange.SnoozeUntilRestart -> return shell.hibernate(threadId, change)
+            else -> {}
+        }
         val b = _backend.value ?: return
         val hides = change is ThreadChange.Archive || change is ThreadChange.ArchiveWithVerdict || change is ThreadChange.Snooze
         if (hides) puttingAway.update { it + threadId }
