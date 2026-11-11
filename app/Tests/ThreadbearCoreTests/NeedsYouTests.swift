@@ -182,7 +182,8 @@ final class NeedsYouTests: XCTestCase {
         XCTAssertEqual(ledger?.findings.map(\.outcome), ["fixed", "disputed"])
         XCTAssertEqual(ledger?.heading, "Reviewed by Codex (codex-1), 2 rounds: passed")
         XCTAssertNil(card(TranscriptModel(events: [done(1, turn: "t1", needs: "nothing")]), "ak:1")?.review)
-        let asked = TranscriptModel(events: [done(1, turn: "t1", needs: "you", asks: [["action": "Keep sessions?"]], review: ["reviewer": "Claude (claude-2)", "independent": false, "rounds": 1, "passed": false, "findings": [["id": 1, "claim": "x", "outcome": "left"]]]])
+        let left: [String: Any] = ["reviewer": "Claude (claude-2)", "independent": false, "rounds": 1, "passed": false, "findings": [["id": 1, "claim": "x", "outcome": "left"]]]
+        let asked = TranscriptModel(events: [done(1, turn: "t1", needs: "you", asks: [["action": "Keep sessions?"]], review: left)])
         XCTAssertEqual(card(asked, "ak:1")?.review?.heading, "Reviewed by a fresh Claude (claude-2) session: 1 open")
     }
 
