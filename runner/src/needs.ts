@@ -942,7 +942,11 @@ export class WakeRead {
   get handed(): boolean {
     return this.state === 'handed';
   }
-  see(e: { type: string; itemId?: string; wake?: true; ok?: boolean; text?: string }): boolean {
+  // The agent's own end_turn calls, so only their results count for
+  // batchReply, not a command's output that quotes one (from Codex's review).
+  private endTurns = new Set<string>();
+  see(e: { type: string; itemId?: string; name?: string; wake?: true; ok?: boolean; text?: string }): boolean {
+    if (e.type === 'tool.call' && e.itemId && e.name?.endsWith(`__${END_TURN_TOOL}`) && !e.itemId.includes('/')) this.endTurns.add(e.itemId);
     if (e.type === 'system.note' && e.wake) {
       if (this.state === 'handed') this.next = true;
       else this.state = 'unread';
@@ -950,7 +954,7 @@ export class WakeRead {
     }
     // Any result in the batch, before the note as well as after it (from
     // Codex's review).
-    if (e.type === 'tool.result' && typeof e.text === 'string' && endTurnWantsReply({ ok: e.ok === true, text: e.text })) this.batchReply = true;
+    if (e.type === 'tool.result' && e.itemId && this.endTurns.has(e.itemId) && typeof e.text === 'string' && endTurnWantsReply({ ok: e.ok === true, text: e.text })) this.batchReply = true;
     if (e.type === 'tool.result' && this.state === 'unread') this.state = 'handed';
     // A Codex child's items (<child>/<id>) aren't the agent's own steps.
     else if ((e.type === 'assistant.text' || e.type === 'reasoning' || e.type === 'tool.call') && !e.itemId?.includes('/')) {
@@ -970,6 +974,7 @@ export class WakeRead {
     this.state = 'none';
     this.next = false;
     this.batchReply = false;
+    this.endTurns.clear();
   }
 }
 
