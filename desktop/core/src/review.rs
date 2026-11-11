@@ -1422,6 +1422,13 @@ struct Marks {
     /// For each place, the first `)` there or after it (the note's length
     /// for none).
     next_paren: Vec<usize>,
+    /// How many whitespace characters come before each place, and the first
+    /// one that isn't whitespace at or after each place and the last before
+    /// it: whether a link's address has a space is worked out from these,
+    /// not by a scan.
+    spaces_before: Vec<usize>,
+    next_word: Vec<usize>,
+    last_word_before: Vec<Option<usize>>,
 }
 
 impl Marks {
@@ -1443,7 +1450,17 @@ impl Marks {
         for j in (0..c.len()).rev() {
             next_paren[j] = if c[j] == ')' { j } else { next_paren[j + 1] };
         }
-        Marks { bracket_close, next_paren }
+        let mut spaces_before = vec![0; c.len() + 1];
+        let mut last_word_before = vec![None; c.len() + 1];
+        for (j, ch) in c.iter().enumerate() {
+            spaces_before[j + 1] = spaces_before[j] + usize::from(ch.is_whitespace());
+            last_word_before[j + 1] = if ch.is_whitespace() { last_word_before[j] } else { Some(j) };
+        }
+        let mut next_word = vec![c.len(); c.len() + 1];
+        for j in (0..c.len()).rev() {
+            next_word[j] = if c[j].is_whitespace() { next_word[j + 1] } else { j };
+        }
+        Marks { bracket_close, next_paren, spaces_before, next_word, last_word_before }
     }
 }
 
@@ -1455,6 +1472,12 @@ fn inline_push(out: &mut Vec<InlineRun>, text: &mut String, style: InlineStyle, 
 
 fn run_length(c: &[char], at: usize, end: usize, ch: char) -> usize {
     c[at..end].iter().take_while(|&&x| x == ch).count()
+}
+
+/// The run's length up to `max`: emphasis only ever needs three, and a long
+/// run of `*` counted whole at each of its places is quadratic.
+fn run_length_upto(c: &[char], at: usize, end: usize, ch: char, max: usize) -> usize {
+    c[at..end].iter().take(max).take_while(|&&x| x == ch).count()
 }
 
 /// A delimiter run can open emphasis when what follows it isn't a space, and
@@ -1532,12 +1555,12 @@ fn inline_runs(c: &[char], marks: &Marks, mut i: usize, end: usize, style: Inlin
                 continue;
             }
         }
-        if (ch == '*' || ch == '_') && nests && can_open(c, i, run_length(c, i, end, ch).min(3), end) {
-            let len = run_length(c, i, end, ch).min(3);
+        if (ch == '*' || ch == '_') && nests && can_open(c, i, run_length_upto(c, i, end, ch, 3), end) {
+            let len = run_length_upto(c, i, end, ch, 3);
             let close = if unclosed_marks.contains(&(ch, len)) {
                 None
             } else {
-                (i + len..end).find(|&j| c[j] == ch && (j == 0 || c[j - 1] != ch) && run_length(c, j, end, ch) >= len && can_close(c, j, len, end))
+                (i + len..end).find(|&j| c[j] == ch && (j == 0 || c[j - 1] != ch) && run_length_upto(c, j, end, ch, len) >= len && can_close(c, j, len, end))
             };
             if let Some(close) = close {
                 inline_push(out, &mut plain, style, false, link);
@@ -1561,8 +1584,20 @@ fn inline_link(c: &[char], marks: &Marks, at: usize, end: usize) -> Option<(usiz
         return None;
     }
     let stop = Some(marks.next_paren[close + 2]).filter(|&j| j < end)?;
+    // The address is what's between the parentheses, trimmed: none if
+    // that's empty or has a space in it. Worked out from the counts before
+    // anything's copied, as a rejected candidate's copy would be the rest
+    // of the note each time.
+    let first = marks.next_word[close + 2];
+    if first >= stop {
+        return None;
+    }
+    let last = marks.last_word_before[stop]?;
+    if marks.spaces_before[last + 1] != marks.spaces_before[first] {
+        return None;
+    }
     let url: String = c[close + 2..stop].iter().collect::<String>().trim().to_owned();
-    (!url.is_empty() && !url.contains(char::is_whitespace)).then_some((close, url, stop + 1))
+    Some((close, url, stop + 1))
 }
 
 #[cfg(test)]
@@ -2493,6 +2528,14 @@ mod tests {
             "[a]".repeat(7000),
             "*_".repeat(10_000) + "x",
             format!("{}x{}", "*a _a ".repeat(1500), " a_ a*".repeat(1500)),
+            // Codex's review: runs of one delimiter, and links whose address
+            // has a space up to one `)` at the end.
+            "*".repeat(20_000),
+            "_".repeat(20_000),
+            "[a]( ".repeat(4000) + ")",
+            "[a](x ".repeat(3400) + ")",
+            "[a](".to_owned() + &" ".repeat(20_000) + ")",
+            "[a](x".repeat(2000) + &" ".repeat(10_000) + ")",
         ];
         for note in &notes {
             let took = cpu_time_of(note);
@@ -2521,7 +2564,7 @@ mod tests {
                 .collect();
             assert_eq!(inline_markdown(&note), old_inline_markdown(&note), "{note:?}");
         }
-        for note in ["a `b` c ``d`` e", "**a _b_ c**", "[x *y*](u) `[z](w)`", "``a`b``", "*a **b** c*", "\\`x` [a]b(c)"] {
+        for note in ["a `b` c ``d`` e", "**a _b_ c**", "[x *y*](u) `[z](w)`", "``a`b``", "*a **b** c*", "\\`x` [a]b(c)", "[a](  u  ) [b]( u v ) [c](\tw\n)", "[a]()", "[a](   )", "****a****", "___a___ __b__"] {
             assert_eq!(inline_markdown(note), old_inline_markdown(note), "{note:?}");
         }
     }
@@ -2530,13 +2573,24 @@ mod tests {
     #[test]
     fn a_reviews_words_are_cut_to_what_show_options_takes() {
         use crate::reducer::DesignReview;
-        let option = serde_json::json!({ "id": "a", "title": "t".repeat(300), "note": "n".repeat(20_000), "image": { "path": "/x/a.png", "mediaType": "image/png" } });
-        let review = serde_json::json!({ "id": "r", "title": "T".repeat(300), "note": "`".repeat(20_000), "status": "pending", "revision": 1, "options": vec![option; 20] });
+        let image = serde_json::json!({ "path": "/x/a.png", "mediaType": "image/png" });
+        let shot = serde_json::json!({ "title": "s".repeat(300), "image": image });
+        let option = serde_json::json!({ "id": "a", "title": "t".repeat(300), "note": "n".repeat(20_000), "image": image, "shots": vec![shot; 100_000] });
+        // As a moved thread's review.updated event could have it: the
+        // other runner's word, never through the runner's cuts.
+        let draft = serde_json::json!({ "pickedIds": vec!["a"; 50], "notes": (0..50).map(|n| (format!("o{n}"), serde_json::Value::from("d".repeat(20_000)))).collect::<serde_json::Map<_, _>>(), "reply": "r".repeat(1_000_000) });
+        let review = serde_json::json!({ "id": "r", "title": "T".repeat(300), "note": "`".repeat(20_000), "status": "pending", "revision": 1, "options": vec![option; 20], "draft": draft, "response": draft });
         let review = DesignReview::decode(&review).expect("a review");
         assert_eq!(review.title.chars().count(), 200);
         assert_eq!(review.note.as_deref().map(|n| n.chars().count()), Some(4000));
         assert_eq!(review.options.len(), 12);
         assert!(review.options.iter().all(|o| o.note.as_deref().map(str::len) == Some(4000) && o.title.len() == 200));
+        assert!(review.options.iter().all(|o| o.shots.len() == 8 && o.shots.iter().all(|s| s.title.as_deref().map(str::len) == Some(200))));
+        for draft in [&review.draft, review.response.as_ref().expect("a response")] {
+            assert_eq!((draft.picked_ids.len(), draft.notes.len()), (12, 12));
+            assert!(draft.notes.values().all(|n| n.len() == 4000));
+            assert_eq!(draft.reply.as_deref().map(str::len), Some(8000));
+        }
         // Within the limits nothing changes, in characters, not bytes.
         let short = serde_json::json!({ "id": "r", "title": "é".repeat(200), "note": "ü".repeat(4000), "status": "pending", "revision": 1, "options": [] });
         let short = DesignReview::decode(&short).expect("a review");

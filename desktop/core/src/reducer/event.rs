@@ -81,9 +81,15 @@ pub(crate) fn lenient_int(c: &Object, key: &str) -> Option<i64> {
 
 /// `c.lossyArray(_:forKey:)`: elements that don't decode are skipped, and a
 /// missing, null or non-array value is empty.
-fn lossy<T>(c: &Object, key: &str, mut decode: impl FnMut(&Value) -> Option<T>) -> Vec<T> {
+fn lossy<T>(c: &Object, key: &str, decode: impl FnMut(&Value) -> Option<T>) -> Vec<T> {
+    lossy_first(c, key, usize::MAX, decode)
+}
+
+/// `lossy` over at most the first `max` items: what a list from another
+/// runner can't be longer than, so a longer one isn't decoded to be cut.
+fn lossy_first<T>(c: &Object, key: &str, max: usize, mut decode: impl FnMut(&Value) -> Option<T>) -> Vec<T> {
     match c.get(key) {
-        Some(Value::Array(items)) => items.iter().filter_map(&mut decode).collect(),
+        Some(Value::Array(items)) => items.iter().take(max).filter_map(&mut decode).collect(),
         _ => Vec::new(),
     }
 }
@@ -365,10 +371,15 @@ impl ReviewDraft {
             .and_then(Value::as_object)
             .and_then(|map| {
                 // A `[String: String]`: one value of the wrong type drops them all.
-                map.iter().map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_owned()))).collect::<Option<BTreeMap<_, _>>>()
+                // At most one note an option, each cut to what the runner
+                // takes (reviewDraft): a moved thread's events are the
+                // other runner's word.
+                map.iter().take(REVIEW_OPTIONS_MAX).map(|(k, v)| v.as_str().map(|s| (k.clone(), review_text(s.to_owned(), REVIEW_NOTE_MAX)))).collect::<Option<BTreeMap<_, _>>>()
             })
             .unwrap_or_default();
-        Some(ReviewDraft { picked_ids, notes, reply: string(c, "reply"), none: boolean(c, "none").unwrap_or(false) })
+        let mut picked_ids = picked_ids;
+        picked_ids.truncate(REVIEW_OPTIONS_MAX);
+        Some(ReviewDraft { picked_ids, notes, reply: string(c, "reply").map(|r| review_text(r, REVIEW_REPLY_MAX)), none: boolean(c, "none").unwrap_or(false) })
     }
 }
 
@@ -382,7 +393,7 @@ pub struct ReviewShot {
 impl ReviewShot {
     fn decode(v: &Value) -> Option<ReviewShot> {
         let c = v.as_object()?;
-        let title = string_strict(c, "title").ok()?;
+        let title = string_strict(c, "title").ok()?.map(|t| review_text(t, REVIEW_TITLE_MAX));
         let image = ImageRef::decode(c.get("image")?)?;
         let media = match c.get("media") {
             None | Some(Value::Null) => None,
@@ -403,12 +414,18 @@ pub struct ReviewOption {
     pub url: Option<String>,
 }
 
-/// What show_options takes (runner/src/reviews.ts reviewInput): a title of
-/// 200 characters, a note of 4,000 and 12 options. The runner counts UTF-16
+/// What show_options takes (runner/src/reviews.ts reviewInput and
+/// reviewDraft): a title of 200 characters, a note of 4,000, 12 options of
+/// at most 8 shots, and a reply of 8,000. A review comes from the thread's
+/// record and from its events (`review.updated`), and a moved thread's
+/// events are the other runner's word. The runner counts UTF-16
 /// units, which are never fewer than characters, so nothing it took is cut.
 pub const REVIEW_TITLE_MAX: usize = 200;
 pub const REVIEW_NOTE_MAX: usize = 4000;
 pub const REVIEW_OPTIONS_MAX: usize = 12;
+/// An option's shots (maxReviewShots) and a draft's reply (reviewDraft).
+pub const REVIEW_SHOTS_MAX: usize = 8;
+pub const REVIEW_REPLY_MAX: usize = 8000;
 
 fn review_text(text: String, max: usize) -> String {
     match text.char_indices().nth(max) {
@@ -428,7 +445,7 @@ impl ReviewOption {
         // Only a web page (LinkPolicy.web): a runner, maybe another Mac's,
         // sends this, and Open live hands it to the system.
         let url = string(c, "url").filter(|u| is_web_address(u));
-        Some(ReviewOption { id, title, note, reference, image, shots: lossy(c, "shots", ReviewShot::decode), url })
+        Some(ReviewOption { id, title, note, reference, image, shots: lossy_first(c, "shots", REVIEW_SHOTS_MAX, ReviewShot::decode), url })
     }
 }
 
@@ -487,8 +504,7 @@ impl DesignReview {
         let title = review_text(string_strict(c, "title").ok()?.unwrap_or_else(|| "Design options".to_owned()), REVIEW_TITLE_MAX);
         let note = string_strict(c, "note").ok()?.map(|n| review_text(n, REVIEW_NOTE_MAX));
         let recommended = string(c, "recommended");
-        let mut options = lossy(c, "options", ReviewOption::decode);
-        options.truncate(REVIEW_OPTIONS_MAX);
+        let options = lossy_first(c, "options", REVIEW_OPTIONS_MAX, ReviewOption::decode);
         let status = string_strict(c, "status").ok()?.unwrap_or_else(|| "unknown".to_owned());
         let revision = lenient_int(c, "revision").unwrap_or(0);
         let created_at = string_strict(c, "createdAt").ok()?.unwrap_or_default();

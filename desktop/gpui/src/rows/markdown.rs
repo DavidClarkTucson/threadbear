@@ -173,6 +173,17 @@ fn is_picture_file(path: &std::path::Path) -> bool {
 /// what the image loader reads, and text that never went through
 /// `pictures` (an agent's message, a plan, a chip's link) reaches it too
 /// (Daybreak 95 and 102, 11 Nov 2026). Anything else draws nothing.
+/// A picture a transcript names, as the image loader may be handed it: the
+/// path when it's a regular file of at most PICTURE_MAX_BYTES, and an empty
+/// path (which draws nothing) for anything else. gpui's loader reads a path
+/// whole, and a review's shots, a tool's pictures or a message's can be
+/// another runner's word in a moved thread, naming /dev/zero (Codex's review
+/// of Daybreak 95). For every `img` of a path from a thread.
+pub(crate) fn picture_file(path: &str) -> std::path::PathBuf {
+    let regular = std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() <= PICTURE_MAX_BYTES);
+    if regular { path.into() } else { std::path::PathBuf::new() }
+}
+
 pub(crate) fn picture_source(uri: &gpui_kit::SharedUri, local: bool) -> gpui_kit::ImageSource {
     let path = picture_path(uri.as_ref()).filter(|path| local && is_picture_file(path)).unwrap_or_default();
     gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(std::sync::Arc::from(path.as_path())))
@@ -480,7 +491,7 @@ mod tests {
         std::fs::write(&shot, b"a png's bytes").unwrap();
         let shown = shot.to_string_lossy().into_owned();
         assert_eq!(source_path(&shown, true), shown, "a picture on this Mac's thread");
-        assert_eq!(source_path(&format!("file://{shown}"), true), shown);
+        assert_eq!(source_path(&["file://", shown.as_str()].concat(), true), shown);
         assert_eq!(source_path(&shown, false), "", "another Mac's thread names no file here");
         for url in ["file:///dev/zero", "/dev/zero", "/dev/urandom", "file:///etc/passwd", "/tmp", "https://x.y/c.png"] {
             assert_eq!(source_path(url, true), "", "{url}");
@@ -497,6 +508,15 @@ mod tests {
         let big = dir.join("big.png");
         std::fs::File::create(&big).unwrap().set_len(super::PICTURE_MAX_BYTES + 1).unwrap();
         assert_eq!(source_path(&big.to_string_lossy(), true), "");
+        // A path from a thread for any other picture (a review's shot, a
+        // tool's picture): only a regular file of a sane size.
+        assert_eq!(super::picture_file(&shown), std::path::PathBuf::from(&shown));
+        for path in ["/dev/zero", "/tmp", ""] {
+            assert_eq!(super::picture_file(path), std::path::PathBuf::new(), "{path}");
+        }
+        for path in [&device, &folder, &big] {
+            assert_eq!(super::picture_file(&path.to_string_lossy()), std::path::PathBuf::new(), "{path:?}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

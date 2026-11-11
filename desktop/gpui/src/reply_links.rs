@@ -751,7 +751,7 @@ impl ThreadPane {
                 let exists = Path::new(&file.path).exists();
                 let words = rules::file_peek(&file.path, exists, None, &crate::files::home_dir());
                 let picture = match (exists, rules::peek_picture(&file.path)) {
-                    (true, PeekPicture::Image) => FilePicture::Image(PathBuf::from(&file.path)),
+                    (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::picture_file(&file.path)),
                     (true, PeekPicture::Lines) => FilePicture::Lines(PathBuf::from(&file.path), None),
                     _ => FilePicture::Symbol(if Path::new(&file.path).is_dir() { "folder" } else { hl::file_symbol(&file.path) }),
                 };

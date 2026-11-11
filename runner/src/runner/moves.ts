@@ -773,6 +773,9 @@ export const movesPart = {
   // T, after the switch: the staging folder joins the live threads. Safe to
   // call again (after a restart, say): once it's here there's nothing left.
   async adoptMoved(this: Runner, row: MoveRow): Promise<{ adopted: boolean; schedules?: MovedSchedule[] }> {
+    // As placeMove: a move an older runner placed (and this one resumes at
+    // adopting) never had its id checked, and it names the live folder.
+    if (!isThreadIdShape(row.threadId)) throw new Error("The moved thread's id isn't a thread id.");
     const stage = stageOf(this.cfg.home, row.moveId);
     const placedFile = path.join(stage, 'placed.json');
     if (!fs.existsSync(placedFile)) return { adopted: false };

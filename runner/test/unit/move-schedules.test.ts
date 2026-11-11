@@ -447,11 +447,19 @@ test("a compromised old runner's oversized review notes arrive cut to what show_
   assert.deepEqual(kept, fits);
 });
 
-test("a move whose thread id isn't a thread id's shape is refused before anything is placed", async () => {
+test("a move whose thread id isn't a thread id's shape is refused before anything is placed or adopted", async () => {
   const t = machine([{ id: 'claude-1', provider: 'claude', title: 'T', configDir: tmpDir() }]);
   for (const threadId of ['remote$(printf TB_ID_EXECUTED >&2)', '../../x', 'deadbeef) ![x](/tmp/x.png']) {
     const r = { moveId: 'ee55ff66aa77', threadId, from: 'S1', to: 'T1', state: 'unpacking', createdAt: 1, updatedAt: 1, plan: { cwd: tmpDir(), accountId: 'claude-1', leftBehind: [] } } as unknown as MoveRow;
     await assert.rejects(t.runner.placeMove(r, []), /isn't a thread id/);
+    // One an older runner placed, adopted after this one took over: the
+    // staged thread never reaches a folder the id names.
+    const stage = path.join(t.home, 'moves', 'ee55ff66aa77');
+    fs.mkdirSync(path.join(stage, 'thread'), { recursive: true });
+    fs.writeFileSync(path.join(stage, 'placed.json'), JSON.stringify({ cwd: tmpDir(), transcript: [], leftBehind: [], fromName: 'S' }));
+    await assert.rejects(t.runner.adoptMoved(r), /isn't a thread id/);
+    assert.equal(fs.existsSync(path.join(stage, 'thread')), true, 'left where it was');
+    fs.rmSync(stage, { recursive: true, force: true });
     assert.equal(fs.existsSync(path.join(t.home, 'moves', 'ee55ff66aa77')), false);
   }
 });
