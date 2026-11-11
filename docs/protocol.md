@@ -2816,7 +2816,14 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   that was replaced folds into the work. On 7 Nov 2026 a `tb land` the
   agent had sent to the background finished in the same CLI turn as its
   "landing now" card, and the real report's end_turn was refused (thread
-  46de9389).
+  46de9389). Handed over with a one-reply `end_turn`'s "Now write your
+  reply", it counts from the agent's first call after it instead: the text
+  it writes next is the reply that answer asked for, so the Stop hook
+  doesn't ask for `end_turn` again. Whenever an accepted `end_turn` says
+  the message above is the reply, text after it is dropped, not a new
+  reply. On 11 Nov 2026 an ffmpeg job's exit came with that answer, the
+  Stop hook asked again, and the "Done." after the second `end_turn` took
+  the full reply's place (thread dcdc60a3).
 - **A reply first.** `end_turn` is refused (an error result) until the
   turn has replied to Mike: a `summary` in the call itself, or an own `assistant.text` after the turn's last
   `tool.result` from a tool outside the `threadbear` server, and after

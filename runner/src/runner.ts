@@ -1965,7 +1965,11 @@ export class Runner {
           }
           if (ev.type === 'tool.result' && ev.itemId === rt.turn.endTurnCall && endTurnAccepted(ev)) {
             rt.turn.ended = true;
-            if (endTurnWantsReply(ev)) rt.turn.replyAfter = true;
+            // Set either way: a second end_turn after a wake (or the Stop
+            // hook's nudge) that says the message above is the reply means
+            // what's written after it is dropped, not a new reply. A "Done."
+            // after one took a full reply's place on 11 Nov 2026 (dcdc60a3).
+            rt.turn.replyAfter = endTurnWantsReply(ev);
             const headline = typeof rt.turn.endTurn?.headline === 'string' ? rt.turn.endTurn.headline.trim() : '';
             if (headline) {
               rt.turn.headline = true;

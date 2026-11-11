@@ -1825,3 +1825,69 @@ test('move_thread with a runner asks the main Mac to move the thread whole, and 
   const none = toolsWith(h, me.id, undefined);
   assert.match((await none('move_thread', { runner: 'cloud' })).text, /main Mac's runner/);
 });
+
+// Thread dcdc60a3 (11 Nov 2026): an ffmpeg job's exit came with end_turn's
+// "Now write your reply". The reply counted as reading the notice, the Stop
+// hook asked for end_turn again, and the "Done." after that second one became
+// the turn's reply in place of the full one.
+test('one reply: a notice handed over with "Now write your reply" leaves the reply as the reply', async () => {
+  const h = makeHarness();
+  const { thread, s } = start(h);
+  const { call } = tools(h, thread.id, undefined, () => true);
+  const send = async (itemId: string, input: Record<string, unknown>) => {
+    toolCall(s, itemId, END_TURN, input);
+    const r = await call('end_turn', input);
+    s.out({ kind: 'event', event: { type: 'tool.result', itemId, ok: !r.error, text: r.text, truncated: false, images: [] } });
+    return r;
+  };
+  s.text('m0', 'Ready. Now writing the reply.');
+  s.out({ kind: 'event', event: { type: 'system.note', text: 'Background command "ffmpeg" failed with exit code 255', wake: true } });
+  const ask = { needs: 'you', asks: [{ question: 'Ship it?', options: [{ label: 'Yes' }, { label: 'No' }] }] };
+  assert.equal((await send('e1', ask)).error, false);
+  const reply = 'Here is the full reply, with the GIF, the video and the table.';
+  s.text('m1', reply);
+  // Had the Stop hook asked anyway, a repeat says the message above stands,
+  // and text after it doesn't take the reply's place.
+  s.out({ kind: 'endTurnNudge' });
+  const again = await send('e2', ask);
+  assert.match(again.text, /your message above is the reply/);
+  s.text('m2', 'Done.');
+  s.result('completed');
+  await tick();
+  const texts = h.events(thread.id).filter((e) => e.type === 'assistant.text');
+  assert.ok(texts.some((e) => e.type === 'assistant.text' && e.itemId === 'm1' && e.final === true), 'the reply is the final text');
+  assert.ok(!texts.some((e) => e.type === 'assistant.text' && e.itemId === 'm2'), '"Done." is dropped');
+  assert.equal(h.runner.get(thread.id).needs, 'you');
+});
+
+// The same after the agent acts on the notice: the turn opens again, its next
+// end_turn says the message above is the reply, and a "Done." after that is
+// dropped rather than taking the reply's place.
+test('one reply: after a wake reopens the turn, text after a "message above is the reply" end_turn is dropped', async () => {
+  const h = makeHarness();
+  const { thread, s } = start(h);
+  const { call } = tools(h, thread.id, undefined, () => true);
+  const send = async (itemId: string, input: Record<string, unknown>) => {
+    toolCall(s, itemId, END_TURN, input);
+    const r = await call('end_turn', input);
+    s.out({ kind: 'event', event: { type: 'tool.result', itemId, ok: !r.error, text: r.text, truncated: false, images: [] } });
+    return r;
+  };
+  s.out({ kind: 'event', event: { type: 'system.note', text: 'Background command "ffmpeg" failed with exit code 255', wake: true } });
+  const ask = { needs: 'you', asks: [{ question: 'Ship it?', options: [{ label: 'Yes' }, { label: 'No' }] }] };
+  await send('e1', ask);
+  s.text('m1', 'The first reply.');
+  toolCall(s, 'b1', 'Bash', { command: 'cat ffmpeg.log' });
+  toolResult(s, 'b1');
+  s.text('m2', 'The ffmpeg job that failed was the first try, which I had stopped; both files are fine.');
+  s.out({ kind: 'endTurnNudge' });
+  const again = await send('e2', ask);
+  assert.equal(again.error, false, again.text);
+  assert.match(again.text, /your message above is the reply/);
+  s.text('m3', 'Done.');
+  s.result('completed');
+  await tick();
+  const texts = h.events(thread.id).filter((e) => e.type === 'assistant.text');
+  assert.ok(texts.some((e) => e.type === 'assistant.text' && e.itemId === 'm2'), 'the report is kept');
+  assert.ok(!texts.some((e) => e.type === 'assistant.text' && e.itemId === 'm3'), '"Done." is dropped');
+});
