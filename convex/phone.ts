@@ -196,32 +196,53 @@ export const threadsSince = query({
   },
 });
 
-// Archived threads whose title or last reply has these words (API 16): the
-// phone has only the newest DEN_LIMIT of the den, and searches those itself,
-// so this finds the older ones. Convex's full-text search matches whole
-// words, the last one as a prefix, so "sett" finds "settings". Titles first.
+// Threads with these words (API 16): the phone has only the newest
+// DEN_LIMIT of the den, and searches those itself, so this finds the older
+// ones. Convex's full-text search matches whole words, the last one as a
+// prefix, so "sett" finds "settings". Titles first, then the librarian's
+// search words (API 74), then the last reply.
+// `everywhere` (API 74, a newer phone, which puts each in its own section):
+// threads in any list, and a word said in any message of a thread, after
+// those, so "dentist" finds the thread where the agent searched the email
+// for one. Without it, archived threads as before.
 const SEARCH_LIMIT = 30;
+// Messages read for `everywhere`: a long thread can fill this alone, so more
+// than SEARCH_LIMIT, while each is a whole row of up to 12 KB.
+const SEARCH_MESSAGES = 60;
 export const search = query({
-  args: { token: v.string(), text: v.string() },
+  args: { token: v.string(), text: v.string(), everywhere: v.optional(v.boolean()) },
   returns: v.array(row),
-  handler: async (ctx, { token, text }) => {
+  handler: async (ctx, { token, text, everywhere }) => {
     await checkPhoneToken(ctx, token);
     const words = text.trim();
     if (!words) return [];
-    const byTitle = await ctx.db
-      .query('threads')
-      .withSearchIndex('search_title', (q) => q.search('title', words).eq('view', 'den'))
-      .take(SEARCH_LIMIT);
-    const byPreview = await ctx.db
-      .query('threads')
-      .withSearchIndex('search_preview', (q) => q.search('preview', words).eq('view', 'den'))
-      .take(SEARCH_LIMIT);
+    const byField = (index: 'search_title' | 'search_keywords' | 'search_preview', field: 'title' | 'keywords' | 'preview') =>
+      ctx.db
+        .query('threads')
+        .withSearchIndex(index, (q) => (everywhere ? q.search(field, words) : q.search(field, words).eq('view', 'den')))
+        .take(SEARCH_LIMIT);
+    const found = [...(await byField('search_title', 'title')), ...(await byField('search_keywords', 'keywords')), ...(await byField('search_preview', 'preview'))];
     const seen = new Set<string>();
     const out = [];
-    for (const t of [...byTitle, ...byPreview]) {
+    for (const t of found) {
       if (seen.has(t.threadId) || out.length >= SEARCH_LIMIT) continue;
       seen.add(t.threadId);
       out.push(stripThread(t));
+    }
+    if (everywhere && out.length < SEARCH_LIMIT) {
+      const said = await ctx.db
+        .query('messages')
+        .withSearchIndex('search_text', (q) => q.search('text', words))
+        .take(SEARCH_MESSAGES);
+      for (const m of said) {
+        if (seen.has(m.threadId) || out.length >= SEARCH_LIMIT) continue;
+        seen.add(m.threadId);
+        const t = await ctx.db
+          .query('threads')
+          .withIndex('by_threadId', (q) => q.eq('threadId', m.threadId))
+          .first();
+        if (t) out.push(stripThread(t));
+      }
     }
     return out;
   },

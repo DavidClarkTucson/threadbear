@@ -56,6 +56,8 @@ export type LibrarianHost = {
   // Renames a thread whose title no longer says what it's about; returns
   // the title it took, or nothing when it kept the old one.
   retitleFromLibrarian?(threadId: string, title: string, from: string): string | undefined;
+  // A thread's search words (keywords.ts); "" when there are none to add.
+  setKeywords?(threadId: string, words: string): void;
   // Threads hibernating until Mike next talks about something
   // (wake-when.ts), and waking one he just did.
   waitingTopics?(): { threadId: string; title: string; topic: string }[];
@@ -102,6 +104,12 @@ export const ICON_SOON_MS = 3_000;
 export const NOTES_SOON_MS = 60_000;
 // Old notes kept on disk per project, the newest first.
 const NOTES_KEPT = 5;
+// Threads with no search words yet (keywords.ts: from before they existed,
+// or never looked at) get them in batches of KEYWORD_BATCH, one model call
+// each, one batch every KEYWORD_SWEEP_MS, newest first. Mike's 714 threads
+// take about 48 calls on the small model, once.
+export const KEYWORD_SWEEP_MS = 2 * 60_000;
+export const KEYWORD_BATCH = 15;
 
 // New Pocket cards: at most this many a day, so a look that gets it wrong
 // can't fill the deck. A thread only ever gets one from the librarian, so
@@ -151,6 +159,8 @@ type Answer = {
   links?: unknown;
   thread?: unknown;
   title?: unknown;
+  // Words to find it by that its title doesn't have (keywords.ts).
+  keywords?: unknown;
   // New names for projects the thread is in, by id.
   retitle?: unknown;
   wake?: unknown;
@@ -210,6 +220,8 @@ export class Librarian {
   // Notes it already tried and couldn't shorten, by project, so the same
   // notes aren't sent again on every change to the project.
   private notesTried = new Map<string, string>();
+  private keywordTimer?: TimerHandle;
+  private keywordRun?: Promise<void>;
 
   constructor(deps: { host: LibrarianHost; projects: Projects; models?: Pick<Models, 'generate'> & { unavailable?(opts?: { poolOnly?: boolean }): string | undefined; isPrivateFolder?(cwd: string): boolean }; clock: Clock; log: Logger; home: string; userHome?: string; pocket?: () => LibrarianPocket | undefined }) {
     this.host = deps.host;
@@ -251,6 +263,7 @@ export class Librarian {
     this.schedule();
     this.iconsSoon();
     this.notesSoon();
+    this.keywordsSoon();
   }
 
   stop(): void {
@@ -259,6 +272,7 @@ export class Librarian {
     this.sweepTimer?.cancel();
     this.iconTimer?.cancel();
     this.notesTimer?.cancel();
+    this.keywordTimer?.cancel();
     for (const u of this.unsubs) u();
   }
 
@@ -897,6 +911,8 @@ export class Librarian {
     }
     // Not a change to any project, so not in what the look says it did.
     if (typeof a.thread === 'string' && a.thread.trim()) this.host.setBrief?.(rec.id, a.thread);
+    // Nor are its search words. Only a look that gave some replaces them.
+    if (typeof a.keywords === 'string' && a.keywords.trim()) this.host.setKeywords?.(rec.id, a.keywords);
     // A thread that has moved on from its title gets a new one. Not from
     // the first message alone: the title model has only just named it.
     if (typeof a.title === 'string' && a.title.trim() && job.reason !== 'first-message') {
@@ -1092,6 +1108,62 @@ export class Librarian {
     this.used(res);
     const words = res.value.toLowerCase().match(/[a-z0-9.]+/g) ?? [];
     return words.map((w) => trimEndOf(w, '.')).find((w) => SYMBOLS.includes(w));
+  }
+
+  // ------------------------------------------------------- search words
+
+  private keywordsSoon(): void {
+    if (this.stopped || this.keywordTimer) return;
+    this.keywordTimer = this.clock.setTimeout(() => {
+      this.keywordTimer = undefined;
+      void this.keywordSweep().finally(() => this.keywordsSoon());
+    }, KEYWORD_SWEEP_MS);
+  }
+
+  // One batch of threads that have never had search words. Not while
+  // paused or a look is going, and like a look, on the pool only. A thread
+  // the model gave nothing for gets "", so it isn't asked about again.
+  keywordSweep(): Promise<void> {
+    if (this.keywordRun) return this.keywordRun;
+    this.keywordRun = (async () => {
+      if (this.stopped || this.paused || this.current || !this.models || this.off) return;
+      const models = this.models;
+      const due = this.host
+        .threadRecords()
+        .filter((t) => t.keywords === undefined && t.lastSeq > 0 && !models.isPrivateFolder?.(t.cwd))
+        .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+        .slice(0, KEYWORD_BATCH);
+      if (!due.length) return;
+      const lines: string[] = [];
+      for (const t of due) {
+        const gist = this.host.threadGist(t.id, { recent: 2, chars: 300 });
+        lines.push(`[${t.id.slice(0, 8)}] "${t.title}"`);
+        if (gist.first) lines.push(`First message: ${gist.first}`);
+        const last = [...gist.recent].reverse().find((m) => m.who === 'assistant');
+        if (last) lines.push(`Last reply: ${last.text}`);
+        lines.push('');
+      }
+      const res = await models.generate({ feature: 'projects', cwd: due[0].cwd, system: KEYWORDS_SYSTEM, prompt: lines.join('\n'), maxTokens: 1500 });
+      if (this.stopped) return;
+      if (!res.ok) {
+        // No pool or no room: the next sweep tries the same batch.
+        if (WAIT_FOR.includes(res.reason)) return;
+        for (const t of due) this.host.setKeywords?.(t.id, '');
+        this.log.info('librarian could not find search words', { threads: due.length, reason: res.reason });
+        return;
+      }
+      this.rollDay();
+      this.used(res);
+      const answer = parseAnswer(res.value) as Record<string, unknown> | undefined;
+      for (const t of due) {
+        const words = answer?.[t.id.slice(0, 8)];
+        this.host.setKeywords?.(t.id, typeof words === 'string' ? words : '');
+      }
+      this.log.info('librarian gave threads search words', { threads: due.length });
+    })().finally(() => {
+      this.keywordRun = undefined;
+    });
+    return this.keywordRun;
   }
 
   // ------------------------------------------------------------- notes
@@ -1478,6 +1550,14 @@ export function pocketChanges(
   return out;
 }
 
+// What a thread's search words are, for a look (SYSTEM) and the keyword sweep.
+const KEYWORDS_ASK = '8 to 15 lowercase words, space-separated, the user might type to find this thread later that its title does not have: what kind of thing it is, everyday words for it, places, people, products and tools (a wisdom tooth appointment: dentist dental oral surgeon appointment clinic)';
+
+// The keyword sweep's batch of threads (keywordSweep).
+export const KEYWORDS_SYSTEM = `You help the user find old threads in Threadbear, an app where they run AI coding agents in threads. Their search matches a thread's title, its last reply and its search words. For each thread below, give its search words: ${KEYWORDS_ASK}.
+
+Reply with JSON only, no prose and no code fence: {"<the id in brackets>": "words"} for every thread.`;
+
 export const SYSTEM = `You are the librarian in Threadbear, an app where the user runs AI coding agents in threads. ${userLine()}You keep their projects: groupings above folders that carry goals, state and notes from thread to thread. A project is a body of work they'll come back to (an app, a library, a video, a house job, an ongoing chore), never a single task. One project can span several repos, and a thread can be in several projects.
 
 Given the project list and one thread, decide which projects the thread belongs in, and say why in a few plain words the user will see beside each project. A thread belongs in a project when it's about that project: building, fixing, planning, ideas, research or questions for it. A thread whose folder is a project's repo almost always belongs in that project. Prefer existing projects. Make a new one when the thread is about a body of work that fits none of them (its own repo is a strong sign); a one-off question, a quick chore or a throwaway test belongs in none. Nor is work this one thread will finish a project (picking and sending some photos, uploading a batch of Shorts, one speed-up pass on a site): a project goes on past the thread. Never put a thread back in one it says never to.
@@ -1494,6 +1574,7 @@ Reply with JSON only, no prose and no code fence:
  "links": {"<project id>": [{"title": "Live site", "url": "https://..."}]} for lasting places of a project it's in that the messages give and the project doesn't list yet, else {},
  "thread": "where this thread itself is up to, as two or three short bullets, one per line, each starting \"- \": what it did or found, and what it's waiting on or doing next, and who that's on. About the work, never about how the thread was filed or renamed",
  "title": null, or a new title when the thread's title no longer says what it's about (see below),
+ "keywords": "${KEYWORDS_ASK}",
  "retitle": {"<project id>": "the project's new name"} for a project it's in whose name has gone out of date (see below), else {},
  "wake": ["<ids of hibernating threads the user is talking about here>"], or [] (see below),
  "met": {"<id of a thread waiting until this one has done something>": "what shows it has, in a few words"}, or {} (see below),
@@ -1519,6 +1600,8 @@ The Pocket is a deck of short cards on the user's phone, to read at a counter wh
 The thread bullets are for the user glancing at the thread later: concrete, in their plain words, each under ten words, no full stops. The last one says who's waiting on whom ("Waiting on you to pick a design", "Fixing the last failing test").`;
 
 // The second opinion on a pick with no folder evidence (confirmPick).
+
+
 const CHECK_SYSTEM = `You check one filing decision in Threadbear, an app where the user runs AI coding agents in threads. ${userLine()}A project is a body of work the user comes back to. Another look suggested this thread belongs in this project; you decide whether it really does.
 
 Say yes when the thread does something for that project: building, fixing, triaging, planning, promoting, running or deciding something for it, or asking about it specifically. The folder the thread runs in says nothing either way: many threads run in a general folder while working on a project.

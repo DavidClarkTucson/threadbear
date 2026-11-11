@@ -403,10 +403,10 @@ public final class FakeBackend: Backend, @unchecked Sendable {
         }
     }
 
-    public func search(_ text: String) async throws -> [PhoneThread] {
+    public func search(_ text: String, everywhere: Bool) async throws -> [PhoneThread] {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return lock.withLock { Array(threadsById.values) }
-            .filter { $0.archivedAt != nil && ThreadSearch.matches($0, query) }
+            .filter { (everywhere || $0.archivedAt != nil) && ThreadSearch.matches($0, query) }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 

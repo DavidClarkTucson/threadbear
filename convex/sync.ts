@@ -358,6 +358,7 @@ export const RUNNER_KEY_CAPS = {
   threadDoc: 8_192,
   recap: 1_000, // the librarian's 200 + 600, with room for multi-byte text
   threadText: 1_000, // title, preview, cwd, working line, each
+  keywords: 400, // the runner's 200 characters (keywords.ts), with room for multi-byte text
   threadsInView: 300, // per view the phone reads whole (inbox, hibernating)
   // A runner key's threads in all, every view (the M5 had 714 on 5 Nov,
   // Bruce 7): past it a new one waits (left out, sent again later).
@@ -460,6 +461,7 @@ function fitThread<T extends Record<string, any>>(t: T): T | undefined {
   for (const f of ['title', 'preview', 'cwd', 'working', 'asked']) if (typeof out[f] === 'string') out[f] = cutBytes(out[f], f === 'title' ? 300 : CAP.threadText);
   if (typeof out.recap === 'string') out.recap = cutBytes(out.recap, CAP.recap);
   if (Array.isArray(out.looseEnds)) out.looseEnds = out.looseEnds.slice(0, 10).map((e: any) => ({ ...e, text: cutBytes(String(e.text ?? ''), 300) }));
+  if (typeof out.keywords === 'string') out.keywords = cutBytes(out.keywords, CAP.keywords);
   if (out.startedBy) out.startedBy = { ...out.startedBy, label: cutBytes(String(out.startedBy.label ?? ''), 100), ...(out.startedBy.why !== undefined ? { why: cutBytes(String(out.startedBy.why), 300) } : {}) };
   // The card waiting on Mike is cut, never dropped: the phone shows the
   // thread waiting, and its push goes, with shorter text.
@@ -535,6 +537,7 @@ function fitIndexRow<T extends Record<string, any>>(r: T): T | undefined {
   const out: Record<string, any> = { ...r };
   for (const f of ['title', 'preview', 'cwd', 'asked']) if (typeof out[f] === 'string') out[f] = cutBytes(out[f], 300);
   if (typeof out.recap === 'string') out.recap = cutBytes(out.recap, CAP.recap);
+  if (typeof out.keywords === 'string') out.keywords = cutBytes(out.keywords, CAP.keywords);
   if (out.startedBy) out.startedBy = { ...out.startedBy, label: cutBytes(String(out.startedBy.label ?? ''), 100), ...(out.startedBy.why !== undefined ? { why: cutBytes(String(out.startedBy.why), 300) } : {}), ...(out.startedBy.threadTitle !== undefined ? { threadTitle: cutBytes(String(out.startedBy.threadTitle), 200) } : {}) };
   return docBytes(out) <= CAP.indexRow ? (out as T) : undefined;
 }
@@ -3110,6 +3113,7 @@ const indexDoc = v.object({
   startedBy: v.optional(v.object({ kind: v.string(), label: v.string(), icon: v.optional(v.string()), threadTitle: v.optional(v.string()), why: v.optional(v.string()) })),
   asked: v.optional(v.string()), // since API 32
   recap: v.optional(v.string()), // since API 70
+  keywords: v.optional(v.string()), // since API 74
 });
 
 // Rows made or changed, and threads gone. With `keep`, every row of the

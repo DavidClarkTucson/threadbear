@@ -331,4 +331,9 @@
 //    runner found still open: a branch, files, a thread it started, a
 //    check-in, or the agent's own word), so the phone's done card lists
 //    them as the Mac's does. A runner sends it only from 73.
-export const API_VERSION = 73;
+// 74: threads and threadIndex rows carry `keywords`, the librarian's search
+//    words (runner/src/keywords.ts), which a runner sends only from 74.
+//    phone:search matches them too, and with `everywhere` every view's
+//    threads and every message's text, so a newer phone finds a thread by a
+//    word said anywhere in it. An older phone's search is as before.
+export const API_VERSION = 74;

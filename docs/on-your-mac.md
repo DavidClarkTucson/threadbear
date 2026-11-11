@@ -230,6 +230,9 @@ File references are where to look.
 - **Small model calls** (`runner/src/models/`): thread titles, filing
   threads into projects (the librarian, every 5 minutes) and similar jobs
   send short excerpts of your threads to `claude -p` on your own logins.
+  It also asks for a few search words for each thread, and threads from
+  before that get them in batches of 15 (title, first message and last
+  reply), every 2 minutes until each has some, once.
   When a project's notes pass 12,000 characters, the librarian sends them
   the same way to be rewritten shorter, and keeps the old notes in the
   data folder's `project-notes/` (the last 5 for each project).

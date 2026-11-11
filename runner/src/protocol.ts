@@ -289,6 +289,9 @@ export type ThreadSummary = {
   // Mike's last message to it, one line, for the sidebar's "You: ..."
   // (docs/protocol.md, "What Mike last asked"). Absent until he's sent one.
   asked?: string;
+  // The librarian's search words for it, space-separated (docs/protocol.md,
+  // "Search"): searches match them as well as the title and preview.
+  keywords?: string;
   // A panel the agent asked to show Mike (show_panel), waiting for him to
   // look at the thread (docs/protocol.md, "Showing panels").
   panelRequest?: PanelRequest;

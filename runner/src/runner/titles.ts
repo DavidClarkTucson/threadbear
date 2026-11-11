@@ -10,6 +10,7 @@ import type { ExplainTurn } from '../explain.ts';
 import type { ThreadState } from '../runner.ts';
 import { TITLE_PROMPT, cleanTitle } from '../runner.ts';
 import { cutSafely } from '../safe-cut.ts';
+import { cleanKeywords } from '../keywords.ts';
 
 export const titlesPart = {
   // Asks a small model for a better title than the first line. Without a
@@ -98,6 +99,18 @@ export const titlesPart = {
     if (!clean || clean === st.rec.brief?.text) return;
     st.rec.brief = { text: clean, at: this.isoNow() };
     this.highlightsChanged(st);
+  },
+
+  // The librarian's search words for a thread (docs/protocol.md, "Search"):
+  // lowercase words, each once, none already in its title. An empty answer
+  // still marks it looked at, so the keyword sweep doesn't ask again.
+  setKeywords(this: Runner, threadId: string, words: string): void {
+    const st = this.threads.get(threadId);
+    if (!st || st.rt.deleted) return;
+    const clean = cleanKeywords(words, st.rec.title);
+    if (clean === st.rec.keywords) return;
+    st.rec.keywords = clean;
+    this.markDirty(st);
   },
 
   // The librarian's title for a thread that has moved on from its old one.

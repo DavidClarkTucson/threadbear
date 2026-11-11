@@ -7,7 +7,7 @@ import { checkSummary } from '../helpers/protocol-check.ts';
 import { Projects, drainProjectMethods, projectMethods, BRIEF_MAX, NOTES_LONG, type ProjectHost } from '../../src/projects.ts';
 import { projectRouter, type PrimaryLink } from '../../src/handover.ts';
 import type { PocketCardInput, PocketCardSummary } from '../../src/sync.ts';
-import { Librarian, type LibrarianPocket, librarianMethods, saysNoFit, disclaims, mainCheckout, PICK_CHECKS_PER_LOOK, SETTLE_MS, CATCH_UP_MS, CATCH_UP_MIN_CHARS, FIRST_MESSAGE_MS, SWEEP_MS } from '../../src/librarian.ts';
+import { Librarian, type LibrarianPocket, librarianMethods, saysNoFit, disclaims, mainCheckout, PICK_CHECKS_PER_LOOK, SETTLE_MS, CATCH_UP_MS, CATCH_UP_MIN_CHARS, FIRST_MESSAGE_MS, SWEEP_MS, KEYWORDS_SYSTEM } from '../../src/librarian.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import { FakeClock } from '../../src/clock.ts';
 import { nullLogger, type Logger } from '../../src/log.ts';
@@ -38,6 +38,8 @@ function setup(opts: { pocket?: () => LibrarianPocket | undefined; models?: (p: 
   const models = opts.models
     ? {
         generate: async (p: GenerateParams) => {
+          // The keyword sweep's batches (keywords.test.ts), apart from the looks.
+          if (p.system === KEYWORDS_SYSTEM) return { ok: true, value: '{}', model: 'haiku' } as ModelResult<string>;
           if (p.strong) {
             checks.push(p);
             return opts.check ? opts.check(p) : ({ ok: true, value: '{"belongs":true}', model: 'opus' } as ModelResult<string>);

@@ -1301,7 +1301,7 @@ export class Runner {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const out: ThreadSummary[] = [];
     for (const st of this.threads.values()) {
-      const hay = `${st.rec.title}\n${st.rec.preview}`.toLowerCase();
+      const hay = `${st.rec.title}\n${st.rec.preview}\n${st.rec.keywords ?? ''}`.toLowerCase();
       if (words.every((w) => hay.includes(w))) out.push(this.summary(st));
     }
     return sortByActivity(out).slice(0, Math.max(0, Math.floor(limit)));
@@ -3344,6 +3344,7 @@ export class Runner {
     if (rec.schedule) s.schedule = { ...rec.schedule };
     if (rec.startedBy) s.startedBy = { ...rec.startedBy };
     if (rec.asked) s.asked = rec.asked;
+    if (rec.keywords) s.keywords = rec.keywords;
     if (rec.panelRequest) s.panelRequest = { ...rec.panelRequest };
     // A record from 28 Oct may say "people" (sharing with specific people,
     // since dropped): that's not shared.

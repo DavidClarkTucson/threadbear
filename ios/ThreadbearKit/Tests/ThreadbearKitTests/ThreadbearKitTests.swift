@@ -327,6 +327,16 @@ import UniformTypeIdentifiers
         let old = thread("Picker from last year", 9000)
         let withOlder = ThreadSearch("picker", sections: sections, hibernating: [], archived: [archived, asleep], olderArchived: [asleep, old])
         #expect(withOlder.archived.map(\.threadId) == ["Old picker work", "Picker from last year"])
+        // The librarian's search words count, and a thread the phone has
+        // that phone:search found by a word in one of its messages stays in
+        // its own section rather than going under archived.
+        var tooth = thread("Wisdom tooth meeting location", 3)
+        tooth.keywords = "dentist dental"
+        let teeth = InboxSections.build([tooth, dates], now: now)
+        #expect(ThreadSearch("dentist", sections: teeth, hibernating: [], archived: []).inbox.map(\.threadId) == ["Wisdom tooth meeting location"])
+        let said = ThreadSearch("calendar", sections: teeth, hibernating: [], archived: [], olderArchived: [dates])
+        #expect(said.inbox.map(\.threadId) == ["Dates on small screens"])
+        #expect(said.archived.isEmpty)
         // Mid-move, in the inbox and hibernating at once: shown once.
         #expect(ThreadSearch("dates", sections: sections, hibernating: [dates], archived: []).hibernating.isEmpty)
     }

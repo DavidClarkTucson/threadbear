@@ -258,6 +258,10 @@ public struct PhoneThread: Codable, Sendable, Hashable, Identifiable {
     /// What Mike last said to it, one line (backend API 31): the row's
     /// "You: ...". Nil until he's sent one, and from an older runner.
     public var asked: String?
+    /// The librarian's search words, space-separated (backend API 74): the
+    /// search matches them too. Nil until it has given some, and from an
+    /// older runner.
+    public var keywords: String?
     @OptionalFlexibleDate public var archivedAt: Date?
     /// Mike starred it: the Starred section at the top (backend API 27).
     @OptionalFlexibleDate public var starredAt: Date?
@@ -940,6 +944,9 @@ public enum BackendCompatibility {
     /// From 16 phone:search finds archived threads past the den's newest
     /// 100. Older backends don't have it, and the search stops at those.
     public static let searchAPIVersion = 16
+    /// From 74 phone:search takes `everywhere`: threads in any list, matched
+    /// by the librarian's search words and by any message's text too.
+    public static let searchEverywhereAPIVersion = 74
     /// From 17 phone:counts says how many threads are hibernating and
     /// archived, for the folded headings. Older backends don't have it, so
     /// those headings show no number until opened.

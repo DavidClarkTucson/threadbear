@@ -63,6 +63,9 @@ export const threadFields = {
   asked: v.optional(v.string()),
   // The recap box's text, from API 70. The box went on 11 Nov; kept so rows that have it still load.
   recap: v.optional(v.string()),
+  // The librarian's search words, space-separated: phone:search matches them
+  // (runner/src/keywords.ts). Since API 74.
+  keywords: v.optional(v.string()),
   archivedAt: v.optional(v.string()),
   // Mike starred it: the phone's Starred section. Since API 27.
   starredAt: v.optional(v.string()),
@@ -276,6 +279,7 @@ export default defineSchema({
     // What Mike last said to it, one line: the Mac row's "You: ...". Since API 32.
     asked: v.optional(v.string()),
     recap: v.optional(v.string()), // the recap box's, gone 11 Nov; kept so old rows load
+    keywords: v.optional(v.string()), // the librarian's search words, since API 74
     // Since API 29: when the backend last wrote the row, so a watching
     // runner reads only rows changed since its last answer
     // (sync:threadIndexSince), and `deleted` marks a thread that's gone,
@@ -454,7 +458,10 @@ export default defineSchema({
     .index('by_view_activity', ['view', 'lastActivityMs'])
     // phone:search, for archived threads older than the phone's den list.
     .searchIndex('search_title', { searchField: 'title', filterFields: ['view'] })
-    .searchIndex('search_preview', { searchField: 'preview', filterFields: ['view'] }),
+    .searchIndex('search_preview', { searchField: 'preview', filterFields: ['view'] })
+    // The librarian's search words (API 74), so "dentist" finds a thread
+    // about a wisdom tooth appointment.
+    .searchIndex('search_keywords', { searchField: 'keywords', filterFields: ['view'] }),
 
   // Every text message of every thread, and one line per tool call (role
   // "tool", since API 2; docs/setup-and-updates.md step 2). Tool output and
@@ -481,7 +488,11 @@ export default defineSchema({
     .index('by_thread_seq', ['threadId', 'seq'])
     .index('by_thread_pagedAt', ['threadId', 'pagedAt'])
     .index('by_pagedAt', ['pagedAt'])
-    .index('by_runnerId', ['runnerId']),
+    .index('by_runnerId', ['runnerId'])
+    // phone:search (API 74): a word said anywhere in a thread, not only its
+    // title or last reply. The rows are capped per runner (messageBytes), so
+    // this index is too: about the size of the text, tens of MB at most.
+    .searchIndex('search_text', { searchField: 'text' }),
 
   // What the phone asks a runner to do (step 3). The owning runner takes
   // pending ones for its runnerId (or "any"), applies them through the

@@ -193,6 +193,10 @@ export type ThreadRecord = {
   startedBy?: ThreadStartedBy;
   // Mike's last message, one line (askedLine in runner.ts).
   asked?: string;
+  // The librarian's search words: what someone might type to find it that
+  // its title doesn't say ("dentist" for a wisdom tooth appointment).
+  // "" once a look or the keyword sweep found none, so the sweep moves on.
+  keywords?: string;
   // show_panel's request, until the app shows it or Mike sends a message.
   panelRequest?: PanelRequest;
   // The seq ranges edits of earlier messages cut out of the conversation

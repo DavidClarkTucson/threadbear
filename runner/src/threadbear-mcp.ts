@@ -1579,7 +1579,7 @@ export function buildThreadbearTools(
         const words = (query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
         const want = new Set(include ?? ['inbox']);
         const known = new Set(here.map((t) => t.id));
-        const far = rt.threads.filter((t) => !known.has(t.threadId) && (query ? words.every((w) => `${t.title}\n${t.preview}`.toLowerCase().includes(w)) : want.has(remoteWhere(t))));
+        const far = rt.threads.filter((t) => !known.has(t.threadId) && (query ? words.every((w) => `${t.title}\n${t.preview}\n${t.keywords ?? ''}`.toLowerCase().includes(w)) : want.has(remoteWhere(t))));
         const rows = [
           ...here.map((t) => ({ at: t.lastActivityAt, text: line(t) })),
           ...far.map((t) => ({ at: t.lastActivityAt, text: remoteLine(t, runnerName(rt, t.runnerId)) })),
