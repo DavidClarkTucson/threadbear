@@ -1533,6 +1533,11 @@ enum Automation {
             let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
             if let text = c["type"] as? String { Terminals.shared.open(target).type(text) }
             if let text = c["keys"] as? String { Terminals.shared.open(target).type(text) }
+            // An input method putting the whole text in at once (a text
+            // expander's snippet, dictation), as the GPUI app takes it.
+            if let text = c["commit"] as? String {
+                Terminals.shared.open(target).view.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
             if let key = c["press"] as? String {
                 let named = ["enter": "\r", "tab": "\t", "escape": "\u{1b}", "ctrl-c": "\u{3}", "ctrl-u": "\u{15}", "up": "\u{1b}[A", "down": "\u{1b}[B"]
                 guard let bytes = named[key] else { return "error press takes \(named.keys.sorted().joined(separator: ", "))" }
@@ -1553,7 +1558,7 @@ enum Automation {
                     app.pasteboard.clearContents()
                     app.pasteboard.setString(text, forType: .string)
                 }
-                if let text = c["paste"] as? String { session.view.pasteAsked(text) }
+                if let text = c["paste"] as? String { session.view.pasteChecked(text) }
                 if let lines = c["scroll"] as? Int {
                     if lines < 0 { session.view.scrollUp(lines: -lines) } else { session.view.scrollDown(lines: lines) }
                 }

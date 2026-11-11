@@ -140,6 +140,33 @@ public enum TerminalPut {
         text.contains("\n") || text.contains("\r")
     }
 
+    /// A paste as the terminal sends it (`paste_bytes` in the GPUI app): line
+    /// breaks as Return, inside the brackets when the program asked for
+    /// them, with any ESC (and the one-character CSI) gone from inside so
+    /// nothing can end them early; without them, every control character
+    /// but Tab and Return goes too, as each would be a key pressed.
+    public static func pasteBytes(_ text: String, bracketed: Bool) -> [UInt8] {
+        let breaks = text.replacingOccurrences(of: "\r\n", with: "\r").replacingOccurrences(of: "\n", with: "\r")
+        var kept = String.UnicodeScalarView()
+        for scalar in breaks.unicodeScalars {
+            let control = scalar.properties.generalCategory == .control
+            if bracketed ? (scalar == "\u{1b}" || scalar == "\u{9b}") : (control && scalar != "\t" && scalar != "\r") { continue }
+            kept.append(scalar)
+        }
+        let inner = Array(String(kept).utf8)
+        return bracketed ? Array("\u{1b}[200~".utf8) + inner + Array("\u{1b}[201~".utf8) : inner
+    }
+
+    /// Text that arrives all at once, from an input method or a text
+    /// expander, that's to be taken as a paste: more than one character
+    /// with a control in it. Line breaks on their own are Return, as an
+    /// input method sends it.
+    public static func isBulkText(_ text: String) -> Bool {
+        let scalars = text.unicodeScalars
+        return scalars.count > 1 && scalars.contains { $0.properties.generalCategory == .control }
+            && !scalars.allSatisfy { $0 == "\r" || $0 == "\n" }
+    }
+
     /// What's asked before such a paste: its title and the line under it.
     public static func pasteQuestion(_ text: String) -> (title: String, detail: String) {
         var lines = 0

@@ -315,6 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let app = AppModel.shared
             app.draftStore?.save(app, leaving: true)
             AppUpdater.shared.applyAtQuit()
+            Terminals.shared.endAllNow()
         }
     }
 

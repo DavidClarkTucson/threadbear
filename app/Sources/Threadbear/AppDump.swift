@@ -430,6 +430,9 @@ struct AppDump: Encodable {
         /// "running", "exited" or "none" (not started).
         var shell: String
         var waitingForReturn: Bool
+        /// The program has asked for pastes to be marked (bracketed paste):
+        /// a shell at its prompt.
+        var pastesMarked: Bool
         var focused: Bool
         var cols: Int?
         var rows: Int?
@@ -863,6 +866,7 @@ struct AppDump: Encodable {
         let shell = session.map { $0.exited ? "exited" : "running" } ?? "none"
         return TerminalInfo(shown: app.terminalShown, cwd: target.cwd, note: target.note, shell: shell,
                             waitingForReturn: session?.waitingForReturn ?? false,
+                            pastesMarked: session.map { !$0.exited && snapshot?.bracketedPasteMode == true } ?? false,
                             focused: session.map { window?.firstResponder === $0.view } ?? false,
                             cols: snapshot?.dimensions.cols, rows: snapshot?.dimensions.rows,
                             screen: snapshot?.visibleRows.map { row in

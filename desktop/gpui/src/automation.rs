@@ -503,6 +503,17 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "peek" => crate::chips::peek_command(app, cmd, window, cx),
         // Thread chips in a row's words, as the Swift app's `chip`.
         "chip" => crate::chips::chip_command(app, cmd, window, cx),
+        // Quits as the app menu's Quit does once it's said yes (the quit
+        // handlers run, the shells' among them), after this answer is sent,
+        // as the Swift app's `quit` does.
+        "quit" => {
+            cx.spawn(async |cx| {
+                cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+                let _ = cx.update(|cx| cx.quit());
+            })
+            .detach();
+            Ok(json!("ok"))
+        }
         // As if the window had come to the front: both apps read a thread
         // only while it is, and a scripted one never is.
         "focus" => {

@@ -95,6 +95,9 @@ export class GpuiDriver implements Driver {
       s.once('error', reject);
     });
     this.socket.setEncoding('utf8');
+    // An app that quits (a scenario's `quit`) closes its end: for the step
+    // waiting on it to notice, not a crash of the whole run.
+    this.socket.on('error', () => {});
     this.socket.on('data', (chunk: string) => {
       this.buffer += chunk;
       let at: number;

@@ -355,6 +355,13 @@ pub fn paste_runs(text: &str) -> bool {
     text.contains(['\n', '\r'])
 }
 
+/// Text that arrives all at once, from an input method or a text expander,
+/// that's to be taken as a paste: more than one character with a control in
+/// it. Line breaks on their own are Return, as an input method sends it.
+pub fn is_bulk_text(text: &str) -> bool {
+    text.chars().nth(1).is_some() && text.chars().any(char::is_control) && !text.chars().all(|c| c == '\r' || c == '\n')
+}
+
 /// What's asked before such a paste: its title and the line under it.
 pub fn paste_question(text: &str) -> (String, &'static str) {
     let lines = text.lines().count().max(1);
@@ -1098,6 +1105,16 @@ mod tests {
         assert!(paste_runs("a\rb"));
         assert_eq!(paste_question("a\nb\n").0, "Paste 2 lines?");
         assert_eq!(paste_question("ls\n").0, "Paste this line?");
+    }
+
+    #[test]
+    fn a_snippet_with_a_line_break_is_a_paste_not_keys() {
+        assert!(is_bulk_text("touch /tmp/x\n"));
+        assert!(is_bulk_text("ls\x01"));
+        assert!(!is_bulk_text("日本語"), "an input method's words are typed");
+        assert!(!is_bulk_text("\r"), "Return");
+        assert!(!is_bulk_text("\r\n"), "Return");
+        assert!(!is_bulk_text("é"));
     }
 
     #[test]

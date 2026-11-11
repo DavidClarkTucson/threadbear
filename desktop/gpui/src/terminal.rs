@@ -282,9 +282,13 @@ impl Terminals {
         });
         // Every shell ends with the app, as closing Terminal's windows does.
         let quitting = cx.on_app_quit(|this: &mut Terminals, cx| {
-            for session in this.sessions.values() {
-                session.read(cx).hang_up();
+            #[cfg(unix)]
+            {
+                let shells: Vec<(i32, Born)> = this.sessions.values().filter_map(|s| s.read(cx).process()).collect();
+                end_shells_now(&shells);
             }
+            #[cfg(not(unix))]
+            let _ = (this, cx);
             async {}
         });
         let home = crate::files::home_dir();
@@ -769,14 +773,10 @@ impl Session {
         }
     }
 
-    /// The app's quitting: SIGHUP, as closing Terminal does. A shell that
-    /// ignores it still goes, as the pty closes with the app and it reads
-    /// the end of its terminal.
-    fn hang_up(&self) {
-        #[cfg(unix)]
-        if let (Some(pid), Some(when), true) = (self.pid, self.born, self.running()) {
-            signal(pid, when, libc::SIGHUP);
-        }
+    /// The shell's process, while it's running.
+    #[cfg(unix)]
+    fn process(&self) -> Option<(i32, Born)> {
+        Some((self.pid?, self.born?)).filter(|_| self.running())
     }
 
     fn running(&self) -> bool {
@@ -801,6 +801,21 @@ impl Session {
         false
     }
 
+    /// The shell alone has the terminal, which is what a command is typed
+    /// into: in front, and nothing else in its group. With job control off
+    /// (`unsetopt monitor`) a program the shell runs stays in the shell's
+    /// group, so the group having the terminal doesn't say the shell is the
+    /// one reading it: `ssh -tt elsewhere` would be (Codex's review, 11 Nov).
+    /// Only asked when typing, as on Linux it reads every process's group.
+    fn shell_alone_in_front(&self) -> bool {
+        #[cfg(unix)]
+        {
+            self.shell_in_front() && self.pid.is_some_and(alone_in_group)
+        }
+        #[cfg(not(unix))]
+        false
+    }
+
     fn mode(&self) -> TermMode {
         *self.term.lock().mode()
     }
@@ -811,7 +826,7 @@ impl Session {
             return Step::Busy;
         }
         let starting = self.started.elapsed().as_secs_f64() < rules::STARTING_FOR_SECS;
-        rules::step(block, self.shell_in_front(), self.mode().contains(TermMode::BRACKETED_PASTE), starting, &self.line)
+        rules::step(block, self.shell_alone_in_front(), self.mode().contains(TermMode::BRACKETED_PASTE), starting, &self.line)
     }
 
     /// Pasted as the terminal's own paste is, in brackets (only ever typed
@@ -942,6 +957,15 @@ impl Session {
             cx.notify();
             return;
         }
+        // More than one character at once with a line break or another
+        // control in it (an input method's or a text expander's snippet,
+        // dictated paragraphs) is a paste, not keys: each break would be
+        // Return and run the line before it (Codex's review, 11 Nov). Line
+        // breaks on their own are still Return.
+        if rules::is_bulk_text(text) {
+            self.paste_text(text.to_owned(), cx);
+            return;
+        }
         if text != "\r" && text != "\n" && self.shell_in_front() {
             self.line = Line::Edited;
         }
@@ -964,7 +988,15 @@ impl Session {
     /// asked. When it hasn't and the text has a line break, each line would
     /// run as it arrived, so that's asked about first (`paste_runs`).
     fn paste(&mut self, cx: &mut Context<Self>) {
-        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else { return };
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.paste_text(text, cx);
+        }
+    }
+
+    /// `text` as a paste: in brackets when the program asked, or asked
+    /// about first when it hasn't and a line break would run what's before
+    /// it. What's asked about is what's sent.
+    fn paste_text(&mut self, text: String, cx: &mut Context<Self>) {
         if text.is_empty() || self.paste_now(&text, false, cx) {
             return;
         }
@@ -1321,6 +1353,7 @@ pub(crate) fn dump(app: &Threadbear, cx: &App) -> Value {
         "note": target.note,
         "shell": session.map_or("none", |s| if s.exited { "exited" } else { "running" }),
         "waitingForReturn": session.is_some_and(|s| s.waiting_for_return()),
+        "pastesMarked": session.is_some_and(|s| !s.exited && s.mode().contains(TermMode::BRACKETED_PASTE)),
         "focused": session.is_some_and(|s| s.focused),
         "cols": session.map(|s| s.size.cols),
         "rows": session.map(|s| s.size.rows),
@@ -1334,7 +1367,9 @@ pub(crate) fn dump(app: &Threadbear, cx: &App) -> Value {
 /// When a process started, which tells it from a later one given the same
 /// pid: the library reaps the shell when it ends, and its pid can then go to
 /// anything else, so a signal only goes to the same pid started at the same
-/// time.
+/// time. None once it has ended, a zombie included. Between the check and
+/// the signal a pid could in theory be reaped and handed on, but both
+/// systems give pids out in turn, so that needs every pid used in between.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(not(unix), allow(dead_code))]
 struct Born(u64, u64);
@@ -1344,7 +1379,8 @@ fn born(pid: i32) -> Option<Born> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
     let read = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
-    (read == size).then_some(Born(info.pbi_start_tvsec, info.pbi_start_tvusec))
+    // 5 is SZOMB: it has ended and is waiting to be reaped.
+    (read == size && info.pbi_status != 5).then_some(Born(info.pbi_start_tvsec, info.pbi_start_tvusec))
 }
 
 #[cfg(target_os = "linux")]
@@ -1352,13 +1388,44 @@ fn born(pid: i32) -> Option<Born> {
     // The 22nd field of /proc/<pid>/stat, clock ticks from boot to its
     // start, counted after the name in brackets, which can have spaces in.
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let fields = &stat[stat.rfind(')')? + 1..];
-    Some(Born(fields.split_whitespace().nth(19)?.parse().ok()?, 0))
+    let mut fields = stat[stat.rfind(')')? + 1..].split_whitespace();
+    // The state comes first: Z or X has ended.
+    if matches!(fields.next()?, "Z" | "X") {
+        return None;
+    }
+    Some(Born(fields.nth(18)?.parse().ok()?, 0))
 }
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 fn born(_pid: i32) -> Option<Born> {
     None
+}
+
+/// Whether `pid`'s group has no other process in it.
+#[cfg(target_os = "macos")]
+fn alone_in_group(pid: i32) -> bool {
+    let mut pids = [0 as libc::pid_t; 64];
+    let size = std::mem::size_of_val(&pids) as i32;
+    let read = unsafe { libc::proc_listpgrppids(pid, pids.as_mut_ptr().cast(), size) };
+    // Read from what's filled in rather than the count, so a group too big
+    // for the list still has someone else in it.
+    read >= 0 && pids.contains(&pid) && pids.iter().all(|&p| p == 0 || p == pid)
+}
+
+#[cfg(target_os = "linux")]
+fn alone_in_group(pid: i32) -> bool {
+    let Ok(dir) = std::fs::read_dir("/proc") else { return false };
+    !dir.flatten().any(|entry| {
+        let Some(other) = entry.file_name().to_str().and_then(|n| n.parse::<i32>().ok()).filter(|&o| o != pid) else { return false };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{other}/stat")) else { return false };
+        // The group is the 5th field: the 3rd after the name in brackets.
+        stat.rfind(')').and_then(|at| stat[at + 1..].split_whitespace().nth(2)).and_then(|g| g.parse::<i32>().ok()) == Some(pid)
+    })
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn alone_in_group(_pid: i32) -> bool {
+    false
 }
 
 /// The program a process is running now.
@@ -1412,13 +1479,37 @@ fn end_shell(pid: i32, when: Born) {
     });
 }
 
+/// Ends every shell as the app quits: as `end_shell`, but within about half
+/// a second and over before this returns, as nothing the app starts outlives
+/// it. One that ignores SIGHUP and SIGTERM and never reads its terminal
+/// (`trap '' HUP TERM; while :; do :; done`) would otherwise go on after the
+/// app (Codex's review, 11 Nov). A shell that does as asked is gone within
+/// the first wait.
+#[cfg(unix)]
+fn end_shells_now(shells: &[(i32, Born)]) {
+    let alive = || shells.iter().any(|&(pid, when)| born(pid) == Some(when));
+    for (next, wait) in [(libc::SIGHUP, 400), (libc::SIGTERM, 200), (libc::SIGKILL, 100)] {
+        for &(pid, when) in shells {
+            signal(pid, when, next);
+        }
+        let until = Instant::now() + Duration::from_millis(wait);
+        while alive() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if !alive() {
+            return;
+        }
+    }
+}
+
 /// The Swift app's `terminal` command: `{"toggle": true}` is ⌘J, `{"show":
 /// true}` brings the panel up with nothing started, `{"type": "ls\r"}` types
 /// into the showing thread's shell (starting one), `{"put": "ls"}` does what a
 /// shell block's play icon does, `{"scroll": -5}` turns the wheel over the
 /// terminal (back is up, so negative), `{"select": "all"}`, `{"copy": true}`
-/// and `{"paste": "text"}` are ⌘A, ⌘C and ⌘V through its keys, and `{"wait":
-/// ms}` waits after. Each answers with what the dump's `terminal` says.
+/// and `{"paste": "text"}` are ⌘A, ⌘C and ⌘V through its keys, `{"commit":
+/// "text"}` is an input method's text all at once, and `{"wait": ms}` waits
+/// after. Each answers with what the dump's `terminal` says.
 #[cfg(feature = "automation")]
 pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App) -> Result<Value, String> {
     use gpui_kit::test::TestWindowExt as _;
@@ -1435,6 +1526,12 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
         let session = terminals.update(cx, |t, cx| t.open(&target, cx));
         let text = text.to_owned();
         session.update(cx, |s, cx| s.typed(text.into_bytes(), cx));
+    }
+    // `{"commit": "text"}` is an input method putting the whole text in at
+    // once (a text expander's snippet, dictation), not a key at a time.
+    if let Some(text) = cmd["commit"].as_str() {
+        let session = terminals.update(cx, |t, cx| t.open(&target, cx));
+        session.update(cx, |s, cx| s.insert_text(text, cx));
     }
     // `keys` types through the keyboard and the input method as a person
     // would, and `press` is one key ("enter", "ctrl-c", "up"), each with the

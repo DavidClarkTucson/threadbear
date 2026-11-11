@@ -70,6 +70,18 @@ Feature: The Terminal
     Then the Terminal doesn't show the line "pasted-one"
     And the Terminal's prompt doesn't have "echo pasted-one"
 
+  # A text expander's snippet or dictated paragraphs come from the input
+  # method in one go, and a line break in them would be Return.
+  @terminal.panel
+  Scenario: Text an input method puts in all at once is pasted, not typed
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    Then the shell in the Terminal is at its prompt
+    When an input method puts "echo from-a-snippet" and a line break in the Terminal at once
+    Then the Terminal's prompt has "echo from-a-snippet" on it
+    And the Terminal doesn't show the line "from-a-snippet"
+
   @terminal.panel
   Scenario: The shell is as wide as the panel
     Given the thread "Rename the Settings tabs" works in a folder of its own
@@ -131,6 +143,18 @@ Feature: The Terminal
     When I archive the open thread
     Then the shell that wrote "shell.pid" in the folder of "Rename the Settings tabs" has ended
 
+  # Nor one that ignores SIGTERM too and never reads its terminal, which
+  # closing the pty with the app doesn't reach.
+  @terminal.lifecycle
+  Scenario: Quitting stops a shell that ignores the hang-up
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "trap '' HUP TERM; echo $$ > shell.pid; echo ready; while :; do :; done" and press Return in the Terminal
+    Then the Terminal shows the line "ready"
+    When the app quits
+    Then the shell that wrote "shell.pid" in the folder of "Rename the Settings tabs" has ended
+
   @terminal.lifecycle
   Scenario: A shell that has exited can be started again
     Given the thread "Rename the Settings tabs" works in a folder of its own
@@ -169,13 +193,27 @@ Feature: The Terminal
   # `exec` keeps the shell's process and its hold on the terminal, so only the
   # program it's running now says it isn't the shell (`exec ssh` would type
   # into another machine). cat with pastes marked looks like a prompt otherwise.
+  # With job control off, a program the shell runs stays in the shell's own
+  # group, so the group having the terminal doesn't say the shell is the one
+  # reading it (`ssh -tt` there would get the command).
+  @terminal.putcommand
+  Scenario: A program in the shell's own group counts as busy
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "unsetopt monitor; printf '\033[?2004hcat-ready\n'; /bin/cat" and press Return in the Terminal
+    Then the Terminal shows the line "cat-ready"
+    When I put "echo not-in-cat" in the Terminal from its block
+    Then "echo not-in-cat" is copied instead
+
   @terminal.putcommand
   Scenario: A shell that execs another program counts as busy
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
     And I press ⌘J
-    And I type "printf '\033[?2004h'; exec /bin/cat" and press Return in the Terminal
-    And I put "echo not-in-there" in the Terminal from its block
+    And I type "printf '\033[?2004hcat-ready\n'; exec /bin/cat" and press Return in the Terminal
+    Then the Terminal shows the line "cat-ready"
+    When I put "echo not-in-there" in the Terminal from its block
     Then "echo not-in-there" is copied instead
 
   @terminal.putcommand

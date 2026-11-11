@@ -108,6 +108,23 @@ final class ShellBlockTests: XCTestCase {
         XCTAssertEqual(TerminalPut.pasteQuestion("ls\n").title, "Paste this line?")
     }
 
+    func testAPasteIsSentAsTheTerminalWould() {
+        XCTAssertEqual(TerminalPut.pasteBytes("a\nb", bracketed: false), Array("a\rb".utf8))
+        XCTAssertEqual(TerminalPut.pasteBytes("ls\r\n", bracketed: true), Array("\u{1b}[200~ls\r\u{1b}[201~".utf8))
+        XCTAssertEqual(TerminalPut.pasteBytes("echo\u{1b}[201~\nrm -rf ~", bracketed: true), Array("\u{1b}[200~echo[201~\rrm -rf ~\u{1b}[201~".utf8))
+        // With no brackets a control character would be a key pressed.
+        XCTAssertEqual(TerminalPut.pasteBytes("ls\u{3}\u{1}\u{1b}:q!\u{15}\u{7f}\u{9b}\tx", bracketed: false), Array("ls:q!\tx".utf8))
+    }
+
+    func testASnippetWithALineBreakIsAPasteNotKeys() {
+        XCTAssertTrue(TerminalPut.isBulkText("touch /tmp/x\n"))
+        XCTAssertTrue(TerminalPut.isBulkText("ls\u{1}"))
+        XCTAssertFalse(TerminalPut.isBulkText("日本語"), "an input method's words are typed")
+        XCTAssertFalse(TerminalPut.isBulkText("\r"))
+        XCTAssertFalse(TerminalPut.isBulkText("\r\n"))
+        XCTAssertFalse(TerminalPut.isBulkText("é"))
+    }
+
     func testTheShellIsKnownByItsProgram() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tb-shell-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

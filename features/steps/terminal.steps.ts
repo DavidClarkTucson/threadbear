@@ -196,7 +196,28 @@ Then('the shell that wrote {string} in the folder of {string} has ended', async 
     }
     await new Promise((done) => setTimeout(done, 200));
   }
-  assert.fail(`the shell (pid ${pid}) is still running`);
+  // Not left spinning on the test machine.
+  process.kill(pid, 'SIGKILL');
+  assert.fail(`the shell (pid ${pid}) was still running`);
+});
+
+// zsh, fish and modern bash ask for bracketed paste while they edit a line.
+Then('the shell in the Terminal is at its prompt', async function (this: ThreadbearWorld) {
+  await untilScreen(this, 'the shell at its prompt, pastes marked', (_lines, d) => d.terminal?.shell === 'running' && d.terminal.pastesMarked === true);
+});
+
+When('an input method puts {string} and a line break in the Terminal at once', async function (this: ThreadbearWorld, text: string) {
+  await this.app.do({ cmd: 'terminal', commit: `${text}\n` });
+});
+
+Then("the Terminal's prompt has {string} on it", async function (this: ThreadbearWorld, text: string) {
+  await untilScreen(this, `"${text}" at the prompt`, (lines) => promptLine(lines).endsWith(text));
+});
+
+// As the app menu's Quit does once it's said yes, with the quit's own work.
+When('the app quits', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'quit' });
+  await new Promise((done) => setTimeout(done, 1500));
 });
 
 Then('the Terminal says {string}', async function (this: ThreadbearWorld, note: string) {

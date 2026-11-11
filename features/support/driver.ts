@@ -114,6 +114,8 @@ export type Dump = {
     note?: string | null;
     shell: 'running' | 'exited' | 'none';
     waitingForReturn: boolean;
+    /** The program has asked for pastes to be marked (bracketed paste): a shell at its prompt. */
+    pastesMarked: boolean;
     focused: boolean;
     cols?: number | null;
     rows?: number | null;
