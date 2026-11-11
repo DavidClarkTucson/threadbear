@@ -20,6 +20,36 @@ enum SidebarMetrics {
     static let faint = Color(nsColor: Theme.faintText)
 }
 
+extension View {
+    /// A view kept in the window while hidden (SidebarView, DetailView): it
+    /// fades and settles in as a view coming in does, and while hidden it
+    /// takes no clicks and isn't read out. It keeps its scroll position and
+    /// folds meanwhile. What in it takes keys or is pointed at reads
+    /// `keptShown`: a list or search box gives up the cursor while hidden
+    /// (or the arrow keys and typing would go to a list nobody can see),
+    /// and the tour doesn't point at it.
+    func keptAlive(shown: Bool) -> some View {
+        opacity(shown ? 1 : 0)
+            .offset(y: shown || Juice.reduceMotion ? 0 : zoomed(6))
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
+            .environment(\.keptShown, shown)
+    }
+}
+
+extension EnvironmentValues {
+    /// False inside a view `keptAlive` while it's hidden. Written out
+    /// rather than @Entry, as Juice.swift's are, for the command line tools.
+    var keptShown: Bool {
+        get { self[KeptShownKey.self] }
+        set { self[KeptShownKey.self] = newValue }
+    }
+}
+
+private struct KeptShownKey: EnvironmentKey {
+    static var defaultValue: Bool { true }
+}
+
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
 
@@ -29,12 +59,23 @@ struct SidebarView: View {
         // the new one share the space while one fades out and the other
         // fades in and settles.
         ZStack {
+            // The Inbox and Projects lists stay built once they've been
+            // shown, hidden while another view is up, so switching between
+            // them is a fade rather than SwiftUI building every row again:
+            // that rebuild was most of the half second Mike saw clicking
+            // Projects (11 Nov). The other two views are built as they're
+            // shown, as before.
+            InboxList()
+                .keptAlive(shown: app.sidebarMode == .inbox)
+            if keepProjects || app.sidebarMode == .projects {
+                ProjectsList(shown: app.sidebarMode == .projects)
+                    .keptAlive(shown: app.sidebarMode == .projects)
+            }
             Group {
                 switch app.sidebarMode {
-                case .inbox: InboxList()
                 case .scheduled: ScheduledList()
-                case .projects: ProjectsList()
                 case .librarian: LibrarianView()
+                case .inbox, .projects: EmptyView()
                 }
             }
             .transition(Juice.reduceMotion ? .opacity : .asymmetric(
@@ -44,7 +85,11 @@ struct SidebarView: View {
         }
         .frame(maxWidth: .infinity)
         .animation(Juice.reduceMotion ? .easeOut(duration: 0.12) : .snappy(duration: 0.22), value: app.sidebarMode)
+        .onChange(of: app.sidebarMode, initial: true) { _, mode in if mode == .projects { keepProjects = true } }
     }
+
+    /// Projects has been shown, so its list is kept.
+    @State private var keepProjects = false
 }
 
 private struct InboxList: View {
@@ -494,6 +539,7 @@ struct ThreadList<Content: View>: View {
     var scrollID: (String) -> String = { $0 }
     @ViewBuilder let content: (_ select: @escaping (String) -> Void) -> Content
     @FocusState private var focused: Bool
+    @Environment(\.keptShown) private var shown
     @Namespace private var rowSpace
 
     var body: some View {
@@ -533,10 +579,13 @@ struct ThreadList<Content: View>: View {
                     Color.clear.frame(height: zoomed(4))
                 }
             }
-            .focusable()
+            .focusable(shown)
             .focused($focused)
             .focusEffectDisabled()
+            // Hidden (keptAlive), it lets the cursor go to the list in view.
+            .onChange(of: shown) { _, now in if !now { focused = false } }
             .onMoveCommand { direction in
+                guard shown else { return }
                 let step: Int
                 switch direction {
                 case .up: step = -1
@@ -554,6 +603,7 @@ struct ThreadList<Content: View>: View {
                 withAnimation(Juice.selection) { proxy.scrollTo(scrollID(id)) }
             }
             .onExitCommand {
+                guard shown else { return }
                 if app.sidebarMode != .inbox { app.sidebarMode = .inbox }
             }
         }
@@ -1444,6 +1494,11 @@ struct SearchField: View {
     /// to type in.
     var focusOnAppear = false
     @FocusState private var focused: Bool
+    /// In a view kept built while hidden (`keptAlive`): it gives up the
+    /// cursor while hidden, so typing doesn't go to it, and with
+    /// `focusOnAppear` takes it each time it's shown, as one built afresh
+    /// would.
+    @Environment(\.keptShown) private var shown
 
     var body: some View {
         // The glass and the prompt on the same columns as a
@@ -1457,7 +1512,10 @@ struct SearchField: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: TypeScale.sidebarButton))
                 .focused($focused)
-                .onAppear { if focusOnAppear { focused = true } }
+                .onAppear { if focusOnAppear, shown { focused = true } }
+                .onChange(of: shown) { _, now in
+                    if now, focusOnAppear { focused = true } else if !now { focused = false }
+                }
                 .tip(prompt)
             if !text.isEmpty {
                 Button {
