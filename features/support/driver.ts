@@ -19,6 +19,8 @@ export type Row = {
    * line, each formatted piece ("bold: Hi", "link: docs <https://x.dev>") and
    * what Copy says ("Copy" or "Copied"). */
   drafts?: { label: string; lines: string[]; styled: string[]; copy: string }[];
+  /** A reply's closed ```bash blocks and their icons: "[put, copy] npm test", or "[copy] npm test". */
+  shellBlocks?: string[];
 };
 
 export type Thread = {

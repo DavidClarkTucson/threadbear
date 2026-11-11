@@ -307,6 +307,8 @@ struct AppDump: Encodable {
         var buttons: [String]? = nil
         /// The ```slack, ```email and ```draft boxes it draws (DraftBlockCell).
         var drafts: [DraftInfo]? = nil
+        /// Its closed ```bash blocks and their icons (`shellBlocks`).
+        var shellBlocks: [String]? = nil
     }
 
     /// A draft's box as it's drawn: its label, each line (a Slack quote's
@@ -760,7 +762,7 @@ struct AppDump: Encodable {
                 return Row(id: row.id, kind: row.kind.rawValue, height: Int(table.rect(ofRow: index).height.rounded()),
                            expanded: opens(row) ? app.transcript.isExpanded(row) : nil, inGroup: row.inGroup,
                            onScreen: NSLocationInRange(index, visible), seq: row.seq, turn: row.turnId, text: RowDebug.excerpt(row),
-                           buttons: Self.buttons(row), drafts: Self.drafts(row))
+                           buttons: Self.buttons(row), drafts: Self.drafts(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId))
             }
             let state: String
             switch session.state {
@@ -1721,6 +1723,41 @@ struct AppDump: Encodable {
             found.append(DraftInfo(label: cell.draft.label, lines: lines, styled: styled, copy: cell.wasJustCopied() ? "Copied" : "Copy"))
         }
         return found.isEmpty ? nil : found
+    }
+
+    /// The closed ```bash blocks a reply holds and the icons each gets, as
+    /// TextKit draws them (ShellBlockIcons.shown): "[put, copy] npm test",
+    /// or "[copy] npm test" where the Terminal wouldn't be the thread's own.
+    /// The GPUI app's dump says the same.
+    @MainActor
+    static func shellBlocks(_ row: TranscriptRow, threadId: String) -> [String]? {
+        guard case .assistant(let item) = row.content, ShellBlock.mayHold(item.text) else { return nil }
+        var commands: [String] = []
+        var open: (mark: Character, length: Int, quotes: Int, language: String, code: [String])?
+        for line in item.text.components(separatedBy: "\n") {
+            var rest = Substring(line).drop { $0 == " " || $0 == "\t" }
+            var quotes = 0
+            while rest.first == ">" {
+                quotes += 1
+                rest = rest.dropFirst().drop { $0 == " " || $0 == "\t" }
+            }
+            if var block = open {
+                let closing = rest.trimmingCharacters(in: .whitespaces)
+                if quotes == block.quotes, closing.count >= block.length, closing.allSatisfy({ $0 == block.mark }) {
+                    if let shell = ShellBlock.from(language: block.language, code: block.code.joined(separator: "\n")) { commands.append(shell.command) }
+                    open = nil
+                } else {
+                    block.code.append(block.quotes > 0 ? String(rest) : line)
+                    open = block
+                }
+            } else if let mark = rest.first, mark == "`" || mark == "~" {
+                let length = rest.prefix { $0 == mark }.count
+                if length >= 3 { open = (mark, length, quotes, rest.dropFirst(length).trimmingCharacters(in: .whitespaces), []) }
+            }
+        }
+        guard !commands.isEmpty else { return nil }
+        let icons = ShellBlockIcons.shown(in: threadId).contains(.put) ? "[put, copy]" : "[copy]"
+        return commands.map { "\(icons) \($0)" }
     }
 
     private func pad(_ text: String, _ width: Int) -> String {

@@ -93,6 +93,9 @@ enum Automation {
         app.pasteboard = pasteboard
         // A draft's Copy too, so a script's copies leave Mike's clipboard be.
         DraftBlockCell.pasteboard = pasteboard
+        // A ```bash block's Copy, and its play icon's copy when the Terminal's
+        // busy, go there too, not to the Mac's own clipboard.
+        ShellBlockIcons.pasteboard = pasteboard
         if let mode = argument(after: "--appearance") { setAppearance(mode) }
         observer = DistributedNotificationCenter.default().addObserver(forName: Notification.Name(channel(id: instanceId)), object: nil, queue: .main) { note in
             let text = note.object as? String ?? ""
@@ -1513,7 +1516,13 @@ enum Automation {
                 guard let bytes = named[key] else { return "error press takes \(named.keys.sorted().joined(separator: ", "))" }
                 Terminals.shared.open(target).type(bytes)
             }
-            if let command = c["put"] as? String { app.putInTerminal(ShellBlock(command: command), from: app.selection) { _ in } }
+            if let command = c["put"] as? String {
+                // As the block's play icon (TranscriptTextView.press): copied
+                // instead when the shell's busy.
+                app.putInTerminal(ShellBlock(command: command), from: app.selection) { outcome in
+                    if outcome == .busy { ShellBlockIcons.copy(command) }
+                }
+            }
             if let session = Terminals.shared.existing(for: target) {
                 if c["select"] as? String == "all" { session.view.selectAll(nil) }
                 // What SwiftTerm's Copy and Paste do, on this instance's own

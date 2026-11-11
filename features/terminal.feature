@@ -116,3 +116,41 @@ Feature: The Terminal
     Then the Terminal says the shell has exited
     When I press New Shell in the Terminal
     Then the Terminal is showing a shell in the thread's folder
+
+  @terminal.putcommand
+  Scenario: A shell block's command goes to the Terminal's prompt, and only Return runs it
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    And the agent's last reply in "Rename the Settings tabs" holds a bash block "echo from-the-reply"
+    When I open the thread "Rename the Settings tabs"
+    Then the reply offers to put "echo from-the-reply" in the Terminal
+    When I put "echo from-the-reply" in the Terminal from its block
+    Then the Terminal's prompt has "echo from-the-reply" waiting for Return
+    And the Terminal doesn't show the line "from-the-reply"
+    When I press Return in the Terminal
+    Then the Terminal shows the line "from-the-reply"
+
+  @terminal.putcommand
+  Scenario: Another block's command takes the place of one still unrun
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I put "echo first-one" in the Terminal from its block
+    Then the Terminal's prompt has "echo first-one" waiting for Return
+    When I put "echo second-one" in the Terminal from its block
+    Then the Terminal's prompt has "echo second-one" waiting for Return
+    And the Terminal's prompt doesn't have "echo first-one"
+
+  @terminal.putcommand
+  Scenario: A busy Terminal gets the command copied instead of typed
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "sleep 30" and press Return in the Terminal
+    And I put "echo not-now" in the Terminal from its block
+    Then "echo not-now" is copied instead
+    And the Terminal's prompt doesn't have "echo not-now"
+
+  @terminal.putcommand
+  Scenario: A thread whose folder isn't on this Mac only offers to copy its blocks
+    Given the agent's last reply in "Export last quarter's invoices as CSV" holds a bash block "make report"
+    When I open the thread "Export last quarter's invoices as CSV"
+    Then the reply only offers to copy "make report"

@@ -152,11 +152,13 @@ fn metrics(window: &Window, cx: &App) -> Metrics {
 pub(crate) struct TerminalElement {
     session: Entity<Session>,
     focused: bool,
+    /// The blink's shown half (Session::blink_shown).
+    blink_shown: bool,
 }
 
 impl TerminalElement {
-    pub(crate) fn new(session: Entity<Session>, focused: bool) -> Self {
-        TerminalElement { session, focused }
+    pub(crate) fn new(session: Entity<Session>, focused: bool, blink_shown: bool) -> Self {
+        TerminalElement { session, focused, blink_shown }
     }
 }
 
@@ -260,7 +262,10 @@ impl Element for TerminalElement {
         let selection = content.selection;
         let cursor = content.cursor;
         let cursor_row = cursor.point.line.0 + offset;
-        let cursor_shown = cursor.shape != CursorShape::Hidden && (0..rows as i32).contains(&cursor_row);
+        // Its blink's gone half, unless a program asked for a steady cursor
+        // or another view has the keyboard (then it's a steady outline).
+        let blinked_out = self.focused && !self.blink_shown && term.cursor_style().blinking;
+        let cursor_shown = cursor.shape != CursorShape::Hidden && (0..rows as i32).contains(&cursor_row) && !blinked_out;
         // Focused, the usual block in the accent; not, an outline of it, as
         // SwiftTerm draws it when another view has the keyboard.
         let solid_cursor = cursor_shown && self.focused && cursor.shape == CursorShape::Block && marked.is_empty();

@@ -53,6 +53,7 @@ mod scheduled;
 mod settings;
 mod settings_window;
 mod shell;
+mod shell_blocks;
 mod sidebar;
 mod slash_palette;
 mod style;

@@ -28,6 +28,7 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::tty;
+use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle};
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -298,10 +299,8 @@ impl Terminals {
             return session.clone();
         }
         let size = self.last_size.unwrap_or_default();
+        // Its own view: what it prints redraws it, not the panel round it.
         let session = cx.new(|cx| Session::start(target.clone(), size, cx));
-        // Its exit and its prompt's state show on the panel.
-        let watch = cx.observe(&session, |_, _, cx| cx.notify());
-        self._subs.push(watch);
         self.sessions.insert(target.key.clone(), session.clone());
         cx.notify();
         session
@@ -594,6 +593,12 @@ pub(crate) struct Session {
     scroll_rest: f32,
     /// A drag selecting text, or one going to the program (mouse reporting).
     dragging: Option<Drag>,
+    /// The cursor's blink, while it has the keyboard: shown and gone 0.7 s
+    /// each, as SwiftTerm's caret fades out and back, and shown while you
+    /// type (`kept` skips a beat after a key).
+    pub(crate) blink_shown: bool,
+    blink_kept: bool,
+    _blink: Task<()>,
     _events: Task<()>,
 }
 
@@ -607,14 +612,35 @@ impl Session {
     fn start(target: Target, size: GridSize, cx: &mut Context<Self>) -> Self {
         let (notes, mut incoming) = tokio::sync::mpsc::unbounded_channel();
         let shared = Arc::new(Shared { dirty: AtomicBool::new(false), exited: AtomicBool::new(false), sender: OnceLock::new(), size: Mutex::new(size.window_size()), notes });
-        // As SwiftTerm keeps it: 500 lines back would lose a build's errors,
-        // so this keeps alacritty's 10,000.
-        let term = Arc::new(FairMutex::new(Term::new(Config::default(), &size, Listener(shared.clone()))));
+        // SwiftTerm keeps 500 lines back, which loses a build's errors, so
+        // this keeps alacritty's 10,000. The cursor blinks, as SwiftTerm's
+        // does, unless a program asks for a steady one.
+        let config = Config { default_cursor_style: CursorStyle { shape: CursorShape::Block, blinking: true }, ..Config::default() };
+        let term = Arc::new(FairMutex::new(Term::new(config, &size, Listener(shared.clone()))));
         let events = cx.spawn(async move |this, cx| {
             while let Some(note) = incoming.recv().await {
                 if this.update(cx, |s, cx| s.heard(note, cx)).is_err() {
                     break;
                 }
+            }
+        });
+        // A beat every 0.7 s that only redraws while the terminal has the
+        // keyboard: an idle terminal behind others costs nothing.
+        let blink = cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(700)).await;
+            let alive = this.update(cx, |s, cx| {
+                if std::mem::take(&mut s.blink_kept) || !s.focused {
+                    if !s.blink_shown {
+                        s.blink_shown = true;
+                        cx.notify();
+                    }
+                    return;
+                }
+                s.blink_shown = !s.blink_shown;
+                cx.notify();
+            });
+            if alive.is_err() {
+                break;
             }
         });
         let mut session = Session {
@@ -636,6 +662,9 @@ impl Session {
             marked: String::new(),
             scroll_rest: 0.,
             dragging: None,
+            blink_shown: true,
+            blink_kept: false,
+            _blink: blink,
             _events: events,
         };
         if let Err(e) = session.spawn_shell() {
@@ -895,6 +924,8 @@ impl Session {
             }
         }
         self.write(bytes);
+        self.blink_shown = true;
+        self.blink_kept = true;
         cx.notify();
     }
 
@@ -1129,7 +1160,7 @@ impl Render for Session {
             .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| window.focus(&this.focus, cx)))
             // A little in from the panel's edges, on the terminal's own
             // background (TerminalHost.Container.inset).
-            .child(div().size_full().px(px(10.)).py(px(6.)).child(TerminalElement::new(me, focused)));
+            .child(div().size_full().px(px(10.)).py(px(6.)).child(TerminalElement::new(me, focused, self.blink_shown)));
         if self.waiting_for_return() {
             // Over whatever's in the terminal's top corner.
             view = view.child(
@@ -1309,13 +1340,11 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
             window.press(key, cx);
         }
     }
+    // What a shell block's play icon does, the copy when the shell's busy
+    // included (shell_blocks.rs).
     if let Some(command) = cmd["put"].as_str() {
         let id = app.read(cx).selected.clone().unwrap_or_default();
-        let block = ShellBlock { command: command.to_owned() };
-        let put = app.update(cx, |a, cx| put_in_terminal(a, block, &id, window, cx));
-        if let Some(task) = put {
-            task.detach();
-        }
+        crate::shell_blocks::put(command, &id, window, cx);
     }
     let session = terminals.read(cx).sessions.get(&target.key).cloned();
     if let Some(session) = &session {

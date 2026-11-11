@@ -1067,6 +1067,9 @@ impl ThreadPane {
                     if let Some(drafts) = crate::draft_boxes::dump(&item.text) {
                         out["drafts"] = drafts;
                     }
+                    if let Some(blocks) = crate::shell_blocks::dump_lines(&item.text, &self.summary.id, cx) {
+                        out["shellBlocks"] = json!(blocks);
+                    }
                 }
                 out
             })

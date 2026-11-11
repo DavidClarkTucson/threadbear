@@ -322,6 +322,8 @@ impl ThreadPane {
         let doc = self.markdown_state(&item.item_id, &source, cx);
         let text_style = self.reading_style(cx);
         let text = self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);
+        // A ```bash block's play and copy icons (shell_blocks.rs).
+        let text = crate::shell_blocks::with_icons(text, &source, &self.summary.id);
         // TextKit leaves out the space over a text's first paragraph, so a
         // reply that opens with a heading starts without the heading's 6.
         let top = if markdown::starts_with_heading(&source) { ROW_TOP - 6. } else { ROW_TOP };

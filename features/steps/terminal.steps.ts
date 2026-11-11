@@ -193,3 +193,62 @@ Then('{int} shell(s) is/are running', async function (this: ThreadbearWorld, cou
 Then('the Terminal says the shell has exited', async function (this: ThreadbearWorld) {
   await this.until('the shell exited', (d) => d.terminal?.shell === 'exited');
 });
+
+// ---- Putting a reply's command in the Terminal (`terminal.putcommand`) ----
+
+Given("the agent's last reply in {string} holds a bash block {string}", async function (this: ThreadbearWorld, title: string, command: string) {
+  const thread = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
+  await this.app.do({ cmd: 'mock', method: 'terminal', params: { threadId: thread.id, block: command } });
+});
+
+Then('the reply offers to put {string} in the Terminal', async function (this: ThreadbearWorld, command: string) {
+  await this.until(`a block offering to put "${command}"`, (d) => d.transcript.rows.some((r) => r.shellBlocks?.includes(`[put, copy] ${command}`)));
+});
+
+Then('the reply only offers to copy {string}', async function (this: ThreadbearWorld, command: string) {
+  await this.until(`a block only offering to copy "${command}"`, (d) => d.transcript.rows.some((r) => r.shellBlocks?.includes(`[copy] ${command}`)));
+});
+
+// What the block's play icon does: both apps' `put` takes its path.
+When('I put {string} in the Terminal from its block', async function (this: ThreadbearWorld, command: string) {
+  await this.app.do({ cmd: 'terminal', put: command });
+});
+
+When('I press Return in the Terminal', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'terminal', press: 'enter' });
+});
+
+/** The prompt's line: the last line on the screen with anything on it. */
+function promptLine(lines: string[]): string {
+  return [...lines].reverse().find((l) => l.trim() !== '') ?? '';
+}
+
+Then("the Terminal's prompt has {string} waiting for Return", async function (this: ThreadbearWorld, command: string) {
+  await untilScreen(this, `"${command}" at the prompt, Return to run it`, (lines, d) => d.terminal?.waitingForReturn === true && promptLine(lines).endsWith(command));
+});
+
+Then("the Terminal's prompt doesn't have {string}", async function (this: ThreadbearWorld, command: string) {
+  // A moment for anything that was going to land to land.
+  await new Promise((done) => setTimeout(done, 600));
+  const d = await this.app.dump();
+  assert.ok(!promptLine(screen(d)).includes(command), `the prompt has it:\n${screen(d).join('\n')}`);
+});
+
+Then("the Terminal doesn't show the line {string}", async function (this: ThreadbearWorld, line: string) {
+  await new Promise((done) => setTimeout(done, 600));
+  const d = await this.app.dump();
+  assert.ok(!screen(d).includes(line), `it ran:\n${screen(d).join('\n')}`);
+});
+
+Then('{string} is copied instead', async function (this: ThreadbearWorld, command: string) {
+  // A shell only just started gets ten seconds to reach its prompt before
+  // it counts as busy, so this waits that long.
+  const deadline = Date.now() + 20_000;
+  let last = '';
+  while (Date.now() < deadline) {
+    last = okValue(await this.app.do({ cmd: 'clipboard' }));
+    if (last.includes(command)) return;
+    await new Promise((done) => setTimeout(done, 200));
+  }
+  assert.fail(`the clipboard has ${last}`);
+});

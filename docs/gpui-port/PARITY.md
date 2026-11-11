@@ -686,6 +686,51 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: the scenarios for each (`@sidebar.sections`, `@reply-buttons`,
   `@composer.textbox`, `@menu.app`, `@card.needsyou`) on Tinker Desk, as each
   slice landed.
+### 2026-11-11 A reply's shell block into the Terminal (`terminal.putcommand`)
+
+- A closed ```sh, ```bash, ```zsh or ```shell block in a reply has the Swift
+  app's two icons at its top right, where ShellBlockIcons puts them: play
+  (Put in Terminal) and copy, each ticking green for a moment when pressed.
+  Play shows only where the Terminal is the thread's own shell in its own
+  folder on this Mac (the thread in the main panel, on this Mac, not
+  archived, its folder there); elsewhere a block offers copy alone. A block
+  still streaming in has none, and one with control or invisible characters
+  isn't offered (threadbear_core's `ShellBlock`, ported with its tests).
+- Play brings the Terminal up, starts the thread's shell if it has none,
+  waits for its first prompt, and pastes the command in brackets with the
+  keyboard on it, never pressing Return; the panel says "Return runs it".
+  A second block's command takes the place of one still unrun (^U, checked
+  gone off the screen first); the same one again does nothing; a shell
+  that's running something, or has someone's own words on its prompt, gets
+  nothing typed: the command is copied, and a note says "Terminal's in use,
+  so it's copied". What's on the prompt is followed from the keys, as the
+  Swift app does (`TerminalPut`), and whether the shell has the terminal from
+  the pty's foreground group.
+- The cursor now blinks as SwiftTerm's does, steady while you type and when
+  a program asks for a steady one.
+- Both dumps give a reply row's `shellBlocks` ("[put, copy] npm test" or
+  "[copy] npm test"); both apps' `terminal` `put` takes the play icon's own
+  path, a busy shell's copy included (the scripted Swift app's block icons
+  now copy to its own pasteboard, as its other copies do). The mock's
+  `mock.terminal` takes `block` for a reply holding one.
+- Not here: the Swift app's other reason for no play icon, a thread open in
+  a panel of its own, as this app doesn't open threads in panels of their
+  own yet (its scenario stays `@manual @gpui-pending`).
+- Files: `desktop/gpui/src/shell_blocks.rs`, the hooks in `rows.rs`
+  (`assistant_row`), `thread.rs` (the dump), `main.rs`, `terminal.rs`
+  (`put` through the icon's path, the blink), `terminal_element.rs`,
+  `app/Sources/Threadbear/{AppDump,Automation}.swift`,
+  `features/terminal.feature` and its steps, `features/reading-a-thread.feature`.
+- Verification: on Tinker Desk, terminal.feature's 15 scenarios (four new:
+  a block's command at the prompt and only Return running it, a second
+  command in place of the first, a busy shell's copy, copy alone where the
+  folder isn't here), GPUI 15 of 15 and Swift 15 of 15, and
+  reading-a-thread.feature on GPUI. Pictures of both apps from `compare.ts`,
+  dark and light, of a reply's block and the Terminal after play: the icons
+  sit where Swift's do (the kit filled the corner it puts actions in, which
+  showed as a box behind them; they're out of its flow now), and the pasted
+  command, highlighted by zsh, and "Return runs it" match.
+
 ### 2026-11-11 The Terminal: a real shell per thread (`terminal.panel`, `terminal.lifecycle`)
 
 - ⌘J (and View > Show Terminal) brings the Terminal up under the thread with
