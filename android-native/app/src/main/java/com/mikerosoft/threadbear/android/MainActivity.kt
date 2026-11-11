@@ -89,7 +89,7 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
         val nav = rememberNavController()
         val open by openThread.collectAsStateWithLifecycle()
         LaunchedEffect(open) {
-            open?.let { nav.navigate("thread/$it") { launchSingleTop = true }; openThread.value = null }
+            open?.let { nav.openThread(it) { launchSingleTop = true }; openThread.value = null }
         }
         // A thread that started soon after it was asked for opens, as the iPhone's
         // sheet used to wait to do, unless you've gone into another meanwhile.
@@ -97,14 +97,14 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
         LaunchedEffect(started) {
             val id = started ?: return@LaunchedEffect
             model.shell.justStarted.value = null
-            if (nav.currentDestination?.route == "inbox") nav.navigate("thread/$id")
+            if (nav.currentDestination?.route == "inbox") nav.openThread(id)
         }
         // Forward to the thread last backed out of, for a swipe left on a thread.
         CompositionLocalProvider(LocalPageForward provides rememberPageForward(nav)) {
         NavHost(nav, startDestination = "inbox") {
             composable("inbox") {
                 InboxScreen(
-                    open = { nav.navigate("thread/$it") },
+                    open = { nav.openThread(it) },
                     newThread = { nav.navigate("new") { launchSingleTop = true } },
                     settings = { nav.navigate("settings") { launchSingleTop = true } },
                     pocket = { nav.navigate("pocket") { launchSingleTop = true } },
@@ -121,7 +121,7 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
                 // or New thread goes on the inbox, not over the Pocket.
                 PocketScreen(
                     close = { nav.popBackStack() },
-                    openThread = { id -> nav.navigate("thread/$id") { popUpTo("inbox") } },
+                    openThread = { id -> nav.openThread(id) { popUpTo("inbox") } },
                     add = {
                         model.shell.composeText.value = "Add to my pocket: "
                         nav.navigate("new") { popUpTo("inbox") }
@@ -132,7 +132,7 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
                 val context = androidx.compose.ui.platform.LocalContext.current
                 LaunchedEffect(entry.arguments?.getString("id")) { entry.arguments?.getString("id")?.let { Push.clear(context, it) } }
                 ThreadScreen(threadId = entry.arguments?.getString("id") ?: "", back = { nav.popBackStack() },
-                    open = { nav.navigate("thread/$it") })
+                    open = { nav.openThread(it) })
             }
         }
         }
@@ -178,4 +178,14 @@ private fun AskForNotifications(model: AppModel) {
         prefs.edit().putBoolean("askedNotifications", true).apply()
         if (android.os.Build.VERSION.SDK_INT >= 33) ask.launch(android.Manifest.permission.POST_NOTIFICATIONS)
     }
+}
+
+/**
+ * Every way into a thread goes through here: an id that isn't a thread id
+ * (a "/" from odd backend data, a Pocket card, a link) would make a route
+ * that matches nothing, and navigate() throws on that.
+ */
+private fun androidx.navigation.NavController.openThread(id: String, options: androidx.navigation.NavOptionsBuilder.() -> Unit = {}) {
+    val valid = Push.validThreadId(id) ?: return
+    navigate("thread/$valid", options)
 }
