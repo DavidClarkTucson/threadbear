@@ -610,7 +610,8 @@ async function main(): Promise<void> {
     // On the install's default mode (own-threads.ts).
     start: (r) => startOwnThread(runner, r, updateRelease?.checkout),
     open: openThread,
-    send: (threadId, text) => void runner.send(threadId, text, [], { queue: true }),
+    send: (threadId, text) => runner.send(threadId, text, [], { queue: true }).turnId,
+    unqueue: (threadId, turnId) => runner.unqueue(threadId, turnId),
     followsOrigin: () => followOriginOn(cfg.home),
     checkout: updateRelease?.checkout,
   });
@@ -624,6 +625,7 @@ async function main(): Promise<void> {
     notice: (level, message) => runner.notice(level, message),
     // Only with a checkout to work in (a release that records one).
     onFailed: (f) => Boolean(updateRelease?.checkout) && (updateFixer.failed(f), true),
+    onThrough: (commit) => updateFixer.through(commit),
     restart: (p) => restarter.request({ when: 'idle', ...p }),
     pendingRestart: () => Boolean(restarter.status().pendingRestart),
     followsOrigin: () => followOriginOn(cfg.home),

@@ -3112,6 +3112,17 @@ export class Runner {
 
   // ----------------------------------------------------------------- snooze
 
+  // Takes back a queued message that hasn't started: the runner's own,
+  // gone stale before its turn came (fix-update.ts). Whether it was there.
+  unqueue(threadId: string, turnId: string): boolean {
+    const st = this.threads.get(threadId);
+    const i = st?.rec.queue.findIndex((q) => q.turnId === turnId) ?? -1;
+    if (!st || i < 0) return false;
+    st.rec.queue.splice(i, 1);
+    this.markDirty(st);
+    return true;
+  }
+
   // Starts the next queued message if nothing is running. Returns true if
   // one started. One that can't be written (disk full) stays at the front.
   kickQueue(st: ThreadState): boolean {
