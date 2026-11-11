@@ -332,9 +332,9 @@ fun WorkedView(worked: WorkedTurn) {
     Column(Modifier.fillMaxWidth()) {
         Disclosure(worked.title, open) { open = !open }
         AnimatedVisibility(open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Row(Modifier.height(IntrinsicSize.Min).padding(top = 6.dp)) {
-                Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
-                Spacer(Modifier.width(12.dp))
+            // The line drawn behind: a turn's working can hold pictures and rich
+            // blocks, which can't be measured intrinsically (sideBar).
+            Box(Modifier.padding(top = 6.dp).sideBar(MaterialTheme.colorScheme.outlineVariant, 1.dp).padding(start = 13.dp)) {
                 WorkedItems(worked)
             }
         }

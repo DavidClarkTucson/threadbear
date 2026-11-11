@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.AnnotatedString
@@ -126,9 +127,10 @@ private fun Block(block: MarkdownBlock, inline: InlineStyle, style: TextStyle, s
         }
         is MarkdownBlock.Rich -> RichBlockView(block.kind, block.source)
         is MarkdownBlock.Draft -> DraftBlockView(block.draft)
-        is MarkdownBlock.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
-            Box(Modifier.width(3.dp).fillMaxHeight().clip(RoundedCornerShape(1.5.dp)).background(colors.outline))
-            Spacer(Modifier.width(9.dp))
+        // The bar drawn behind, not a sibling sized by IntrinsicSize: a quote can
+        // hold a picture, whose layout can't be asked its intrinsic height
+        // (it threw: Codex review, 11 Nov).
+        is MarkdownBlock.Quote -> Box(Modifier.sideBar(colors.outline, 3.dp).padding(start = 12.dp)) {
             MarkdownBlocks(block.blocks, style = style.copy(color = colors.onSurfaceVariant), seq = seq, buttons = buttons)
         }
         MarkdownBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 4.dp), color = colors.outlineVariant)
@@ -250,6 +252,17 @@ private fun MarkdownTable(table: MarkdownBlock.Table, inline: InlineStyle, style
     }
     if (hidden.isNotEmpty()) Text(hidden.joinToString(" and ") + " on the Mac", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
     }
+}
+
+/**
+ * A rounded bar down the left of whatever this is on, as tall as it is.
+ * Drawn behind rather than laid out beside, so nothing is ever measured
+ * intrinsically: what's inside can be a picture or a web view, which can't
+ * answer an intrinsic measure.
+ */
+fun Modifier.sideBar(color: Color, width: androidx.compose.ui.unit.Dp): Modifier = drawBehind {
+    val w = width.toPx()
+    drawRoundRect(color, size = androidx.compose.ui.geometry.Size(w, size.height), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2, w / 2))
 }
 
 private const val MAX_COLUMNS = 24

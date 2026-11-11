@@ -107,9 +107,7 @@ fun DraftBlockView(draft: DraftBlock) {
                 val text = if (line.spans.all { it.text.isEmpty() }) AnnotatedString(" ")
                 else attributed(line, draft.kind, signals.accent) { link(it, null) }
                 if (line.quote) {
-                    Row(Modifier.height(IntrinsicSize.Min)) {
-                        Box(Modifier.width(3.dp).fillMaxHeight().clip(RoundedCornerShape(1.5.dp)).background(colors.outline))
-                        Spacer(Modifier.width(7.dp))
+                    Box(Modifier.sideBar(colors.outline, 3.dp).padding(start = 10.dp)) {
                         Text(text, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
                     }
                 } else {

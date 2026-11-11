@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -184,6 +185,11 @@ object PictureLoader {
         }
     }
 
+    /**
+     * One at a time, trim, write and rename together: two saves trimming
+     * before either wrote went over the budget (Codex review, 11 Nov).
+     */
+    @Synchronized
     private fun saved(context: Context, data: ByteArray, url: String, ext: String): File {
         val folder = File(context.cacheDir, "moving-pictures").apply { mkdirs() }
         val name = MessageDigest.getInstance("SHA-256").digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -267,16 +273,15 @@ fun ReplyPicture(
         return
     }
     val colors = MaterialTheme.colorScheme
-    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = if (alignEnd) Alignment.CenterEnd else Alignment.CenterStart) {
-        val pw = (loaded?.width ?: width?.takeIf { it > 0 } ?: 2000).toFloat()
-        val ph = (loaded?.height ?: height?.takeIf { it > 0 } ?: 1500).toFloat()
-        var nw = pw / 2
-        var nh = ph / 2
-        if (nw < 120) { nh = nh * 120 / nw; nw = 120f }
-        val fit = minOf(1f, maxWidth.value / nw, tallest.value / nh)
+    val pw = (loaded?.width ?: width?.takeIf { it > 0 } ?: 2000).toFloat()
+    val ph = (loaded?.height ?: height?.takeIf { it > 0 } ?: 1500).toFloat()
+    // A plain Layout rather than BoxWithConstraints, which is a
+    // SubcomposeLayout and throws when asked for its intrinsic size, as a
+    // quote's bar once did (Codex review, 11 Nov). This answers any measure.
+    Layout(content = {
         val shape = RoundedCornerShape(10.dp)
         Box(
-            Modifier.size((nw * fit).dp, (nh * fit).dp).clip(shape).background(colors.surfaceContainerHigh)
+            Modifier.clip(shape).background(colors.surfaceContainerHigh)
                 .border(0.5.dp, colors.outlineVariant, shape)
                 .clickable(enabled = loaded != null, onClickLabel = if (loaded?.video != null) "Play it full screen" else "Show it full screen") { fullScreen = true },
             contentAlignment = Alignment.Center,
@@ -291,6 +296,17 @@ fun ReplyPicture(
                 }
             }
         }
+    }, modifier = Modifier.fillMaxWidth()) { measurables, constraints ->
+        var nw = pw / 2
+        var nh = ph / 2
+        if (nw < 120) { nh = nh * 120 / nw; nw = 120f }
+        val room = if (constraints.hasBoundedWidth) constraints.maxWidth.toDp().value else nw
+        val fit = minOf(1f, room / nw, tallest.value / nh)
+        val w = (nw * fit).dp.roundToPx().coerceIn(1, maxOf(1, if (constraints.hasBoundedWidth) constraints.maxWidth else 4096))
+        val h = (nh * fit).dp.roundToPx().coerceIn(1, tallest.roundToPx().coerceAtLeast(1))
+        val placeable = measurables.first().measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+        val outer = if (constraints.hasBoundedWidth) constraints.maxWidth else w
+        layout(outer, h) { placeable.place(if (alignEnd) outer - w else 0, 0) }
     }
     if (fullScreen) loaded?.let { PictureViewer(url, alt, it) { fullScreen = false } }
 }
@@ -350,14 +366,20 @@ fun PictureViewer(url: String, alt: String, preview: LoadedPicture, close: () ->
     var full by remember { mutableStateOf<LoadedPicture?>(null) }
     var saving by remember { mutableStateOf(false) }
     LaunchedEffect(url) {
-        // A video's file is the whole of it already.
-        if (preview.video == null) full = runCatching { PictureLoader.picture(context, url, null) }.getOrNull()
+        // A video's file is the whole of it already, while it's still on disk:
+        // the disk budget may have let it go since the row loaded it, and the
+        // loader fetches it again then.
+        val video = preview.video
+        if (video == null || !video.exists()) full = runCatching { PictureLoader.picture(context, url, null) }.getOrNull()
     }
-    val picture = full ?: preview
+    // Never the preview's video once its file has gone: the player would get a dead path.
+    val picture = full ?: preview.takeIf { p -> p.video?.exists() != false }
     Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            val video = picture.video
-            if (video != null) {
+            val video = picture?.video
+            if (picture == null) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), strokeWidth = 2.dp, color = Color.White)
+            } else if (video != null) {
                 AndroidView(
                     factory = { ctx ->
                         VideoView(ctx).apply {
@@ -374,7 +396,7 @@ fun PictureViewer(url: String, alt: String, preview: LoadedPicture, close: () ->
             }
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 BarIcon(Line.Close, "Close", onClick = close)
-                if (video == null) {
+                if (picture != null && video == null) {
                     if (saving) {
                         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 1.5.dp, color = Color.White)
