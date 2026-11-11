@@ -1647,3 +1647,18 @@ test('parts: the RPC sets and clears parentId, and the agent tools take parent a
   assert.equal(projects.record(port.id)?.parentId, undefined);
   assert.equal((await call('update_project', { project: 'Threadbear', parent: 'Android' })).error, true, 'a part has no parts, said as an error');
 });
+
+test('parts: a projects.json with a cycle or three levels loads with nothing hidden', () => {
+  const home = tmpDir();
+  const at = { createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', createdBy: 'mike' };
+  fs.writeFileSync(path.join(home, 'projects.json'), JSON.stringify({ projects: [
+    { id: 'p_a', title: 'A', parentId: 'p_b' }, { id: 'p_b', title: 'B', parentId: 'p_a' },
+    { id: 'p_top', title: 'Top' }, { id: 'p_mid', title: 'Mid', parentId: 'p_top' }, { id: 'p_low', title: 'Low', parentId: 'p_mid' },
+    { id: 'p_self', title: 'Self', parentId: 'p_self' }, { id: 'p_lost', title: 'Lost', parentId: 'p_gone' },
+  ].map((p) => ({ ...at, ...p })) }));
+  const projects = new Projects({ home, clock: new FakeClock(), log: nullLogger });
+  const h = makeHarness(home, {}, { projects });
+  projects.start(h.runner);
+  const parentOf = Object.fromEntries(projects.list().map((p) => [p.id, p.parentId ?? null]));
+  assert.deepEqual(parentOf, { p_a: null, p_b: null, p_top: null, p_mid: 'p_top', p_low: null, p_self: null, p_lost: null });
+});

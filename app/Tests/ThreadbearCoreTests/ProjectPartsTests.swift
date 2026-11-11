@@ -55,6 +55,19 @@ final class ProjectPartsTests: XCTestCase {
         XCTAssertEqual(ProjectCard.matching(cards, "GPUI").map(\.id), ["tb"], "a part's name finds its parent's card")
     }
 
+    func testACycleOrThreeLevelsHidesNothing() {
+        let projects = [
+            Project(id: "a", title: "A", updatedAt: now, parentId: "b"),
+            Project(id: "b", title: "B", updatedAt: now, parentId: "a"),
+            Project(id: "top", title: "Top", updatedAt: now),
+            Project(id: "mid", title: "Mid", updatedAt: now, parentId: "top"),
+            Project(id: "low", title: "Low", updatedAt: now, parentId: "mid"),
+        ]
+        let sections = ProjectSections.build(projects: projects, threads: [], now: now)
+        XCTAssertEqual(Set(sections.topLevel.map(\.id)), ["a", "b", "top", "low"])
+        XCTAssertEqual(sections.parts["top"]?.map(\.id), ["mid"])
+    }
+
     func testAnUpdateMakesItAPartOrItsOwnAgain() {
         let project = Project(id: "port", title: "GPUI port")
         XCTAssertEqual(ProjectUpdate(parentId: "tb").applied(to: project).parentId, "tb")

@@ -147,6 +147,7 @@ export class Projects {
     for (const p of saved?.projects ?? []) {
       if (p && typeof p.id === 'string' && typeof p.title === 'string') this.items.set(p.id, { ...p, folders: p.folders ?? [], goals: p.goals ?? '', state: p.state ?? '', notes: p.notes ?? '', links: p.links ?? [] });
     }
+    this.checkParents();
     // A deleted thread changes its projects' counts.
     this.unlisten = host.onNotification((n) => {
       if (n.method === 'thread.deleted') this.publish();
@@ -655,6 +656,23 @@ export class Projects {
       throw bad(`"${parent.title}" is a part of "${above?.title ?? parent.parentId}" already, and a part can't have parts.`);
     }
     return parent.id;
+  }
+
+  // One level of parts, whatever projects.json says (edited by hand, or a
+  // cycle): a parent that's missing, itself, or a part already is dropped,
+  // judged on what was loaded, so A and B pointing at each other both end
+  // up projects of their own and nothing is hidden (Codex review).
+  private checkParents(): void {
+    const loaded = new Map([...this.items].map(([id, p]) => [id, p.parentId]));
+    for (const p of this.items.values()) {
+      if (p.parentId === undefined) continue;
+      const parent = typeof p.parentId === 'string' ? this.items.get(p.parentId) : undefined;
+      if (!parent || parent.id === p.id || loaded.get(parent.id) !== undefined) {
+        const { parentId: _dropped, ...rest } = p;
+        this.items.set(p.id, rest);
+        this.log.warn('a project part pointed somewhere it cannot, so it is its own project now', { id: p.id, parentId: p.parentId });
+      }
+    }
   }
 
   // The project's parts, by title.

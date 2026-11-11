@@ -1008,6 +1008,35 @@ export function buildThreadbearTools(
     // Every field of each, as read_project prints them (Codex review).
     ...(p.tasks?.items.length ? { tasks: p.tasks.items } : {}),
   });
+  // The brief a thread in `p` is told, with what it gets from a parent
+  // (its title and goals) and its parts' names (docs/protocol.md, Projects,
+  // "Parts"), for an approval to show and hold fixed (Codex review: the
+  // parent's goals came along unseen).
+  const fullBriefShown = async (p: Project): Promise<Record<string, unknown>> => {
+    const every = await mustProjects().list({ archived: true });
+    const parent = p.parentId ? every.find((x) => x.id === p.parentId) : undefined;
+    const parts = every.filter((x) => x.parentId === p.id && !x.archived).map((x) => x.title);
+    return {
+      ...briefShown(p),
+      ...(parent ? { partOf: { title: parent.title, ...(parent.goals ? { goals: parent.goals } : {}) } } : {}),
+      ...(parts.length ? { parts } : {}),
+    };
+  };
+  // The thread most above `caller` among those told about any of these
+  // projects (in its own list, or saying it's in it, so a thread still on a
+  // draining runner counts), or undefined when none is.
+  const topTold = async (projectIds: string[], caller: Authority): Promise<{ mode: PermissionMode; confined: boolean; title: string } | undefined> => {
+    const pc = mustProjects();
+    const listed = (await Promise.all(projectIds.map(async (id) => (await pc.get(id)).threadIds))).flat();
+    const threadIds = [...new Set([...listed, ...(await all()).filter((t) => t.projects?.some((m) => projectIds.includes(m.id))).map((t) => t.id)])];
+    let top: { mode: PermissionMode; confined: boolean; title: string } | undefined;
+    for (const id of threadIds) {
+      if (id === selfId) continue;
+      const t = await accessOf(id);
+      if (above(t, caller) && (!top || raises(t.mode, top.mode))) top = t;
+    }
+    return top;
+  };
   const realOr = (f: string): string => {
     try {
       return fs.realpathSync.native(f);
@@ -1096,7 +1125,18 @@ export function buildThreadbearTools(
         join: z.boolean().optional().describe('Put this thread in it. Default true.'),
         parent: z.string().optional().describe(PARENT_HELP),
       },
-      handle(async ({ title, folders, goals, state, notes, links, join, parent }) => {
+      handle(async ({ title, folders, goals, state, notes, links, join, parent }, extra) => {
+        // A part's name goes into its parent's brief (Projects, "Parts"), so
+        // making one asks first when that parent's threads have more access
+        // than this one, as changing the parent's title would (Codex review).
+        const caller = parent?.trim() ? await restricted() : undefined;
+        if (caller) {
+          const into = await project(parent!);
+          const top = await topTold([into.id], caller);
+          if (top) {
+            await confirm('create_project', [`Name a new part "${title}" in the brief of the project "${into.title}", which "${top.title}" (${accessName(top, caller)}) is told`], { title, parent: `${into.title} (${into.id})` }, extra?.signal);
+          }
+        }
         const p = await mustProjects().create({
           title,
           folders: await Promise.all((folders ?? []).map(folder)),
@@ -1152,23 +1192,26 @@ export function buildThreadbearTools(
         // the brief tells them to keep it moving.
         const caller = await restricted();
         const added = addFolders?.length ? await Promise.all(addFolders.map(folder)) : undefined;
-        // A parent changes the brief too: its threads hear the part's name,
-        // and the part's threads its goals, so the parent's threads count.
-        const newParent = parent?.trim() ? await project(parent) : undefined;
+        // Parts (docs/protocol.md, Projects, "Parts") widen who's told: a
+        // parent's title and goals go to its parts' threads, a part's name
+        // to its parent's, and a new parent's goals to this one's threads.
+        // So every one of those counts (Codex review), and the card shows
+        // the goals a new parent brings.
+        const newParent = parent?.trim() ? (await pc.get((await project(parent)).id)).project : undefined;
         if (caller && ([title, goals, state, notes, appendNote, notion, links, parent].some((x) => x !== undefined) || addFolders?.length || addLinks?.length)) {
-          const told = [p.id, ...(newParent ? [newParent.id] : []), ...(p.parentId ? [p.parentId] : [])];
-          const listed = (await Promise.all(told.map(async (id) => (await pc.get(id)).threadIds))).flat();
-          const threadIds = [...new Set([...listed, ...(await all()).filter((t) => t.projects?.some((m) => told.includes(m.id))).map((t) => t.id)])];
-          let top: { mode: PermissionMode; confined: boolean; title: string } | undefined;
-          for (const id of threadIds) {
-            if (id === selfId) continue;
-            const t = await accessOf(id);
-            if (above(t, caller) && (!top || raises(t.mode, top.mode))) top = t;
-          }
+          const parts = (await pc.list({ archived: true })).filter((x) => x.parentId === p.id).map((x) => x.id);
+          const told = [p.id, ...parts, ...(newParent ? [newParent.id] : []), ...(p.parentId ? [p.parentId] : [])];
+          const top = await topTold(told, caller);
           if (top) {
-            const fields = Object.fromEntries(Object.entries({ title, goals, state, notes, appendNote, addFolders: added, notion, links, addLinks, parent: newParent ? `${newParent.title} (${newParent.id})` : parent }).filter(([, v]) => v !== undefined));
+            const parentShown = newParent ? { title: newParent.title, id: newParent.id, ...(newParent.goals ? { goals: newParent.goals } : {}) } : parent;
+            const fields = Object.fromEntries(Object.entries({ title, goals, state, notes, appendNote, addFolders: added, notion, links, addLinks, parent: parentShown }).filter(([, v]) => v !== undefined));
             await confirm('update_project', [`Change the brief of the project "${p.title}", which "${top.title}" (${accessName(top, caller)}) is told`], { project: p.id, ...fields }, extra?.signal);
             if (addFolders?.length) for (const [i, f] of addFolders.entries()) await sameFolder(f, added![i]!);
+            // The goals shown are the goals given: a parent changed while the
+            // card waited is refused.
+            if (newParent && (await pc.get(newParent.id)).project.goals !== newParent.goals) {
+              throw new Error(`"${newParent.title}" changed while the user was being asked, so "${p.title}" wasn't made a part of it. Ask again.`);
+            }
           }
         }
         let folders: string[] | undefined;
@@ -1213,9 +1256,9 @@ export function buildThreadbearTools(
         // there), so a card can't speak for it. The user can join it themselves.
         const linked = reasons.length ? current.folders.find((f) => realOr(f) !== f) : undefined;
         if (linked) throw new Error(`${linked} in the project "${p.title}" is a link (to ${realOr(linked)}), so "${p.title}" can't be put into a thread with more access from here. Ask the user to do it.`);
-        const shown = briefShown(current);
+        const shown = await fullBriefShown(current);
         await confirm('join_project', reasons, { project: p.id, threadId: id, ...shown }, extra?.signal);
-        if (reasons.length && JSON.stringify(briefShown((await mustProjects().get(p.id)).project)) !== JSON.stringify(shown)) {
+        if (reasons.length && JSON.stringify(await fullBriefShown((await mustProjects().get(p.id)).project)) !== JSON.stringify(shown)) {
           throw new Error(`The project "${p.title}" changed while the user was being asked, so the thread wasn't put in it. Ask again.`);
         }
         await mustProjects().changeMembership(id, { add: [p.id], by: 'agent' });

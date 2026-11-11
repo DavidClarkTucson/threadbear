@@ -34,8 +34,12 @@ public struct ProjectSections: Sendable, Equatable {
     public init(sections: [ProjectSection] = [], unfiled: [ThreadSummary] = []) {
         self.sections = sections
         self.unfiled = unfiled
-        let shown = Set(sections.map(\.id))
-        let isPart = { (section: ProjectSection) in section.project.parentId.map { $0 != section.id && shown.contains($0) } ?? false }
+        // A part nests only under a shown parent that isn't a part itself,
+        // so whatever comes in (a cycle, three levels) nothing is hidden.
+        let parentOf = Dictionary(sections.map { ($0.id, $0.project.parentId) }, uniquingKeysWith: { a, _ in a })
+        let isPart = { (section: ProjectSection) in
+            section.project.parentId.map { $0 != section.id && parentOf[$0] == .some(nil) } ?? false
+        }
         var byParent: [String: [ProjectSection]] = [:]
         for section in sections where isPart(section) {
             byParent[section.project.parentId!, default: []].append(section)
