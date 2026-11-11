@@ -6,6 +6,7 @@ import { neutraliseCopied, realCopy } from '../real-copy.ts';
 import type { Runner } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import type { ThreadSummary } from '../protocol.ts';
+import type { ThreadRecord } from '../store.ts';
 import type { Drain, ThreadState } from '../runner.ts';
 import { DRAIN_AGENT_MS, DRAIN_BACKGROUND_MS, DRAIN_CHECK_MS, DRAIN_MAX_OLD_MS, DRAIN_SETTLE_MS, newRuntime } from '../runner.ts';
 
@@ -187,7 +188,12 @@ export const handoversPart = {
       this.settleUnvouched(all.records, all.broken);
     }
     this.store.forget(threadId);
-    const rec = this.store.load(threadId) ?? this.rebuild(threadId);
+    let rec: ThreadRecord | undefined;
+    try {
+      rec = this.store.load(threadId) ?? this.rebuild(threadId);
+    } catch (e) {
+      this.log.error("couldn't rebuild a handed-over thread's record", { threadId, error: String(e) });
+    }
     if (!rec) {
       this.log.warn('a handed-over thread is gone', { threadId });
       return undefined;

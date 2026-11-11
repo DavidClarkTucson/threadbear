@@ -786,8 +786,13 @@ export class Runner {
     this.settleUnvouched(records, broken);
     for (const id of broken) {
       if (opts.skip?.has(id)) continue;
-      const rec = this.rebuild(id);
-      if (rec) records.push(rec);
+      // One at a time too: a log that can't be rebuilt from stays as it is.
+      try {
+        const rec = this.rebuild(id);
+        if (rec) records.push(rec);
+      } catch (e) {
+        this.log.error("couldn't rebuild a thread's record", { threadId: id, error: String(e) });
+      }
     }
     // A dev runner on a copy of the real data dir: its threads name real
     // sessions and folders, so none of them may run (real-copy.ts).
@@ -951,7 +956,10 @@ export class Runner {
   rebuild(id: string): ThreadRecord | undefined {
     const log = this.store.log(id);
     if (log.lastSeq === 0) return undefined;
-    const events = log.read(1, log.lastSeq);
+    // Only events that are events: the log may be another runner's (a
+    // move), and a line of `null` or a number threw here at every start.
+    const events = log.read(1, log.lastSeq).filter((e) => typeof e === 'object' && e !== null && typeof (e as { type?: unknown }).type === 'string');
+    if (!events.length) return undefined;
     const first = events[0];
     const last = events[events.length - 1];
     const firstMsg = events.find((e) => e.type === 'user.message');
@@ -963,7 +971,7 @@ export class Runner {
     const accountId = this.defaultAccountId();
     const rec: ThreadRecord = {
       id,
-      title: firstMsg && firstMsg.type === 'user.message' ? titleFrom(firstMsg.text) : 'Untitled',
+      title: firstMsg && firstMsg.type === 'user.message' && typeof firstMsg.text === 'string' ? titleFrom(firstMsg.text) : 'Untitled',
       cwd: this.cfg.defaults.cwd,
       accountId,
       // The account's own, so a Codex default never starts the Claude CLI
@@ -972,10 +980,10 @@ export class Runner {
       // Unknown, so the safer one.
       permissionMode: 'ask',
       status: open ? 'running' : 'idle',
-      createdAt: first.ts,
-      updatedAt: last.ts,
-      lastActivityAt: last.ts,
-      preview: lastText && lastText.type === 'assistant.text' ? oneLine(lastText.text, LIMITS.previewChars) : '',
+      createdAt: typeof first.ts === 'string' ? first.ts : this.isoNow(),
+      updatedAt: typeof last.ts === 'string' ? last.ts : this.isoNow(),
+      lastActivityAt: typeof last.ts === 'string' ? last.ts : this.isoNow(),
+      preview: lastText && lastText.type === 'assistant.text' && typeof lastText.text === 'string' ? oneLine(lastText.text, LIMITS.previewChars) : '',
       lastSeq: log.lastSeq,
       lastSeenSeq: log.lastSeq,
       nativeSessionId: crypto.randomUUID(),

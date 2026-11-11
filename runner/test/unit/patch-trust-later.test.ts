@@ -685,13 +685,14 @@ test('schedule check: moving its folder from a thread that asks first approves i
   const two = repo({ 'check.sh': '#!/bin/sh\necho two\n' });
   {
     const { sched, asked, call, h } = askTools(one, 'ask');
-    const sc = await sched.create({ text: 'Look', title: 'Watch', cron: '*/5 * * * *', cwd: one, check: './check.sh' });
+    const sc = await sched.create({ text: 'Look', title: 'Watch', cron: '*/5 * * * *', cwd: one, check: './check.sh\n# and-this-line-too' });
     const r = await call('update_schedule', { scheduleId: sc.id, folder: two });
     assert.equal(r.isError, undefined, r.content[0]?.text);
     assert.equal(asked.length, 1, 'a card for it');
     assert.match(JSON.stringify(asked[0]), /\.\/check\.sh/, 'the card says what it runs');
+    assert.match(JSON.stringify(asked[0]), /and-this-line-too/, 'all of it (Muse\'s third look)');
     assert.ok(JSON.stringify(asked[0]).includes(two), 'and where');
-    assert.equal(h.runner.patchTrust.checkApproved('./check.sh', two).approved, true);
+    assert.equal(h.runner.patchTrust.checkApproved('./check.sh\n# and-this-line-too', two).approved, true);
     sched.stop();
   }
   {

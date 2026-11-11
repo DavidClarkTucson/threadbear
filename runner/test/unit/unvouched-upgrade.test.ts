@@ -254,3 +254,34 @@ test('90/91: a handover of an unreadable moved record before start still holds i
   h.runner.adopt(other);
   assert.equal((await fresh.check(c.patch, 0)).trusted, false);
 });
+
+// Muse's third look: the note's folders were tried at every "." after each
+// ", in /", walking up each one, so a crafted note held the start for
+// minutes; and a record rebuilt from a log of nulls threw at every start.
+test('90/91: a crafted note is read in well under 100 ms of CPU, and a long real one still holds', async () => {
+  const { movedInWorktrees } = await import('../../src/runner/moves.ts');
+  const c = checkout();
+  const dir = tmpDir();
+  const evil = { seq: 1, type: 'system.note', text: 'Moved from x, in /' + 'a/'.repeat(20_000) + '.'.repeat(20_000) + ', in /'.repeat(5000) };
+  const long = { seq: 2, type: 'system.note', text: `Moved from Bruce to M5, in ${c.wt}. Left behind: ${'some/file.ts, '.repeat(100_000)}` };
+  fs.writeFileSync(path.join(dir, 'events.ndjson'), [evil, long].map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const before = process.cpuUsage();
+  const held = movedInWorktrees(dir);
+  const used = process.cpuUsage(before);
+  const ms = (used.user + used.system) / 1000;
+  assert.ok(ms < 100, `took ${ms} ms of CPU`);
+  assert.deepEqual(held, [c.wt]);
+});
+
+test('96: a record rebuilt from a log that holds no events starts the runner anyway', () => {
+  const home = tmpDir();
+  makeHarness(home);
+  for (const [i, log] of ['null\n', '7\n"x"\n', 'not json\n', '{"type":3}\n'].entries()) {
+    const dir = path.join(home, 'threads', `0123abcd-0000-4000-8000-00000000010${i}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'thread.json'), '{ broken');
+    fs.writeFileSync(path.join(dir, 'events.ndjson'), log);
+  }
+  const h = makeHarness(home);
+  assert.ok(h.runner);
+});

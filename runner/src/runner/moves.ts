@@ -308,8 +308,13 @@ export function eventsSayMovedIn(threadDir: string): boolean {
 // worktree: the log came from the other runner, which could name any
 // folder, and holding a checkout itself would take its trust away. Read
 // in pieces, as a log can be large.
+const MAX_NOTE = 64 * 1024;
+const MAX_ANCHORS = 16;
+const MAX_DOTS = 64;
+const MAX_PATH = 1024;
 export function movedInWorktrees(threadDir: string): string[] {
   const out = new Set<string>();
+  const tops = new Map<string, 'worktree' | 'checkout' | 'none'>();
   const take = (line: string) => {
     let ev: { type?: unknown; text?: unknown };
     try {
@@ -318,24 +323,46 @@ export function movedInWorktrees(threadDir: string): string[] {
       return;
     }
     if (ev.type !== 'system.note' || typeof ev.text !== 'string' || !ev.text.startsWith('Moved from ')) return;
-    const text = ev.text;
-    for (let at = text.indexOf(', in /'); at >= 0; at = text.indexOf(', in /', at + 1)) {
+    const text = ev.text.slice(0, MAX_NOTE);
+    let anchors = 0;
+    for (let at = text.indexOf(', in /'); at >= 0 && anchors++ < MAX_ANCHORS; at = text.indexOf(', in /', at + 1)) {
       const from = at + ', in '.length;
-      for (let dot = text.indexOf('.', from); dot >= 0; dot = text.indexOf('.', dot + 1)) {
+      // A path is at most PATH_MAX long, so no "." further on can end one.
+      let dots = 0;
+      for (let dot = text.indexOf('.', from); dot >= 0 && dot - from <= MAX_PATH && dots++ < MAX_DOTS; dot = text.indexOf('.', dot + 1)) {
         // Up from there to the first folder with a .git (a subfolder may
         // be gone since, and a candidate with words after the path ends
-        // in its folder).
+        // in its folder), each folder looked at once.
         for (let d = text.slice(from, dot); path.dirname(d) !== d; d = path.dirname(d)) {
-          let isFile: boolean | undefined;
-          try {
-            isFile = fs.lstatSync(path.join(d, '.git')).isFile();
-          } catch {
-            continue;
+          let found = tops.get(d);
+          if (found === undefined) {
+            try {
+              found = fs.lstatSync(path.join(d, '.git')).isFile() ? 'worktree' : 'checkout';
+            } catch {
+              found = 'none';
+            }
+            tops.set(d, found);
           }
-          if (isFile) out.add(d);
+          if (found === 'none') continue;
+          if (found === 'worktree') out.add(d);
           break;
         }
       }
+    }
+  };
+  // The start of a line too long to read whole: its note's text as far as
+  // it goes, from the JSON string's own start.
+  const takeStart = (head: string) => {
+    const at = head.indexOf('"text":"Moved from ');
+    if (at < 0 || !head.slice(0, at).includes('"type":"system.note"')) return;
+    let raw = head.slice(at + '"text":'.length);
+    const end = /[^\\](?:\\\\)*"/.exec(raw.slice(1));
+    if (end) raw = raw.slice(0, end.index + end[0].length + 1);
+    else raw = raw.replace(/\\+$/, (b) => (b.length % 2 ? b.slice(1) : b)).replace(/\\u[0-9a-fA-F]{0,3}$/, '') + '"';
+    try {
+      take(JSON.stringify({ type: 'system.note', text: JSON.parse(raw) }));
+    } catch {
+      // Not readable as far as it goes.
     }
   };
   let fd: number;
@@ -348,18 +375,28 @@ export function movedInWorktrees(threadDir: string): string[] {
     // Split as bytes, so a character across two pieces stays whole.
     const chunk = Buffer.alloc(1 << 20);
     let rest = Buffer.alloc(0);
+    let skipping = false;
     for (;;) {
       const n = fs.readSync(fd, chunk, 0, chunk.length, null);
       let buf = n > 0 ? Buffer.concat([rest, chunk.subarray(0, n)]) : rest;
       for (let nl = buf.indexOf(0x0a); nl >= 0; nl = buf.indexOf(0x0a)) {
         const line = buf.subarray(0, nl);
-        if (line.includes(MOVED_IN)) take(line.toString('utf8'));
+        if (!skipping && line.includes(MOVED_IN)) take(line.toString('utf8'));
+        skipping = false;
         buf = buf.subarray(nl + 1);
       }
       if (n <= 0) {
-        if (buf.includes(MOVED_IN)) take(buf.toString('utf8'));
+        if (!skipping && buf.includes(MOVED_IN)) take(buf.toString('utf8'));
         break;
       }
+      // A line longer than a note needs is read from its start (where the
+      // folder is: the rest is what was left behind) and passed over to its
+      // end, rather than copied again with each piece.
+      if (!skipping && buf.length > MAX_NOTE * 4) {
+        takeStart(buf.subarray(0, MAX_NOTE * 4).toString('utf8'));
+        skipping = true;
+        buf = Buffer.alloc(0);
+      } else if (skipping) buf = Buffer.alloc(0);
       rest = Buffer.from(buf);
     }
   } catch {

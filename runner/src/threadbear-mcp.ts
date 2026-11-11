@@ -939,16 +939,13 @@ export function buildThreadbearTools(
           // Moving it re-approves its check there too (passed along below).
           const checkNow = typeof check === 'string' ? check : newFolder !== undefined ? current.check : undefined;
           card = checkGuard(checkNow, current.threadId ? await threadFolder(current.threadId) : (newFolder ?? (current.cwd ? path.resolve(expandHome(current.cwd)) : undefined)), caller);
-          await confirm('update_schedule', reasons, { scheduleId: current.id, ...Object.fromEntries(Object.entries({ text, title, when, cron, timezone, paused, folder: newFolder, account: acc, pool: pl, model, effort, permissionMode, check, checkTimeoutSecs }).filter(([, v]) => v !== undefined)) }, extra?.signal);
+          await confirm('update_schedule', reasons, { scheduleId: current.id, ...Object.fromEntries(Object.entries({ text, title, when, cron, timezone, paused, folder: newFolder, account: acc, pool: pl, model, effort, permissionMode, check: check ?? carried, checkTimeoutSecs }).filter(([, v]) => v !== undefined)) }, extra?.signal);
           if (reasons.length && f !== undefined) await sameFolder(f, newFolder!);
         }
         // A schedule on another runner checks its account and pool there, so
         // a login or pool this Mac doesn't have goes as given. (In the backend every
         // schedule has a runnerId; the Scheduler still checks this
         // runner's own.)
-        // The check it takes along must still be the schedule's: one changed
-        // or taken off while the card was up isn't put back.
-        if (carried && (await s.find(scheduleId)).check !== carried) throw new Error("The schedule's check changed while the approval card was up, so nothing changed. Look at it again and ask again.");
         const accountId = acc === undefined ? undefined : current.runnerId ? await account(acc).catch(() => acc) : await account(acc);
         let poolId = pl;
         if (pl) {
@@ -977,7 +974,9 @@ export function buildThreadbearTools(
           // first) or as it is (Full): the Scheduler approves nothing for a
           // folder alone, so an app's save can't (security review, 11 Nov
           // 2026, finding 89).
-          ...(check !== undefined ? { check } : carried ? { check: carried } : {}),
+          // It must still be the schedule's as this saves (ifCheck): one
+          // changed or taken off while the card was up isn't put back.
+          ...(check !== undefined ? { check } : carried ? { check: carried, ifCheck: carried } : {}),
           ...card,
           ...(checkTimeoutSecs !== undefined ? { checkTimeoutSecs } : {}),
         });

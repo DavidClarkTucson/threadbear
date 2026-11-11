@@ -245,11 +245,16 @@ test('a moved record with bad press notes is cleaned, and never stops the runner
   assert.equal(back.stoppedMidTurn, undefined);
   // A wait whose thread isn't named by an id, done, on a hibernating
   // thread: reconcileWaits at start delivered it and threw (Muse's second look).
-  live.waitingOn = [{ threadId: 123, title: 'x', done: { at: new Date().toISOString(), how: 'finished' } }, { threadId: 'abc', title: 7 }];
+  live.waitingOn = [{ threadId: 123, title: 'x', done: { at: new Date().toISOString(), how: 'finished' } }, { threadId: 'abc', title: 7 }, { threadId: 'def', title: 'y', review: true, done: { at: new Date().toISOString(), how: 'finished', reply: 123 } }];
+  live.reviewVerdict = {};
+  live.finished = { at: new Date().toISOString(), reply: 5 };
   live.snoozedUntil = new Date(Date.now() + 86_400_000).toISOString();
   fs.writeFileSync(path.join(tHome, 'threads', id, 'thread.json'), JSON.stringify(live));
   const fourth = makeHarness(tHome, {}, { accounts: new FakeAccounts(accounts) });
-  assert.equal((fourth.runner.threads.get(id)!.rec as any).waitingOn.length, 0);
+  const fourthRec = fourth.runner.threads.get(id)!.rec as any;
+  assert.equal(fourthRec.waitingOn.length, 0);
+  assert.equal(fourthRec.reviewVerdict, undefined);
+  assert.equal(fourthRec.finished.reply, undefined);
   fourth.runner.holdWaits = false;
   fourth.runner.reconcileWaits();
   fourth.runner.startOwedReviews();

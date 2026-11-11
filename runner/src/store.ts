@@ -55,7 +55,7 @@ export function cleanPresses(raw: unknown): PressNote[] | undefined {
 // Muse's review of the fix, 11 Nov 2026, finding 96). True if it changed.
 const OBJECT_LISTS = ['waitingOn', 'reviews', 'buttons', 'subagents', 'projects', 'rewinds', 'queue'];
 const STRING_LISTS = ['reviewDeliveries', 'allowRules', 'pendingApprovals', 'projectsLeft', 'projectsTold'];
-const OBJECTS = ['needs', 'looseEnds', 'stoppedWork', 'stoppedMidTurn', 'highlights', 'worktree', 'handoff', 'moved', 'startedBy', 'labReview', 'labReviewOwed'];
+const OBJECTS = ['needs', 'looseEnds', 'stoppedWork', 'stoppedMidTurn', 'highlights', 'worktree', 'handoff', 'moved', 'startedBy', 'labReview', 'labReviewOwed', 'reviewVerdict', 'finished'];
 const NESTED: [string, string, 'object' | 'string' | 'number'][] = [
   ['needs', 'asks', 'object'],
   ['needs', 'ticked', 'number'],
@@ -66,6 +66,7 @@ const NESTED: [string, string, 'object' | 'string' | 'number'][] = [
   ['highlights', 'edited', 'string'],
   ['highlights', 'removed', 'string'],
   ['labReview', 'findings', 'object'],
+  ['reviewVerdict', 'findings', 'object'],
 ];
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 function listOf(v: unknown, kind: 'object' | 'string' | 'number'): unknown[] | undefined {
@@ -97,7 +98,10 @@ export function normaliseRecord(rec: Record<string, unknown>): boolean {
   if (isObject(rec.labReview) && !(typeof rec.labReview.rounds === 'number' && Array.isArray(rec.labReview.findings))) delete rec.labReview;
   if (isObject(rec.highlights) && !(Array.isArray(rec.highlights.items) && Array.isArray(rec.highlights.edited))) delete rec.highlights;
   // A wait is on a thread, by its id.
-  if (Array.isArray(rec.waitingOn)) rec.waitingOn = rec.waitingOn.filter((w) => typeof w.threadId === 'string' && typeof (w.title ?? '') === 'string' && (w.done === undefined || isObject(w.done)));
+  if (Array.isArray(rec.waitingOn)) rec.waitingOn = rec.waitingOn.filter((w) => typeof w.threadId === 'string' && typeof (w.title ?? '') === 'string' && (w.done === undefined || (isObject(w.done) && typeof (w.done.reply ?? '') === 'string' && typeof (w.done.why ?? '') === 'string')));
+  // What it said last, which a wait on it carries.
+  if (isObject(rec.finished) && rec.finished.reply !== undefined && typeof rec.finished.reply !== 'string') delete rec.finished.reply;
+  if (isObject(rec.reviewVerdict) && !Array.isArray(rec.reviewVerdict.findings)) delete rec.reviewVerdict;
   if (rec.presses !== undefined) {
     const presses = cleanPresses(rec.presses);
     if (presses) rec.presses = presses;
