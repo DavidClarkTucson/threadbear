@@ -22,6 +22,9 @@ const EVENTS_PAGE: u64 = 500;
 /// Streamed text arrives faster than it's worth drawing: flushed at most this
 /// often, as ThreadSession does (30 Hz).
 const FLUSH_EVERY: Duration = Duration::from_millis(33);
+/// How long a thread sits idle with a message still queued before it's taken
+/// for lost (`AppModel.queuedGrace`).
+const QUEUED_GRACE: Duration = Duration::from_secs(10);
 
 /// The app's windows that are in front, by id: a thread is read only while
 /// one is (AppModel.isLooking is the app being active). Each window says so
@@ -85,6 +88,9 @@ pub struct ThreadPane {
     /// Its first read failed: the message, with Try again in place of the
     /// transcript (`ThreadSession.state == .failed`).
     load_failed: Option<String>,
+    /// The wait before a message still queued on an idle thread is let go
+    /// (`check_queued`).
+    queued_check: Option<Task<()>>,
     pub(crate) scroller: Entity<TranscriptList>,
     /// Everything the rows themselves hold between frames (rows.rs).
     pub(crate) rows: crate::rows::RowsState,
@@ -118,6 +124,7 @@ impl ThreadPane {
             loaded: false,
             error: None,
             load_failed: None,
+            queued_check: None,
             scroller,
             rows: Default::default(),
             composer,
@@ -291,6 +298,7 @@ impl ThreadPane {
                 let change = self.feed.set_background(self.background_tasks());
                 self.apply(change, cx);
             }
+            self.check_queued(cx);
             cx.notify();
         }
     }
@@ -416,6 +424,7 @@ impl ThreadPane {
         cx.spawn(async move |this, cx| {
             let res = call(client, "threads.send", params).await;
             let failed = res.is_err();
+            let queued_id = pending_id.clone();
             this.update(cx, |this, cx| {
                 this.error = res.err().map(|e| e.message);
                 if failed {
@@ -432,9 +441,47 @@ impl ThreadPane {
                 if let (Some(composer), Some(draft)) = (composer.upgrade(), draft) {
                     composer.update(cx, |c, cx| c.restore_draft(draft, cx));
                 }
+                return;
             }
+            // Taken but not shown: it's queued behind the running turn. Its
+            // user.message usually comes just before this answer, so wait a
+            // moment rather than flash the clock on every send (`markQueued`).
+            cx.background_executor().timer(Duration::from_millis(600)).await;
+            this.update(cx, |this, cx| this.mark_queued(&queued_id, cx)).ok();
         })
         .detach();
+    }
+
+    /// The runner took it and hasn't shown it: the bubble says it's queued.
+    fn mark_queued(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(message) = self.pending.iter_mut().find(|m| m.id == id) else { return };
+        message.queued = true;
+        let change = self.feed.set_pending(self.pending.clone());
+        self.apply(change, cx);
+        self.check_queued(cx);
+        cx.notify();
+    }
+
+    /// A queued message starts its own turn once the thread is free, so one
+    /// still queued after the thread has sat idle a while was lost on the
+    /// way: it goes rather than wait there for good (`checkQueued`).
+    pub(crate) fn check_queued(&mut self, cx: &mut Context<Self>) {
+        if self.summary.busy() || !self.pending.iter().any(|m| m.queued) || self.queued_check.is_some() {
+            return;
+        }
+        self.queued_check = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(QUEUED_GRACE).await;
+            this.update(cx, |this, cx| {
+                this.queued_check = None;
+                if !this.summary.busy() && this.pending.iter().any(|m| m.queued) {
+                    this.pending.retain(|m| !m.queued);
+                    let change = this.feed.set_pending(this.pending.clone());
+                    this.apply(change, cx);
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
     }
 
     /// Return in an empty box allows the sole waiting approval, the ⏎ its
@@ -716,6 +763,12 @@ impl ThreadPane {
             self.apply(change, cx);
         } else {
             if open {
+                // Opening another runner's tool asks for its output, kept on
+                // that runner: it fills the row in as more events if that
+                // runner has full sync on (`fetchHeldBody`).
+                if !self.open_rows.contains(&row.id) {
+                    self.fetch_held_body(row);
+                }
                 self.open_rows.insert(row.id.clone());
             } else {
                 self.open_rows.remove(&row.id);
@@ -727,6 +780,17 @@ impl ThreadPane {
             }
         }
         cx.notify();
+    }
+
+    fn fetch_held_body(&self, row: &Row) {
+        let RowContent::Tool(tool) = &row.content else { return };
+        let Some(seq) = tool.result.as_ref().and_then(|r| r.held_back_seq) else { return };
+        if self.summary.runner_id.is_none() {
+            return;
+        }
+        let client = self.client.clone();
+        let params = json!({ "threadId": self.summary.id, "seq": seq });
+        RT.spawn(async move { client.call("threads.heldBody", params).await });
     }
 
     pub(crate) fn row_open(&self, row: &Row) -> bool {
@@ -758,9 +822,10 @@ impl ThreadPane {
     /// Lights a row up for a moment so the eye lands on the step (`light`).
     fn light_row(&mut self, row_id: String, cx: &mut Context<Self>) {
         self.rows.lit_row = Some(row_id.clone());
+        self.rows.lit_serial += 1;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(3300)).await;
+            cx.background_executor().timer(crate::rows::LIGHT_TIME + Duration::from_millis(100)).await;
             this.update(cx, |this, cx| {
                 if this.rows.lit_row.as_deref() == Some(row_id.as_str()) {
                     this.rows.lit_row = None;

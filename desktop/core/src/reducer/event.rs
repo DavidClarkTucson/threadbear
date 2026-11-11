@@ -1083,6 +1083,16 @@ pub enum TurnErrorKind {
 }
 
 impl TurnErrorKind {
+    /// Its raw value, as the runner writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TurnErrorKind::UsageLimit => "usageLimit",
+            TurnErrorKind::ContextWindow => "contextWindow",
+            TurnErrorKind::Auth => "auth",
+            TurnErrorKind::Network => "network",
+        }
+    }
+
     fn from_raw(raw: &str) -> Option<TurnErrorKind> {
         match raw {
             "usageLimit" => Some(TurnErrorKind::UsageLimit),

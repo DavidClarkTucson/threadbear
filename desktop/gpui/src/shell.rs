@@ -260,6 +260,7 @@ actions!(
         HibernateEvening,
         HibernateTomorrow,
         HibernateMonday,
+        HibernateRestart,
         QuitApp,
         HideApp,
         HideOtherApps,
@@ -335,6 +336,7 @@ commands!(
     (HibernateEvening, HibernateEvening, None),
     (HibernateTomorrow, HibernateTomorrow, None),
     (HibernateMonday, HibernateMonday, None),
+    (HibernateRestart, HibernateRestart, None),
     (Quit, QuitApp, None),
     (Hide, HideApp, None),
     (HideOthers, HideOtherApps, None),
@@ -633,6 +635,11 @@ impl Threadbear {
             Command::HibernateEvening => self.hibernate_open("evening", window, cx),
             Command::HibernateTomorrow => self.hibernate_open("tomorrow", window, cx),
             Command::HibernateMonday => self.hibernate_open("monday", window, cx),
+            Command::HibernateRestart => {
+                if let Some(id) = self.selected.clone() {
+                    self.snooze_until_restart(id, window, cx);
+                }
+            }
             // What's typed goes to disk on the way out (drafts.rs's
             // on_app_quit), once it's been asked (quit_prompt.rs).
             Command::Quit => crate::quit_prompt::quit(self.settings.asks_before_quitting(), cx.entity().downgrade(), cx),
@@ -1108,6 +1115,10 @@ impl Threadbear {
                 Some(MenuEntry::item(p.title, command))
             })
             .collect();
+        // Only while a runner restart is waiting, as the Swift menu has it.
+        if self.sidebar.restart_pending {
+            items.push(MenuEntry::item(threadbear_core::sidebar::SNOOZE_UNTIL_RESTART, Command::HibernateRestart));
+        }
         items.push(MenuEntry::Separator);
         items.push(MenuEntry::item("Pick a time…", Command::Hibernate));
         items.push(MenuEntry::item(threadbear_core::sidebar::WAKE_MENU_TITLE, Command::WakeWhen));

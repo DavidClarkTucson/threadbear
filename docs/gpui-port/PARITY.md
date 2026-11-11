@@ -277,6 +277,158 @@ built parsers and gates with no launch of the app, which is the trap.)
   minute on as the clock moved between runs). The drip, in a build with the
   pot slowed tenfold, as the debug build's pictures come too slowly to catch
   it.
+### 2026-11-11 Queued messages, kept output, footer tips and row menus (`transcript.pending`, `transcript.heldback`, `transcript.turnfooter`, `transcript.rowmenu`, `transcript.lightup`, `menu.thread`)
+
+- A message the runner takes but holds behind a running turn says so under
+  its bubble ("(queued)" in the dump, the clock in the app) 0.6 s after the
+  runner answers, until its own turn shows it; one still queued after the
+  thread has sat idle for 10 s is taken for lost and goes, as the Swift app's
+  `checkQueued` has it.
+- Opening another runner's tool whose output was kept on that runner asks
+  for it (`threads.heldBody`), which fills the row in when that runner has
+  full sync on.
+- The turn footer's words have the Swift tip: the tokens out and in, the
+  cache reads, writes and uncached ones broken out, and the cost at API
+  prices.
+- A row's menu says Collapse on an open tool or thinking row, not only a
+  group, and Copy debug info says what Swift's does: the events behind the row
+  (`source_seqs`, as ranges), the runner's version, the turn's tokens and
+  error kind on a footer, and a `tb events … --from … --to …` line ready to
+  run (with the right `tb` for a dev runner, or the fixture's file on the
+  mock).
+- A work link's step stays lit for 2.5 s and then fades over 0.8 s, behind the
+  row's own drawing, rather than going at once. It still scrolls the step to
+  the top of the view rather than a third of the way down.
+- The Thread menu's Hibernate has "Until the runner restarts" while a restart
+  is waiting.
+- Not here: a message held in the app while a restarting runner is away (the
+  Swift app's `waitingForRunner`), and View > Collapse Threads (⌘/), which
+  needs the dock to hide a panel while keeping its place.
+- Files: `desktop/core/src/reducer/{row_debug,format,event,mod}.rs`,
+  `desktop/gpui/src/{thread,rows,shell,sidebar}.rs`,
+  `desktop/gpui/src/rows/export.rs`, `features/sending.feature` and its steps.
+- Verification: on Tinker Desk, `@transcript.pending` passes on both apps
+  (the mock's `slow` with `queueMs` holds the turn), and
+  `@transcript.rowmenu`, `@transcript.turnfooter`, `@menu.thread` and
+  `@composer.send` on GPUI (6 of 6); core's tests, the footer tip's and the
+  seq ranges' among them.
+
+### 2026-11-11 Getting unstuck, search, and schedules from where they show (`banner.connection`, `system.startrunner`, `banner.signin`, `banner.error`, `thread.loadfailure`, `sidebar.search`, `header.schedulechip`, `highlights.scheduled`)
+
+- The connection bar tells the Swift app's cases apart: a dropped connection
+  ("Lost the connection to the runner. Reconnecting…"), a runner that can't be
+  reached ("Can't reach the runner.", the reason in its tip) and a refused
+  token (the runner closes with 4401: "The runner didn't accept the token in
+  secrets/runner-token."). While it tries again it keeps saying which, rather
+  than "Connecting…" on each try; Try again says "Connecting…" until that try
+  has an answer.
+- Can't reach the runner offers Start runner (`runner_launcher.rs`):
+  `launchctl kickstart` of the installed runner's LaunchAgent, loading its
+  plist first if need be, then a fresh try. Only for an app on the installed
+  runner's own data folder, so an app on the mock or a dev runner never
+  starts the live one; it spins and can't be pressed twice while it works.
+- Sign in… opens Terminal on the CLI's own sign-in for the login that was
+  refused, as the runner starts that CLI (claude-main with no
+  CLAUDE_CONFIG_DIR, other Claude logins with their folder, Codex with
+  CODEX_HOME), through a `.command` script written into a new file and renamed
+  over the old one, with the Swift app's quoting rules (core's `sign_in.rs`,
+  with the Swift tests ported, the zsh run among them). Another Mac's
+  signed-out thread says to sign in on that Mac, with no Sign in….
+- Investigate works in an installed build: its thread starts in the
+  checkout the runner follows main in (`runner.status`'s `update.checkout`),
+  or a fork's release checkout, and is handed what the app knew (the error,
+  when, the open thread, the versions; core's `investigate.rs`, from
+  InvestigateText). It clears only the error it was about.
+- A thread whose events can't be read says "Couldn't load this thread.",
+  why, and Try again, in place of the transcript; a reload over a transcript
+  already shown keeps it. The dump's `transcript.state` is `failed: …`, as the
+  Swift app's.
+- Search matches the title, the preview and the librarian's search words
+  (`keywords`), case and accents aside ("cafe" finds "Café").
+- The bar's Scheduled chip says when its schedule runs, or that it's paused or
+  gone, and opens it in the editor; Highlights' Scheduled rows open it too,
+  with Edit and Show all schedules on their menu.
+- The buttons on the bar and the load view are drawn as Swift's regular push
+  button (`push_button.rs`): 24 tall, a fill of white at 8% in the dark look
+  and black at 8% in the light one, no edge, measured against Swift's pictures
+  (#2e2e2e on #1c1c1c, #ebebeb on white, and tinted on the yellow bar).
+- The mock gains `mock.goAway` (a drop with no restart notice),
+  `mock.failEvents` and `mock.keywords`; both apps' `highlight` command can
+  click a Scheduled row and list its menu.
+- Codex reviewed the sign-in script, Start runner and the rest (static, at
+  high effort): it found the refused token taken for an unreachable runner,
+  Investigate clearing a newer error, and the open gate's source check failing
+  on the new launchctl call and on an ask link's `file://` pasted from a path
+  (from the ask links slice). All four are fixed; the check now names
+  `runner_launcher.rs` as allowed, and the ask link is made with
+  `open_policy::file_url`.
+- Not here: the CLI-update line on the bar (it comes with the Updates panel's
+  CLI state), and BrowserBear's `threadbear://` links (`nav.deeplink`).
+- Files: `desktop/client/src/runner.rs`, `desktop/core/src/{sign_in,
+  investigate,inbox,schedules,logins}.rs`, `desktop/core/tests/
+  {sign_in_script,open_gate_source}.rs`, `desktop/gpui/src/{header,app,thread,
+  sidebar,highlights,open_gate,push_button,runner_launcher,composer_card}.rs`,
+  `app/Sources/Threadbear/Automation+Commands.swift`,
+  `app/Tools/mock-runner/server.mjs`, `features/{connection,inbox,header,
+  highlights}.feature` and their steps.
+- Verification: on Tinker Desk, `@banner.connection`, `@thread.loadfailure`
+  and `@foundation.rpc` pass on both apps (4 of 4 each), and
+  `@header.schedulechip`, `@highlights.scheduled`, `@sidebar.search` and
+  `@card.needsyou` pass on both (8 of 8 each). Pictures of the load view and
+  the bar in both apps and both looks, measured with pixel-overlay: the
+  heading, the reason and the button sit on Swift's rows to the point, and the
+  fills match Swift's colours. `cargo test -p threadbear-core` (all of it,
+  the open gate's source check included) and the client's tests pass.
+
+### 2026-11-11 Notifications, the Dock badge, the finished ding and Ask before quitting (`system.notifications`, `system.badge`, `settings.general`)
+
+- A thread that comes to need Mike while he isn't looking at it posts a
+  notification (`notify.rs`, from Notifier): its title, and the first thing it
+  asks or its preview. One per thread and point in it, so a later one doesn't
+  replace an unread one. A click brings the app forward on that thread, after
+  the list loads if the click is what started the app. Never for another
+  runner's thread. macOS asks for permission the first time, for "Threadbear
+  GPUI" as its own app.
+- The Dock badge counts the threads waiting on Mike, other runners' included
+  (`inbox::needs_you_count`, from ThreadSections.needsYouCount), set only when
+  it changes, and kept up as a hibernating thread wakes.
+- Settings > General has the Swift app's Quitting and Notifications sections:
+  ⌘Q and Quit ask first, with Don't ask again (an NSAlert, as gpui's own prompt
+  has no suppression box), and the switch turns asking back on; the finished
+  ding (Chime, Bell or Droplet, made as WAV data in core the same way as the
+  Swift app's `CompletionSound`, played with NSSound) when a thread stops
+  working, at most once in 1.5 s, with its volume and Play.
+- A scripted app (the automation build) does none of it, as the Swift app's
+  dev and screenshot runs don't.
+- Not here: notifications and the badge on Windows and Linux.
+- Files: `desktop/core/src/{inbox,completion_sound}.rs`,
+  `desktop/gpui/src/{notify,ding,quit_prompt,settings,settings_window,app,
+  shell,sidebar,remote}.rs`.
+- Verification: core's tests for when to notify, the tag, the badge's count
+  and the dings' WAV data; both builds of the app compile on Tinker Desk.
+  Notifications themselves need the installed app and macOS's permission, so
+  they're for Mike to see on his Mac.
+
+### 2026-11-11 Waking schedules, folds that slide, logins as they change, reply buttons, drafts, Quit and ask links
+
+- An idle thread a schedule is due to message waits under Hibernating, soonest
+  to wake first, rather than sitting in the Inbox (`inbox::wakes`); its row
+  says when (`sidebar.sections`).
+- Inbox, Running, Hibernating and Archived fold and unfold with Swift's
+  0.2 s slide, their rows measured and clipped as they go.
+- Logins and pools follow the runner's `accounts.updated` and `pools.updated`;
+  Settings > Pools edits the pools (`settings.pools`).
+- Reply buttons in a reply are pills that press, with Swift's colours for
+  start, send, pressed, pressing and failed (`rich.replybuttons`).
+- What's typed and not sent survives a quit (`desktop-drafts.json`, written
+  as the app quits and a moment after typing).
+- Quit, Hide, Hide Others, Show All and Minimize are in the menus and on their
+  keys.
+- An ask's links (↗ and review links) are under it on the card
+  (`card.needsyou`).
+- Verification: the scenarios for each (`@sidebar.sections`, `@reply-buttons`,
+  `@composer.textbox`, `@menu.app`, `@card.needsyou`) on Tinker Desk, as each
+  slice landed.
 
 ### 2026-11-11 The Runners, Updates and Connectors panels, with their buttons and dots (`runners.panel`, `updates.panel`, `connectors.panel`, `rail.activity`, `rail.dots`)
 

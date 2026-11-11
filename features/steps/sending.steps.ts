@@ -1,4 +1,4 @@
-import { Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,4 +81,12 @@ Then('hovering chip {int} shows its picture', async function (this: ThreadbearWo
 // written in (drafts.rs, DraftStore).
 When('I wait a moment', async function (this: ThreadbearWorld) {
   await new Promise((done) => setTimeout(done, 1200));
+});
+
+Given('the runner holds each message {int} seconds before its turn starts', async function (this: ThreadbearWorld, seconds: number) {
+  await this.app.do({ cmd: 'mock', method: 'slow', params: { queueMs: seconds * 1000 } });
+});
+
+Then("the transcript's last row reads {string}", async function (this: ThreadbearWorld, text: string) {
+  await this.until(`the last row reading "${text}"`, (d) => d.transcript.rows.at(-1)?.text === text);
 });

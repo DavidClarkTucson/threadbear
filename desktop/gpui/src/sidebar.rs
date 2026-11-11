@@ -514,7 +514,7 @@ impl Threadbear {
     }
 
     /// Hibernate until the runner next starts (`snoozedUntil: "restart"`).
-    fn snooze_until_restart(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn snooze_until_restart(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let next = self.neighbour_of(&id, cx, now_ms());
         self.update_thread(
             &id,

@@ -93,3 +93,11 @@ Feature: Sending a message
     And the app is quit and opened again
     And I open the thread "Morning brief"
     Then the composer says "half a thought about the backups"
+
+  @transcript.pending
+  Scenario: A message the runner holds behind a turn says it's queued until it lands
+    Given the runner holds each message 4 seconds before its turn starts
+    When I open the thread "Morning brief"
+    And I send "Check the logs too"
+    Then the transcript's last row reads "(queued) Check the logs too"
+    And the reply streams in and the thread goes back to idle

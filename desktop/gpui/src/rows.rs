@@ -28,7 +28,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use threadbear_core::reducer::{
-    cost_text, duration, AgentHeader, Pending, PlanEntry, PlanStatus, PlanSummary, Row, RowContent, TextItem, TurnCompletion, TurnErrorKind, TurnOutcome, TurnTokens, UserMessage,
+    cost_text, duration, short_tokens, AgentHeader, Pending, PlanEntry, PlanStatus, PlanSummary, Row, RowContent, TextItem, TurnCompletion, TurnErrorKind, TurnOutcome, TurnTokens, UserMessage,
 };
 
 /// A `thread:` link was clicked: the app opens that thread.
@@ -60,6 +60,9 @@ pub(crate) struct RowsState {
     pub(crate) tick_scheduled: bool,
     /// A step lit up by a work link, for a moment.
     pub(crate) lit_row: Option<String>,
+    /// Counts each lighting, so lighting the same row again starts its fade
+    /// over (`light_row`).
+    pub(crate) lit_serial: u64,
     /// The list's width at its last layout (for picture grids, which lay out
     /// to it). The list can't be asked mid-layout.
     pub(crate) list_width: f32,
@@ -125,13 +128,26 @@ impl ThreadPane {
         // (`TranscriptController.light`). The right-click menu goes over
         // everything else (`menu(forRow:)`).
         let lit = self.rows.lit_row.as_deref() == Some(row.id.as_str());
-        let (accent, weak, menu_row) = (style::control_accent(cx), cx.weak_entity(), row.clone());
+        let (accent, weak, menu_row, serial) = (style::control_accent(cx), cx.weak_entity(), row.clone(), self.rows.lit_serial);
+        // Behind the row's own drawing, held for 2.5 s and then faded out
+        // over 0.8 s, as the Swift glow layer's opacity animation is.
+        let glow = lit.then(|| {
+            div().absolute().inset_0().rounded(px(6.)).bg(accent.opacity(0.24)).border_l(px(3.)).border_color(accent).with_animation(("row-light", serial), Animation::new(LIGHT_TIME), |d, t| {
+                let held = 2.5 / LIGHT_TIME.as_secs_f32();
+                d.opacity(if t < held { 1. } else { (1. - (t - held) / (1. - held)).max(0.) })
+            })
+        });
         div()
             .id(("row", ix))
             .w_full()
-            .when(lit, |d| d.rounded(px(6.)).bg(accent.opacity(0.24)).border_l(px(3.)).border_color(accent))
+            .relative()
+            .children(glow)
             .child(body)
-            .context_menu(move |menu, _, _| Self::row_context_menu(menu_row.clone(), menu, weak.clone()))
+            .context_menu(move |menu, _, cx| {
+                // An open tool or thinking row says Collapse, as a group does.
+                let open = weak.upgrade().is_some_and(|pane| pane.read(cx).row_open(&menu_row));
+                Self::row_context_menu(menu_row.clone(), menu, weak.clone(), open)
+            })
             .into_any_element()
     }
 
@@ -301,11 +317,18 @@ impl ThreadPane {
     fn footer_row(&mut self, done: &TurnCompletion, cx: &mut Context<Self>) -> AnyElement {
         let failed = done.outcome == TurnOutcome::Failed;
         let color = if failed { style::failed_text(cx) } else { style::faint_text(cx) };
+        // The tokens broken out, with what they'd cost at API prices, over the
+        // words only (`footerTip`).
+        let words = div().truncate().child(footer_text(done));
+        let words: AnyElement = match TurnTokens::from_usage(done.usage.as_ref()) {
+            Some(tokens) => crate::highlights::tipped(div().id(SharedString::from(format!("footer-{}", done.turn_id))).min_w_0().child(words), tokens.tip(done.cost_usd)).into_any_element(),
+            None => words.into_any_element(),
+        };
         h_flex()
             .w_full()
             .px(px(SIDE_INSET))
             .justify_center()
-            .child(div().w_full().max_w(px(MAX_CONTENT_WIDTH)).h(px(FOOTER_HEIGHT)).flex().items_center().text_size(px(size::SMALL)).text_color(color).child(div().truncate().child(footer_text(done))))
+            .child(div().w_full().max_w(px(MAX_CONTENT_WIDTH)).h(px(FOOTER_HEIGHT)).flex().items_center().text_size(px(size::SMALL)).text_color(color).child(words))
             .into_any_element()
     }
 
@@ -520,23 +543,8 @@ fn footer_text(done: &TurnCompletion) -> String {
     text
 }
 
-/// `UsageStatsMath.tokens`: 950, "1.7k", "381k", "4.2M".
-fn short_tokens(n: i64) -> String {
-    let value = n as f64;
-    let short = |v: f64, suffix: &str| {
-        let text = if v < 10. { format!("{v:.1}") } else { format!("{}", v.round() as i64) };
-        format!("{}{suffix}", text.strip_suffix(".0").unwrap_or(&text))
-    };
-    if value >= 1e9 {
-        short(value / 1e9, "B")
-    } else if value >= 1e6 {
-        short(value / 1e6, "M")
-    } else if value >= 1e3 {
-        short(value / 1e3, "k")
-    } else {
-        n.to_string()
-    }
-}
+/// How long a lit step stays lit, its fade included (`light`: 2.5 s, then 0.8).
+pub(crate) const LIGHT_TIME: std::time::Duration = std::time::Duration::from_millis(3300);
 
 fn card(border: Hsla) -> Div {
     v_flex().gap_3().p_3p5().rounded_xl().border_1().border_color(border)

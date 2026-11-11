@@ -188,8 +188,7 @@ fn transcript_text(title: &str, rows: &[Row]) -> String {
 impl ThreadPane {
     /// `menu(forRow:)`: Copy message, Expand or Collapse, Copy transcript as
     /// Markdown, and what an agent needs to find this row again.
-    pub(crate) fn row_context_menu(row: Row, menu: PopupMenu, pane: WeakEntity<ThreadPane>) -> PopupMenu {
-        let open = matches!(&row.content, RowContent::Group(g) if g.is_expanded);
+    pub(crate) fn row_context_menu(row: Row, menu: PopupMenu, pane: WeakEntity<ThreadPane>, open: bool) -> PopupMenu {
         let mut menu = menu.min_w(px(CARD_PAD * 16.));
         for (title, action) in row_menu(&row, open) {
             if action == RowMenuAction::CopyDebugInfo {
@@ -240,12 +239,12 @@ impl ThreadPane {
     /// What "Copy debug info" says: enough to find the row and the events
     /// behind it (`RowDebug.info`).
     pub(crate) fn debug_info(&self, row: &Row) -> String {
-        let mut lines = vec![format!("thread: {}", self.summary.id), format!("row: {}", row.id), format!("kind: {}", row.kind().as_str())];
-        if let Some(turn) = row.turn_id.as_deref().filter(|t| !t.is_empty()) {
-            lines.push(format!("turn: {turn}"));
-        }
-        lines.push(format!("first seq: {}", row.seq));
-        lines.join("\n")
+        let runner_version = match self.client_handle().status() {
+            threadbear_client::runner::Status::Connected { hello, .. } => hello["runnerVersion"].as_str().unwrap_or("").to_owned(),
+            _ => String::new(),
+        };
+        let seqs = threadbear_core::reducer::row_debug::source_seqs(self.feed.model(), &row.id);
+        threadbear_core::reducer::row_debug::info(&self.summary.id, row, &seqs, &runner_version, &events_source(&runner_version))
     }
 
     /// `copyTranscript`: fetches any older pages first, then copies the whole
@@ -275,5 +274,34 @@ impl ThreadPane {
             this.update(cx, |_, cx| cx.write_to_clipboard(ClipboardItem::new_string(text))).ok();
         })
         .detach();
+    }
+}
+
+/// Where "Copy debug info" says the events can be read (`eventsSource`): a
+/// bare `tb` for the installed runner, a dev runner's own `<home>/tb`, the
+/// data folder in front of `tb` for any other, or the fixture's file when
+/// the app runs on the mock.
+fn events_source(runner_version: &str) -> threadbear_core::reducer::row_debug::EventsSource {
+    use threadbear_core::reducer::row_debug::EventsSource;
+    if runner_version.starts_with("0.0.0-mock") {
+        return EventsSource::Fixture;
+    }
+    let home = threadbear_client::config::RunnerConfig::from_env().home;
+    if home == threadbear_client::config::default_home() {
+        return EventsSource::Tb("tb".into());
+    }
+    let own = home.join("tb");
+    if own.is_file() {
+        return EventsSource::Tb(shell_quoted(&own.to_string_lossy()));
+    }
+    EventsSource::Tb(format!("THREADBEAR_HOME={} tb", shell_quoted(&home.to_string_lossy())))
+}
+
+/// As a shell would need it typed: the default data folder has a space.
+fn shell_quoted(text: &str) -> String {
+    if !text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c)) {
+        text.to_owned()
+    } else {
+        threadbear_core::sign_in::quoted(text)
     }
 }
