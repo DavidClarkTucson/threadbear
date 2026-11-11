@@ -599,8 +599,12 @@ impl Composer {
     /// One of an ask's links: through the thread's own link handling, as a
     /// link in its transcript goes (a file into the pane, a page through the
     /// open gate, a review to its window).
+    /// A path becomes a file URL the one way the app makes them, with `#`,
+    /// `?`, `%` and spaces kept as part of the name: pasted into `file://`,
+    /// a `#` in a folder's name cut the path short there (the open gate's
+    /// source check caught it).
     fn open_ask_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let url = if target.starts_with('/') { format!("file://{target}") } else { target.to_owned() };
+        let url = if target.starts_with('/') { threadbear_core::open_policy::file_url(target) } else { target.to_owned() };
         if let Some(pane) = self.pane.upgrade() {
             pane.update(cx, |p, cx| p.link_clicked(&url, "", window, cx));
         }

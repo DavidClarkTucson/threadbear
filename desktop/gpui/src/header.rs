@@ -137,10 +137,19 @@ impl Threadbear {
                 s.child(tipped!(div().id("old-runner").flex_none().text_color(faint), "This turn started before the runner updated, so it runs on the previous version. The thread moves to the new one when the turn ends.").child("·  Finishing on the previous version"))
             })
             .when_some(worktree, |s, branch| s.child(div().flex_none().text_color(faint).child(format!("·  {branch}"))))
+            // A click opens the schedule in the editor, while it's still
+            // there (`ScheduleChip`); the tip says when it runs.
             .when_some(schedule, |s, origin| {
-                let tip = origin["title"].as_str().map_or("Started by a schedule".to_string(), |t| format!("Started by the schedule \u{201C}{t}\u{201D}"));
+                let id = origin["id"].as_str().unwrap_or("").to_owned();
+                let current = self.scheduled.list.iter().find(|sc| sc.id == id);
+                let tip = threadbear_core::schedules::started_by_tip(origin["title"].as_str().unwrap_or(""), current);
+                let live = current.is_some();
+                let (fg, hover_bg) = (cx.theme().foreground, style::primary_opacity(cx, 0.08));
                 s.child(
                     tipped!(h_flex().id("schedule-chip").flex_none().ml(px(4.)).gap(px(4.)).items_center().pl(px(5.)).pr(px(7.)).py(px(2.)).rounded_full().bg(style::primary_opacity(cx, 0.05)).text_size(px(style::size::DETAIL)).text_color(secondary), tip)
+                        .when(live, |s| {
+                            s.hover(move |s| s.bg(hover_bg).text_color(fg)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_schedule(&id, window, cx)))
+                        })
                         .child(icon("clock", 11., secondary))
                         .child("Scheduled"),
                 )
@@ -966,13 +975,18 @@ impl Threadbear {
             runner_version: Some(self.runner_version.clone()),
         };
         let params = json!({ "cwd": checkout, "text": threadbear_core::investigate::prompt(&report), "title": threadbear_core::investigate::title(&report), "permissionMode": "full" });
+        let reported = report.message;
         cx.spawn_in(window, async move |this, cx| {
             let res = call(client, "threads.create", params).await;
             this.update_in(cx, |this, window, cx| {
                 this.creating_investigation = false;
                 match res {
                     Ok(v) => {
-                        this.error_message = None;
+                        // Only the error it was about: another may have come
+                        // up while the thread was being made.
+                        if this.error_message.as_deref() == Some(reported.as_str()) {
+                            this.error_message = None;
+                        }
                         if let Ok(t) = serde_json::from_value::<ThreadSummary>(v["thread"].clone()) {
                             let id = t.id.clone();
                             this.threads.insert(t.id.clone(), t);

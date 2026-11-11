@@ -26,8 +26,11 @@ const OPENERS: &[&str] = &[
     "EditorHost",
 ];
 
-/// The gate itself, and a test helper that starts the mock runner.
-const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs"];
+/// The gate itself, a test helper that starts the mock runner, and the
+/// connection bar's Start runner, which runs launchctl on the runner's own
+/// LaunchAgent (and `id -u` for the user) with fixed arguments: nothing a link,
+/// a file or the runner names.
+const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs", "gpui/src/runner_launcher.rs"];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };

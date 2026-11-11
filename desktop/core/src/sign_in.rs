@@ -128,25 +128,4 @@ mod tests {
         assert!(!printed.contains('\n'));
         assert_eq!(file_safe("../../evil id"), "______evil_id");
     }
-
-    /// zsh parses it and the name comes out as the words, with nothing in it
-    /// run (the Swift test runs the same script).
-    #[cfg(unix)]
-    #[test]
-    fn zsh_prints_the_name_as_data() {
-        let zsh = std::path::Path::new("/bin/zsh");
-        if !zsh.exists() {
-            return;
-        }
-        let dir = std::env::temp_dir().join(format!("tb-sign-in-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let title = "claude$(touch injected) `touch injected` \"q\" 'q' \\ $HOME\nsecond line; touch injected";
-        let s = script(&account("x", "claude", title, ""), "/usr/bin/true");
-        let out = std::process::Command::new(zsh).args(["-f", "-c", &s]).current_dir(&dir).output().unwrap();
-        let printed = String::from_utf8_lossy(&out.stdout);
-        assert!(!dir.join("injected").exists(), "nothing in the name ran");
-        assert!(printed.contains("claude$(touch injected) `touch injected`"), "{printed}");
-        assert!(printed.contains("$HOME second line"), "{printed}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

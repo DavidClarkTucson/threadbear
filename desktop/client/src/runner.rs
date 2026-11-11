@@ -265,6 +265,9 @@ where
     while let Some(msg) = read.next().await {
         match msg {
             Ok(Message::Text(t)) => return serde_json::from_str(t.as_str()).map_err(|e| format!("The runner sent something that isn't JSON: {e}")),
+            // The runner closes with 4401 when the proof doesn't match: the
+            // token isn't its (Transport.swift reads the same code).
+            Ok(Message::Close(Some(frame))) if u16::from(frame.code) == 4401 => return Err(format!("{TURNED_DOWN}: the token in secrets/runner-token isn't the runner's")),
             Ok(Message::Close(_)) => return Err("The runner closed the connection while signing in".into()),
             Ok(_) => continue,
             Err(e) => return Err(e.to_string()),
