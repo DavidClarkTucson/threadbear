@@ -25,6 +25,13 @@ test('the Land chip can wait beyond the ordinary command timeout', async () => {
   assert.equal((await h.runner.runAction(thread.id, action.id)).ok, false);
 });
 
+test("a thread moved out of its worktree still lands it from the Land chip", async () => {
+  const h = makeHarness();
+  const w = { repo: 'proj', mainCheckout: '/r/proj', path: '/r/proj-threads/slot-1', branch: 'thread/abcd1234', base: 'x', patchFile: 'p.ts' };
+  assert.equal(h.runner.worktreeAction({ cwd: '/r/proj-threads/slot-1/runner', worktree: w } as never)?.folder, undefined);
+  assert.equal(h.runner.worktreeAction({ cwd: '/elsewhere', worktree: w } as never)?.folder, w.path);
+});
+
 test('land serializes separate CLIs before rebasing, so each checks the commit it lands once', async () => {
   const { root, main } = makeRepo(PATCH(`{ check: "./check.sh" }`));
   commit(main, { 'check.sh': `#!/bin/sh
