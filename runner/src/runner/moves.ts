@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Runner } from '../runner.ts';
+import { cleanPresses, type ThreadRecord } from '../store.ts';
 import type { RunnerPart } from './part.ts';
 import { providerName } from '../providers.ts';
 import { paths } from '../config.ts';
@@ -26,7 +27,7 @@ import { isPatchFile, patchHash } from '../patch-trust.ts';
 import { claudeCommands } from '../claude-trust.ts';
 import { untrustedGit } from '../safe-git.ts';
 import { isPermissionMode } from '../protocol.ts';
-import { cleanUpWorktree, makeWorktree, mainCheckoutOf, realpath, type WorktreeRecord } from '../worktrees.ts';
+import { cleanUpWorktree, makeWorktree, MAIN, parseCheckouts, realpath, type WorktreeRecord } from '../worktrees.ts';
 
 // What T placed for a move, so adopting after a restart and throwing it
 // away after a failure both know (<home>/moves/<moveId>/placed.json).
@@ -127,6 +128,16 @@ function cappedNote(was: string, from: string): string {
 // `notes`. True if it changed.
 function sanitizeMoved(rec: Record<string, any>, atMostAsk: boolean, from: string, notes: string[]): boolean {
   let changed = dropMovedPowers(rec);
+  // What it was told of button presses, well formed and bounded, as the
+  // runner goes through them at every start (cleanPresses).
+  if (rec.presses !== undefined) {
+    const presses = cleanPresses(rec.presses);
+    if (JSON.stringify(presses) !== JSON.stringify(rec.presses)) {
+      if (presses) rec.presses = presses;
+      else delete rec.presses;
+      changed = true;
+    }
+  }
   if (atMostAsk) {
     const capped = capMovedMode(rec);
     if (capped.was && !notes.some((n) => n.includes('so it asks before tools run here'))) notes.push(cappedNote(capped.was, from));
@@ -252,9 +263,83 @@ export async function dropUntrackedPackages(dir: string): Promise<void> {
   for (const rel of listed.ok ? listed.stdout.split('\0').filter(Boolean) : []) fs.rmSync(path.join(dir, ...rel.split('/')), { force: true });
 }
 
+type ThreadRecordLike = Pick<ThreadRecord, 'id' | 'worktree'>;
+
+// The checkout with main checked out, for a repo a thread is in or the
+// other runner named: through safe-git like every other git here, as the
+// folder is anyone's (Muse's review, 11 Nov 2026).
+async function mainCheckoutOf(top: string): Promise<string | undefined> {
+  const r = await untrustedGit(top, ['worktree', 'list', '--porcelain']);
+  return r.ok ? parseCheckouts(r.stdout.trim()).find((c) => c.branch === MAIN)?.path : undefined;
+}
+
 const UNVOUCHED_NOTE = "Its worktree's work changes this repo's patches or Claude Code settings, so they wait for you to trust them in Patches here.";
 
+// The words adoptMoved has put on every thread it took in since moves
+// began (8 Nov 2026), as JSON has them in its event log.
+const MOVED_IN = Buffer.from('"text":"Moved from ');
+
+// Whether the thread's event log says another runner moved it here. Read
+// in pieces, as a log can be large. A log that's there but can't be read
+// counts as moved: unknown is held.
+export function eventsSayMovedIn(threadDir: string): boolean {
+  let fd: number;
+  try {
+    fd = fs.openSync(path.join(threadDir, 'events.ndjson'), 'r');
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code !== 'ENOENT';
+  }
+  try {
+    const chunk = Buffer.alloc(1 << 20);
+    let carry = Buffer.alloc(0);
+    for (;;) {
+      const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (n <= 0) return false;
+      const buf = Buffer.concat([carry, chunk.subarray(0, n)]);
+      if (buf.includes(MOVED_IN)) return true;
+      carry = buf.subarray(Math.max(0, buf.length - MOVED_IN.length + 1));
+    }
+  } catch {
+    return true;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 export const movesPart = {
+  // At start, before anything loads a patch or starts a CLI: the worktrees
+  // the always-trust doesn't reach, worked out again from the threads when
+  // patch-trust-unvouched.json can't be relied on (missing, unreadable, or
+  // from before it was complete; PatchTrust.unvouchedKnown). The list moved
+  // twice on 10 Nov 2026 without bringing its old forms, so an upgrade
+  // trusted again what a move had held (security review, 11 Nov 2026,
+  // findings 90 and 91). What's held: a worktree its record marks (this
+  // runner's movedIn, an older one's `unvouched`), and one whose thread's
+  // log says it was moved here, as a move finished before any mark can't
+  // say whether its work changed what trust covers. A clean move is held
+  // too, then: trusting its patches in Patches lets them run.
+  settleUnvouched(this: Runner, records: ThreadRecordLike[]): void {
+    const trust = this.patchTrust;
+    if (!trust.unvouchedKnown || !trust.settleUnvouched || trust.unvouchedKnown()) return;
+    const live = new Set<string>();
+    for (const rec of records) {
+      const w = rec.worktree;
+      if (w && typeof w.path === 'string' && !w.removedAt && !w.movedIn && w.unvouched !== true) live.add(realpath(w.path));
+    }
+    const held: string[] = [];
+    for (const rec of records) {
+      const w = rec.worktree;
+      if (!w || typeof w.path !== 'string') continue;
+      // A folder set aside and since given to a thread of this runner's
+      // own is that thread's: made afresh from main.
+      if (w.removedAt && live.has(realpath(w.path))) continue;
+      if (w.removedAt && !fs.existsSync(w.path)) continue;
+      if (w.movedIn === true || w.unvouched === true || eventsSayMovedIn(this.store.threadDir(rec.id))) held.push(w.path);
+    }
+    trust.settleUnvouched(held);
+    this.log.info('worked out which worktrees patch trust holds', { held: held.length });
+  },
+
   // ThreadSummary.moving, and while it's set no turn starts: messages wait
   // in the queue, which moves with the thread. Cleared, the queue goes on.
   setMoving(this: Runner, threadId: string, moving: ThreadMoving | undefined): void {
@@ -491,7 +576,7 @@ export const movesPart = {
         if (!patch) throw new Error(`${plan.worktree.repo} on ${this.moveRunnerName(row.to)} has no worktree patch, so the thread's worktree has nowhere to go.`);
         const made = await makeWorktree({ cwd: plan.worktree.repo, threadId: row.threadId, patch });
         if (!made.ok) throw new Error(`Couldn't make the thread's worktree: ${made.reason}`);
-        placed.worktree = made.worktree;
+        placed.worktree = { ...made.worktree, movedIn: true };
         placed.patchFile = made.patchFile;
         placed.patchName = patch.patch;
         placed.cwd = plan.worktree.subdir ? path.join(made.worktree.path, ...plan.worktree.subdir.split('/')) : made.worktree.path;
@@ -508,8 +593,8 @@ export const movesPart = {
           // Patches and Claude settings it changed are held to the stored
           // hashes here, even in an always-trusted checkout.
           placed.gitTips = [meta.head, ...(meta.wip ? [meta.wip] : [])];
-          if (await trustTouchedByMove(made.worktree, os.homedir(), placed.gitTips, plan.worktree.subdir ? path.join(made.worktree.path, ...plan.worktree.subdir.split('/')) : made.worktree.path)) {
-            this.patchTrust.unvouch?.(made.worktree.path);
+          if (await trustTouchedByMove(placed.worktree, os.homedir(), placed.gitTips, plan.worktree.subdir ? path.join(made.worktree.path, ...plan.worktree.subdir.split('/')) : made.worktree.path)) {
+            this.patchTrust.unvouch?.(placed.worktree.path);
             placed.leftBehind.push(UNVOUCHED_NOTE);
             save();
           }
@@ -587,7 +672,8 @@ export const movesPart = {
     // uncommitted work may have them there, untracked, which trust reads
     // as installed and doesn't hash: they go (setup installs them again).
     if (placed.worktree && !placed.gitTips) await dropUntrackedPackages(placed.worktree.path);
-    if (placed.worktree && (await trustTouchedByMove(placed.worktree, os.homedir(), placed.gitTips, placed.cwd))) {
+    // One an older runner marked (worktree.unvouched) stays held whatever this says.
+    if (placed.worktree && (placed.worktree.unvouched === true || (await trustTouchedByMove(placed.worktree, os.homedir(), placed.gitTips, placed.cwd)))) {
       this.patchTrust.unvouch?.(placed.worktree.path);
       if (!placed.leftBehind.includes(UNVOUCHED_NOTE)) placed.leftBehind.push(UNVOUCHED_NOTE);
     }

@@ -170,6 +170,10 @@ test("untrustedGit never looks inside a submodule, whatever the repo's config sa
     ['diff', '--quiet', '--no-ext-diff', '--no-textconv', base, '--', 'vendor'],
     ['diff-index', '--name-only', base],
     ['diff-files', '--name-only'],
+    // What a move's pack and unpack run in a worktree (Muse's review).
+    ['ls-files', '-z', '--others'],
+    ['read-tree', 'HEAD'],
+    ['reset', '--quiet'],
   ];
   for (const [i, args] of calls.entries()) {
     stale(i + 1);
@@ -180,4 +184,41 @@ test("untrustedGit never looks inside a submodule, whatever the repo's config sa
   const r = await untrustedGit(repo, ['submodule', 'foreach', `${payload} </dev/null`]);
   assert.equal(r.ok, false);
   assert.equal(ran(), false);
+});
+
+// Muse's review of the fix above: diff.external was never blanked, so a
+// caller's --ext-diff (or one smuggled in as a revision) ran the repo's own;
+// and anything not looked at (log, show, merge, stash) went through as is.
+test('untrustedGit runs no diff.external, and only the commands it has been looked at for', async () => {
+  const root = tmpDir();
+  const repo = path.join(root, 'r');
+  fs.mkdirSync(repo);
+  const marker = path.join(root, 'ran');
+  const payload = path.join(root, 'ext.sh');
+  fs.writeFileSync(payload, `#!/bin/sh\necho ran >> '${marker}'\n`, { mode: 0o755 });
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const g = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { stdio: 'pipe', env }).toString().trim();
+  g('init', '-q');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  g('add', '-A');
+  g('commit', '-qm', 'a');
+  g('config', 'diff.external', payload);
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'b\n');
+  execFileSync('git', ['-C', repo, 'diff'], { stdio: 'pipe', env });
+  assert.ok(fs.existsSync(marker), 'plain git runs it, so the checks below mean something');
+  fs.rmSync(marker);
+  const quiet = { env: { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } };
+  // A blank program is none: asked for, git fails rather than run one.
+  await untrustedGit(repo, ['diff', '--ext-diff', 'HEAD'], quiet);
+  assert.equal(fs.existsSync(marker), false, 'diff --ext-diff');
+  const plain = await untrustedGit(repo, ['diff', 'HEAD'], quiet);
+  assert.ok(plain.ok && plain.stdout.includes('+b'), 'a plain diff is git\'s own');
+  assert.equal(fs.existsSync(marker), false, 'diff');
+  for (const args of [['log', '-p'], ['show', 'HEAD'], ['merge', 'HEAD'], ['stash'], ['worktree', 'add', path.join(root, 'w')], ['submodule', 'status'], []]) {
+    const out = await untrustedGit(repo, args, quiet);
+    assert.equal(out.ok, false, `git ${args.join(' ')} is refused`);
+  }
+  assert.ok((await untrustedGit(repo, ['worktree', 'list', '--porcelain'], quiet)).ok);
+  assert.equal(fs.existsSync(marker), false);
+  assert.throws(() => untrustedGitSync(repo, ['diff']), /listings/);
 });

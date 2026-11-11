@@ -1,0 +1,176 @@
+// Worktrees a move held from the always-trust, across upgrades (security
+// review, 11 Nov 2026, findings 90 and 91). The list of them moved twice on
+// 10 Nov 2026 (a mark on the thread's worktree record, then an array in
+// patch-trust.json, then patch-trust-unvouched.json) without bringing its
+// old forms, so an upgrade trusted again a moved worktree's patches, which
+// a compromised Mac had written, and imported them in the runner.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
+import { PatchTrust } from '../../src/patch-trust.ts';
+import { eventsSayMovedIn } from '../../src/runner/moves.ts';
+
+const g = (cwd: string, ...a: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }).trim();
+
+// Threadbear's own checkout (always trusted) with a linked worktree whose
+// patch is another Mac's.
+function checkout() {
+  const root = fs.realpathSync(tmpDir('tb-unvouched-'));
+  const repo = path.join(root, 'threadbear');
+  fs.mkdirSync(repo);
+  g(repo, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  g(repo, 'add', '-A');
+  g(repo, 'commit', '-qm', 'a');
+  const wt = path.join(root, 'slot-1');
+  g(repo, 'worktree', 'add', '-q', '-b', 'thread/abcd1234', wt, 'main');
+  const patch = path.join(wt, '.threadbear', 'patches', 'evil.ts');
+  fs.mkdirSync(path.dirname(patch), { recursive: true });
+  fs.writeFileSync(patch, "import fs from 'node:fs'; fs.writeFileSync('/tmp/x', 'ran'); export default {};\n");
+  const home = path.join(root, 'home');
+  fs.mkdirSync(home);
+  const worktree = { repo: 'threadbear', mainCheckout: repo, path: wt, branch: 'thread/abcd1234', base: g(repo, 'rev-parse', 'main') };
+  return { root, repo, wt, patch, home, worktree, file: path.join(home, 'patch-trust.json'), side: path.join(home, 'patch-trust-unvouched.json') };
+}
+
+// A runner with a thread in the worktree, its record then edited as an
+// older runner left it, and started again over the trust files.
+async function runnerWith(c: ReturnType<typeof checkout>, edit: (rec: any) => void, events?: (file: string) => void) {
+  const first = makeHarness(c.home);
+  const { thread } = first.runner.create({ text: 'hi', accountId: 'claude-3', cwd: c.wt });
+  await tick();
+  first.adapter.last.init();
+  first.adapter.last.result('completed');
+  await tick();
+  const recFile = path.join(c.home, 'threads', thread.id, 'thread.json');
+  const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
+  edit(rec);
+  fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
+  events?.(path.join(c.home, 'threads', thread.id, 'events.ndjson'));
+  const trust = new PatchTrust({ file: c.file, always: [c.repo] });
+  const h = makeHarness(c.home, {}, { patchTrust: trust });
+  return { h, trust, id: thread.id };
+}
+
+const sideJson = (c: ReturnType<typeof checkout>) => JSON.parse(fs.readFileSync(c.side, 'utf8'));
+
+test("90: a worktree an older runner marked on the thread's record stays held after the upgrade", async () => {
+  const c = checkout();
+  // A trust file from then, without any list.
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+  const { trust } = await runnerWith(c, (rec) => (rec.worktree = { ...c.worktree, unvouched: true }));
+  assert.equal((await trust.check(c.patch, 0)).trusted, false, 'its patch waits for trust');
+  assert.deepEqual(sideJson(c), { version: 2, unvouched: [c.wt] });
+  assert.equal((await trust.check(path.join(c.repo, '.threadbear', 'patches', 'w.ts'), 0)).trusted, true, 'the checkout itself still is');
+  // And after the next start, from the file alone.
+  assert.equal((await new PatchTrust({ file: c.file, always: [c.repo] }).check(c.patch, 0)).trusted, false);
+});
+
+test("91: patch-trust.json's own list (the next form) is taken in, before anything is checked", async () => {
+  const c = checkout();
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {}, unvouched: [c.wt] }));
+  const trust = new PatchTrust({ file: c.file, always: [c.repo] });
+  assert.equal((await trust.check(c.patch, 0)).trusted, false);
+  assert.ok(trust.isUnvouched(c.patch));
+  assert.deepEqual(sideJson(c).unvouched, [c.wt]);
+  // Still held once the trust file is written without it, as it now is.
+  trust.save();
+  assert.equal(JSON.parse(fs.readFileSync(c.file, 'utf8')).unvouched, undefined);
+  assert.equal((await new PatchTrust({ file: c.file, always: [c.repo] }).check(c.patch, 0)).trusted, false, 'after a restart');
+  // A worktree made there afresh (vouch) clears it from both, for good.
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {}, unvouched: [c.wt] }));
+  const again = new PatchTrust({ file: c.file, always: [c.repo] });
+  again.vouch(c.wt);
+  assert.equal((await again.check(c.patch, 0)).trusted, true);
+  assert.equal((await new PatchTrust({ file: c.file, always: [c.repo] }).check(c.patch, 0)).trusted, true, 'and stays so');
+});
+
+test('90/91: a move finished before any mark is held, as nothing can say what it brought', async () => {
+  const c = checkout();
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+  const { trust } = await runnerWith(
+    c,
+    (rec) => (rec.worktree = { ...c.worktree }),
+    (file) => {
+      const n = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length;
+      fs.appendFileSync(file, JSON.stringify({ seq: n + 1, at: new Date().toISOString(), type: 'system.note', text: 'Moved from Bruce to M5, in /x.' }) + '\n');
+    },
+  );
+  assert.equal((await trust.check(c.patch, 0)).trusted, false);
+});
+
+test("90/91: this runner's own mark of a moved worktree brings it back if the list is lost", async () => {
+  const c = checkout();
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+  fs.writeFileSync(c.side, JSON.stringify({ version: 2, unvouched: [] }));
+  // Known good: a clean move isn't held.
+  const known = await runnerWith(c, (rec) => (rec.worktree = { ...c.worktree, movedIn: true }));
+  assert.equal((await known.trust.check(c.patch, 0)).trusted, true, 'a clean move, with the list known');
+  // Lost: held until trusted.
+  fs.rmSync(c.side);
+  const trust = new PatchTrust({ file: c.file, always: [c.repo] });
+  makeHarness(c.home, {}, { patchTrust: trust });
+  assert.equal((await trust.check(c.patch, 0)).trusted, false, 'the list lost');
+});
+
+test('90/91: a list that can not be read holds every worktree of an always-trusted checkout, not the checkout', async () => {
+  const c = checkout();
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+  fs.writeFileSync(c.side, '{ not json');
+  const trust = new PatchTrust({ file: c.file, always: [c.repo] });
+  assert.equal(trust.unvouchedKnown(), false);
+  assert.equal((await trust.check(c.patch, 0)).trusted, false);
+  assert.equal((await trust.check(path.join(c.repo, '.threadbear', 'patches', 'w.ts'), 0)).trusted, true);
+});
+
+test("90/91: an ordinary worktree of this runner's keeps the always-trust through the upgrade", async () => {
+  const c = checkout();
+  fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+  const { trust } = await runnerWith(c, (rec) => (rec.worktree = { ...c.worktree }));
+  assert.equal((await trust.check(c.patch, 0)).trusted, true);
+  assert.deepEqual(sideJson(c), { version: 2, unvouched: [] });
+});
+
+test("90/91: a first start's seeding doesn't trust a held worktree's patches", async () => {
+  const c = checkout();
+  // No trust file at all: the first start seeds from what threads run.
+  const { trust } = await runnerWith(c, (rec) => (rec.worktree = { ...c.worktree, unvouched: true }));
+  assert.equal((await trust.check(c.patch, 0)).trusted, false);
+});
+
+test('a log says a thread was moved here only with the note adoptMoved writes', () => {
+  const dir = tmpDir();
+  assert.equal(eventsSayMovedIn(dir), false, 'no log');
+  const file = path.join(dir, 'events.ndjson');
+  fs.writeFileSync(file, JSON.stringify({ seq: 1, type: 'user.message', text: 'Moved to /x' }) + '\n');
+  assert.equal(eventsSayMovedIn(dir), false);
+  // Past a read's piece, across its edge.
+  fs.appendFileSync(file, 'x'.repeat((1 << 20) - 10) + '\n' + JSON.stringify({ seq: 2, type: 'system.note', text: 'Moved from Bruce to M5.' }) + '\n');
+  assert.equal(eventsSayMovedIn(dir), true);
+});
+
+// Finding 96's other half: whatever trips one thread's recovery at start
+// costs that thread its recovery, not the runner.
+test("one thread whose recovery throws doesn't stop the runner starting, and is said", async () => {
+  const home = tmpDir();
+  const h = makeHarness(home);
+  const a = h.runner.create({ text: 'a', accountId: 'claude-3', cwd: tmpDir() }).thread.id;
+  const b = h.runner.create({ text: 'b', accountId: 'claude-3', cwd: tmpDir() }).thread.id;
+  await tick();
+  const { Runner } = await import('../../src/runner.ts');
+  const recover = Runner.prototype.recover;
+  Runner.prototype.recover = function (this: any, st: any) {
+    if (st.rec.id === a) throw new TypeError('object is not iterable');
+    return recover.call(this, st);
+  };
+  try {
+    const again = makeHarness(home);
+    assert.ok(again.runner.threads.has(a) && again.runner.threads.has(b));
+    assert.ok(again.runner.startupNotices.some((n) => n.level === 'warning' && n.message.includes("couldn't be picked up")));
+  } finally {
+    Runner.prototype.recover = recover;
+  }
+});

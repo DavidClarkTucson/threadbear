@@ -721,7 +721,9 @@ export const patchesPart = {
         // a folder that's gone
       }
     }
-    const done = this.patchTrust.trustCurrent([...files]);
+    // Not a worktree another runner's move brought work into: those wait
+    // for trust like any folder's (settleUnvouched has run by now).
+    const done = this.patchTrust.trustCurrent([...files].filter((f) => !this.patchTrust.isUnvouched?.(f)));
     this.patchTrust.save();
     this.log.info('patch trust seeded', { files: done.length });
   },

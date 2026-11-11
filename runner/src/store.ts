@@ -20,6 +20,31 @@ export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; ori
 // What thread.json holds: the public summary fields plus a few internal ones.
 export type PressNote = { id: string; line: string; told?: { seq: number; inFlight?: boolean } };
 
+// A thread's press notes as read from disk, where another runner may have
+// written them (a moved thread's thread.json is the old runner's word):
+// only well-formed ones, and no more than Runner.notePress keeps (20 told,
+// one per button untold). `presses: {}` from a moved thread stopped the
+// runner at every start, as recover went through it (security review, 11
+// Nov 2026, finding 96).
+const MAX_PRESSES = 20 + 200;
+const MAX_PRESS_LINE = 2000;
+export function cleanPresses(raw: unknown): PressNote[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: PressNote[] = [];
+  for (const p of raw.slice(-MAX_PRESSES)) {
+    if (!p || typeof p !== 'object') continue;
+    const { id, line, told } = p as Record<string, unknown>;
+    if (typeof id !== 'string' || typeof line !== 'string') continue;
+    const note: PressNote = { id: id.slice(0, 200), line: line.slice(0, MAX_PRESS_LINE) };
+    if (told && typeof told === 'object') {
+      const { seq, inFlight } = told as Record<string, unknown>;
+      if (typeof seq === 'number' && Number.isFinite(seq)) note.told = { seq, ...(inFlight === true ? { inFlight: true } : {}) };
+    }
+    out.push(note);
+  }
+  return out.length ? out : undefined;
+}
+
 export type ThreadRecord = {
   id: string;
   title: string;
@@ -389,6 +414,11 @@ export class ThreadStore {
     rec.queue ??= [];
     rec.pendingApprovals ??= [];
     rec.lastTurnCompletedSeq ??= 0;
+    if (rec.presses !== undefined) {
+      const presses = cleanPresses(rec.presses);
+      if (presses) rec.presses = presses;
+      else delete rec.presses;
+    }
     return rec;
   }
 

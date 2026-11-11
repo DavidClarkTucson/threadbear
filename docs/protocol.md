@@ -955,7 +955,11 @@ since, the thread it started or messaged and the start of what it sent,
 so its agent doesn't send the same job again (on 8 Nov 2026 the Daily
 brief did, after Mike pressed RSVP yes and then said go ahead in his
 reply). The line is kept on the thread (`presses` in thread.json, the
-last 20) from the press, so it outlives the button. A turn that doesn't
+last 20) from the press, so it outlives the button. Read from disk (a
+moved thread's thread.json is the old runner's), only well-formed notes
+are kept, at most 220, each line at most 2,000 characters; and a thread
+whose recovery throws at start or on a handover is said in a notice and
+left as it is, rather than stopping the runner. A turn that doesn't
 complete (a failure, Stop, a restart part way) hears it again, so does a
 fresh session that replays the message, and so does an edit back past
 the message that carried it. A run's press already tells the agent how
@@ -5566,8 +5570,11 @@ again and carries on from the state.
   and process blank, not required), with no hooks, fsmonitor, signing,
   diff programs or auto gc, and git never looks inside a submodule
   (`--ignore-submodules=all` on status and diff, `--no-recurse-submodules`
-  on fetch and checkout, `git submodule` refused), as a submodule's own
-  config is one Threadbear hasn't read, and no fetching at all
+  on fetch, reset, read-tree and ls-files), as a submodule's own config is
+  one Threadbear hasn't read, no `diff.external` (diffs are git's own), only
+  the git commands a move and the done card's check use (`log`, `show`,
+  `merge`, `stash`, `git submodule` and the like are refused), the old
+  runner's commit ids only as full ids, and no fetching at all
   but the bundle (file only) and T's fetch of `origin` (https, ssh or
   file, git's own upload-pack, and only your own credential helpers, ssh
   command and alternates command). A repo with a filter name git's `-c`
@@ -5623,7 +5630,18 @@ again and carries on from the state.
   delete and cleanup and across restarts, until a worktree is made there
   afresh. It's worked out again as the move is adopted, before anything
   loads (for one placed by an older runner, from the worktree, ignored
-  files included). A move whose uncommitted work brings anything under a
+  files included). The file is `{ "version": 2, "unvouched": [...] }`.
+  When it's missing, unreadable or has no version (it moved twice on 10
+  Nov 2026, from a `worktree.unvouched` mark on the thread's record to an
+  `unvouched` array in `patch-trust.json` to here), the runner works the
+  list out again at start, before anything loads a patch or seeds trust:
+  every thread's worktree its record marks (`worktree.movedIn`, set for
+  every moved worktree, or the old `unvouched`), or whose event log has
+  adoption's "Moved from" note, is held, as nothing says what an old
+  move brought; `patch-trust.json`'s array is taken in whenever that file
+  is read. While the file can't be read, no worktree of an always-trusted
+  checkout has its trust, only the checkout. A first start's seeding
+  trusts none of a held worktree's patches (security review, 11 Nov 2026). A move whose uncommitted work brings anything under a
   `node_modules` folder fails: those files would be untracked on T, which
   trust reads as installed packages and doesn't hash (one an older runner
   placed loses its untracked `node_modules` files at adopt, and setup

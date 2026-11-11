@@ -786,6 +786,10 @@ export class Runner {
     // sessions and folders, so none of them may run (real-copy.ts).
     const copy = realCopy(this.store.home);
     if (copy) for (const rec of records) this.store.save(neutraliseCopied(rec, copy.work));
+    // Which worktrees the always-trust doesn't reach, before anything below
+    // can read a patch or start a CLI (runner/moves.ts). Every thread on
+    // disk, a draining runner's included.
+    this.settleUnvouched(records);
     let stopped = 0;
     for (const rec of records) {
       if (opts.skip?.has(rec.id)) continue;
@@ -794,9 +798,17 @@ export class Runner {
       rec.lastSeq = this.store.log(rec.id).lastSeq;
       const st: ThreadState = { rec, rt: newRuntime(Date.parse(rec.lastActivityAt) || 0) };
       this.threads.set(rec.id, st);
-      if (rec.asked === undefined && !rec.archivedAt) this.backfillAsked(rec);
-      this.recoverReviews(st);
-      if (this.recover(st)) stopped++;
+      // One thread's record that trips something here (a field another
+      // runner wrote wrong: a moved thread's `presses: {}` stopped every
+      // start, security review 11 Nov 2026) costs that thread its
+      // recovery, not the runner.
+      try {
+        if (rec.asked === undefined && !rec.archivedAt) this.backfillAsked(rec);
+        this.recoverReviews(st);
+        if (this.recover(st)) stopped++;
+      } catch (e) {
+        this.recoveryFailed(st, e);
+      }
     }
     // carryOnStopped (main.ts, once listening) carries most of them on and
     // says so; this notice is for a runner that never gets that far.
@@ -806,7 +818,13 @@ export class Runner {
     // restart waited still gets carried on.
     // A wake-when still being worked out lost its answer with the old
     // runner, so it comes back too.
-    for (const st of this.threads.values()) if (this.wakesOnStart(st.rec)) this.wake(st, 'restart');
+    for (const st of this.threads.values()) {
+      try {
+        if (this.wakesOnStart(st.rec)) this.wake(st, 'restart');
+      } catch (e) {
+        this.recoveryFailed(st, e);
+      }
+    }
     // Before anything reads a thread's patches. Every thread on disk,
     // including ones a draining runner still has.
     this.seedPatchTrust(records.map((r) => r.cwd));
@@ -3556,10 +3574,18 @@ export class Runner {
     return lines.length ? this.pressNewsText(lines) : undefined;
   }
 
+  // A thread whose recovery threw at start or on a handover: said, and
+  // left as it is, mid-turn or not, rather than taking the runner down.
+  recoveryFailed(st: ThreadState, e: unknown): void {
+    this.log.error("couldn't recover a thread at start", { threadId: st.rec.id, error: String(e) });
+    this.startupNotice('warning', `"${st.rec.title}" couldn't be picked up where it left off (${e instanceof Error ? e.message : String(e)}). The other threads started as usual.`);
+  }
+
   // A completed turn keeps what it told; any other end (a failure, Stop, a
   // restart part way) tells it again with the next message.
   settlePresses(rec: ThreadRecord, completed: boolean): void {
-    for (const p of rec.presses ?? []) {
+    if (!Array.isArray(rec.presses)) return;
+    for (const p of rec.presses) {
       if (!p.told?.inFlight) continue;
       if (completed) delete p.told.inFlight;
       else delete p.told;

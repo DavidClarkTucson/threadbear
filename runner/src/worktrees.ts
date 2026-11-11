@@ -41,6 +41,14 @@ export type WorktreeRecord = {
   // runner picking the cleanup up again doesn't run it twice. The thread's
   // next turn in the worktree clears it too, saying the teardown ran.
   tornDownAt?: string;
+  // Made for a thread another runner moved here (runner/moves.ts placeMove):
+  // its files are that runner's work. Whether that work is held from the
+  // always-trust is patch-trust-unvouched.json's to say; this lets the runner
+  // work the list out again if that file is lost (settleUnvouched).
+  movedIn?: true;
+  // The mark a runner of 10 Nov 2026 put here instead of that file, read
+  // only by settleUnvouched.
+  unvouched?: true;
 };
 
 export const MAIN = 'main';
@@ -110,7 +118,10 @@ export type Checkout = { path: string; branch?: string; head?: string; locked?: 
 
 export async function listCheckouts(cwd: string): Promise<Checkout[] | undefined> {
   const out = await gitOut(cwd, ['worktree', 'list', '--porcelain']);
-  if (out === undefined) return undefined;
+  return out === undefined ? undefined : parseCheckouts(out);
+}
+
+export function parseCheckouts(out: string): Checkout[] {
   const list: Checkout[] = [];
   for (const block of out.split(/\n\s*\n/)) {
     const c: Checkout = { path: '' };
