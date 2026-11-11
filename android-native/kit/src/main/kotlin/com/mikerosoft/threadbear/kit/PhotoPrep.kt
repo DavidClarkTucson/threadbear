@@ -1,5 +1,6 @@
 package com.mikerosoft.threadbear.kit
 
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -55,4 +56,19 @@ object PhotoPrep {
      * together don't all hold their pixels at once.
      */
     suspend fun <T> inTurn(work: suspend () -> T): T = gate.withPermit { work() }
+
+    /**
+     * A turn taken now, for work that can outlive whoever waits on it: a
+     * decode left running after its waiter gave up (a stalled provider)
+     * still holds its turn until it really ends, so the two-at-a-time cap
+     * holds. The function it gives back hands the turn back, once only.
+     */
+    suspend fun takeTurn(): () -> Unit {
+        gate.acquire()
+        val given = AtomicBoolean(false)
+        return { if (given.compareAndSet(false, true)) gate.release() }
+    }
+
+    /** How many turns are free now, for tests. */
+    internal val freeTurns: Int get() = gate.availablePermits
 }
