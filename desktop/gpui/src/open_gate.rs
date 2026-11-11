@@ -206,6 +206,13 @@ fn app_for_link(link: &str) -> Option<String> {
     Some(format!("the app for {}: links", link.split(':').next().unwrap_or("")))
 }
 
+/// The app web links open in ("Google Chrome"), for naming what `open_web`
+/// will open: Settings › Phone & browser names a browser's sign-in after it
+/// (`DefaultBrowser`). Only asks; nothing opens.
+pub(crate) fn default_browser() -> Option<String> {
+    app_for_link("https://example.com").filter(|_| cfg!(target_os = "macos"))
+}
+
 #[cfg(target_os = "macos")]
 fn describe_app(app: &objc2_foundation::NSURL) -> Option<OpeningApp> {
     use objc2_foundation::NSBundle;

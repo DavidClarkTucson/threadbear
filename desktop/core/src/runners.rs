@@ -367,6 +367,98 @@ pub fn order_after_drop(part: &[String], self_id: Option<&str>, others: &[String
     merged(part, &full)
 }
 
+// ---- Settings › Runners (RunnersSettings.swift)
+
+/// A runner's row in Settings › Runners (`RunnerRow`): its icon, name, how it
+/// is, and the star where new threads start.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettingsRow {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    /// "This Mac", "Online", "Offline", or with the direct link on and no
+    /// token copied in, "Not paired with this Mac".
+    pub status: String,
+    pub is_default: bool,
+    pub is_self: bool,
+}
+
+/// The rows: this Mac and the backend's other runners (`remoteRunners`). In
+/// Mike's order once it can be changed (`orderedRunnerIds`), else this Mac
+/// first and the rest as the backend has them. `default` is this Mac's own
+/// choice, None for itself.
+pub fn settings_rows(this_mac: Option<&RunnerInfo>, others: &[crate::remote::RemoteRunner], order: Option<&[String]>, default: Option<&str>, orderable: bool, direct_link: bool) -> Vec<SettingsRow> {
+    let own = SettingsRow {
+        id: this_mac.map(|r| r.id.clone()).unwrap_or_default(),
+        // Its own name, as other machines see it ("m5").
+        name: this_mac.map_or_else(|| "This Mac".to_owned(), |r| r.name.clone()),
+        icon: this_mac.and_then(|r| r.icon.clone()),
+        status: "This Mac".to_owned(),
+        is_default: default.is_none(),
+        is_self: true,
+    };
+    let row = |r: &crate::remote::RemoteRunner| SettingsRow {
+        id: r.id.clone(),
+        name: r.name.clone(),
+        icon: r.icon.clone(),
+        status: if direct_link && r.token_file.is_none() {
+            "Not paired with this Mac".to_owned()
+        } else if r.online {
+            "Online".to_owned()
+        } else {
+            "Offline".to_owned()
+        },
+        is_default: default == Some(r.id.as_str()),
+        is_self: false,
+    };
+    if !orderable {
+        return std::iter::once(own).chain(others.iter().map(row)).collect();
+    }
+    let ids: Vec<String> = others.iter().map(|r| r.id.clone()).collect();
+    ordered_ids(this_mac.map(|r| r.id.as_str()), &ids, order)
+        .into_iter()
+        .map(|id| others.iter().find(|r| r.id == id).map_or_else(|| own.clone(), row))
+        .collect()
+}
+
+/// The order can be changed once the backend has one (API 58) and this Mac's
+/// own runner is known: without it a move would save an order that leaves
+/// this Mac out (`canOrderRunners`).
+pub fn can_order(order_known: bool, others: &[crate::remote::RemoteRunner], all: &[RunnerInfo]) -> bool {
+    order_known && !others.is_empty() && all.iter().any(|r| r.is_self)
+}
+
+/// The default runner's picker: "This Mac", then each other runner by name.
+/// What it says now: the default's name, or "This Mac".
+pub fn default_title(default: Option<&str>, others: &[crate::remote::RemoteRunner]) -> String {
+    match default {
+        None => "This Mac".to_owned(),
+        Some(id) => others.iter().find(|r| r.id == id).map_or_else(|| id.to_owned(), |r| r.name.clone()),
+    }
+}
+
+/// Behind the sections' ⓘs, as the Swift view has them.
+pub const DEFAULT_ABOUT: &str = "Where a new thread runs unless you pick another machine on the composer. This is this Mac's own choice.";
+pub const DEFAULT_ASK: &str = "change it, or to set up another machine to run threads on.";
+pub const DEFAULT_TIP: &str = "Where a new thread runs unless you pick another machine on the composer";
+pub const RUNNERS_ASK: &str = "add one, rename one, pair it with this Mac or change how it runs. It knows how, and a Linux server's steps are in INSTALL.md.";
+pub const OTHERS_ABOUT: &str = "Threads on other machines open through this Mac's runner and Convex, with no network link between the machines. Tool output stays on the machine that ran it for now. Connecting directly reaches the other machine over Tailscale instead, and needs it paired with this Mac.";
+pub const OTHERS_ASK: &str = "explain how other machines' threads reach this Mac, or pair one for a direct connection.";
+
+pub fn runners_about(orderable: bool) -> &'static str {
+    if orderable {
+        "The machines your threads can run on, in your order. New threads from your phone start on the first one that's online. Drag a runner to change the order. Each runner is set up on its own machine."
+    } else {
+        "The machines your threads can run on. Each runner is set up on its own machine."
+    }
+}
+
+/// A row in the dump: "m5 *: This Mac", "bruce: Online", with " *" after the
+/// name where new threads start, as the Runners panel's lines have it.
+pub fn settings_line(row: &SettingsRow) -> String {
+    format!("{}{}: {}", row.name, if row.is_default { " *" } else { "" }, row.status)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,6 +577,34 @@ mod tests {
         assert_eq!(names(ordered(&list, Some(&order))), ["cloud", "m5", "bruce"]);
         let others = ["b".to_string(), "c".to_string(), "p".to_string()];
         assert_eq!(ordered_ids(Some("m"), &others, Some(&order)), ["c", "m", "b", "p"]);
+    }
+
+    #[test]
+    fn settings_lists_this_mac_and_the_others_in_mikes_order() {
+        use crate::remote::RemoteRunner;
+        let me = RunnerInfo { is_self: true, icon: Some("laptopcomputer".into()), ..runner("m", "m5") };
+        let bruce = RemoteRunner { id: "b".into(), name: "bruce".into(), icon: Some("macmini".into()), online: true, token_file: Some("/x/b.token".into()) };
+        let cloud = RemoteRunner { id: "c".into(), name: "cloud".into(), online: false, ..Default::default() };
+        let others = [bruce.clone(), cloud.clone()];
+        let lines = |rows: Vec<SettingsRow>| rows.iter().map(settings_line).collect::<Vec<_>>();
+        // Not orderable yet: this Mac first, the rest as the backend has them.
+        assert_eq!(lines(settings_rows(Some(&me), &others, None, None, false, false)), ["m5 *: This Mac", "bruce: Online", "cloud: Offline"]);
+        // In Mike's order, with the star on another default.
+        let order = ["c".to_string(), "m".to_string(), "b".to_string()];
+        let rows = settings_rows(Some(&me), &others, Some(&order), Some("b"), true, false);
+        assert_eq!(lines(rows.clone()), ["cloud: Offline", "m5: This Mac", "bruce *: Online"]);
+        assert_eq!(rows[1].icon.as_deref(), Some("laptopcomputer"));
+        assert!(rows[1].is_self && !rows[0].is_self);
+        // The direct link needs a token copied in.
+        assert_eq!(lines(settings_rows(Some(&me), &others, None, None, false, true))[2], "cloud: Not paired with this Mac");
+        // This Mac before runners.list has said its name.
+        assert_eq!(settings_rows(None, &[], None, None, false, false)[0].name, "This Mac");
+        assert!(can_order(true, &others, &[me.clone()]));
+        assert!(!can_order(false, &others, &[me.clone()]), "no order from the backend yet");
+        assert!(!can_order(true, &others, &[]), "this Mac's id isn't known yet");
+        assert_eq!(default_title(None, &others), "This Mac");
+        assert_eq!(default_title(Some("b"), &others), "bruce");
+        assert!(runners_about(true).contains("Drag a runner"));
     }
 
     #[test]

@@ -32,6 +32,7 @@ mod highlights_store;
 mod home_page;
 mod icons;
 mod librarian;
+mod mac_switch;
 mod move_sheet;
 mod new_thread;
 mod notify;

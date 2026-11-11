@@ -285,6 +285,93 @@ built parsers and gates with no launch of the app, which is the trap.)
   Codex read it three times, trying to break each fix: what it found the
   first two times is fixed, and of the third, archive-then-quit is fixed and
   the rest is left as said above.
+### 2026-11-11 Settings › Runners, Phone & browser and Keyboard (`settings.runners`, `settings.devices`, `settings.keyboard`)
+
+- Runners: Default runner ("New threads start on": This Mac or another
+  runner, each with its icon, this Mac's own choice and the composer's star);
+  the runners in Mike's order, each with its icon, name, the star where new
+  threads start and how it is (This Mac, Online, Offline), dragged by the
+  row onto another's place to change the order, saved for the phone too
+  (`runners.setOrder`) and shown at once, as the Runners panel's cards are;
+  then Other machines' threads, saying how they come.
+- Phone & browser: Add a phone or browser (Add a browser for a backend on
+  this Mac only, with why a phone can't pair, and the bell's line for a
+  self-hosted one). Show the code… spins until the runner answers, then puts
+  the QR code over the window as the Swift sheet does: level M with
+  CoreImage's one-square margin and whole-pixel squares, so it comes out the
+  same size (39 squares of 5 points for the demo's link). Done, Return or
+  Esc closes it; the link only ever goes into the code's squares, and is
+  never kept, logged or dumped. Open signed in names the browser's token
+  after the browser web links open in and opens the website there, through
+  the open gate. Paired: each phone and browser with its icon, when it was
+  paired and until when (or "Expired … pair it again" in orange), and
+  Revoke, which takes it off at once and puts it back with the reason if
+  the backend says no. A runner too old for devices, no connection, or
+  nothing mirrored to Convex say so instead.
+- Keyboard: the search, then Threads, Go and View with every command's key.
+  Click a key and press the new one; Esc stops, Delete takes the key away. A
+  key that would type, another command's (with Use It for This Instead) or
+  one the app keeps (Copy, Paste, Quit, Hide, Minimize, the cursor's keys) is
+  asked about under the row, and it keeps listening. Reset on a changed row,
+  Reset All at the foot. shortcuts.json is written whole and the keys, the
+  keymap and the menus change at once; a file left half edited says so and
+  the keys stay. While a key is listened for, presses go to it before the
+  menus (`intercept_keystrokes`), so ⌘E there doesn't archive the thread.
+- Every Settings switch is macOS 27's now (`mac_switch.rs`, 36 by 16 with a
+  pill knob, measured from the Swift Settings window), not the kit's 28 by 16.
+- Settings' sections are spaced as the Swift form measures on macOS 27: 30
+  between sections (57 from one group to the next), the heading 11 over its
+  group and in line with the rows' words, rows 10 in from the group's edge,
+  groups with no edge, corners of 12 and a 3% fill, and fainter lines
+  between rows. General, Models and Pools have it too
+  (`settings_window.rs`'s `section`, `row_with`, and Pools' `group`).
+- Fixed in the Swift app as well: a revoke the backend refused showed its
+  reason only until the list came back a moment later; both apps keep it.
+- Not the same yet: Connect to other machines directly is there but greyed,
+  with a tip saying why, as this app has no direct link (its other runners'
+  threads come through Convex). The list's rows don't slide round the one
+  being dragged: the slot it'd take is dashed, as on the Runners panel. The
+  Swift list has Quit and Collapse Threads too: Quit's ⌘Q is fixed here, as
+  this app's menu has it, and there's no Collapse Threads yet, so the page
+  lists 22 commands to the Swift one's 24; lines for those two stay in the
+  file whatever's changed here.
+- The rules are threadbear-core's `devices.rs` (the list, each row's words,
+  the QR code), `keyboard.rs` (the recorder, its questions and the key caps,
+  ported from AppShortcuts and Shortcuts.swift) and the Settings rows in
+  `runners.rs`, with the Swift tests' cases. Both apps' dumps say what each
+  section shows (`settingsWindow.runners`, `.devices`, `.keyboard`), and
+  both take the same commands: `settings` with `defaultRunner`, `revoke`,
+  `pair` and `pairDone`, and the Swift app's `shortcuts`, which the GPUI app
+  drives through real clicks and keys.
+- Files: `desktop/gpui/src/settings_window/{runners,devices,keyboard}.rs`,
+  `desktop/gpui/src/mac_switch.rs`, `desktop/core/src/{devices,keyboard}.rs`
+  (new); the lines that hook them into `settings_window.rs`,
+  `automation.rs`, `open_gate.rs` (the default browser's name), `icons.rs`
+  and `main.rs`; `desktop/core/src/runners.rs` and `remote.rs` (a runner's
+  `tokenFile`); `qrcodegen` in `desktop/core/Cargo.toml`; the Swift dump and
+  automation (`AppDump.swift`, `Automation.swift`,
+  `Automation+SettingsSections.swift`, `DevicesModel.swift`,
+  `DevicesSettings.swift`, `KeyboardSettings.swift`); `mock.devices` in the
+  mock runner; `features/settings-{runners,devices,keyboard}.feature` and
+  their steps, and `settings.steps.ts`; `app/README.md`.
+- Also: settings.feature's Keep the Mac awake scenario had been failing on
+  the GPUI app since General grew past the window's 620 points (Sleep's
+  switch was out of sight, so no click could reach it); its step makes the
+  window tall first.
+- Verification: on Tinker Desk, rebased on main: the three new features on
+  the GPUI app (17 of 17; with settings, runners and navigation.feature, 36
+  of 36) and on the Swift app (15 of 15, the drag and the search being
+  `@swift-pending`; with settings and navigation.feature, 26 of 26), and
+  settings-devices.feature three times more on the GPUI app and once on the
+  Swift one; core's and the client's tests, the integration ones too, and
+  `cargo check --locked` of every target. Pictures of both apps' Runners
+  and Keyboard (listening, a key another command has, a changed key) and
+  General, measured against each other for the new spacing, and of the GPUI
+  app's Phone & browser and pairing code beside the Swift sheet, in dark and
+  light; the GPUI app's code read back by CoreImage's QR detector, as a
+  phone would, as the demo's pairing link. The Swift Phone & browser form
+  draws blank in-process while Tinker Desk's screen is locked, so that one
+  was checked against its code.
 
 ### 2026-11-11 Thread chips in replies and agents' messages (`rich.threadchips`, `transcript.reply`, `transcript.agentmessage`)
 

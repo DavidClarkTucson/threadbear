@@ -188,6 +188,17 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             // A window covered by another gets no frames from the system on a
             // Mac, and a scroll only takes effect at a frame.
             window.render_frame(cx);
+            // The Settings window's too: a section asks for what it shows as
+            // it's drawn (Phone & browser's list), as the Swift one on appear,
+            // and what's on screen there is read from that frame.
+            if let Some((settings, view)) = app.read(cx).settings_window.clone() {
+                settings
+                    .update(cx, |_, window, cx| {
+                        window.render_frame(cx);
+                        crate::settings_window::note_drawn(&view, window, cx);
+                    })
+                    .ok();
+            }
             Ok(app.read(cx).dump(cx))
         }
         "status" => Ok(json!("ok")),
@@ -207,8 +218,14 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
                 None => None,
             };
             app.update(cx, |t, cx| t.open_settings(tab, cx));
+            // Its sections' buttons and menus, as the Swift command takes them.
+            if let Some(done) = crate::settings_window::automation(app, cmd, cx)? {
+                return Ok(done);
+            }
             Ok(json!("ok"))
         }
+        // Settings > Keyboard, as the Swift app's `shortcuts` (settings_window/keyboard.rs).
+        "shortcuts" => crate::settings_window::keyboard_automation(app, cmd, cx),
         // The sidebar's commands (sidebar.rs). Guarded ones only take the forms
         // that name a section, a row or a tip; the others fall through below.
         "hover" | "sort" | "archive-more" | "star" | "unstar" | "unarchive" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),

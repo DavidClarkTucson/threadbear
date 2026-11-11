@@ -216,6 +216,8 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "arrow.triangle.branch" => IconName::GitBranch,
         "cylinder.split.1x2" => IconName::Database,
         "iphone" => IconName::Smartphone,
+        "bell.slash" => IconName::BellOff,
+        "questionmark.circle" => IconName::CircleQuestionMark,
         "list.bullet" => IconName::List,
         "doc.on.doc" => IconName::Copy,
         "arrow.up.forward.app" => IconName::SquareArrowOutUpRight,

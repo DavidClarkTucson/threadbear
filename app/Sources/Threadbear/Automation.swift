@@ -220,6 +220,9 @@ enum Automation {
             guard window.attachedSheet != nil else { return "error the pairing code didn't open: \(app.devicesError ?? "no error")" }
             try? await Task.sleep(for: .milliseconds(300))
         }
+        // Runners' default, a device's Revoke and the code's Done
+        // (Automation+SettingsSections.swift).
+        if let refused = await settingsSectionActions(c, app: app) { return refused }
         let shown: String
         if let settings = app.runnerSettings {
             shown = json([

@@ -97,9 +97,13 @@ you go.
 - [ ] An image panel has no Open Simulator button; `.app`, `.icns` and PDF
   icons fall back to a symbol (`panel.image`, `patches.icons`,
   `rail.originbadge`)
-- [ ] Settings > Runners, Devices and Keyboard are placeholders (the Keyboard
+- [x] Settings > Runners, Devices and Keyboard are placeholders (the Keyboard
   file is picked up live if edited by hand) (`settings.runners`,
-  `settings.devices`, `settings.keyboard`)
+  `settings.devices`, `settings.keyboard`). In since 11 Nov, but for
+  Runners' Connect to other machines directly, as this app has no direct
+  link yet
+- [ ] Connect to other machines directly: other runners' threads only come
+  through Convex here (`settings.runners`, `remote.rs`)
 - [ ] Help's two items, About's window, the tour and Finish Setting Up are
   stubs (`menu.help`, `tour.*`)
 - [ ] The bears and the little animations: the working and waking bears, the
@@ -109,7 +113,10 @@ you go.
 - [ ] The system accent colour isn't followed (always blue), and Reduce Motion
   isn't read (`foundation.theme`, `foundation.reducemotion`)
 - [ ] The switches are smaller than macOS 27's (the Usage helper's note: one
-  fix for Settings, the Librarian page and Usage)
+  fix for Settings, the Librarian page and Usage). Settings' are macOS's now
+  (`mac_switch.rs`: 36 by 16 with a pill knob, as measured in the Swift
+  Settings window); the Librarian page and Usage still have the kit's, and
+  want measuring there first (the Usage helper saw 44 by 20)
 
 ## Before other people move over
 

@@ -21,6 +21,10 @@ Then('Settings shows {string}', async function (this: ThreadbearWorld, tab: stri
 });
 
 When('I press {string} in Settings', async function (this: ThreadbearWorld, tip: string) {
+  // Tall enough for every section of General: a switch scrolled out of sight
+  // can't be clicked, by a script any more than by a person (Sleep went below
+  // the window's 620 points as Quitting, Notifications and Instructions came in).
+  await this.app.do({ cmd: 'resize', settings: true, w: 880, h: 1300 });
   await this.app.do({ cmd: 'click', tipPrefix: tip, settings: true });
 });
 

@@ -595,6 +595,8 @@ final class AppModel {
     var devicesLoading = false
     /// Bumped by the automation to show the pairing code, for screenshots.
     var pairRequest = 0
+    /// Bumped by the automation to close it again, as its Done does.
+    var pairDoneRequest = 0
     /// The schedule editor sheet, when it's open (ScheduleEditor).
     var scheduleEditor: ScheduleEditorState?
     /// A sidebar row drawn as if the pointer were over it, so the screenshot

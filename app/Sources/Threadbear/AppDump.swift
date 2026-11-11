@@ -86,6 +86,10 @@ struct AppDump: Encodable {
         var labReview: Bool?
         var privateFolders: [String]?
         var smallJobsPool: String?
+        /// Runners, Phone & browser and Keyboard (Automation+SettingsSections.swift).
+        var runners: SettingsRunnersInfo? = nil
+        var devices: SettingsDevicesInfo? = nil
+        var keyboard: SettingsKeyboardInfo? = nil
     }
 
     struct ScheduleEditorInfo: Encodable {
@@ -839,7 +843,8 @@ struct AppDump: Encodable {
             settingsWindow: SettingsWindow.current?.isVisible == true ? SettingsWindowInfo(
                 tab: app.settingsTab.rawValue, appearance: UserDefaults.standard.string(forKey: AppAppearance.key) ?? "system",
                 defaultFolder: app.runnerSettings?.defaultCwd, keepAwake: app.runnerSettings?.keepAwake, labReview: app.runnerSettings?.labReview,
-                privateFolders: app.runnerSettings?.models.privateFolders, smallJobsPool: app.runnerSettings?.models.pool) : nil,
+                privateFolders: app.runnerSettings?.models.privateFolders, smallJobsPool: app.runnerSettings?.models.pool,
+                runners: runnersInfo(app), devices: devicesInfo(app), keyboard: keyboardInfo()) : nil,
             librarian: app.librarian.map(LibrarianText.state),
             pools: app.usesPools ? app.pools.map { pool in
                 PoolInfo(id: pool.id, title: pool.title, logins: pool.accountIds, folders: pool.folders,

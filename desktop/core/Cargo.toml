@@ -23,3 +23,7 @@ sha2 = "=0.10.9"
 # without its xattr support, as nothing it would set is wanted.
 bzip2 = "=0.6.1"
 tar = { version = "=0.4.46", default-features = false }
+# The pairing code Settings › Phone & browser shows the iPhone app (devices.rs,
+# `pairing_qr`). Exactly this version: Project Nayuki's encoder, pure Rust with
+# no dependencies of its own, and the code a phone scans has to stay right.
+qrcodegen = "=1.8.0"

@@ -2,8 +2,9 @@
 // runner's settings in the grouped form every Mac app's settings use, with a
 // sidebar like System Settings' rather than tabs, so the window keeps one
 // height and each section scrolls. All of it lives in the runner (runner.json)
-// and this only shows it and sends changes, apart from the appearance, which
-// is this app's own (desktop-settings.json).
+// and this only shows it and sends changes, apart from what's this app's own:
+// the appearance (desktop-settings.json), the default runner (gpui-prefs.json)
+// and the keys (shortcuts.json, which the Swift app shares).
 //
 // Every section says, behind its ⓘ, what it is and what to ask your agent:
 // agents edit runner.json and the rest, so the window shows what's set with
@@ -18,7 +19,6 @@ use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::switch::Switch;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
@@ -31,7 +31,10 @@ use threadbear_core::completion_sound::{self, Ding};
 use threadbear_core::new_thread::abbreviate_home;
 use threadbear_core::runner_settings::{experiment_about, BringIn, RunnerSettings, StandingInstructions};
 
+mod devices;
+mod keyboard;
 mod pools;
+mod runners;
 
 /// The sections down the sidebar (`SettingsTab`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,6 +190,10 @@ pub(crate) struct SettingsWindow {
     resolve_error: Option<String>,
     /// Pools, as edited (`settings_window/pools.rs`).
     pools: pools::PoolsDraft,
+    /// Phone & browser's list and pairing (`settings_window/devices.rs`).
+    devices: devices::DevicesDraft,
+    /// Keyboard's search and the key being listened for (`settings_window/keyboard.rs`).
+    keyboard: keyboard::KeyboardDraft,
     /// The ding's volume (Notifications).
     volume: Entity<SliderState>,
     scroll: ScrollHandle,
@@ -216,10 +223,15 @@ impl SettingsWindow {
         // In front, the app is: threads in the main window still read as
         // Mike looks at them (`Threadbear::looking_changed`).
         let looking_app = app.clone();
-        subs.push(cx.observe_window_activation(window, move |_, window, cx| {
+        subs.push(cx.observe_window_activation(window, move |this, window, cx| {
             let (key, active) = (crate::thread::window_key(window), window.is_window_active());
             if let Some(app) = looking_app.upgrade() {
                 app.update(cx, |app, cx| app.looking_changed(key, active, cx));
+            }
+            // Away from the window, a key being listened for is never mind,
+            // as the Swift recorder stops when the app goes to the back.
+            if !active {
+                this.stop_listening(cx);
             }
         }));
         // Closing it saves what's typed and not yet sent (`onDisappear`).
@@ -266,6 +278,8 @@ impl SettingsWindow {
             resolving: false,
             resolve_error: None,
             pools: Default::default(),
+            devices: Default::default(),
+            keyboard: Default::default(),
             volume,
             scroll: ScrollHandle::new(),
             _subs: subs,
@@ -277,6 +291,10 @@ impl SettingsWindow {
     pub(crate) fn show(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab != tab {
             self.commit_instructions(window, cx);
+            // Leaving Keyboard stops listening (`onDisappear`), and coming
+            // back to Phone & browser asks for the list again (`onAppear`).
+            self.stop_listening(cx);
+            self.devices_hidden();
             self.tab = tab;
             window.set_window_title(tab.title());
             self.scroll.set_offset(point(gpui_kit::px(0.), gpui_kit::px(0.)));
@@ -860,8 +878,8 @@ impl SettingsWindow {
             .aria_label(tip)
             .tooltip(move |window, cx| Tooltip::new(shown.clone()).build(window, cx))
             .flex_none()
-            .child(Switch::new(SharedString::from(id)).checked(on).small().on_click(move |on: &bool, _, cx| {
-                let (on, set) = (*on, set.clone());
+            .child(crate::mac_switch::MacSwitch::new(SharedString::from(id), on).on_change(move |on, _, cx| {
+                let set = set.clone();
                 me.update(cx, |this, cx| set(this, on, cx)).ok();
             }))
             .into_any_element()
@@ -911,25 +929,40 @@ fn waiting_text(app: &WeakEntity<Threadbear>, cx: &App) -> String {
 /// `SettingsSection`: its title, with what it is and what to ask your agent
 /// behind the ⓘ, over its rows in a rounded group.
 fn section(id: &'static str, title: &str, about: &str, ask: &str, rows: Vec<AnyElement>, cx: &App) -> AnyElement {
-    let hairline = style::hairline(cx);
+    section_with_body(id, title, about, ask, rows_with_dividers(rows, cx), cx)
+}
+
+/// A grouped Form's rows, with its line between each two: inset as the
+/// rows' words are, and as faint as macOS 27 draws it (#2d2d2d on the
+/// group's #232323 dark, #ebebeb on #f7f7f7 light).
+fn rows_with_dividers(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
+    let line = style::primary_opacity(cx, 0.05);
     let mut group = v_flex();
     let count = rows.len();
     for (i, r) in rows.into_iter().enumerate() {
         group = group.child(r);
         if i + 1 < count {
-            group = group.child(div().h(gpui_kit::px(1.)).mx(px(12.)).bg(hairline));
+            group = group.child(div().h(gpui_kit::px(1.)).mx(px(ROW_INSET)).bg(line));
         }
     }
-    section_with_body(id, title, about, ask, group.into_any_element(), cx)
+    group.into_any_element()
 }
+
+/// How far a grouped Form's rows sit in from the group's edge, and its
+/// headings from the window's: 10 points on macOS 27.
+const ROW_INSET: f32 = 10.;
 
 fn section_with_body(id: &'static str, title: &str, about: &str, ask: &str, body: AnyElement, cx: &App) -> AnyElement {
     let info = format!("{about}\n\nAsk your agent to {ask}");
+    // As a grouped Form draws a section on macOS 27, measured from the Swift
+    // window: the heading in line with the rows' words and 11 points over
+    // the group, which has no edge, corners of 12 and a fill of 3% of the
+    // text colour (#232323 on the window's #1c1c1c).
     v_flex()
         .id(id)
-        .gap(px(6.))
-        .child(h_flex().gap(px(6.)).items_center().px(px(4.)).child(div().text_size(px(13.)).line_height(px(16.)).font_semibold().child(title.to_owned())).child(info_tip(SharedString::from(format!("{id}-info")), info, cx)))
-        .child(div().rounded(px(8.)).bg(style::primary_opacity(cx, 0.04)).border_1().border_color(style::hairline(cx)).child(body))
+        .gap(px(11.))
+        .child(h_flex().gap(px(6.)).items_center().px(px(ROW_INSET)).child(div().text_size(px(13.)).line_height(px(16.)).font_semibold().child(title.to_owned())).child(info_tip(SharedString::from(format!("{id}-info")), info, cx)))
+        .child(div().rounded(px(12.)).bg(style::primary_opacity(cx, 0.03)).child(body))
         .into_any_element()
 }
 
@@ -941,7 +974,7 @@ fn row(label: &'static str, control: impl IntoElement, cx: &App) -> AnyElement {
 fn row_with(label: AnyElement, control: AnyElement, _cx: &App) -> AnyElement {
     h_flex()
         .min_h(px(36.))
-        .px(px(12.))
+        .px(px(ROW_INSET))
         .py(px(6.))
         .gap(px(12.))
         .items_center()
@@ -954,7 +987,7 @@ fn row_with(label: AnyElement, control: AnyElement, _cx: &App) -> AnyElement {
 
 /// A line on its own in place of a section (`Section { Text(...) }`).
 fn plain_note(text: &str, cx: &App) -> AnyElement {
-    div().px(px(4.)).text_size(px(13.)).line_height(px(17.)).text_color(style::secondary_text(cx)).child(text.to_owned()).into_any_element()
+    div().px(px(ROW_INSET)).text_size(px(13.)).line_height(px(17.)).text_color(style::secondary_text(cx)).child(text.to_owned()).into_any_element()
 }
 
 impl Render for SettingsWindow {
@@ -966,11 +999,26 @@ impl Render for SettingsWindow {
             }
             None => (None, None),
         };
+        let sidebar = self.render_sidebar(cx);
+        // Keyboard keeps its search and its foot still round a list that
+        // scrolls, so it lays out the whole pane itself.
+        if self.tab == Tab::Keyboard {
+            let page = self.render_keyboard(window, cx);
+            return h_flex()
+                .id("settings-window")
+                .size_full()
+                .bg(cx.theme().background)
+                .text_color(cx.theme().foreground)
+                .child(sidebar)
+                .child(div().id("settings-pane").flex_1().min_w_0().h_full().child(page));
+        }
         let mut sections = match self.tab {
             Tab::General => self.render_general(settings.as_ref(), window, cx),
             Tab::Models => self.render_models(settings.as_ref(), cx),
             Tab::Pools => self.render_pools(window, cx),
-            other => vec![plain_note(&format!("{} isn't in this app yet. The Swift app's Settings has it for now.", other.title()), cx)],
+            Tab::Runners => self.render_runners(window, cx),
+            Tab::Devices => self.render_devices(cx),
+            Tab::Keyboard => Vec::new(),
         };
         // The last change that didn't take, under the form (`SettingsErrorRow`).
         if let Some(error) = error.filter(|_| matches!(self.tab, Tab::General | Tab::Models)) {
@@ -986,7 +1034,6 @@ impl Render for SettingsWindow {
                     .into_any_element(),
             );
         }
-        let sidebar = self.render_sidebar(cx);
         h_flex()
             .id("settings-window")
             .size_full()
@@ -996,8 +1043,9 @@ impl Render for SettingsWindow {
             .child(
                 div().id("settings-pane").flex_1().min_w_0().h_full().overflow_y_scroll().track_scroll(&self.scroll).child(
                     // A grouped form stops its rows at about 700 points; wider
-                    // than that adds even sides.
-                    h_flex().w_full().justify_center().child(v_flex().w_full().max_w(px(700.)).px(px(20.)).pt(px(16.)).pb(px(24.)).gap(px(18.)).children(sections)),
+                    // than that adds even sides. Its sections are 30 apart
+                    // (57 from one group to the next, with the heading).
+                    h_flex().w_full().justify_center().child(v_flex().w_full().max_w(px(700.)).px(px(20.)).pt(px(20.)).pb(px(24.)).gap(px(30.)).children(sections)),
                 ),
             )
     }
@@ -1019,9 +1067,28 @@ impl SettingsWindow {
             "smallJobsPool": settings.as_ref().and_then(|s| s.pool.clone()),
             // General's Web runtime row, as it reads.
             "webRuntime": crate::web_runtime::settings_words(cx),
+            "runners": self.runners_dump(cx),
+            "devices": self.devices_dump(cx),
+            "keyboard": self.keyboard_dump(cx),
         })
     }
 }
+
+/// The automation's `settings` command's actions on the sections, as the
+/// Swift command takes them (runners.rs, devices.rs), or None for none of them.
+#[cfg(feature = "automation")]
+pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) -> Result<Option<Value>, String> {
+    if let Some(done) = runners::automation(app, cmd, cx)? {
+        return Ok(Some(done));
+    }
+    devices::automation(app, cmd, cx)
+}
+
+#[cfg(feature = "automation")]
+pub(crate) use keyboard::automation as keyboard_automation;
+
+#[cfg(feature = "automation")]
+pub(crate) use devices::note_drawn;
 
 #[cfg(test)]
 mod tests {

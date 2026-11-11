@@ -7,7 +7,7 @@ use crate::{call, icons, style};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::{h_flex, v_flex, Sizable as _, StyledExt as _};
+use gpui_kit::component::{h_flex, Sizable as _, StyledExt as _};
 use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::prelude::*;
@@ -286,7 +286,7 @@ impl SettingsWindow {
             h_flex()
                 .id(SharedString::from(format!("settings-pool-{}", pool.id)))
                 .min_h(px(36.))
-                .px(px(12.))
+                .px(px(super::ROW_INSET))
                 .py(px(6.))
                 .gap(px(8.))
                 .items_center()
@@ -419,18 +419,9 @@ fn pool_detail(pool: &Pool, accounts: &[Account]) -> String {
     text
 }
 
-/// Rows in a group, with a hairline between them, as `section` lays them.
+/// Rows in a group, with a line between them, as `section` lays them.
 fn group(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
-    let hairline = style::hairline(cx);
-    let count = rows.len();
-    let mut group = v_flex();
-    for (i, r) in rows.into_iter().enumerate() {
-        group = group.child(r);
-        if i + 1 < count {
-            group = group.child(div().h(gpui_kit::px(1.)).mx(px(12.)).bg(hairline));
-        }
-    }
-    group.into_any_element()
+    super::rows_with_dividers(rows, cx)
 }
 
 /// The Icon row's face: the pool's icon and a small chevron, opening the grid.

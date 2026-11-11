@@ -306,7 +306,20 @@ let deviceSeq = devices.length;
 // --local, docs/self-hosting.md), so Settings › Phone & browser can be seen
 // saying why a phone can't pair.
 const LOCAL_ONLY = process.env.MOCK_LOCAL_ONLY === '1';
-const deviceList = () => ({ devices: [...devices], site: LOCAL_ONLY ? 'http://127.0.0.1:13211' : DEMO_SITE });
+// mock.devices: sync off, with the runner's reason (devices.list lists none
+// and says why; pair and revoke refuse), and a pair or revoke the backend
+// doesn't answer, for the specs of Settings › Phone & browser.
+let devicesReason = null;
+let devicesFailNext = false;
+const deviceList = () => (devicesReason
+  ? { devices: [], reason: devicesReason }
+  : { devices: [...devices], site: LOCAL_ONLY ? 'http://127.0.0.1:13211' : DEMO_SITE });
+const devicesRefusal = () => {
+  if (devicesReason) return rpcError(-32000, devicesReason);
+  if (!devicesFailNext) return null;
+  devicesFailNext = false;
+  return rpcError(-32000, "The backend didn't answer. Try again in a moment.");
+};
 
 let mockInstructions = { text: '' };
 const settings = {
@@ -1470,6 +1483,8 @@ async function dispatch(client, method, p) {
       return deviceList();
     case 'devices.pair': {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      const refused = devicesRefusal();
+      if (refused) throw refused;
       if (!['phone', 'browser'].includes(p.kind)) throw rpcError(-32602, 'kind must be one of phone, browser');
       if (LOCAL_ONLY && p.kind === 'phone') throw rpcError(-32000, "Your backend is on this Mac only (setup --self-hosted --local), so a phone can't reach it.");
       const name = typeof p.name === 'string' && p.name.trim() ? p.name.trim() : p.kind === 'phone' ? 'iPhone' : 'Browser';
@@ -1483,12 +1498,21 @@ async function dispatch(client, method, p) {
     }
     case 'devices.revoke': {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      const refused = devicesRefusal();
+      if (refused) throw refused;
       const i = devices.findIndex((d) => d.id === p.deviceId);
       if (i < 0) throw rpcError(-32602, `No phone or browser with id ${p.deviceId}`);
       devices.splice(i, 1);
       return deviceList();
     }
     // Mock-only helpers for perf runs, demos and screenshots.
+    // Phone & browser's harder cases: {reason} plays sync off ("" or null
+    // turns it back on), {failNext: true} makes the next pair or revoke fail.
+    case 'mock.devices': {
+      if (p.reason !== undefined) devicesReason = p.reason || null;
+      if (typeof p.failNext === 'boolean') devicesFailNext = p.failNext;
+      return deviceList();
+    }
     case 'mock.checkIn': {
       // A check-in booked on a thread, as an agent's schedule_message leaves
       // one: a schedule that messages it in an hour (or `minutes`), for a
