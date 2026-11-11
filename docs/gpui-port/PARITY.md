@@ -222,6 +222,19 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 Opening a thread whose agent had shown a pin crashed the app (`panel.requests`)
+
+- A thread with a pin waiting to be shown (the `pin` tool with `show`)
+  crashed the GPUI app when it was opened: the request is served inside the
+  app's own update, and the pane opening the pin read the app back to know
+  its thread (a double lease, as the Settings crash was). The pane opens it
+  once that update is over.
+- Files: `desktop/gpui/src/app.rs`, `features/panel-requests.feature` and
+  its steps.
+- Verification: on Tinker Desk, `@panel.requests` and `@system.activitylog`
+  on GPUI, 7 of 7; the new scenario panics at entity_map.rs:156 on the code
+  before the fix, as Mike's did on "Building the Margin script editor".
+
 ### 2026-11-12 Opening Settings with the activity log on crashed the app (`system.activitylog`)
 
 - Clicking the gear (or ⌘,) crashed the GPUI app once the activity log was

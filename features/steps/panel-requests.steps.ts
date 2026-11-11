@@ -2,9 +2,32 @@
 // mock's showPanel and panelState (docs/protocol.md, "Showing panels").
 import { Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { previewLine } from '../support/pane.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 
+const pinned = new WeakMap<ThreadbearWorld, string>();
+
 const requested = new WeakMap<ThreadbearWorld, { threadId: string; requestId: string }>();
+
+// As the agent's pin tool with show: a panel request naming the pin.
+When('the agent of {string} pinned a file of its own and showed it', async function (this: ThreadbearWorld, title: string) {
+  const threadId = (await this.until(`a thread called "${title}"`, (d) => this.thread(d, title)))?.id;
+  assert.ok(threadId, `no thread called "${title}"`);
+  const file = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-pin-'))), 'shown-notes.md');
+  fs.writeFileSync(file, '# Notes\n\nShown by the agent.\n');
+  pinned.set(this, file);
+  await this.app.do({ cmd: 'mock', method: 'pin', params: { threadId, path: file, show: true } });
+});
+
+Then('the pane is showing the pinned file', async function (this: ThreadbearWorld) {
+  const file = pinned.get(this);
+  assert.ok(file, 'nothing was pinned');
+  await this.until(`the pane to show ${path.basename(file)}`, (d) => previewLine(d)?.endsWith(path.basename(file)));
+  fs.rmSync(path.dirname(file), { recursive: true, force: true });
+});
 
 When("I'm looking at the app", async function (this: ThreadbearWorld) {
   // A scripted app is never in front: this says Mike is looking.

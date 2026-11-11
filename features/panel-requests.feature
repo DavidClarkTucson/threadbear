@@ -15,6 +15,17 @@ Feature: An agent shows Mike a panel
     And the runner heard the panel was shown
 
   @panel.requests
+  # A pin shown with `show: true` opens in the pane once Mike looks. The pane
+  # was told while the app was mid-update and read the app back, which
+  # crashed the GPUI app on opening such a thread (12 Nov).
+  @panel.requests @highlights.pin
+  Scenario: A pin the agent showed opens in the pane once Mike looks
+    Given the agent of "Morning brief" pinned a file of its own and showed it
+    When I open the thread "Morning brief"
+    And I'm looking at the app
+    Then the pane is showing the pinned file
+
+  @panel.requests
   Scenario: A panel the thread hasn't got is left waiting
     When I open the thread "Morning brief"
     And I'm looking at the app
