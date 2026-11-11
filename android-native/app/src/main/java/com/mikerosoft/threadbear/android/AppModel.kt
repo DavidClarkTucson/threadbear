@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppModel(context: Context, private val scope: CoroutineScope) {
+    private val appContext = context.applicationContext
     private val store = PairingStore(context)
     private val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
     private var transport: ConvexFfiTransport? = null
@@ -87,6 +88,7 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
         scope.launch {
             try {
                 _identity.value = _backend.value?.me()
+                registerPush()
             } catch (e: TransportError.Unauthorized) {
                 report(e)
             } catch (_: Exception) {
@@ -162,11 +164,40 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
                 connect(shown.pairing)
                 _identity.value = me
                 note("Paired with ${shown.host}")
+                registerPush()
             } catch (e: Exception) {
                 trial.close()
                 report(e)
             } finally {
                 pairingBusy.value = false
+            }
+        }
+    }
+
+    // Push
+
+    /** The Firebase token the backend has for this phone, once registered (for Notify me). */
+    private val _pushToken = MutableStateFlow<String?>(null)
+    val pushToken: StateFlow<String?> = _pushToken
+
+    /**
+     * Hands the backend this phone's Firebase token and push key, as the
+     * iPhone's didRegister: on each connect, after pairing, when the
+     * permission's given, and when Firebase makes a new token. Not while
+     * notifications aren't allowed (nothing would show), nor for a backend
+     * that sends none (self-hosted). Quiet on failure: the next launch tries again.
+     */
+    fun registerPush(newToken: String? = null) {
+        val b = _backend.value ?: return
+        if (!Push.available || !Push.permitted(appContext)) return
+        if (_identity.value?.sendsNotifications == false) return
+        scope.launch {
+            val token = newToken ?: Push.token() ?: return@launch
+            val key = PushKeyStore(appContext).loadOrCreate()?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+            try {
+                b.registerDevice(token, "production", "android", key)
+                _pushToken.value = token
+            } catch (_: Exception) {
             }
         }
     }

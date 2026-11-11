@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { FCM_TOKEN, fcmGone, fcmMessage, fcmReason } from '../../../relay/convex/fcmMessage.ts';
+import { FCM_TOKEN, fcmGone, fcmMessage, fcmPick, fcmReason } from '../../../relay/convex/fcmMessage.ts';
 import { seal } from '../../../convex/pushSeal.ts';
 
 test('the message is data only, with high priority and a short life', () => {
@@ -56,4 +56,31 @@ test("what the backend seals is what the app opens: nonce, ciphertext, tag, arou
   assert.throws(() => openLikeTheApp(sealed, crypto.randomBytes(32)));
   // And the registration pattern in convex/phone.ts takes a key made that way
   assert.match(key.toString('base64'), /^[A-Za-z0-9+/]{43}=$/);
+});
+
+test("Firebase's own error code wins over the status word, so another project's token is told apart", () => {
+  const mismatch = { error: { code: 403, status: 'PERMISSION_DENIED', message: 'SenderId mismatch', details: [{ '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError', errorCode: 'SENDER_ID_MISMATCH' }] } };
+  assert.equal(fcmReason(mismatch), 'SENDER_ID_MISMATCH');
+  // A key without the permission is the plain status word
+  assert.equal(fcmReason({ error: { code: 403, status: 'PERMISSION_DENIED', details: [] } }), 'PERMISSION_DENIED');
+  // A code that isn't a plain word is left out, as the status is
+  assert.equal(fcmReason({ error: { status: 'UNREGISTERED', details: [{ errorCode: 'token abc was bad' }] } }), 'UNREGISTERED');
+  assert.equal(fcmReason({ error: { status: 'UNREGISTERED', details: 'not a list' } }), 'UNREGISTERED');
+});
+
+test('with two keys, the answer is the one that worked, else the token\'s own project\'s', () => {
+  const wrong = { status: 403, reason: 'SENDER_ID_MISMATCH' };
+  // Mike's phone: Keith's key turns it down, Mike's sends
+  assert.deepEqual(fcmPick([wrong, { status: 200 }]), { status: 200 });
+  // Keith's phone, sent first time
+  assert.deepEqual(fcmPick([{ status: 200 }]), { status: 200 });
+  // A removed app on Mike's phone: his own project says UNREGISTERED, so the backend forgets it
+  const gone = fcmPick([wrong, { status: 404, reason: 'UNREGISTERED' }])!;
+  assert.equal(fcmGone(gone.status, gone.reason), true);
+  // ...and the same the other way round
+  assert.deepEqual(fcmPick([{ status: 404, reason: 'UNREGISTERED' }, wrong]), { status: 404, reason: 'UNREGISTERED' });
+  // Neither project knows it: the first answer, which is not "gone"
+  assert.deepEqual(fcmPick([wrong, wrong]), wrong);
+  assert.equal(fcmGone(wrong.status, wrong.reason), false);
+  assert.equal(fcmPick([]), undefined);
 });

@@ -72,6 +72,7 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
     if (pairing == null) {
         PairScreen()
     } else {
+        AskForNotifications(model)
         val nav = rememberNavController()
         val open by openThread.collectAsStateWithLifecycle()
         LaunchedEffect(open) {
@@ -80,6 +81,8 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
         NavHost(nav, startDestination = "inbox") {
             composable("inbox") { InboxScreen(open = { nav.navigate("thread/$it") }) }
             composable("thread/{id}") { entry ->
+                val context = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(entry.arguments?.getString("id")) { entry.arguments?.getString("id")?.let { Push.clear(context, it) } }
                 ThreadScreen(threadId = entry.arguments?.getString("id") ?: "", back = { nav.popBackStack() },
                     open = { nav.navigate("thread/$it") })
             }
@@ -104,3 +107,26 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
  */
 private fun breakable(text: String, host: String): String =
     text.replace(host, host.replace(".", ".\u200B") + "\u2060")
+
+/**
+ * Asks for notifications once paired, as the iPhone does (and straight
+ * after pairing, not only on a later launch), but not for a backend that
+ * sends none, and only once: Android doesn't show the prompt again after
+ * a no anyway, and Mike finds notifications annoying, so there's no nagging.
+ */
+@Composable
+private fun AskForNotifications(model: AppModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val identity by model.identity.collectAsStateWithLifecycle()
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) model.registerPush() }
+    LaunchedEffect(identity) {
+        val id = identity ?: return@LaunchedEffect
+        if (!Push.available || !id.sendsNotifications || Push.permitted(context)) return@LaunchedEffect
+        val prefs = context.getSharedPreferences("app", android.content.Context.MODE_PRIVATE)
+        if (prefs.getBoolean("askedNotifications", false)) return@LaunchedEffect
+        prefs.edit().putBoolean("askedNotifications", true).apply()
+        if (android.os.Build.VERSION.SDK_INT >= 33) ask.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+}

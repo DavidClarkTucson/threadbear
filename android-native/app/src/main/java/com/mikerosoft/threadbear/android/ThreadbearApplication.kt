@@ -9,6 +9,7 @@ class ThreadbearApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Push.start(this)
         model = AppModel(this, MainScope())
     }
 }
