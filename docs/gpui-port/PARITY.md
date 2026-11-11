@@ -238,10 +238,15 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Files: `desktop/gpui/src/projects.rs` (`pane_thread`); the lines in
   `shell.rs`, `rails.rs`, `highlights.rs`, `patches.rs` and `app.rs` that
   read it; a scenario in `features/projects-views.feature`.
+- Then two small things the Swift app has: the Projects search's tooltip
+  ("Search projects"), and a note, "Making <name>…", while a project made
+  from a thread's menu is on its way, as there's no button there to spin.
 - Verification: projects-views.feature's 10 scenarios on Tinker Desk against
   both apps (GPUI 10 of 10, Swift 9 of 9, the Highlights one pending there),
   with projects, rails, highlights and patches on the GPUI app (45 of 45);
   the Walkies page with its Patches pane side by side with the Swift app's.
+  After the two small things, projects-views and projects on the GPUI app
+  (17 of 17).
 
 ### 2026-11-11 Decisions on a project's page, and the folded Projects view (`projects.decisions`)
 

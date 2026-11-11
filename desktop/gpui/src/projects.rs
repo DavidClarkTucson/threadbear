@@ -364,11 +364,11 @@ impl Threadbear {
             let (entity, field, thread) = (entity.clone(), typed.clone(), thread.clone());
             let dialog = dialog.title("New project").width(px(340.));
             let dialog = if thread.is_some() { dialog.description("The thread goes in it.") } else { dialog };
-            dialog.child(Input::new(&typed)).button_props(DialogButtonProps::default().ok_text("Make project").show_cancel(true)).on_ok(move |_, _, cx| {
+            dialog.child(Input::new(&typed)).button_props(DialogButtonProps::default().ok_text("Make project").show_cancel(true)).on_ok(move |_, window, cx| {
                 let title = field.read(cx).value().trim().to_owned();
                 if !title.is_empty() {
                     let thread = thread.clone();
-                    entity.update(cx, |this, cx| this.create_project(title, thread, cx)).ok();
+                    entity.update(cx, |this, cx| this.create_project(title, thread, window, cx)).ok();
                 }
                 true
             })
@@ -379,10 +379,15 @@ impl Threadbear {
 
     /// Makes it, then opens its page. Its thread's folder goes in too, unless
     /// that's the default folder, which is everyone's scratch space rather
-    /// than a project's. New project spins until the runner answers.
-    fn create_project(&mut self, title: String, thread: Option<String>, cx: &mut Context<Self>) {
+    /// than a project's. New project spins until the runner answers; from a
+    /// thread's menu there's no button to spin, so a note says it's on its
+    /// way, as Swift's does.
+    fn create_project(&mut self, title: String, thread: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         if !self.projects.busy.insert("new".to_owned()) {
             return;
+        }
+        if thread.is_some() {
+            window.push_notification(format!("Making {title}…"), cx);
         }
         let mut params = json!({ "title": title });
         if let Some(id) = &thread {
