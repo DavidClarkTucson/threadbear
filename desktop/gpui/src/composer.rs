@@ -72,7 +72,7 @@ pub struct Composer {
     /// What's picked on the open card, and how the card's showing.
     pub(crate) card: CardState,
     /// The card's text style, one per appearance (`card_reading_style`).
-    pub(crate) card_style: Option<(bool, gpui_kit::base::TextViewStyle)>,
+    pub(crate) card_style: Option<((bool, u32), gpui_kit::base::TextViewStyle)>,
     shown_placeholder: &'static str,
     /// The slash palette's own state (`PaletteState`), and whether this
     /// opening of it has asked for the thread's commands yet.

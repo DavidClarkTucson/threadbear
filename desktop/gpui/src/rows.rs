@@ -43,7 +43,8 @@ pub(crate) struct RowsState {
     /// parse it again and a streaming reply only parses what's new.
     pub(crate) documents: HashMap<String, Entity<gpui_kit::base::TextViewState>>,
     pub(crate) document_order: Vec<String>,
-    pub(crate) reading_style: Option<(bool, gpui_kit::base::TextViewStyle)>,
+    /// Keyed by appearance and zoom: its sizes are zoomed when it's built.
+    pub(crate) reading_style: Option<((bool, u32), gpui_kit::base::TextViewStyle)>,
     /// Question cards' "Something else" fields, and their typed text.
     pub(crate) others: HashMap<String, Entity<gpui_kit::component::input::InputState>>,
     /// Secret cards' masked fields. Never kept past the card's own answer.
@@ -169,7 +170,11 @@ impl ThreadPane {
             // used width): GPUI's wrapped text takes all the width it's
             // given. The text keeps room for a wrapped line's trailing space,
             // reaching into the padding, so it wraps where it was measured.
-            let max_text = gpui_kit::px((self.column_width() * BUBBLE_SHARE).floor()) - px(BUBBLE_PAD_H * 2.);
+            // The column as `row_wrap` lays it out, in the window's pixels
+            // (its inset and width zoom; the list's width is already real).
+            let list = self.rows.list_width;
+            let column = if list > 0. { (list - style::zoomed(SIDE_INSET) * 2.).min(style::zoomed(MAX_CONTENT_WIDTH)).max(style::zoomed(200.)) } else { style::zoomed(MAX_CONTENT_WIDTH) };
+            let max_text = gpui_kit::px((column * BUBBLE_SHARE).floor()) - px(BUBBLE_PAD_H * 2.);
             let fit = (!answered).then(|| widest_line(&text, max_text, window));
             let bubble = div()
                 .max_w(relative(BUBBLE_SHARE))
@@ -331,12 +336,12 @@ impl ThreadPane {
 
     /// The reading column's text style, one per appearance (see `reading_style`).
     pub(crate) fn reading_style(&mut self, cx: &mut Context<Self>) -> gpui_kit::base::TextViewStyle {
-        let dark = cx.theme().is_dark();
+        let key = (cx.theme().is_dark(), style::zoom_percent());
         match &self.rows.reading_style {
-            Some((d, style)) if *d == dark => style.clone(),
+            Some((k, style)) if *k == key => style.clone(),
             _ => {
                 let built = markdown::reading_style(cx);
-                self.rows.reading_style = Some((dark, built.clone()));
+                self.rows.reading_style = Some((key, built.clone()));
                 built
             }
         }

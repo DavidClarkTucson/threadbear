@@ -23,11 +23,30 @@ const EVENTS_PAGE: u64 = 500;
 /// often, as ThreadSession does (30 Hz).
 const FLUSH_EVERY: Duration = Duration::from_millis(33);
 
-/// Whether the window is in front (AppModel.isLooking), for reading threads.
-static LOOKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// Which of the app's windows are in front, one bit each: a thread is read
+/// only while one is (AppModel.isLooking is the app being active). Each
+/// window says so from its own activation, as the app's "active window"
+/// isn't the question: on the Mac it's NSApp.mainWindow, which stays set
+/// once the app is behind another, and on X11 it moves after the callback.
+static LOOKING: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-pub(crate) fn set_looking(looking: bool) {
-    LOOKING.store(looking, std::sync::atomic::Ordering::Relaxed);
+#[derive(Clone, Copy)]
+pub(crate) enum Looker {
+    Main = 1,
+    Settings = 2,
+}
+
+pub(crate) fn set_looking(who: Looker, active: bool) {
+    use std::sync::atomic::Ordering::Relaxed;
+    if active {
+        LOOKING.fetch_or(who as u8, Relaxed);
+    } else {
+        LOOKING.fetch_and(!(who as u8), Relaxed);
+    }
+}
+
+pub(crate) fn is_looking() -> bool {
+    LOOKING.load(std::sync::atomic::Ordering::Relaxed) != 0
 }
 
 pub struct ThreadPane {
@@ -175,7 +194,7 @@ impl ThreadPane {
     // Opening it reads it, as on the Mac, while the window's in front: one
     // opened behind other windows stays unread until he comes back to it.
     pub(crate) fn mark_seen(&self) {
-        if self.summary.unread() && LOOKING.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.summary.unread() && is_looking() {
             let client = self.client.clone();
             let params = json!({ "threadId": self.summary.id, "seq": self.summary.last_seq });
             RT.spawn(async move { client.call("threads.markSeen", params).await });

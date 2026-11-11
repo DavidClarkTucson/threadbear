@@ -234,8 +234,8 @@ impl Threadbear {
         // which is the app being active, whichever of its windows is in
         // front): coming back reads the open one (appBecameActive). The
         // Settings window says so too (`SettingsWindow::new`).
-        crate::thread::set_looking(window.is_window_active());
-        let looking = cx.observe_window_activation(window, |this, _, cx| this.looking_changed(cx));
+        crate::thread::set_looking(crate::thread::Looker::Main, window.is_window_active());
+        let looking = cx.observe_window_activation(window, |this, window, cx| this.looking_changed(crate::thread::Looker::Main, window.is_window_active(), cx));
         // Everything the menus say is the app's state, which notifies when it
         // changes (the dock's layout too: `dock_layout_changed`).
         // Its 20-second tick notifies too (SidebarState), so the badge's
@@ -335,12 +335,12 @@ impl Threadbear {
         this
     }
 
-    /// One of the app's windows came to the front or went: whether any is
-    /// in front now, and if so the open thread is read.
-    pub(crate) fn looking_changed(&mut self, cx: &mut Context<Self>) {
-        let looking = cx.active_window().is_some();
-        crate::thread::set_looking(looking);
-        if let (true, Some(pane)) = (looking, self.pane.clone()) {
+    /// One of the app's windows came to the front or went (`active`, as the
+    /// window itself has it, set before its observers run): with any in
+    /// front, the open thread is read.
+    pub(crate) fn looking_changed(&mut self, who: crate::thread::Looker, active: bool, cx: &mut Context<Self>) {
+        crate::thread::set_looking(who, active);
+        if let (true, Some(pane)) = (crate::thread::is_looking(), self.pane.clone()) {
             pane.read(cx).mark_seen();
         }
     }

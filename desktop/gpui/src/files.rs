@@ -56,7 +56,8 @@ pub(crate) struct FilesState {
     /// Paths the runner has said are folders, so a click goes to the browser.
     known_folders: HashSet<String>,
     /// The pane's own text style, built once per appearance.
-    reading_style: Option<(bool, TextViewStyle)>,
+    /// Keyed by appearance and zoom, as `rows`' is.
+    reading_style: Option<((bool, u32), TextViewStyle)>,
 }
 
 impl FilesState {
@@ -361,12 +362,12 @@ impl SidePane {
                     .into_any_element()
             }
             FileBody::Markdown { doc, .. } => {
-                let dark = cx.theme().is_dark();
+                let key = (cx.theme().is_dark(), crate::style::zoom_percent());
                 let style = match &self.files.reading_style {
-                    Some((was, style)) if *was == dark => style.clone(),
+                    Some((was, style)) if *was == key => style.clone(),
                     _ => {
                         let built = crate::rows::reading_style(cx);
-                        self.files.reading_style = Some((dark, built.clone()));
+                        self.files.reading_style = Some((key, built.clone()));
                         built
                     }
                 };

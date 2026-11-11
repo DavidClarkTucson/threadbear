@@ -204,9 +204,10 @@ impl SettingsWindow {
         // In front, the app is: threads in the main window still read as
         // Mike looks at them (`Threadbear::looking_changed`).
         let looking_app = app.clone();
-        subs.push(cx.observe_window_activation(window, move |_, _, cx| {
+        subs.push(cx.observe_window_activation(window, move |_, window, cx| {
+            let active = window.is_window_active();
             if let Some(app) = looking_app.upgrade() {
-                app.update(cx, |app, cx| app.looking_changed(cx));
+                app.update(cx, |app, cx| app.looking_changed(crate::thread::Looker::Settings, active, cx));
             }
         }));
         // Closing it saves what's typed and not yet sent (`onDisappear`).
@@ -215,6 +216,8 @@ impl SettingsWindow {
             if let Some(me) = me.upgrade() {
                 me.update(cx, |this, cx| this.commit_instructions(window, cx));
             }
+            // Gone, it isn't in front, whether or not it says so first.
+            crate::thread::set_looking(crate::thread::Looker::Settings, false);
             true
         });
         let mut this = SettingsWindow {

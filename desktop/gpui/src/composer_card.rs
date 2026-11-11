@@ -576,14 +576,15 @@ impl Composer {
     }
 
     /// The reading column's text style for the card's paragraphs, one per
-    /// appearance (see `rows::reading_style`).
+    /// appearance and text size, as its sizes are zoomed when it's built
+    /// (see `rows::reading_style`).
     fn card_reading_style(&mut self, cx: &App) -> gpui_kit::base::TextViewStyle {
-        let dark = cx.theme().is_dark();
+        let key = (cx.theme().is_dark(), style::zoom_percent());
         match &self.card_style {
-            Some((d, style)) if *d == dark => style.clone(),
+            Some((k, style)) if *k == key => style.clone(),
             _ => {
                 let built = crate::rows::reading_style(cx);
-                self.card_style = Some((dark, built.clone()));
+                self.card_style = Some((key, built.clone()));
                 built
             }
         }
@@ -792,11 +793,18 @@ fn ask_paragraph(ask: &Ask) -> String {
         let ends = action.chars().rev().find(|c| !"\"'”’)]*_`".contains(*c)).is_some_and(|c| ".?!…:".contains(c));
         format!("{action}{} {why}", if ends { "" } else { "." })
     };
-    if starts_a_block(&body) {
-        format!("\\{body}")
-    } else {
-        body
+    escape_block_start(&body)
+}
+
+/// `text` with what would start a block of its own escaped: a backslash
+/// before the marker's punctuation, which for a number is after its digits,
+/// as markdown can't escape a digit ("2\. Deploy", not "\2. Deploy").
+fn escape_block_start(text: &str) -> String {
+    if !starts_a_block(text) {
+        return text.to_owned();
     }
+    let digits = text.chars().take_while(char::is_ascii_digit).count();
+    format!("{}\\{}", &text[..digits], &text[digits..])
 }
 
 /// Whether markdown would read `text`'s start as a block of its own: a
@@ -961,9 +969,9 @@ mod tests {
 
     #[test]
     fn an_ask_that_reads_as_markdown_structure_stays_words() {
-        for text in ["- remove the old key", "2. then this", "# not a heading", "> quoted", "<b>"] {
+        for (text, escaped) in [("- remove the old key", "\\- remove the old key"), ("2. then this", "2\\. then this"), ("10) or this", "10\\) or this"), ("# not a heading", "\\# not a heading"), ("> quoted", "\\> quoted"), ("<b>", "\\<b>")] {
             assert!(starts_a_block(text), "{text}");
-            assert!(ask_paragraph(&Ask::new(text)).starts_with('\\'), "{text}");
+            assert_eq!(ask_paragraph(&Ask::new(text)), escaped);
         }
         for text in ["Accept the new agreement", "2026 was busy", "-1 is fine", "#hashtag", "10.5 points"] {
             assert!(!starts_a_block(text), "{text}");
