@@ -88,6 +88,15 @@ extension Automation {
         return viewer([:])
     }
 
+    /// `tiles`: what each picture of the last row of at least `count` says,
+    /// "picture" for one that's drawn, else its words, as the GPUI app's.
+    static func tiles(_ c: [String: Any], app: AppModel) -> String {
+        let least = max((c["count"] as? Int) ?? 1, 1)
+        let grids = all(ImageGridView.self, in: app.transcript.tableView).filter { $0.debugPaths.count >= least }
+        guard let grid = grids.last else { return "error no row of \(least) pictures on screen" }
+        return "ok " + grid.debugTileWords.joined(separator: " | ")
+    }
+
     /// `viewer`: says what a tile's click would be showing.
     static func viewer(_ c: [String: Any]) -> String {
         if c["close"] as? Bool == true { viewerShown = nil }

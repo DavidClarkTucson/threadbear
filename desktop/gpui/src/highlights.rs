@@ -913,6 +913,8 @@ pub(crate) struct PaneRow {
     pub tip: Option<String>,
     pub on_click: Option<Rc<dyn Fn(&mut SidePane, &mut Window, &mut Context<SidePane>)>>,
     pub on_menu: Option<Rc<dyn Fn(&mut SidePane, Point<Pixels>, &mut Window, &mut Context<SidePane>)>>,
+    /// A file on this Mac it drags out as (file_drag.rs).
+    pub drag: Option<String>,
 }
 
 impl PaneRow {
@@ -934,6 +936,7 @@ impl PaneRow {
             tip: None,
             on_click: None,
             on_menu: None,
+            drag: None,
         }
     }
 
@@ -1012,6 +1015,13 @@ impl PaneRow {
         self
     }
 
+    /// Dragged out, it's this file on this Mac (file_drag.rs). None for
+    /// another Mac's, whose paths are that Mac's.
+    pub(crate) fn drag(mut self, path: Option<String>) -> Self {
+        self.drag = path;
+        self
+    }
+
     pub(crate) fn render(self, p: Palette, cx: &mut Context<SidePane>) -> impl IntoElement + use<> {
         let hover = p.hover;
         let label_color = if self.quiet { p.secondary } else { p.fg };
@@ -1058,7 +1068,7 @@ impl PaneRow {
         if let Some(menu) = self.on_menu {
             wrapper = wrapper.on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, window, cx| (menu)(this, ev.position, window, cx)));
         }
-        wrapper
+        crate::file_drag::FileDragExt::file_drag(wrapper, self.drag)
     }
 
 }
@@ -1168,6 +1178,8 @@ impl SidePane {
         }
         let (menu_item, menu_thread) = (item.clone(), thread.clone());
         pr = pr.on_menu(move |this, pos, window, cx| this.open_highlight_menu(&menu_item, &menu_thread, pos, window, cx));
+        // A file of this Mac's drags out as itself (`fileDrag`).
+        pr = pr.drag(item.path.clone().filter(|_| !thread.is_remote()));
         pr.render(p, cx).into_any_element()
     }
 
@@ -1459,6 +1471,7 @@ impl SidePane {
                         .detail(Some(core::text::folder(path, Some(&thread.cwd), &crate::files::home_dir())))
                         .indent()
                         .tip("Open in its app")
+                        .drag(Some(path.clone()).filter(|_| !thread.is_remote()))
                         .on_click(move |this, _window, cx| {
                             // Code to read in an editor, not to review. Another Mac's
                             // copy is fetched and opened by files.rs.

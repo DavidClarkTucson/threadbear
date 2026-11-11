@@ -463,6 +463,108 @@ built parsers and gates with no launch of the app, which is the trap.)
   draft are there and the note says so; the launch after that has no note),
   with core's tests for the reading (7) and the open gate's source check.
   The Swift app has nothing to bring, so it's `@swift-pending` there.
+### 2026-11-12 Swiping rows away and the window back, and threads, files and pictures dragged out (`sidebar.swipe`, `sidebar.mousedrag`, `nav.swipe`, `drag.threadout`, `drag.fileout`, `highlights.dragout`, `file.picture`, `transcript.images`)
+
+- Two fingers left across a sidebar row slide it after them, with the archive
+  box in the space it leaves, grey until letting go archives it and blue
+  after (a third of the row, never under 70 points; a flick goes sooner).
+  Short of the line it springs back on SwiftUI's spring; past it, it slides
+  the rest of the way off and the thread's archived, with the Archived note.
+  In Archived the same swipe puts it back in the Inbox, and a busy thread
+  asks first, held where it was let go. Dragging a row left with the mouse
+  does the same. Any other way it's the thread dragged out, drawn as the
+  chip it'll be: the press opened its thread, so the thread that was open
+  comes back to drop it on (`dragOut`), and it goes into that message as
+  its chip.
+- Two fingers across the window go back and forward while System Settings
+  has Swipe between pages on. A card in the middle says where ("Back to",
+  the thread and its place, or that there's nowhere to go), filling from
+  the side the fingers start on, which follows natural scrolling, and blue
+  at the line. Let go past it, or flicked, and it goes; the trackpad's
+  momentum after is the swipe's. One that starts up or down is a scroll.
+  Over a row, the content going right is Back's while there's somewhere to
+  go (`takesBack`), so archiving and Back never share a gesture.
+- How: core's `RowSwipe` and `NavigationSwipe`, ported with their tests,
+  decide it all. The window hears scroll events in the capture phase from
+  its first child, as the Swift app's monitors do, before anything that
+  scrolls: from later in the paint order the kit's bounce took a gesture's
+  start and end first. What it holds back while it decides is handed on in
+  order once it's a scroll, as the Swift app's are (deferred, as GPUI can't
+  dispatch from inside a dispatch). A row's swipe under way keeps the
+  gesture wherever the pointer's got to, as the row slides from under it.
+  GPUI calls both MayBegin and Began Started, so a second with no movement
+  between is the same gesture, and momentum stops being the swipe's after a
+  quarter of a second's quiet, as the kit's bounce has it.
+- Pictures in the transcript, Highlights' files, a folder's rows and the
+  picture open in the pane drag out as the file itself, copied, once past
+  the window's edge (`external_drag_payload`); in the window the thread and
+  its box take one as a dropped file. A picture drags as a small copy under
+  the pointer, anything else as its name. Only this Mac's files start one.
+- Another Mac's pictures are asked of this Mac's runner (`files.read` with
+  the thread's `runnerId`) and never drawn from a file here at that path,
+  which `img(path)` did before. The tile says Loading…, Couldn't get it from
+  bruce with the reason on hover and a click to ask again, or On bruce for
+  one too big to send whole. Through Convex the runner sends no pictures and
+  refuses the read, and now so does the mock (its bruce threads are the only
+  ones that name a picture), so they say Couldn't get it until this app
+  connects to other machines directly.
+- Rows under a section that folds or unfolds don't glide any more (the
+  rows' glide from 11 Nov): the fold moves them as it eases, and a fold with
+  no easing (a script's, or folds from elsewhere) puts them in place at once,
+  as the Swift app's does. Under a scripted fold of the Inbox the Archived
+  rows slid up for half a second, and the hover buttons' scenario's click
+  landed on the row below.
+- A working row's clock keeps its width ("18s", not "18"), and a
+  background row's jobs too: they gave way to a long folder beside them,
+  which suits a long status and not a short one.
+- One difference on purpose: a row's flick goes by how fast the fingers
+  were going and needs them still moving as they lift, as the page swipe's
+  does, where the Swift app's goes by how far the last event moved. Real
+  trackpad events on a loaded Tinker Desk came fewer and bigger, and a slow
+  40-point swipe archived as a flick.
+- Not here: the tick under the fingers at the line (no haptics in GPUI),
+  three-finger swipes (macOS sends them as swipe events, which GPUI drops),
+  the card's row of answer chips scrolling sideways under a swipe (Swift's
+  `freeWays`), a row archived from a button or ⌘E sliding off, and file links
+  in a reply's words, web links and a thread's id dragged into another app
+  (GPUI hands the system files only).
+- Scripts: both apps' `swipe` and `page-swipe` (the GPUI app's sent through
+  its own dispatch, a sixtieth of a second apart), `tiles`, and `pageSwipe`
+  in both dumps; the GPUI app's `row-drag`, `file-drag`, `row-swipe` (where
+  a row's swipe has got to, a real trackpad's included), and `row-point`,
+  `tile-point` and `label-point` (where things are, for real events there).
+  `features/tools/real-gestures.ts` tries the lot with real trackpad scrolls
+  and mouse drags through the window server.
+- Files: `desktop/core/src/{row_swipe,navigation_swipe}.rs`,
+  `desktop/gpui/src/{row_swipe,swipe_nav,file_drag,remote_pictures}.rs`
+  (new); `desktop/gpui/src/{sidebar,shell,app,thread,composer,files,highlights,folders,viewer,automation,main}.rs`,
+  `rows.rs` and `rows/images.rs`, `desktop/gpui/Cargo.toml` (AppKit's `NSEvent`,
+  Foundation's `NSUserDefaults`); the mock's `files.read`; the Swift app's
+  `AppDump.swift`, `Automation.swift`, `Automation+Commands.swift` and
+  `Thumbnails.swift`, and `tiles` in app/README.md;
+  `features/{sidebar-swipe,navigation-swipe,drag-out}.feature`, a scenario
+  in `remote-threads.feature`, their steps, and the real-screen tool with
+  its drop target (`app/Tools/droptarget.swift`).
+- Verification: on Tinker Desk, `TB_APP=gpui` and `TB_APP=swift` on the
+  new and touched specs (`@sidebar.swipe`, `@sidebar.mousedrag`,
+  `@drag.threadout`, `@nav.swipe`, `@drag.fileout`, `@transcript.images`,
+  `@highlights.dragout`, `@file.picture`, `@remote-threads`,
+  `@sidebar.row.hoverbuttons`, and the sections', row status, drops,
+  Archived note, history, row motion and key hints scenarios they touch):
+  GPUI 65 of 65, Swift 56 of 56 (the mouse's and the drags out are
+  `@swift-pending`), on main as it was at landing; the whole GPUI suite
+  before the last fixes, 406 of 407, the one the fold fix mended; core's
+  tests, with RowSwipe's and NavigationSwipe's. `features/tools/real-gestures.ts`
+  on Tinker Desk's desktop, real trackpad scrolls and mouse drags through
+  the window server: 12 of 12 (a row part way, short and past the line;
+  Back, Forward with momentum after, short, and a scroll that isn't; right
+  over a row going Back; the mouse dragging a row left and into the thread;
+  a Highlights file and a transcript picture dropped on another app's
+  window as their files), the first eleven in three runs in a row; the
+  picture needed the window narrowed, as a system alert sat over the middle
+  of that screen. Pictures of both apps in dark, a row part way and past the
+  line, the card part way and past it, and the Running rows' clocks: the
+  same places, sizes and colours.
 
 ### 2026-11-11 Web panels after Codex's review: only a click opens anything, and only web pages load (`panel.web`, `panel.convex`)
 

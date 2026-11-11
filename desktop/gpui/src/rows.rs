@@ -99,7 +99,7 @@ impl ThreadPane {
             RowContent::Assistant(item) => self.assistant_row(ix, &row, item, cx),
             RowContent::Reasoning(item) => self.thinking_row(ix, &row, item, cx),
             RowContent::Tool(tool) => self.tool_row(ix, &row, tool, cx),
-            RowContent::Images { images, generated, .. } => self.images_row(&row, images, *generated),
+            RowContent::Images { images, generated, .. } => self.images_row(&row, images, *generated, cx),
             RowContent::Approval(item) if item.resolution.is_some() => self.settled_approval_row(ix, &row, item, cx),
             RowContent::Approval(item) if !item.queued().is_empty() => self.stacked_approval_card(ix, &row, item, window, cx),
             RowContent::Approval(item) => self.approval_card(ix, &row, item, window, cx),
@@ -170,7 +170,7 @@ impl ThreadPane {
         let faded = pending.is_some();
         let mut col = v_flex().items_end().pt(px(USER_TOP)).pb(px(USER_BOTTOM));
         if !message.images.is_empty() {
-            col = col.child(self.user_images(&message.images));
+            col = col.child(self.user_images(&message.images, cx));
         }
         let show_text = !message.text.is_empty() || message.images.is_empty();
         if show_text {

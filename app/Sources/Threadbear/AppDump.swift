@@ -438,6 +438,17 @@ struct AppDump: Encodable {
     /// The keys shown beside the buttons while ⌘ is held (ShortcutHints),
     /// as "Threads ⌘1", in the buttons' order.
     var keyHints: [String] = []
+    /// The card in the middle of the window while a page swipe is under way
+    /// (`SwipeNavigationArrow`).
+    var pageSwipe: PageSwipeInfo? = nil
+
+    struct PageSwipeInfo: Encodable {
+        /// Its lines: "Back to", the thread or page, and where it is.
+        var lines: [String]
+        /// Letting go goes there.
+        var armed: Bool
+        var progress: Double
+    }
 
     struct ThreadPanelInfo: Encodable {
         var id: String
@@ -802,6 +813,23 @@ struct AppDump: Encodable {
         return out
     }
 
+    /// What the page swipe's card says (`SwipeNavigationArrow`), as the
+    /// GPUI app's dump does.
+    @MainActor
+    static func pageSwipe(_ app: AppModel) -> PageSwipeInfo? {
+        let swipe = SwipeNavigation.shared.swipe
+        guard let direction = swipe.direction else { return nil }
+        let back = direction == .back
+        let destination = app.destination(back: back)
+        let empty = swipe.isEmpty || destination == nil
+        let place = destination ?? (back ? "Nothing to go back to" : "Nothing to go forward to", nil)
+        var lines: [String] = []
+        if !empty { lines.append(back ? "Back to" : "Forward to") }
+        lines.append(place.title)
+        if let detail = place.detail { lines.append(detail) }
+        return PageSwipeInfo(lines: lines, armed: swipe.armed, progress: swipe.progress)
+    }
+
     /// Each thread in a panel of its own (ThreadPanels.swift), in the
     /// layout's order: whether its tab's the one showing, and its transcript.
     @MainActor
@@ -939,6 +967,7 @@ struct AppDump: Encodable {
                 !app.showsHomePage && app.openProject == nil && app.dock.layout.contains(WindowDock.threadPanel(id)) ? id : nil
             },
             keyHints: keyHints(app),
+            pageSwipe: pageSwipe(app),
             zoom: TextZoom.shared.percent,
             inboxEndNote: app.inboxEndNote.map { $0.empty ? "empty" : "end" },
             rails: rails(app),

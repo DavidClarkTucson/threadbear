@@ -836,8 +836,10 @@ impl FolderRow {
             .child(div().flex_1().min_w_0().text_ellipsis_middle().whitespace_nowrap().overflow_hidden().text_size(px(style::size::LABEL)).text_color(name_color).child(entry.name.clone()));
         let date = entry.modified_ms.map(date_words).unwrap_or_else(|| "--".to_owned());
         let size = entry.size.map(size_words).unwrap_or_else(|| "--".to_owned());
-        div()
-            .id(("folder-row", index))
+        // Dragged out, it's the file or folder itself, on this Mac only
+        // (file_drag.rs, `pasteboardWriterForItemAt`).
+        let drag = Some(entry.path.clone()).filter(|_| !thread.is_remote());
+        crate::file_drag::FileDragExt::file_drag(div().id(("folder-row", index)), drag)
             .w_full()
             .h(px(ROW_HEIGHT))
             .flex()
@@ -901,8 +903,8 @@ impl FolderTile {
         let (click_key, menu_key) = (key.to_owned(), key.to_owned());
         let (click_thread, menu_thread) = (thread.clone(), thread.clone());
         let click_preview = preview.clone();
-        div()
-            .id(("folder-tile", index))
+        let drag = Some(entry.path.clone()).filter(|_| !thread.is_remote());
+        crate::file_drag::FileDragExt::file_drag(div().id(("folder-tile", index)), drag)
             .flex_none()
             .w(px(width))
             .h(px(rules::TILE_HEIGHT))

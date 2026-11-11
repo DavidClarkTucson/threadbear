@@ -101,6 +101,8 @@ export type Dump = {
   openElsewhere?: string | null;
   /** The keys shown beside the buttons while ⌘ is held ("Threads ⌘1"). */
   keyHints?: string[];
+  /** The card a page swipe shows while it's under way: its lines ("Back to", the thread, its place). */
+  pageSwipe?: { lines: string[]; armed: boolean; progress: number } | null;
   /** The window's zoom, in percent. */
   zoom?: number;
   /** The thread the Archived note names, while it's up. */

@@ -19,6 +19,14 @@ Feature: Other runners' threads
     And the transcript shows a reply starting "Found 14 duplicates"
     And the composer is on the runner "bruce"
 
+  # Its picture is a path on bruce: asked of the runner, which keeps another
+  # Mac's files there for now, so the tile says it couldn't get it, and never
+  # shows whatever this Mac has at that path.
+  @transcript.images @remote-threads
+  Scenario: Another Mac's picture says where it is rather than showing a file of this Mac's
+    When I open the thread "Check the photo library backup"
+    Then the pictures of my message say "Couldn't get it from bruce"
+
   @sidebar.row.remote @remote-threads
   Scenario: It takes a message like any other thread
     When I open the thread "Tidy the media drive"

@@ -89,9 +89,11 @@ raw-window-handle = "=0.6.2"
 # (draft_boxes.rs), which gpui's clipboard can't, and so does a copy of
 # words selected in a reply (selection_bar.rs). NSRunningApplication:
 # whether Chrome's running, for a web link's per-profile items (open_gate.rs).
+# NSEvent: System Settings' "Swipe between pages", and NSUserDefaults its
+# natural scrolling, for a page swipe (swipe_nav.rs).
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSColor", "NSColorSpace", "NSAppearance", "objc2-core-foundation", "NSApplication", "NSResponder", "NSDockTile", "NSSound", "NSAlert", "NSButton", "NSControl", "NSCell", "NSView", "NSPasteboard", "NSRunningApplication"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSBundle", "NSData"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSColor", "NSColorSpace", "NSAppearance", "objc2-core-foundation", "NSApplication", "NSResponder", "NSDockTile", "NSSound", "NSAlert", "NSButton", "NSControl", "NSCell", "NSView", "NSPasteboard", "NSRunningApplication", "NSEvent"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSBundle", "NSData", "NSUserDefaults"] }
 
 [features]
 # The scripted control the behaviour specs use (src/automation.rs). Off in

@@ -961,6 +961,8 @@ enum Automation {
             return await highlightCommand(c, app: app)
         case "tile":
             return tile(c, app: app)
+        case "tiles":
+            return tiles(c, app: app)
         case "viewer":
             return viewer(c)
         case "folder":

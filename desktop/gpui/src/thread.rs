@@ -1206,6 +1206,7 @@ impl Render for ThreadPane {
         // the hover for itself, and a drop on a reply then went nowhere.
         let dragging_file = cx.has_active_drag();
         let thread_drop = composer.clone();
+        let file_drop = composer.clone();
         let drop_layer = dragging_file.then(|| {
             div()
                 .absolute()
@@ -1220,6 +1221,14 @@ impl Render for ThreadPane {
                 // A thread from the sidebar goes into the message as its chip.
                 .on_drop(move |drag: &crate::composer_inline::DraggedThread, window, cx| thread_drop.update(cx, |c, cx| c.take_thread_drop(drag, window, cx)))
                 .drag_over::<crate::composer_inline::DraggedThread>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
+                // A file or picture dragged from inside the app (file_drag.rs)
+                // is a dropped file too: GPUI only hands the system its drag
+                // once it's out of the window.
+                .on_drop(move |file: &crate::file_drag::DraggedFile, window, cx| {
+                    let at = window.mouse_position();
+                    file_drop.update(cx, |c, cx| c.take_dropped_paths(vec![file.path.clone()], at, window, cx));
+                })
+                .drag_over::<crate::file_drag::DraggedFile>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
         });
         v_flex()
             .relative()

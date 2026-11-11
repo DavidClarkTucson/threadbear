@@ -198,7 +198,7 @@ impl SidePane {
 
 /// The image format from its bytes, so a mislabelled file still decodes as
 /// what it really is, and a non-picture is refused.
-fn format_of(path: &str, bytes: &[u8]) -> Option<ImageFormat> {
+pub(crate) fn format_of(path: &str, bytes: &[u8]) -> Option<ImageFormat> {
     if bytes.starts_with(b"\x89PNG") {
         return Some(ImageFormat::Png);
     }

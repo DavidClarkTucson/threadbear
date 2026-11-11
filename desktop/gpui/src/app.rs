@@ -206,6 +206,8 @@ pub struct Threadbear {
     /// Threads open in panels of their own, and the tabs opened beside the
     /// main panel for what it shows (thread_panels.rs).
     pub(crate) thread_panels: crate::thread_panels::ThreadPanels,
+    /// Two fingers across the window going back or forward (swipe_nav.rs).
+    pub(crate) swipe_nav: crate::swipe_nav::SwipeNav,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -430,6 +432,7 @@ impl Threadbear {
             sidebar_view: None,
             main_view: None,
             thread_panels: Default::default(),
+            swipe_nav: Default::default(),
             _events: events,
             _subs: vec![appearance, searching, frame, menus, looking, quitting, side_changed, main_context],
         };
@@ -510,6 +513,9 @@ impl Threadbear {
         // ⌘-Tab away lets ⌘ go in the other app, so this one never hears it.
         if !active {
             self.hints_reset(cx);
+            // A swipe's lift goes to the app in front now (swipe_nav.rs, row_swipe.rs).
+            self.cancel_page_swipe(cx);
+            self.cancel_row_swipe(cx);
         }
         crate::activity::window_active(window, active, cx);
         if let (true, Some(pane)) = (crate::thread::is_looking(), self.pane.clone()) {
@@ -1188,6 +1194,8 @@ impl Threadbear {
         // What came across from the Swift app, while its note's up. Set
         // after, as the literal above is as long as serde_json's macro goes.
         dump["importNote"] = json!(self.import_note);
+        // The card a page swipe shows while it's under way (swipe_nav.rs).
+        dump["pageSwipe"] = self.page_swipe_dump();
         dump
     }
 

@@ -329,6 +329,9 @@ final class ImageGridView: NSView {
     #if DEBUG
     /// The tile's files, for the scripted app's `tile`.
     var debugPaths: [String] { paths }
+    /// What each tile says, for the scripted app's `tiles`: "picture" for one
+    /// that's drawn, else its words ("Couldn't get it from bruce").
+    var debugTileWords: [String] { paths.indices.map { localPath($0) != nil ? "picture" : (remoteWords($0) ?? "picture") } }
     #endif
 
     /// Quick Look on one picture, for a click on its tile or its chip in

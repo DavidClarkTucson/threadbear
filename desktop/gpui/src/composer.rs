@@ -1026,6 +1026,7 @@ impl Composer {
         let hover_target = this.clone();
         let token_owner = this.clone();
         let thread_drop = this.clone();
+        let file_drop = this.clone();
         let drop_target = this;
         div()
             .w_full()
@@ -1084,6 +1085,12 @@ impl Composer {
             .on_drop(move |drag: &crate::composer_inline::DraggedThread, window, cx| {
                 if let Some(this) = thread_drop.upgrade() {
                     this.update(cx, |this, cx| this.take_thread_drop(drag, window, cx));
+                }
+            })
+            // A file or picture dragged from inside the app (file_drag.rs).
+            .on_drop(move |file: &crate::file_drag::DraggedFile, window, cx| {
+                if let Some(this) = file_drop.upgrade() {
+                    this.update(cx, |this, cx| this.take_paths(vec![file.path.clone()], window, cx));
                 }
             })
             .child(

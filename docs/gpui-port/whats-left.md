@@ -65,8 +65,8 @@ you go.
 - [x] Copying or cutting picture chips loses the pictures; a pasted thread id
   stays plain text; no card mentions (`composer.chipcopy`, `composer.threadid`,
   `composer.cardmention`). In since 11 Nov, but for a click on a card on the
-  Highlights' board, which waits for the board, and a thread dragged from the
-  sidebar, whose drop the box takes once the rows start one (`drag.threadout`)
+  Highlights' board, which waits for the board. A thread dragged from the
+  sidebar goes in as its chip (`drag.threadout`)
 - [x] The login picker is one flat list: no room left per login, no provider
   groups (`composer.account`). In since 11 Nov
 - [x] No "Pinned to … · Unpin" line in the model picker, and no Claude
@@ -86,22 +86,34 @@ you go.
   (`foundation.reducemotion`), and the beep is the Mac's only
 
 ### Threads and the sidebar
-- [ ] No trackpad swipe or drag-left to archive a row (`sidebar.swipe`,
-  `sidebar.mousedrag`). Rows glide between sections and counts roll now
-  (`sidebar.rowmotion`)
+- [x] No trackpad swipe or drag-left to archive a row (`sidebar.swipe`,
+  `sidebar.mousedrag`). In since 12 Nov, and rows glide between sections and
+  counts roll since 11 Nov (`sidebar.rowmotion`). There's no tick under the
+  fingers at the line (GPUI has no haptics), and a row archived from a button
+  or ⌘E goes at once rather than sliding off
 - [x] No "Open in New Panel" (a thread in a panel of its own), or panels that
   close with their thread (`dock.threadpanel`, `dock.openelsewhere`,
   `dock.contexttabs`)
 - [x] No View > Collapse Threads (⌘/) (`menu.view`)
-- [ ] No trackpad swipe back and forward (`nav.swipe`). The keys show while
-  ⌘ is held now (`nav.hints`)
+- [x] No trackpad swipe back and forward (`nav.swipe`). In since 12 Nov, and
+  the keys show while ⌘ is held since 11 Nov (`nav.hints`). Three-finger
+  swipes don't reach GPUI, so it's two fingers only, and over the card's row
+  of answer chips a sideways swipe goes back rather than scrolling them
 - [x] `threadbear://` links (BrowserBear's pill on an agent's tab) don't open
   this app (`nav.deeplink`). They open the GPUI app once install-app.sh has
   run; `desktop/scripts/thread-links.sh swift` gives them back
-- [ ] Threads, files and pictures can't be dragged out of the app, and the
+- [x] Threads, files and pictures can't be dragged out of the app, and the
   card's Something else box takes no drops (`drag.*`, `highlights.dragout`,
-  `file.picture`, `transcript.images`)
-- [ ] Another Mac's pictures in a transcript stay blank (`transcript.images`)
+  `file.picture`, `transcript.images`). In since 12 Nov: pictures in the
+  transcript, Highlights' files, a folder's rows and the picture in the pane
+  drag out as the file, and a row as its thread's chip. A file link in a
+  reply's words, a web link, and a thread's id dropped in another app wait
+  for GPUI to hand the system more than files
+- [x] Another Mac's pictures in a transcript stay blank (`transcript.images`).
+  In since 12 Nov they're asked of the runner and say "Couldn't get it from
+  bruce" (why, on hover), never showing a file of this Mac's at that path.
+  Seeing them waits for connecting to other machines directly, which this
+  app doesn't do yet: through Convex they stay on their Mac
 
 ### Smaller things
 - [ ] The offer to continue a refused turn sits at the top, not just above the

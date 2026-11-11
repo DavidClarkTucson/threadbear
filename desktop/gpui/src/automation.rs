@@ -140,6 +140,22 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
         return crate::activity::automation(app, window, cmd, cx).await;
     }
     let weak = app.clone();
+    // Two fingers across a sidebar row or the window, and a row dragged with
+    // the mouse (row_swipe.rs, swipe_nav.rs): real events through the
+    // window's dispatch, a sixtieth of a second apart, as the Swift commands.
+    if cmd["cmd"] == "swipe" {
+        return crate::row_swipe::swipe_command(&weak, window, cmd, cx).await;
+    }
+    if cmd["cmd"] == "row-drag" {
+        return crate::row_swipe::row_drag_command(&weak, window, cmd, cx).await;
+    }
+    if cmd["cmd"] == "page-swipe" {
+        return crate::swipe_nav::page_swipe_command(&weak, window, cmd, cx).await;
+    }
+    // A picture or file dragged with the mouse (file_drag.rs).
+    if cmd["cmd"] == "file-drag" {
+        return crate::file_drag::file_drag_command(&weak, window, cmd, cx).await;
+    }
     // A design review's window (review_window.rs), as the Swift command.
     if cmd["cmd"] == "review" {
         return crate::review_window::automation(&weak, window, cmd, cx).await;
@@ -285,6 +301,25 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let side = app.read(cx).side.clone();
             crate::viewer::viewer_command(&side, cmd, cx)
         }
+        // What each picture of the last row of at least `count` says, as the
+        // Swift app's `tiles`: "picture" for one that's drawn, else its words
+        // (another Mac's, asked of its runner: remote_pictures.rs).
+        "tiles" => crate::remote_pictures::tiles_command(app, cmd, cx),
+        // Where things are on screen, for a real event there (features/tools/real-gestures.ts).
+        "row-point" => crate::row_swipe::row_point_command(app, cmd, window, cx),
+        // Where a row's swipe has got to, whatever's moving it: a real
+        // trackpad's included (features/tools/real-gestures.ts).
+        "row-swipe" => Ok(json!(format!("ok {}", app.read(cx).sidebar.gestures.along()))),
+        // Where a control is on screen by its label (a Highlights row's is
+        // its title): "ok x y".
+        "label-point" => {
+            window.render_frame(cx);
+            let label = text(cmd, "label");
+            let found = window.elements().into_iter().filter(|e| e.visible() && e.label().is_some_and(|l| l == label)).last().ok_or_else(|| format!("nothing labelled {label:?} on screen"))?;
+            let at = found.bounds().center();
+            Ok(json!(format!("ok {} {}", f32::from(at.x).round(), f32::from(at.y).round())))
+        }
+        "tile-point" => crate::remote_pictures::tile_point_command(app, cmd, window, cx),
         // A picture tile of the transcript, as a click on it (`viewer` says what opened).
         "tile" => {
             let index = cmd["index"].as_u64().unwrap_or(0) as usize;

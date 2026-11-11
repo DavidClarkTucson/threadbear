@@ -20,6 +20,8 @@ export class ThreadbearWorld extends World {
   menuTitles?: string[];
   /** What the last command answered, for a step to read back. */
   lastAnswer?: string;
+  /** The row a swipe under way is on (swipes.steps.ts). */
+  swipedRow?: string;
   /** A row's position a scenario wants to compare with later. */
   notedIndex?: number;
   /** A row and its height, a scenario wants to compare with later. */

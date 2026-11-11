@@ -228,9 +228,15 @@ pub(crate) struct SidebarState {
     /// Each section's rows' height when last drawn, for a fold to run to or from.
     heights: HashMap<&'static str, std::rc::Rc<std::cell::Cell<f32>>>,
     fold_serial: u64,
+    /// A fold was under way when the list was last drawn, and the sections
+    /// folded then (row_motion.rs).
+    was_folding: bool,
+    was_folded: HashSet<&'static str>,
     scroll: ScrollHandle,
     /// Where the rows were and where they're going (row_motion.rs).
     pub(crate) motion: std::rc::Rc<crate::row_motion::RowMotion>,
+    /// A row swiped or dragged with the mouse (row_swipe.rs).
+    pub(crate) gestures: crate::row_swipe::RowGestures,
     _tick: Task<()>,
 }
 
@@ -284,8 +290,11 @@ impl SidebarState {
             folding: HashMap::new(),
             heights: HashMap::new(),
             fold_serial: 0,
+            was_folding: false,
+            was_folded: HashSet::new(),
             scroll: ScrollHandle::new(),
             motion: Default::default(),
+            gestures: Default::default(),
             _tick: tick,
         }
     }
@@ -1002,6 +1011,22 @@ impl Threadbear {
                 });
             }
         }
+        // A fold moves the rows below it as its height eases, so nothing
+        // glides while one's under way, nor as it ends and its rows go: the
+        // rest are where they'll stay by then. One with no easing (a script's,
+        // or the folds coming from elsewhere) puts them there at once, as the
+        // Swift app's does. Left to glide, the rows under a folded Inbox slid
+        // up from where they'd last been drawn for half a second, and a
+        // scripted click on one of them missed it.
+        let folding = !self.sidebar.folding.is_empty();
+        let was_folding = std::mem::replace(&mut self.sidebar.was_folding, folding);
+        let refolded = self.sidebar.was_folded != self.folded;
+        if refolded {
+            self.sidebar.was_folded = self.folded.clone();
+        }
+        if folding || was_folding || refolded {
+            quiet.extend(drawn.iter().cloned());
+        }
         if loaded {
             motion.rows_drawn(drawn, &quiet, cx.reduce_motion());
         }
@@ -1240,7 +1265,10 @@ impl Threadbear {
         // A script's hover wins over the real pointer, which on a shared
         // desktop can be resting on another row (`ThreadRowView.pointerOver`).
         let hovered_row = self.sidebar.hover_override.as_deref().or(self.sidebar.hovered.as_deref());
-        let show_buttons = hovered_row == Some(id.as_str()) || self.sidebar.menu.as_ref().is_some_and(|m| m.thread.as_deref() == Some(id.as_str()));
+        // Not while the row's being swiped: they'd ride along with it.
+        let show_buttons = (hovered_row == Some(id.as_str()) || self.sidebar.menu.as_ref().is_some_and(|m| m.thread.as_deref() == Some(id.as_str()))) && !self.sidebar.gestures.is_moving(&id);
+        // What a swipe left does to it, if anything (row_swipe.rs).
+        let swipe_action = crate::row_swipe::SwipeAction::of(mode);
         let title = if t.title.is_empty() { "Untitled".to_string() } else { t.title.clone() };
         let tip = format!("{title}\n{}", abbreviate_home(&t.cwd));
         let (bg_hover, bg_sel, fg, secondary) = (p.hover, p.selected, p.fg, p.secondary);
@@ -1319,7 +1347,7 @@ impl Threadbear {
             None
         };
 
-        h_flex()
+        let row = h_flex()
             .id(ElementId::Name(format!("row-{id}").into()))
             .test_support()
             .aria_label(tip.clone())
@@ -1341,16 +1369,26 @@ impl Threadbear {
                 } else if this.sidebar.hovered.as_deref() == Some(hover_id.as_str()) {
                     this.sidebar.hovered = None;
                 }
+                this.sidebar.gestures.row_hovered(&hover_id, *hovered, swipe_action);
                 cx.notify();
             }))
             // Selects on mouse down, as Mail does (`ThreadRowView`); a click
-            // waits for the mouse to come back up.
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.open(select_id.clone(), window, cx)))
+            // waits for the mouse to come back up. The press is watched to see
+            // whether it's a drag left (the swipe) or the thread dragged out.
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                let before = this.place();
+                this.row_pressed(&select_id, swipe_action, ev.position, before);
+                this.open(select_id.clone(), window, cx);
+            }))
+            // Dragged any way but left, it's the thread, to drop into a
+            // thread's message as its chip (`drag.threadout`).
+            .on_drag(self.dragged_thread(&id), |drag, grabbed, _, cx| crate::row_swipe::RowDragChip::new(drag, grabbed, cx))
             .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.open_row_menu(menu_id.clone(), ev.position, window, cx)))
             .child(tile)
             .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(h_flex().child(title_el).when(show_buttons, |s| s.child(div().flex_none().w(px(actions.len() as f32 * 24.)).h(px(1.))))).child(second_line))
             .when_some(buttons, |s, b| s.child(h_flex().absolute().right(px(TRAILING - 5.)).top_0().bottom_0().items_center().gap(px(2.)).child(b)))
-            .into_any_element()
+            .into_any_element();
+        self.swipe_slot(&id, swipe_action, row, cx)
     }
 
     /// `RowActions`: the small buttons a row shows on hover in place of its
@@ -1616,7 +1654,13 @@ fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyEle
         TrailingKind::Stopped => gives_way(div()).text_size(meta).line_height(px(15.)).text_color(p.secondary).child(text).into_any_element(),
         TrailingKind::Woke => gives_way(div()).text_size(meta).line_height(px(15.)).font_medium().text_color(p.accent).child(text).into_any_element(),
     };
+    // A working row's clock and a background one's jobs are short, and keep
+    // their width whatever the folder beside them (SwiftUI gives the shorter
+    // text its size first): giving way, the clock lost its "s" ("18" for
+    // "18s") on a row whose folder filled the line.
+    let keeps_width = matches!(trailing.kind, TrailingKind::Working | TrailingKind::Background);
     match tip {
+        Some(tip) if keeps_width => div().flex_none().id(ElementId::Name(format!("trailing-{id}").into())).tip(tip.clone()).child(el).into_any_element(),
         Some(tip) => gives_way(div()).id(ElementId::Name(format!("trailing-{id}").into())).tip(tip.clone()).child(el).into_any_element(),
         None => el,
     }

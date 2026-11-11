@@ -80,3 +80,17 @@ Then('the move sheet stayed closed', async function (this: ThreadbearWorld) {
   const d = await this.app.dump();
   assert.ok(!d.moveSheet, 'the sheet came up');
 });
+
+// Both apps' `tiles`: what each picture of the message says when it isn't
+// drawn ("Couldn't get it from bruce"), "picture" when it is.
+Then('the pictures of my message say {string}', async function (this: ThreadbearWorld, words: string) {
+  await this.until('a message with pictures', (d) => d.transcript.rows.some((r) => r.kind === 'user'));
+  let said = '';
+  for (let tries = 0; tries < 60; tries += 1) {
+    said = await this.app.do({ cmd: 'tiles', count: 1 }).catch((e) => String(e));
+    // The Swift app's answer starts with the command's name.
+    if (said.replace(/^tiles /, '') === `ok ${words}`) return;
+    await sleep(150);
+  }
+  assert.fail(`the pictures say "${said}", not "${words}"`);
+});

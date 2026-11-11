@@ -599,6 +599,10 @@ async function dispatch(client, method, p) {
     case 'files.read':
       // Slow enough on bruce that the app's loading state shows.
       if (client.as) await sleep(400);
+      // Another runner's file asked of this one, as the GPUI app asks for
+      // bruce's pictures: refused as the real runner refuses it
+      // (runner/src/rpc.ts), never this Mac's file at the same path.
+      if (!client.as && typeof p.runnerId === 'string') throw rpcError(-32000, 'Files on another runner are kept there for now.');
       return readFile(client, p);
     case 'files.list':
       if (client.as) await sleep(400);

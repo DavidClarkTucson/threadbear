@@ -16,7 +16,7 @@ use crate::file_watch::FolderWatch;
 use crate::files_store::FilePrefs;
 use crate::highlights::{palette, Palette, PanePreview, SidePane, Target, FILES};
 use crate::{call, icons, style};
-use gpui_kit::base::{TextViewState, TextViewStyle};
+use gpui_kit::base::{TestSupportExt as _, TextViewState, TextViewStyle};
 use gpui_kit::component::input::{Editor, EditorState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{h_flex, spinner::Spinner, v_flex, ActiveTheme as _, Selectable, Sizable as _};
@@ -714,8 +714,10 @@ impl SidePane {
             FileBody::Picture { image, .. } => {
                 let source = ImageSource::Image(image.clone());
                 let (path2, entity) = (path.to_owned(), cx.entity().downgrade());
-                div()
-                    .id("hl-picture")
+                // Dragged, it's the file itself, from this Mac's own threads
+                // only (file_drag.rs, `FilePreviewView`'s drag).
+                let drag = Some(path.to_owned()).filter(|_| !thread.is_remote());
+                crate::file_drag::FileDragExt::file_drag(div().id("hl-picture"), drag)
                     .size_full()
                     .flex()
                     .items_center()
@@ -730,6 +732,8 @@ impl SidePane {
                             .ok();
                     })
                     .child(img(source).size_full().object_fit(ObjectFit::Contain))
+                    // Found by scripts, for a drag from it.
+                    .test_support()
                     .into_any_element()
             }
             FileBody::Markdown { doc, .. } => {

@@ -769,7 +769,7 @@ impl Threadbear {
 
     // Back and forward (Navigation.swift).
 
-    fn place(&self) -> NavPlace {
+    pub(crate) fn place(&self) -> NavPlace {
         NavPlace { mode: self.mode, thread: self.selected.clone(), home: self.home_page().is_some(), project: self.projects.open.clone() }
     }
 
@@ -790,7 +790,7 @@ impl Threadbear {
 
     /// A place can be gone back to while what it showed is still there: its
     /// thread, unless a page was over it (the thread behind a page can go).
-    fn can_show(&self, place: &NavPlace) -> bool {
+    pub(crate) fn can_show(&self, place: &NavPlace) -> bool {
         // A merged or deleted project's page is skipped rather than shown empty.
         if let Some(id) = &place.project {
             return self.project(id).is_some();
@@ -1259,9 +1259,20 @@ impl Threadbear {
             .key_context("Threadbear")
             .size_full()
             .items_start()
+            // Two fingers across the window go back and forward, with a card
+            // in the middle saying where (swipe_nav.rs); a press on a sidebar
+            // row is watched to see if it's a swipe or the thread dragged out
+            // (row_swipe.rs). First, as the capture phase goes in the order
+            // things are painted: they hear the events before anything else
+            // does, as the Swift app's monitors do, and a scroll view's own
+            // (the kit's bounce, which keeps a short scroll's momentum from
+            // the list) can't take the start of a swipe from them.
+            .child(self.page_swipe_watch(cx))
+            .child(self.row_press_watch(cx))
             .child(self.render_activity_bar(cx))
             .child(div().flex_1().min_w_0().h_full().child(self.dock_view.clone()))
             .when_some(rail, |s, r| s.child(r))
+            .children(self.render_swipe_card(cx).map(|card| deferred(card).with_priority(1)))
             // A click or a key in the window means he's at it, for a window
             // the system never tells it's in front of (an X server with no
             // window manager): reading needs one (`looking_changed`).
