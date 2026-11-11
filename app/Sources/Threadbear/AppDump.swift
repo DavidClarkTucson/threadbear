@@ -686,7 +686,10 @@ struct AppDump: Encodable {
             return HomePageInfo(title: "Scheduled", status: status, stats: tiles.map { StatInfo(value: $0.value, label: $0.label) })
         }
         if app.showsProjectsHome { return HomePageInfo(title: "Projects", status: nil, stats: []) }
-        if app.showsLibrarianHome { return HomePageInfo(title: "Librarian", status: nil, stats: []) }
+        if app.showsLibrarianHome {
+            let tiles = app.librarian.map { LibrarianStats.tiles($0, projects: app.projects, threads: Array(app.threads.values)) } ?? []
+            return HomePageInfo(title: "Librarian", status: app.librarian.map(LibrarianText.state), stats: tiles.map { StatInfo(value: $0.value, label: $0.label) })
+        }
         return nil
     }
 

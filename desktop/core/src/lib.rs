@@ -7,6 +7,7 @@ pub mod folders;
 pub mod highlights;
 pub mod home;
 pub mod inbox;
+pub mod librarian;
 pub mod logins;
 pub mod navigation;
 pub mod shortcuts;

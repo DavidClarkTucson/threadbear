@@ -10,34 +10,24 @@
 // guess, spins in the row and takes no more clicks until it lands. Another
 // Mac's Run now waits on a line under the row until that Mac has run it.
 use crate::app::Threadbear;
+use crate::home_page::{home_status_line, home_title, mode_header, Art, Pokes};
 use crate::sidebar::{icon, icon_button, palette, tipped, MenuAction, MenuRow, Palette, CORNER, LEADING, OUTER_INSET, TRAILING};
 use crate::{call, icons, now_ms, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::dialog::DialogButtonProps;
-use gpui_kit::component::popover::Popover;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{h_flex, v_flex, Sizable as _, StyledExt as _, WindowExt as _};
+use gpui_kit::component::{h_flex, v_flex, Sizable as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
 use crate::style::px;
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 use threadbear_core::chrono::Local;
 use threadbear_core::highlights::Schedule;
-use threadbear_core::home::{HomeStat, PokeLines};
 use threadbear_core::schedules::{self as rules, ScheduleSection};
 
-/// How long a poke's line stays under the picture (`PokeablePicture.shownFor`).
-const POKE_SHOWN: Duration = Duration::from_millis(2500);
-
-/// The picture fitted into the 280 by 260 the Swift page gives it: the alarm
-/// clock is taller than wide (765 by 822 pixels), so its height decides.
-const ART_HEIGHT: f32 = 260.;
-const ART_WIDTH: f32 = ART_HEIGHT * 765. / 822.;
 
 /// The Scheduled view's own state; the app holds one (`Threadbear::scheduled`).
 pub(crate) struct ScheduledState {
@@ -54,12 +44,8 @@ pub(crate) struct ScheduledState {
     /// "pause:<id>" so a second click can't overlap the first's rollback.
     pub(crate) busy: HashSet<String>,
     scroll: ScrollHandle,
-    pokes: PokeLines,
-    /// What the page's picture is saying, if it's been poked lately.
-    poke_line: Option<&'static str>,
-    /// Counts the pokes, so an old line's fade leaves a newer one alone.
-    poke_count: u64,
-    poke_fade: Option<Task<()>>,
+    /// What the page's picture says when it's poked (home_page.rs).
+    pub(crate) pokes: Pokes,
 }
 
 impl ScheduledState {
@@ -69,20 +55,13 @@ impl ScheduledState {
             // Done starts folded (`storedCollapsedScheduleSections`).
             None => HashSet::from(["done"]),
         };
-        ScheduledState { list: Vec::new(), folded, hovered: None, busy: HashSet::new(), scroll: ScrollHandle::new(), pokes: PokeLines::new(PokeLines::SCHEDULED), poke_line: None, poke_count: 0, poke_fade: None }
+        ScheduledState { list: Vec::new(), folded, hovered: None, busy: HashSet::new(), scroll: ScrollHandle::new(), pokes: Pokes::new(Art::Scheduled) }
     }
 
     /// `activeScheduleCount`: the activity bar's badge and the view's count.
     pub(crate) fn active_count(&self) -> usize {
         self.list.iter().filter(|s| s.is_active()).count()
     }
-}
-
-/// The bear winding a big alarm clock, beside a calendar: the Swift app's
-/// own picture, built into the app so it needs no files beside it.
-fn scheduled_art() -> Arc<Image> {
-    static ART: OnceLock<Arc<Image>> = OnceLock::new();
-    ART.get_or_init(|| Arc::new(Image::from_bytes(ImageFormat::Png, include_bytes!("../../../app/Sources/Threadbear/Resources/Art/scheduled.png").to_vec()))).clone()
 }
 
 impl Threadbear {
@@ -363,7 +342,7 @@ impl Threadbear {
             .relative()
             .size_full()
             .bg(p.side)
-            .child(mode_header("Scheduled", count, &p))
+            .child(mode_header("Scheduled", Some(count), &p))
             .child(div().px(px(OUTER_INSET)).child(self.render_new_schedule_button(&p, cx)))
             .child(
                 // As the inbox's list: no scrollbar, fading out at the foot.
@@ -577,73 +556,7 @@ impl Threadbear {
             .gap(px(12.))
             .child(home_title("Scheduled", "Messages that send themselves later, once or on repeat.", SCHEDULED_MORE, cx))
             .child(home_status_line(&status, next.is_some(), cx));
-        self.render_home_page(about.into_any_element(), &stats, cx)
-    }
-
-    /// `HomePage`: the picture, the lines about the view, its numbers in tiles.
-    fn render_home_page(&mut self, about: AnyElement, stats: &[HomeStat], cx: &mut Context<Self>) -> AnyElement {
-        let secondary = style::secondary_text(cx);
-        let line = self.scheduled.poke_line;
-        let picture = div()
-            .relative()
-            .child(
-                div()
-                    .id("home-picture")
-                    .test_support()
-                    .aria_label("The bear winding a big alarm clock, beside a calendar")
-                    // Capped in height too, so a tall picture (the alarm
-                    // clock) is no bigger than a wide one.
-                    .w(px(ART_WIDTH))
-                    .h(px(ART_HEIGHT))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.poke_home_picture(cx)))
-                    .child(img(scheduled_art()).size_full().object_fit(ObjectFit::Contain)),
-            )
-            // Drawn in the gap below, taking no room of its own.
-            .when_some(line, |s, line| s.child(div().absolute().left_0().bottom(px(-24.)).whitespace_nowrap().text_size(px(style::size::LABEL)).text_color(secondary).child(line)));
-        let tiles = (!stats.is_empty()).then(|| {
-            // Three across at most, so six tiles make even rows.
-            h_flex().flex_wrap().max_w(px(620.)).gap(px(14.)).children(stats.iter().enumerate().map(|(i, stat)| home_stat_tile(i, stat, cx)))
-        });
-        div()
-            .id("home-page")
-            .size_full()
-            .overflow_y_scroll()
-            .child(
-                h_flex().w_full().justify_center().child(
-                    v_flex()
-                        .w_full()
-                        .max_w(px(1000. + 64.))
-                        .px(px(32.))
-                        .pt(px(28.))
-                        .pb(px(48.))
-                        .gap(px(32.))
-                        // Room under the picture for what it says when it's poked.
-                        .child(v_flex().gap(px(36.)).child(picture).child(div().max_w(px(620.)).child(about)))
-                        .children(tiles),
-                ),
-            )
-            .into_any_element()
-    }
-
-    /// The picture says something when it's clicked, fading after a while
-    /// (`PokeablePicture.poke`). The Swift app's wobble isn't here yet.
-    fn poke_home_picture(&mut self, cx: &mut Context<Self>) {
-        let Some(line) = self.scheduled.pokes.poke() else { return };
-        self.scheduled.poke_line = Some(line);
-        self.scheduled.poke_count += 1;
-        let count = self.scheduled.poke_count;
-        cx.notify();
-        self.scheduled.poke_fade = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(POKE_SHOWN).await;
-            this.update(cx, |this, cx| {
-                if this.scheduled.poke_count == count {
-                    this.scheduled.poke_line = None;
-                    this.scheduled.pokes.end_run();
-                    cx.notify();
-                }
-            })
-            .ok();
-        }));
+        self.render_home_page(Art::Scheduled, about.into_any_element(), &stats, None, cx)
     }
 
     /// The Scheduled view in the dump, in the Swift app's shape: its
@@ -696,7 +609,7 @@ impl Threadbear {
         json!({
             "title": "Scheduled",
             "status": status,
-            "poke": self.scheduled.poke_line,
+            "poke": self.scheduled.pokes.line,
             "stats": stats.iter().map(|s| json!({ "value": s.value, "label": s.label })).collect::<Vec<_>>(),
         })
     }
@@ -704,94 +617,6 @@ impl Threadbear {
 
 /// What the ⓘ beside the page's title says.
 const SCHEDULED_MORE: &str = "Once at a set time, or over and over, like every weekday at 9. Each goes to a thread, or starts a new thread each time. Agents book them too, to check back on something. Make one with New schedule in the list, from Schedule\u{2026} in a composer, or by asking an agent. A schedule that sends to a thread puts it under Waiting until then. A schedule that starts a new thread can run on another of your Macs (Runs on). Schedules live in your Convex backend, so with no internet they wait.";
-
-/// `ModeHeader`: the view's name, and its count on the right.
-fn mode_header(title: &'static str, count: usize, p: &Palette) -> impl IntoElement {
-    h_flex()
-        .flex_none()
-        .h(px(34.))
-        .pt(px(4.))
-        // On the same column as the titles below.
-        .pl(px(OUTER_INSET + LEADING))
-        .pr(px(OUTER_INSET + TRAILING))
-        .gap(px(6.))
-        .items_center()
-        .child(div().text_size(px(style::size::SIDEBAR_BUTTON)).line_height(px(17.)).font_semibold().text_color(p.fg).child(title))
-        .child(div().flex_1())
-        .when(count > 0, |s| s.child(div().text_size(px(13.)).line_height(px(16.)).text_color(p.faint).child(count.to_string())))
-}
-
-/// `HomeTitle`: the page's title, with more behind the ⓘ, and the line under it.
-fn home_title(title: &'static str, line: &'static str, more: &'static str, cx: &App) -> impl IntoElement {
-    let secondary = style::secondary_text(cx);
-    v_flex()
-        .gap(px(12.))
-        .child(h_flex().items_center().gap(px(8.)).child(div().text_size(px(24.)).line_height(px(29.)).font_semibold().child(title)).child(info_tip("home-more", more, cx)))
-        .child(div().text_size(px(style::size::LABEL)).line_height(px(16.)).text_color(secondary).child(line))
-}
-
-/// `InfoTip`: an ⓘ that says more in its tooltip, and in a popover when
-/// clicked, for text too long to hover over.
-pub(crate) fn info_tip(id: &'static str, text: &'static str, cx: &App) -> AnyElement {
-    let secondary = style::secondary_text(cx);
-    Popover::new(id)
-        // Above it, as the Swift popover's arrow on its bottom edge puts it.
-        .anchor(Anchor::BottomLeft)
-        .trigger(InfoTrigger { id, text, color: secondary })
-        .content(move |_, _, _| div().w(px(280.)).p(px(12.)).text_size(px(12.)).child(text))
-        .into_any_element()
-}
-
-#[derive(IntoElement)]
-struct InfoTrigger {
-    id: &'static str,
-    text: &'static str,
-    color: Hsla,
-}
-
-impl gpui_kit::component::Selectable for InfoTrigger {
-    fn selected(self, _: bool) -> Self {
-        self
-    }
-    fn is_selected(&self) -> bool {
-        false
-    }
-}
-
-impl RenderOnce for InfoTrigger {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        // A little bigger than the icon, as it's small to aim at.
-        crate::highlights::tipped(div().id(SharedString::from(format!("{}-button", self.id))).p(px(2.)).cursor_pointer(), self.text).child(icon("info.circle", 11., self.color))
-    }
-}
-
-/// `HomeStatusLine`: what it's doing now, under the title; a dot, accent while busy.
-fn home_status_line(text: &str, busy: bool, cx: &App) -> impl IntoElement {
-    let dot = if busy { style::control_accent(cx) } else { style::faint_text(cx) };
-    h_flex()
-        .pt(px(4.))
-        .gap(px(6.))
-        .items_center()
-        .child(div().flex_none().size(px(7.)).rounded_full().bg(dot))
-        .child(div().truncate().text_size(px(style::size::LABEL)).line_height(px(16.)).child(text.to_owned()))
-}
-
-/// `HomeStatTile`: one number, what it counts, and more in its tooltip.
-fn home_stat_tile(index: usize, stat: &HomeStat, cx: &App) -> impl IntoElement {
-    let secondary = style::secondary_text(cx);
-    let fill = style::primary_opacity(cx, 0.04);
-    crate::highlights::tipped(div().id(("home-stat", index)).flex_grow(1.).flex_basis(px(170.)).min_w(px(170.)), stat.help.clone())
-        .child(
-            v_flex()
-                .gap(px(4.))
-                .px(px(14.))
-                .py(px(12.))
-                .rounded(px(10.))
-                .bg(fill)
-                .child(div().truncate().text_size(px(22.)).line_height(px(26.)).font_semibold().child(stat.value.clone()))
-                .child(div().truncate().text_size(px(style::size::LABEL)).line_height(px(16.)).text_color(secondary).child(stat.label.clone())),
-        )
-}
 
 /// Scripted commands for the Scheduled view, as the Swift app's: a heading
 /// folded or opened (`scheduleSection`). A row's buttons are clicked by their

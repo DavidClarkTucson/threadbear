@@ -846,6 +846,9 @@ impl Threadbear {
                 this.update(cx, |this, cx| {
                     this.sidebar.project_icons = project_icons(&v["projects"]);
                     this.projects_supported = true;
+                    this.librarian.projects_made = crate::librarian::projects_made(&v["projects"]);
+                    // The librarian is part of projects, so it's asked after them.
+                    this.load_librarian(cx);
                     this.all_projects = crate::app::project_list(&v["projects"]);
                     this.sidebar.projects = project_briefs(&v["projects"]);
                     cx.notify();

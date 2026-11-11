@@ -115,6 +115,16 @@ pub struct Threadbear {
     /// Back or Forward is putting a place back (`navigationPending`): the
     /// steps on the way aren't recorded.
     pub(crate) restoring_place: bool,
+    /// The Librarian view (librarian.rs).
+    pub(crate) librarian: crate::librarian::LibrarianState,
+    /// What the Librarian page's picture says when it's poked.
+    pub(crate) librarian_pokes: crate::home_page::Pokes,
+    /// The runner's settings (`settings.get`, then `settings.updated`), as
+    /// they came: the Librarian page's Runs on reads them, Settings will.
+    pub(crate) runner_settings: Option<Value>,
+    /// The providers whose logins can run small jobs (titles, the
+    /// librarian), from hello's `providers` (`ProviderInfo.smallJobs`).
+    pub(crate) small_jobs: Vec<String>,
     pub(crate) projects_supported: bool,
     /// Every project's id, title and whether it's archived, for the
     /// header's chips (`projects.list`).
@@ -272,6 +282,10 @@ impl Threadbear {
             schedule_editor: None,
             shows_home: false,
             restoring_place: false,
+            librarian: crate::librarian::LibrarianState::new(),
+            librarian_pokes: crate::home_page::Pokes::new(crate::home_page::Art::Librarian),
+            runner_settings: None,
+            small_jobs: vec!["claude".into()],
             projects_supported: false,
             all_projects: Vec::new(),
             new_thread: crate::new_thread::NewThreadState::new(),
@@ -297,6 +311,10 @@ impl Threadbear {
                 if let Status::Connected { hello, .. } = &status {
                     self.logins = RunnerLogins::from_hello(hello);
                     self.remote.experiments = hello["experiments"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(str::to_owned)).collect();
+                    // A runner from before `providers` has Claude's built in.
+                    if let Some(providers) = hello["providers"].as_array() {
+                        self.small_jobs = providers.iter().filter(|p| p["smallJobs"].as_bool() == Some(true)).filter_map(|p| p["id"].as_str().map(str::to_owned)).collect();
+                    }
                 }
                 self.status = status;
                 // Each time it's connected, the whole list again, and the
@@ -306,6 +324,7 @@ impl Threadbear {
                     self.load_list(cx);
                     self.refresh_restart(cx);
                     self.load_projects(cx);
+                    self.load_runner_settings(cx);
                     self.load_schedules(cx);
                     self.load_remote(cx);
                     self.side.update(cx, |side, cx| side.connected(cx));
@@ -340,7 +359,10 @@ impl Threadbear {
                     }
                     self.refresh_restart(cx);
                 }
+                "librarian.updated" => self.librarian.status = Some(threadbear_core::librarian::Status::decode(&params["librarian"])),
+                "settings.updated" => self.runner_settings = Some(params["settings"].clone()),
                 "projects.updated" => {
+                    self.librarian.projects_made = crate::librarian::projects_made(&params["projects"]);
                     self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]);
                     self.sidebar.projects = crate::sidebar::project_briefs(&params["projects"]);
                     self.all_projects = project_list(&params["projects"]);
@@ -405,6 +427,61 @@ impl Threadbear {
             .ok();
         })
         .detach();
+    }
+
+    /// The runner's settings (`settings.get`), for the pages that show some
+    /// of them (the Librarian's Runs on), and Settings once it's here.
+    pub(crate) fn load_runner_settings(&mut self, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            if let Ok(v) = call(client, "settings.get", json!({})).await {
+                this.update(cx, |this, cx| {
+                    this.runner_settings = Some(v["settings"].clone());
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// `updateSettings`: shown at once; the runner's answer (or its error,
+    /// which puts it back) has the last word. `change` is what
+    /// `settings.update` takes.
+    pub(crate) fn update_runner_settings(&mut self, change: Value, cx: &mut Context<Self>) {
+        let before = self.runner_settings.clone();
+        if let Some(settings) = self.runner_settings.as_mut() {
+            merge_json(settings, &change);
+        }
+        let guess = self.runner_settings.clone();
+        cx.notify();
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "settings.update", change).await;
+            this.update(cx, |this, cx| {
+                match res {
+                    Ok(v) => this.runner_settings = Some(v["settings"].clone()),
+                    Err(e) => {
+                        // Put back only if nothing newer has come since
+                        // (`settings.updated` from another window), and ask
+                        // again either way: the runner has the last word.
+                        if this.runner_settings == guess {
+                            this.runner_settings = before;
+                        }
+                        this.load_runner_settings(cx);
+                        this.show_error(e.message, cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The providers whose logins can run small jobs (`smallJobs`).
+    pub(crate) fn small_job_providers(&self) -> Vec<String> {
+        self.small_jobs.clone()
     }
 
     pub(crate) fn open(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -562,6 +639,10 @@ impl Threadbear {
         if self.mode == SidebarMode::Scheduled {
             sidebar["sections"] = self.scheduled_dump()["sections"].clone();
         }
+        let (librarian_sections, librarian_state) = self.librarian_dump();
+        if self.mode == SidebarMode::Librarian {
+            sidebar["sections"] = librarian_sections;
+        }
         json!({
             "connection": connection,
             "selection": self.selection_dump(),
@@ -575,9 +656,11 @@ impl Threadbear {
             "homePage": match self.home_page() {
                 Some(SidebarMode::Scheduled) => self.scheduled_home_dump(),
                 Some(SidebarMode::Projects) => json!({ "title": "Projects" }),
-                Some(_) => json!({ "title": "Librarian" }),
+                Some(_) => self.librarian_home_dump(),
                 None => Value::Null,
             },
+            // The librarian's state in words, once the runner has said.
+            "librarian": librarian_state,
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": self.banner_dump(),
@@ -636,6 +719,24 @@ impl Threadbear {
             Status::Connecting { .. } => Some("Connecting to the runner…".into()),
             Status::Disconnected { reason, retry_in_ms, .. } => Some(format!("Can't reach the runner: {reason}. Trying again in {}s.", retry_in_ms.div_ceil(1000))),
         }
+    }
+}
+
+/// `change`'s fields written over `into`'s, objects within objects too, as a
+/// `settings.update` changes only what it names.
+fn merge_json(into: &mut Value, change: &Value) {
+    match (into, change) {
+        (Value::Object(into), Value::Object(change)) => {
+            for (key, value) in change {
+                match into.get_mut(key) {
+                    Some(existing) if existing.is_object() && value.is_object() => merge_json(existing, value),
+                    _ => {
+                        into.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (into, change) => *into = change.clone(),
     }
 }
 

@@ -203,6 +203,36 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 The Librarian view and its page (`librarian.log`, `librarian.page`, `librarian.picture`)
+
+- Librarian in the activity bar (with its count of looks under way and
+  waiting) opens the view in the sidebar and its page beside it, as in the
+  Swift app. The view: what it's doing, with its mark in the rows' gutter (a
+  spinner while it works), the look under way and when it started, today's
+  looks, skips and tokens, Pause or Resume (shown at once, put back if the
+  runner says no) and Look at everything (spins until the looks are
+  queued); then Next, each look's thread (which opens), why and when; and
+  Recent, what each look did, to which thread and projects, coloured by how
+  it went, with why it filed the thread in its tooltip.
+- The page: the bear at its card catalogue, the title with its ⓘ, what
+  it's doing, the six tiles (LibrarianStats, ported to desktop/core with the
+  status model and its words), then its settings: Look at threads, and
+  Runs on, the pool whose Claude logins it uses (the runner's small-jobs
+  setting, `settings.update { models: { pool } }`), and More in Settings.
+  The app now keeps the runner's settings (`settings.get`, then
+  `settings.updated`) for that, and for the Settings window to come.
+- The Scheduled and Librarian pages share one page (desktop/gpui/src/
+  home_page.rs): the picture, what it says when poked, the title and ⓘ, the
+  status line and the tiles.
+- A project's name in a Recent row is plain words for now, as a project's
+  page isn't in this app yet.
+- Both apps' dumps give the page's status and tiles (`homePage`) and the
+  librarian's state in words (`librarian`).
+- Verification: librarian.feature's 3 scenarios with scheduled.feature and
+  header.feature on Linux and on Tinker Desk against both apps (24 of 24
+  each; both apps' tiles agree, Projects it made and Threads it filed
+  included); the view and page side by side in both apps.
+
 ### 2026-11-11 The limit box on the composer (`banner.limit`)
 
 - The Swift app moved a thread at its limit from a bar across the top of

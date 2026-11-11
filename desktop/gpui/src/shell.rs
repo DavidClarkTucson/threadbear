@@ -1104,13 +1104,14 @@ impl Threadbear {
         match self.mode {
             SidebarMode::Inbox => self.render_sidebar(cx).into_any_element(),
             SidebarMode::Scheduled => self.render_scheduled_list(cx),
+            SidebarMode::Librarian => self.render_librarian_list(cx),
             other => self.render_mode_sidebar(other, cx).into_any_element(),
         }
     }
 
-    /// The Projects and Librarian views aren't in this app yet (their rows
-    /// are the next stages of the port): their place in the sidebar says so
-    /// plainly, so the rail and the keys already work.
+    /// The Projects view isn't in this app yet (its rows are the next stage
+    /// of the port): its place in the sidebar says so plainly, so the rail
+    /// and the keys already work.
     fn render_mode_sidebar(&mut self, mode: SidebarMode, cx: &mut Context<Self>) -> impl IntoElement {
         let title = match mode {
             SidebarMode::Scheduled => "Scheduled",
@@ -1129,6 +1130,7 @@ impl Threadbear {
         let main: AnyElement = match (&self.pane, page) {
             (Some(pane), None) => div().size_full().child(pane.clone()).into_any_element(),
             (_, Some(SidebarMode::Scheduled)) => self.render_scheduled_home(cx),
+            (_, Some(SidebarMode::Librarian)) => self.render_librarian_home(cx),
             (_, Some(page)) => div().size_full().flex().items_center().justify_center().text_color(muted).child(format!("The {} page isn't in this app yet.", if page == SidebarMode::Projects { "Projects" } else { "Librarian" })).into_any_element(),
             // No thread open is the new-thread page, as in the Swift app.
             (None, None) => self.render_new_page(window, cx),

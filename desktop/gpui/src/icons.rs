@@ -199,6 +199,9 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "calendar.badge.clock" => IconName::CalendarClock,
         "slider.horizontal.3" => IconName::SlidersHorizontal,
         "folder.badge.plus" => IconName::FolderPlus,
+        // The Librarian view's headings.
+        "hourglass" => IconName::Hourglass,
+        "clock.arrow.circlepath" => IconName::RotateCcwClock,
         _ => return None,
     };
     Some(Icon::new(lucide))
