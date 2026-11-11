@@ -64,7 +64,10 @@ what the iPhone has.
 | NotifyMode, AppModel's runner order and offline line | `Settings.kt` | 5 |
 | AppModel's StartingThread (new threads on their way) | `Starting.kt` | 5 |
 
-Not ported: Quick Ask, dictation/Whisper, the bear and pull-peek, the
+Dictation uses Android's own SpeechRecognizer (on-device where the phone
+has it), not Whisper; there's one recognizer, so no "Dictate with" choice.
+
+Not ported: Quick Ask (Mike, 11 Nov: not needed), Whisper, the bear and pull-peek, the
 Pocket's "here" mark (it needs location and a map search), the rows flying
 between headings (RowFlight), the demo's sample data beyond what tests need.
 
@@ -90,7 +93,9 @@ between headings (RowFlight), the demo's sample data beyond what tests need.
    first), work: links opening the turn's working, the slash palette, the
    recap box, plan cards and the plan sheet, older history in chunks, and
    swipe left for Forward / right for Back.
-4. New thread (FAB on the inbox): text, runner/folder as the iPhone offers.
+4. New thread (the bar's pencil): text with photos and dictation, runner,
+   model and effort as the iPhone offers; it closes once the backend has it,
+   a Starting row stands in, and the thread opens if it starts within a minute.
 5. Settings (the bar's menu): paired server, phone, token expiry, runners
    and their order (drag by the handles), Notify me once push is on, the
    self-hosted note, Unpair with a confirm.
@@ -109,10 +114,14 @@ Archive and hibernate hide the row at once and wait for the runner
 1. Pairing, inbox, open a thread and watch it stream, send, stop.
 2. Cards: approvals, questions, secrets (sealed), asks, done card with
    follow-ups and archive.
-3. Push: FCM through the relay (needs a Firebase app: Keith's project or a
-   second key on the relay, Mike decides), tap opens the thread.
+3. Push: FCM through the relay, with Mike's own Firebase project
+   (`threadbear-android`, his choice on 11 Nov) as the relay's second key
+   (docs/push-relay.md); tap opens the thread. The app's
+   google-services.json is kept out of git: the build reads it from
+   `app/` or `~/.config/threadbear-android/`, and without it push is off.
 4. The rest: hibernate/star/archive menus, new thread, photos, older
    history, reply buttons, links, markdown tables and code.
 
 Each slice: kit tests for what it ports, screenshots from Mike's Pixel in
-dark mode, pushed to `cloud/android-native`, landed from the M5.
+dark mode, pushed to `cloud/android-native`, landed from the M5. All four
+plus the inbox shell (5) landed on 11 Nov, after cross-lab reviews.
