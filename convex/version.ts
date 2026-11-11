@@ -226,7 +226,7 @@
 //    only to a backend of 50 or later; an older runner always sends them, as
 //    before. phone:project still returns them whole.
 // 51: an owned schedule can carry `check`, a shell command its runner runs
-//    before each run (experiment scheduleChecks). An older runner sends none.
+//    before each run. An older runner sends none.
 // 52: full sync (docs/full-convex.md step 4). eventBodies, sync:appendBodies,
 //    sync:remoteBody and phone:eventBody: a tool's output, input and diffs under
 //    the seq of its row, only from a runner with sync.full on. heldPictures,

@@ -41,7 +41,7 @@ function setup(opts: { callerIn?: 'box' | 'host'; mode?: PermissionMode } = {}) 
   // As the router has it: another runner's start (cross-runner.ts) answers for itself.
   const updates: Record<string, unknown>[] = [];
   const control = new Proxy(h.runner, { get: (t, k) => (k === 'update' ? (u: Record<string, unknown>) => (updates.push(u), t.update(u as never)) : k === 'startOn' ? async () => 'Asked bruce to start it.' : typeof (t as any)[k] === 'function' ? (t as any)[k].bind(t) : (t as any)[k]) });
-  const list = buildThreadbearTools(control as never, me.id, () => h.clock.now(), sched, undefined, undefined, { scheduleChecks: () => true, sleep: async () => {} });
+  const list = buildThreadbearTools(control as never, me.id, () => h.clock.now(), sched, undefined, undefined, { sleep: async () => {} });
   const call = async (name: string, args: Record<string, unknown>) => {
     const t = list.find((x) => x.name === name)!;
     const r = (await t.handler(args as never, {})) as { content: { text: string }[]; isError?: boolean };

@@ -942,7 +942,7 @@ export type Schedule = {
   // scheduleModes); never stored.
   defaultMode?: PermissionMode;
   // A shell command run first, in its folder; a run whose check prints
-  // nothing is skipped (experiment scheduleChecks, schedule-check.ts).
+  // nothing is skipped (schedule-check.ts).
   check?: string;
   // How long the check may take, in seconds (at most 300); absent, 60.
   checkTimeoutSecs?: number;

@@ -158,7 +158,7 @@ export const MAC_RUNNER_STATS_API_VERSION = 46;
 // From this one an owned schedule can carry `poolId`, the pool that picks
 // its threads' login. An older backend's validator would turn it down.
 export const SCHEDULE_POOLS_API_VERSION = 36;
-// From this one an owned schedule can carry `check` (experiment scheduleChecks).
+// From this one an owned schedule can carry `check`.
 export const SCHEDULE_CHECK_API_VERSION = 51;
 // From this one it can carry `checkTimeoutSecs` too.
 export const SCHEDULE_CHECK_TIMEOUT_API_VERSION = 55;

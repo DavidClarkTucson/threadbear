@@ -35,7 +35,7 @@ function setup(callerMode: PermissionMode, control?: (h: H) => H['runner']) {
   const other = start(h, 'Other work', 'full');
   const askOther = start(h, 'Careful work', 'ask');
   const me = start(h, 'Me', callerMode);
-  const list = buildThreadbearTools(control ? control(h) : h.runner, me.id, () => h.clock.now(), sched, projects, undefined, { scheduleChecks: () => true, sleep: async () => {} });
+  const list = buildThreadbearTools(control ? control(h) : h.runner, me.id, () => h.clock.now(), sched, projects, undefined, { sleep: async () => {} });
   // The handler as the SDK runs it: what Claude's CLI does once its own
   // allowedTools rule (from a tool-wide "Always allow") or Auto's
   // classifier has let the call through.

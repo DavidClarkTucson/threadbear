@@ -2892,9 +2892,8 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   time by which that should have happened. On 5 Nov 2026 a thread
   waiting on another thread's report ended as done in Mike's inbox,
   as the description then allowed it only when he asked.
-- **Schedule checks** (experiment `scheduleChecks`, off unless
-  `runner.json` has `"experiments": { "scheduleChecks": true }`;
-  `runner/src/schedule-check.ts`). A schedule's `check` is a shell
+- **Schedule checks** (`runner/src/schedule-check.ts`; an experiment,
+  `scheduleChecks`, from 6 to 11 Nov 2026, standard since). A schedule's `check` is a shell
   command (`/bin/sh -c`) its runner runs before each due run (not Run
   now), in the schedule's folder (a thread schedule's thread's folder),
   in its own process group, for at most 60 seconds (or the schedule's
@@ -4864,7 +4863,7 @@ kept in `schedules.json` in the data dir.
   gone (`scheduleGone`, kept a day), asking again from 5 seconds before the
   newest row it heard. A claim doesn't count as a write for this. An older
   runner goes on using `sync:schedules`.
-- **Checks** (an experiment, `scheduleChecks`). A schedule's `check` is a
+- **Checks**. A schedule's `check` is a
   shell command run first, in its folder, each time it's due
   (`src/schedule-check.ts`). It runs by itself from then on, so it's bound to
   what was approved: `checkDigest` in `src/patch-trust.ts` follows the command

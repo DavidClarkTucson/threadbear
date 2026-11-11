@@ -181,8 +181,8 @@ File references are where to look.
   rewrites anything: a commit made only there stays, and `tb status` says so.
   `tb land` refuses in that repo. If `origin` is Mike's repo rather than
   your own, leave this off.
-- **Schedule checks** (`runner/src/schedule-check.ts`, experiment
-  `scheduleChecks`, off by default): a schedule's check command runs in
+- **Schedule checks** (`runner/src/schedule-check.ts`): a schedule's
+  check command, if it has one, runs in
   `/bin/sh` before each run, as you, for at most a minute (or up to five,
   if the schedule says). Each keeps a
   state file (and a note that a held check was told about, `<id>.held`) in `schedule-checks/` in Threadbear's data folder, and

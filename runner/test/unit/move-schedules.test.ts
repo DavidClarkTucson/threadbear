@@ -87,7 +87,7 @@ test("a compromised old runner's schedule check and Always allow rules don't rea
   // Made again on T as main.ts does, with checks on and the real runner:
   // nothing to run, nothing approved.
   const ran: string[] = [];
-  const sched = new Scheduler({ runner: t.runner, home: t.home, clock: t.clock, log: nullLogger, zone: () => 'UTC', checksOn: () => true, runCheck: async (p) => (ran.push(p.command), { ok: true, output: 'x' }) });
+  const sched = new Scheduler({ runner: t.runner, home: t.home, clock: t.clock, log: nullLogger, zone: () => 'UTC', runCheck: async (p) => (ran.push(p.command), { ok: true, output: 'x' }) });
   sched.start();
   for (const sc of adopted.schedules ?? []) await sched.create({ ...sc, threadId: id });
   const [made] = sched.list(id);

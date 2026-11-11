@@ -223,10 +223,6 @@ export function buildThreadbearTools(
     pocket?: () => PocketControl | undefined;
     gateway?: () => string | undefined;
     gatewayHealth?: () => Promise<ConnectorService[] | undefined>;
-    // The scheduleChecks experiment (schedule-check.ts): the schedule
-    // tools take a `check` only while it's on, so agents elsewhere aren't
-    // handed an argument that does nothing.
-    scheduleChecks?: () => boolean;
     remote?: () => RemoteControl | undefined;
     // The replyButtons experiment (runner/buttons.ts): add_button is only
     // handed out while it's on.
@@ -237,18 +233,15 @@ export function buildThreadbearTools(
   } = {},
 ) {
   const codex = opts.provider === 'codex';
-  const checks = opts.scheduleChecks?.() === true;
-  const checkArg = (update: boolean): Record<string, z.ZodOptional<z.ZodTypeAny>> =>
-    checks
-      ? {
+  // A schedule's check (schedule-check.ts).
+  const checkArg = (update: boolean): Record<string, z.ZodOptional<z.ZodTypeAny>> => ({
           check: (update ? z.string().nullable() : z.string())
             .optional()
-            .describe(`A shell command run first, in its folder, before each run${update ? ' (null takes it off)' : ''}. If it prints nothing the run is skipped and no agent starts; what it prints is added to the message. For pollers: check for something new cheaply here. $THREADBEAR_CHECK_STATE is a file it can keep state in. It's bound to what it runs: after a change to its scripts it doesn't run until you pass the same check again.`),
+            .describe(`Shell command run in its folder before each run${update ? ' (null removes it)' : ''}. Prints nothing: the run is skipped and no agent starts; its output is added to the message. Use it to poll cheaply. $THREADBEAR_CHECK_STATE is a file for its state. After its scripts change it won't run until you pass the same check again.`),
           checkTimeoutSecs: (update ? z.number().int().min(1).max(MAX_CHECK_TIMEOUT_SECS).nullable() : z.number().int().min(1).max(MAX_CHECK_TIMEOUT_SECS))
             .optional()
             .describe(`Seconds the check may take before it counts as failed. Default 60${update ? ' (null)' : ''}.`),
-        }
-      : {};
+  });
   const bulletReplies = () => opts.bulletReplies?.() !== false;
   const oneReply = opts.oneReply?.() === true;
   const all = async (): Promise<ThreadSummary[]> => control.list(['inbox', 'snoozed', 'archived']);
@@ -2071,13 +2064,13 @@ export function serverInstructions(selfId: string, o: { one: boolean; bulletRepl
   );
 }
 
-export function threadbearMcpServer(control: ThreadControl, selfId: string, schedules?: ScheduleControl, projects?: ProjectControl, appRestarts?: AppRestartControl, bulletReplies: () => boolean = () => true, pocket?: () => PocketControl | undefined, oneReply: () => boolean = () => false, gateway?: () => string | undefined, gatewayHealth?: () => Promise<ConnectorService[] | undefined>, scheduleChecks?: () => boolean, remote?: () => RemoteControl | undefined, replyButtons?: () => boolean, runAsks?: () => boolean): McpSdkServerConfigWithInstance {
+export function threadbearMcpServer(control: ThreadControl, selfId: string, schedules?: ScheduleControl, projects?: ProjectControl, appRestarts?: AppRestartControl, bulletReplies: () => boolean = () => true, pocket?: () => PocketControl | undefined, oneReply: () => boolean = () => false, gateway?: () => string | undefined, gatewayHealth?: () => Promise<ConnectorService[] | undefined>, remote?: () => RemoteControl | undefined, replyButtons?: () => boolean, runAsks?: () => boolean): McpSdkServerConfigWithInstance {
   const one = oneReply();
   const server = createSdkMcpServer({
     name: SERVER_NAME,
     version: RUNNER_VERSION,
     instructions: serverInstructions(selfId, { one, bulletReplies: bulletReplies(), pocket: Boolean(pocket?.()), projects: Boolean(projects) }),
-    tools: buildThreadbearTools(control, selfId, Date.now, schedules, projects, appRestarts, { bulletReplies, pocket, oneReply: () => one, gateway, gatewayHealth, scheduleChecks, remote, replyButtons, runAsks }),
+    tools: buildThreadbearTools(control, selfId, Date.now, schedules, projects, appRestarts, { bulletReplies, pocket, oneReply: () => one, gateway, gatewayHealth, remote, replyButtons, runAsks }),
   });
   server.tools = [...ALWAYS_ASK_TOOLS].map((name) => ({ name: name.split('__').at(-1)!, permission_policy: 'always_ask' as const }));
   return server;
