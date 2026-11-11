@@ -99,8 +99,12 @@ public struct MessageHistory: Sendable, Equatable {
     /// plus a little for the rest. Counted from lengths Swift already
     /// knows, so it costs nothing per update.
     static func bytes(of m: PhoneMessage) -> Int {
-        var n = 64 + m.text.utf8.count + (m.origin?.utf8.count ?? 0) + (m.toolKind?.utf8.count ?? 0) + (m.turn?.utf8.count ?? 0)
-        n += (m.buttons?.count ?? 0) * 256 + (m.wokeBy?.count ?? 0) * 256
+        var n: Int = 64 + m.text.utf8.count
+        n += m.origin?.utf8.count ?? 0
+        n += m.toolKind?.utf8.count ?? 0
+        n += m.turn?.utf8.count ?? 0
+        n += (m.buttons?.count ?? 0) * 256
+        n += (m.wokeBy?.count ?? 0) * 256
         return n
     }
 

@@ -18,7 +18,8 @@ final class SidebarRowTests: XCTestCase {
         XCTAssertTrue(look.unread)
         XCTAssertEqual(WokeWords.tip(woke), "Woke up after hibernating for 2 days")
         XCTAssertEqual(WokeWords.tip(ThreadWoke(at: at)), "Woke up from hibernating")
-        XCTAssertEqual([30, 60, 45 * 60, 3600, 6000, 30 * 3600, 40 * 3600].map(WokeWords.away),
+        let gaps: [TimeInterval] = [30, 60, 45 * 60, 3600, 6000, 30 * 3600, 40 * 3600]
+        XCTAssertEqual(gaps.map(WokeWords.away),
                        ["a minute", "a minute", "45 minutes", "an hour", "2 hours", "a day", "2 days"])
         thread.status = .running
         XCTAssertFalse(ThreadRowLook(thread).woke)

@@ -217,7 +217,7 @@ enum Automation {
         }
         let shown: String
         if let settings = app.runnerSettings {
-            shown = json([
+            let fields: [String: Any] = [
                 "tab": app.settingsTab.rawValue,
                 "defaultCwd": settings.defaultCwd,
                 "idleMinutes": settings.idleMinutes,
@@ -240,7 +240,8 @@ enum Automation {
                 "devicesReason": app.devicesReason ?? "",
                 "devicesError": app.devicesError ?? "",
                 "pairingShown": SettingsWindow.current?.attachedSheet != nil,
-            ] as [String: Any])
+            ]
+            shown = json(fields)
         } else {
             shown = json(["tab": app.settingsTab.rawValue, "unsupported": app.settingsUnsupported] as [String: Any])
         }
