@@ -364,6 +364,11 @@ export const RUNNER_KEY_CAPS = {
   threads: 3_000,
   message: 10_000,
   messageDoc: 12_288,
+  // A Plan first plan (`plan`, API 72) goes whole up to the runner's 24,000
+  // characters (PLAN_CHARS), as it's read through before Go ahead: room for
+  // that many three-byte characters, and the rest of the row.
+  planMessage: 80_000,
+  planDoc: 84_000,
   // A runner key's messages' bytes in all: past it its oldest anywhere give
   // way before a new one goes in. The M5's whole history, about 83,000
   // messages, is about 21 MB.
@@ -494,11 +499,12 @@ function onTheMac(p: Record<string, any>): Record<string, any> {
 // A runner key's message cut to fit whole (CAP.messageDoc): its text, and
 // every other field too.
 function fitMessage<T extends Record<string, any>>(m: T): T | undefined {
-  const out: Record<string, any> = { ...m, text: cutBytes(String(m.text ?? ''), CAP.message), at: cutBytes(String(m.at ?? ''), 64) };
+  const plan = m.plan === true;
+  const out: Record<string, any> = { ...m, text: cutBytes(String(m.text ?? ''), plan ? CAP.planMessage : CAP.message), at: cutBytes(String(m.at ?? ''), 64) };
   for (const f of ['origin', 'toolKind', 'turn']) if (typeof out[f] === 'string') out[f] = cutBytes(out[f], 100);
   if (Array.isArray(out.wokeBy)) out.wokeBy = out.wokeBy.slice(0, 5).map((w: any) => ({ kind: cutBytes(String(w?.kind ?? ''), 40), description: cutBytes(String(w?.description ?? ''), 200) }));
   if (Array.isArray(out.buttons)) out.buttons = out.buttons.slice(0, MESSAGE_BUTTONS).map((b: any) => fitButton(b));
-  return docBytes(out) <= CAP.messageDoc ? (out as T) : undefined;
+  return docBytes(out) <= (plan ? CAP.planDoc : CAP.messageDoc) ? (out as T) : undefined;
 }
 
 // A message links at most this many buttons that the mirror keeps.
@@ -1299,6 +1305,7 @@ const messageDoc = v.object({
   origin: v.optional(v.string()),
   toolKind: v.optional(v.string()),
   summary: v.optional(v.boolean()), // API 14
+  plan: v.optional(v.boolean()), // API 72
   turn: v.optional(v.string()), // API 26
   wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))), // API 33
   buttons: v.optional(v.array(messageButton)), // API 59

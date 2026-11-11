@@ -63,6 +63,16 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // Plan first: the plan in full goes to the phone as a plan row (API 72).
+    name: 'a Plan first plan',
+    shows: ['Bots and webhook triggers', 'Add a bots table'],
+    play: (p) => {
+      p.proposePlan('# Bots and webhook triggers\n\n1. Add a bots table\n2. Call the webhook on each new message');
+      p.say('The plan is ready for you.');
+      p.endTurn({ needs: 'you' });
+    },
+  },
+  {
     name: 'a reply with no card',
     shows: ['Just an answer.'],
     play: (p) => {
