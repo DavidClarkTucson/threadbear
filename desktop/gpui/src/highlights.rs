@@ -260,11 +260,11 @@ impl SidePane {
         pane
     }
 
-    /// The thread on show: the window's selected one (`app.paneThread`).
+    /// The thread on show (`app.paneThread`): the window's selected one, or
+    /// on a project's page the one it borrows the project's panels from
+    /// (projects.rs, `pane_thread`).
     pub(crate) fn thread(&self, cx: &App) -> Option<ThreadSummary> {
-        let app = self.app.upgrade()?;
-        let t = app.read(cx);
-        t.selected.as_ref().and_then(|id| t.threads.get(id)).cloned()
+        self.app.upgrade()?.read(cx).pane_thread()
     }
 
     /// The runner's list came (or came back): projects and schedules read again.

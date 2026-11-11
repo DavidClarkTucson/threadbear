@@ -305,6 +305,7 @@ impl Threadbear {
         let menus = cx.observe(&cx.entity(), |this: &mut Threadbear, _, _| {
             this.menus_stale = true;
             this.inbox_count_cache.set(None);
+            this.projects.pane_cache.take();
         });
 
         let mut sidebar = crate::sidebar::SidebarState::new(cx);

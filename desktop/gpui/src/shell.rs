@@ -203,7 +203,7 @@ impl Panels {
     /// The open thread's patch panel with this id, and the thread.
     fn patch_panel(&self, panel: &str, cx: &App) -> Option<(threadbear_core::highlights::Panel, threadbear_core::inbox::ThreadSummary)> {
         let app = self.app.upgrade()?;
-        let thread = app.read(cx).open_thread()?.clone();
+        let thread = app.read(cx).pane_thread()?;
         let found = thread.panels().into_iter().find(|p| p.id == panel)?;
         Some((found, thread))
     }
@@ -382,7 +382,7 @@ impl Threadbear {
             HIGHLIGHTS => "Highlights".into(),
             FILES => "Files".into(),
             PATCHES => "Patches".into(),
-            _ => self.open_thread().and_then(|t| t.panels.iter().flatten().find(|p| p["id"].as_str() == Some(panel))).and_then(|p| p["title"].as_str()).map(String::from).unwrap_or_else(|| panel.to_string()),
+            _ => self.pane_thread().and_then(|t| t.panels.iter().flatten().find(|p| p["id"].as_str() == Some(panel)).and_then(|p| p["title"].as_str()).map(String::from)).unwrap_or_else(|| panel.to_string()),
         }
     }
 
@@ -419,14 +419,12 @@ impl Threadbear {
         if !Self::is_pane_section(panel) {
             return true;
         }
-        // A project's page has no Highlights or Files (they're a thread's), and
-        // its own panels aren't here yet (`panel.projectpage`).
-        if self.projects.open.is_some() {
-            return false;
-        }
-        let Some(thread) = self.open_thread() else { return true };
+        // A project's page has no Highlights or Files (they're a thread's),
+        // and only the panels its folders give (`pane_thread`).
+        let project_page = self.projects.open.is_some();
+        let Some(thread) = self.pane_thread() else { return !project_page };
         match panel {
-            HIGHLIGHTS | FILES => true,
+            HIGHLIGHTS | FILES => !project_page,
             PATCHES => thread.patches.as_ref().is_some_and(|p| !p.is_empty()),
             other => thread.panels.iter().flatten().any(|p| p["id"].as_str() == Some(other)),
         }
@@ -1181,8 +1179,8 @@ impl Threadbear {
         if window.focused(cx).is_none() {
             window.focus(&self.root_focus, cx);
         }
-        // A project's page has none of the thread's panels (`panel.projectpage`).
-        let has_rail = self.open_thread().is_some() && self.projects.open.is_none();
+        // On a project's page, the panels it borrows from one of its threads.
+        let has_rail = self.pane_thread().is_some();
         let rail = has_rail.then(|| self.render_right_rail(cx));
         let root = div()
             .id("threadbear-shell")
@@ -1287,7 +1285,7 @@ impl Threadbear {
     /// (another branch of the port); until that lands this is the empty panel
     /// it will replace, with the same title and id.
     fn is_side_section(&self, panel: &str) -> bool {
-        matches!(panel, HIGHLIGHTS | FILES | PATCHES) || self.open_thread().is_some_and(|t| t.panels.iter().flatten().any(|p| p["id"].as_str() == Some(panel)))
+        matches!(panel, HIGHLIGHTS | FILES | PATCHES) || self.pane_thread().is_some_and(|t| t.panels.iter().flatten().any(|p| p["id"].as_str() == Some(panel)))
     }
 
     /// The side pane, showing this panel's section. Its entity draws one section
@@ -1295,7 +1293,7 @@ impl Threadbear {
     /// (the Swift app draws each separately): for later, it needs a split of
     /// `SidePane` into sections.
     fn render_side_section(&mut self, section: &str, cx: &mut Context<Self>) -> AnyElement {
-        if let Some(thread) = self.open_thread().cloned() {
+        if let Some(thread) = self.pane_thread() {
             if self.side.read(cx).section_for(&thread) != section {
                 // Afterwards, as this runs while the app's own state is held and
                 // the pane reads that.

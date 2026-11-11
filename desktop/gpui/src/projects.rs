@@ -66,6 +66,11 @@ pub(crate) struct ProjectsState {
     /// Each decision's card on a project's page, by thread: what's picked on
     /// it (project_decisions.rs).
     pub(crate) decision_cards: HashMap<String, Entity<crate::project_decisions::DecisionCard>>,
+    /// `pane_thread`'s answer on a project's page, by project, until the app
+    /// next changes (the observer in app.rs clears it): the dock and the rail
+    /// ask several times a frame, and finding it reads each of the project's
+    /// threads' patches.
+    pub(crate) pane_cache: std::cell::RefCell<Option<(String, Option<ThreadSummary>)>>,
     /// Each picture icon's blurred copy for its card's backdrop, by path;
     /// None while it's being made or when it can't be (projects_page.rs).
     pub(crate) backdrops: HashMap<String, Option<std::sync::Arc<Image>>>,
@@ -134,6 +139,30 @@ impl Threadbear {
     /// The project whose page is showing, if one is.
     pub(crate) fn open_project(&self) -> Option<&Project> {
         self.projects.open.as_deref().and_then(|id| self.project(id))
+    }
+
+    /// The thread the pane and the right rail are for (`paneThread`): the open
+    /// one, or on a project's page the one it borrows the project's panels
+    /// from (`ProjectPane.standIn`), keeping only what came from the project:
+    /// only threads have panels, as the runner works them out per thread.
+    /// None on a page whose threads have nothing from it.
+    pub(crate) fn pane_thread(&self) -> Option<ThreadSummary> {
+        let Some(project) = self.open_project() else { return self.open_thread().cloned() };
+        if let Some((id, made)) = self.projects.pane_cache.borrow().as_ref() {
+            if *id == project.id {
+                return made.clone();
+            }
+        }
+        let made = rules::stand_in(project, self.threads.values()).map(|found| {
+            let patches = rules::project_patches(project, found);
+            let panels = rules::project_panels(project, found);
+            let mut t = found.clone();
+            t.patches = Some(found.patches.iter().flatten().filter(|v| serde_json::from_value::<threadbear_core::highlights::PatchInfo>((*v).clone()).is_ok_and(|p| patches.contains(&p))).cloned().collect());
+            t.panels = Some(found.panels.iter().flatten().filter(|v| v["id"].as_str().is_some_and(|id| panels.iter().any(|p| p.id == id))).cloned().collect());
+            t
+        });
+        *self.projects.pane_cache.borrow_mut() = Some((project.id.clone(), made.clone()));
+        made
     }
 
     /// The projectDecisions experiment is on for this Mac's runner (its hello

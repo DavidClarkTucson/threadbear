@@ -277,8 +277,11 @@ impl SidePane {
     pub(crate) fn render_patches(&mut self, thread: &ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
         let p = palette(cx);
         let patches = thread.patches();
+        // On a project's page they're all the project's (projects.rs,
+        // `pane_thread`): one list, and what they are (PanelsView's `project`).
+        let project_page = self.app.upgrade().is_some_and(|app| app.read(cx).projects.open.is_some());
         let project_title = |id: &str| self.projects.get(id).map(|p| p.title.clone());
-        let groups = words::group(thread, &patches, project_title);
+        let groups = if project_page { vec![words::PatchGroup { project_id: None, title: None, patches: patches.clone() }] } else { words::group(thread, &patches, project_title) };
         let (actions, panels, hooks) = (thread.actions(), thread.panels(), thread.hooks());
         let mut list = v_flex().p(px(16.)).gap(px(14.));
         let show_headings = groups.len() > 1;
@@ -300,7 +303,12 @@ impl SidePane {
                 list = list.child(self.patch_row(&patch, gives, thread, p, cx));
             }
         }
-        list = list.child(div().pt(px(6.)).text_size(px(style::size::SMALL)).text_color(p.faint).child("A patch is a file in .threadbear/patches (in the thread's folder, a parent folder, a folder of one of its projects, or ~) whose default export lists actions, panels and hooks. Ask the agent for one."));
+        let footer = if project_page {
+            "These come from the project's folders, and every thread in it gets them. Ask the agent for another."
+        } else {
+            "A patch is a file in .threadbear/patches (in the thread's folder, a parent folder, a folder of one of its projects, or ~) whose default export lists actions, panels and hooks. Ask the agent for one."
+        };
+        list = list.child(div().pt(px(6.)).text_size(px(style::size::SMALL)).text_color(p.faint).child(footer));
         div().id("patches-list").size_full().overflow_y_scroll().child(list).into_any_element()
     }
 

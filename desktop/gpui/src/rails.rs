@@ -219,7 +219,10 @@ impl Threadbear {
     /// button per panel, Files, and Patches at the foot. Only while a thread
     /// is open.
     pub(crate) fn render_right_rail(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let thread = self.open_thread().cloned();
+        // On a project's page, the panels it borrows (`pane_thread`), with no
+        // Highlights or Files: they're a thread's.
+        let project_page = self.projects.open.is_some();
+        let thread = self.pane_thread();
         let Some(thread) = thread else { return div().into_any_element() };
         let dock = self.dock.read(cx);
         let showing = |panel: &str| dock.controller.is_showing(panel);
@@ -236,7 +239,9 @@ impl Threadbear {
         let mut column = vec![];
         let mut highlights = RailButton::new("rail-highlights", "pin", "Highlights", highlights_shown);
         highlights.dot = open_ask;
-        column.push(rail_button(highlights, |this, _, cx| this.click_rail(shell::HIGHLIGHTS, cx), cx));
+        if !project_page {
+            column.push(rail_button(highlights, |this, _, cx| this.click_rail(shell::HIGHLIGHTS, cx), cx));
+        }
         for (panel, shown) in panels {
             // Its own icon, with where it came from in the corner and in the
             // tip ("Convex, from the Threadbear project"), as the Swift rail.
@@ -246,7 +251,9 @@ impl Threadbear {
             let id = panel.id.clone();
             column.push(rail_button(b, move |this, _, cx| this.click_rail(&id, cx), cx));
         }
-        column.push(rail_button(RailButton::new("rail-files", "folder", "Files", files_shown), |this, _, cx| this.click_rail(shell::FILES, cx), cx));
+        if !project_page {
+            column.push(rail_button(RailButton::new("rail-files", "folder", "Files", files_shown), |this, _, cx| this.click_rail(shell::FILES, cx), cx));
+        }
         let patches = thread.patches.as_ref().map_or(0, Vec::len);
         let hairline = cx.theme().border;
         let mut rail = v_flex().size_full().items_center().pt(px(4.)).pb(px(10.)).gap(px(4.)).children(column).child(div().flex_1().min_h(px(8.)));
@@ -282,17 +289,22 @@ impl Threadbear {
         }
         activity.push(json!({ "title": "Updates", "dot": self.updates_dot(), "quietDot": self.updates_quiet_dot(), "active": self.activity_panel_showing(shell::UPDATES, cx) }));
         let mut right = vec![];
-        if let Some(thread) = self.open_thread() {
+        if let Some(thread) = self.pane_thread() {
+            let project_page = self.projects.open.is_some();
             let dock = self.dock.read(cx);
             let showing = |p: &str| dock.controller.is_showing(p);
             let open_ask = thread.asks.iter().flatten().any(|a| !a.ticked.unwrap_or(false)) && thread.asks_seq.is_some();
-            right.push(json!({ "title": "Highlights", "dot": open_ask, "active": showing(shell::HIGHLIGHTS) }));
+            if !project_page {
+                right.push(json!({ "title": "Highlights", "dot": open_ask, "active": showing(shell::HIGHLIGHTS) }));
+            }
             for p in thread.panels.iter().flatten() {
                 if let (Some(id), Some(title)) = (p["id"].as_str(), p["title"].as_str()) {
                     right.push(json!({ "title": title, "badge": p["badge"], "active": showing(id) }));
                 }
             }
-            right.push(json!({ "title": "Files", "active": showing(shell::FILES) }));
+            if !project_page {
+                right.push(json!({ "title": "Files", "active": showing(shell::FILES) }));
+            }
             if thread.patches.as_ref().is_some_and(|p| !p.is_empty()) {
                 right.push(json!({ "title": "Patches", "badge": thread.patches.as_ref().map(Vec::len), "active": showing(shell::PATCHES) }));
             }

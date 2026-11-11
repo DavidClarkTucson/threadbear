@@ -69,3 +69,9 @@ Feature: Projects: the list, the page of cards and a project's own page
     And I ask why the thread is in the project "Walkies"
     And I press the control "Open Walkies's page"
     Then the project page "Walkies" is open
+
+  @panel.projectpage
+  Scenario: A project's page has the panels its folders give, and no Highlights
+    When I open the project "Walkies"
+    Then the right rail has a "Patches" button
+    And the right rail has no "Highlights" button

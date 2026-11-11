@@ -53,3 +53,11 @@ When('I press New Thread on the project\'s page', async function (this: Threadbe
 When('I press the control {string}', async function (this: ThreadbearWorld, tip: string) {
   await this.app.do({ cmd: 'click', tip });
 });
+
+Then('the right rail has no {string} button', async function (this: ThreadbearWorld, title: string) {
+  // Once the rail has something, so a rail not drawn yet doesn't pass.
+  await this.until(`no "${title}" on the right rail`, (d) => {
+    const right = d.rails?.right ?? [];
+    return right.length > 0 && !right.some((b) => b.title === title);
+  });
+});

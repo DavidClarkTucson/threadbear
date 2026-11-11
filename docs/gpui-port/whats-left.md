@@ -12,7 +12,7 @@ you go.
 - [ ] The design review window: answering an agent's design options, stepping
   through every shot, zoom, minimap, the header's "Review design options (N)"
   and `review:` links (`review.*`, `transcript.review`, `header.pendingreviews`)
-- [ ] Projects: the Projects page and sidebar view, a project's page, its
+- [x] Projects: the Projects page and sidebar view, a project's page, its
   decisions, Projects ▸ in the row and ... menus, the header's project tiles
   opening the page, New Thread in a project (`projects.*`, `header.projectchip`)
 - [ ] The Terminal: ⌘J with a shell per thread, Run on an ask with a command,

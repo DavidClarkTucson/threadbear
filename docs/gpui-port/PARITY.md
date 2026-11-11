@@ -222,6 +222,27 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 A project page's own panels (`panel.projectpage`)
+
+- On a project's page the right rail and the pane beside it are the
+  project's: the panels and patches its folders give, borrowed from its
+  newest open thread that has any (else its newest archived one) and kept
+  to what came from the project, as the Swift app's `paneThread` does. A
+  project's page has no Highlights or Files, as they're a thread's; Patches
+  lists the project's in one list and says they come from its folders and
+  that every thread in it gets them. A page whose threads have nothing from
+  it has no rail.
+- Worked out once until the app next changes: the dock and the rail ask
+  several times a frame, and finding the thread reads each of the
+  project's threads' patches.
+- Files: `desktop/gpui/src/projects.rs` (`pane_thread`); the lines in
+  `shell.rs`, `rails.rs`, `highlights.rs`, `patches.rs` and `app.rs` that
+  read it; a scenario in `features/projects-views.feature`.
+- Verification: projects-views.feature's 10 scenarios on Tinker Desk against
+  both apps (GPUI 10 of 10, Swift 9 of 9, the Highlights one pending there),
+  with projects, rails, highlights and patches on the GPUI app (45 of 45);
+  the Walkies page with its Patches pane side by side with the Swift app's.
+
 ### 2026-11-11 Decisions on a project's page, and the folded Projects view (`projects.decisions`)
 
 - With the projectDecisions experiment on, a project's page opens on its
