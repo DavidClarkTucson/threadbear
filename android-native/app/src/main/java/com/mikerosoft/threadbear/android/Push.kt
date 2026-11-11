@@ -48,10 +48,26 @@ object Push {
     @Volatile var generation = 0
         private set
 
-    /** The pairing changed: in-flight notifications are dropped, and with [clear] the shown ones go. */
-    fun pairingChanged(context: Context, clear: Boolean) = synchronized(lock) {
+    /**
+     * True from a pairing change that forgets the old server until Firebase
+     * has deleted its token: nothing is posted in between, as a push from
+     * the old server could still arrive and be opened then.
+     */
+    @Volatile private var quiet = false
+
+    /**
+     * The pairing changed: in-flight notifications are dropped. With [forget]
+     * (another server, or none) the shown ones go, the push key is retired
+     * in the same step (so nothing the old server sealed opens from here on),
+     * and posting stays off until [forget] has finished deleting the token.
+     */
+    fun pairingChanged(context: Context, forget: Boolean) = synchronized(lock) {
         generation++
-        if (clear) clearAll(context)
+        if (forget) {
+            quiet = true
+            clearAll(context)
+            PushKeyStore(context).clear()
+        }
     }
 
     /** Off for a build without a google-services.json (app/build.gradle.kts). */
@@ -113,7 +129,7 @@ object Push {
         synchronized(lock) {
             // The pairing changed while this was being opened (Firebase calls
             // us off the main thread): it was for the old one, so it's dropped.
-            if (opening != generation || !PairingStore(context).paired()) return
+            if (quiet || opening != generation || !PairingStore(context).paired()) return
             try {
                 NotificationManagerCompat.from(context).notify(threadId, 1, n)
             } catch (_: SecurityException) {
@@ -128,8 +144,12 @@ object Push {
      * push key is made for the next pairing.
      */
     suspend fun forget(context: Context) {
-        PushKeyStore(context).clear()
-        if (available) runCatching { FirebaseMessaging.getInstance().deleteToken().await() }
+        try {
+            PushKeyStore(context).clear()
+            if (available) runCatching { FirebaseMessaging.getInstance().deleteToken().await() }
+        } finally {
+            synchronized(lock) { quiet = false }
+        }
     }
 
     /** Unpairing takes down every notification the old pairing left. */
