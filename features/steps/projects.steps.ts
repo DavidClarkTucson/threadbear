@@ -34,3 +34,23 @@ Then('the project\'s decisions don\'t include {string}', async function (this: T
 When('I pick answer {int} of ask {int} on the decision from {string}', async function (this: ThreadbearWorld, choice: number, ask: number, title: string) {
   await this.app.do({ cmd: 'decision', thread: title, pick: `${ask}:${choice}` });
 });
+
+// The folded Projects view: a folded project's section lists no threads and
+// says how many it has.
+Then('the sidebar\'s project {string} is folded with {int} threads', async function (this: ThreadbearWorld, title: string, count: number) {
+  await this.until(`"${title}" folded with ${count} threads`, (d) =>
+    d.sidebar.sections.some((s) => s.name === title && s.collapsed === true && s.threads.length === 0 && s.count === count));
+});
+
+When('I open the sidebar\'s project {string}', async function (this: ThreadbearWorld, title: string) {
+  await this.app.do({ cmd: 'expand', projectRow: title });
+});
+
+When('I fold the sidebar\'s project {string}', async function (this: ThreadbearWorld, title: string) {
+  await this.app.do({ cmd: 'collapse', projectRow: title });
+});
+
+Then('the sidebar lists {string} under {string}', async function (this: ThreadbearWorld, thread: string, title: string) {
+  await this.until(`"${thread}" under "${title}"`, (d) =>
+    d.sidebar.sections.some((s) => s.name === title && s.collapsed === false && s.threads.some((t) => t.title === thread)));
+});

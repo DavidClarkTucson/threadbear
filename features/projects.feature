@@ -32,3 +32,12 @@ Feature: Decisions on the Projects page
     Then the project's decisions include "Draft the release notes for 0.4" asking "Mention the Windows build?"
     When I pick answer 2 of ask 2 on the decision from "Draft the release notes for 0.4"
     Then the project's decisions don't include "Draft the release notes for 0.4"
+
+  @projects.decisions @project-decisions @gpui-pending
+  Scenario: The sidebar folds each project to one row
+    When I show the Projects page
+    Then the sidebar's project "Threadbear" is folded with 4 threads
+    When I open the sidebar's project "Threadbear"
+    Then the sidebar lists "Rename the Settings tabs" under "Threadbear"
+    When I fold the sidebar's project "Threadbear"
+    Then the sidebar's project "Threadbear" is folded with 4 threads

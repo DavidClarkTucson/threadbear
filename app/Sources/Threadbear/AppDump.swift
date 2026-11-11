@@ -63,7 +63,8 @@ struct AppDump: Encodable {
     struct Section: Encodable {
         var name: String
         var threads: [Thread]
-        /// Inbox and Scheduled sections only: folded away under their heading.
+        /// Inbox and Scheduled sections, and Projects ones with the
+        /// projectDecisions experiment: folded away under their heading.
         var collapsed: Bool? = nil
         /// The number drawn on the heading while it's folded.
         var count: Int? = nil
@@ -591,9 +592,17 @@ struct AppDump: Encodable {
             }
         case .projects:
             // A section per project, then the threads in none.
+            // Folded to a row a project with the projectDecisions experiment
+            // on: a folded one lists no threads, with its count, as drawn.
             let built = app.projectSections
-            sections = built.sections.map { Section(name: $0.project.title, threads: $0.threads.map { thread($0) }) }
-                + [Section(name: "Not in a project", threads: built.unfiled.map { thread($0) })]
+            let folding = app.projectDecisionsOn
+            let section = { (id: String, name: String, threads: [ThreadSummary]) -> Section in
+                let folded = folding && !app.openProjectRows.contains(id)
+                return Section(name: name, threads: folded ? [] : threads.map { thread($0) },
+                               collapsed: folding ? folded : nil, count: folding ? threads.count : nil)
+            }
+            sections = built.sections.map { section($0.id, $0.project.title, $0.threads) }
+                + [section(ProjectFolds.unfiledId, "Not in a project", built.unfiled)]
         case .librarian:
             // Looks in the thread shape: the queue's reason, or what a look
             // did, is the status.

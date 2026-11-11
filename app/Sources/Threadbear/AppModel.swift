@@ -641,6 +641,18 @@ final class AppModel {
         didSet { UserDefaults.standard.set(threadsCollapsed, forKey: Self.threadsCollapsedKey) }
     }
     static let threadsCollapsedKey = "threadsCollapsed"
+    /// The sidebar's Projects view, folded to a row a project (the
+    /// projectDecisions experiment): the ones Mike has opened, by project id
+    /// (ProjectFolds.unfiledId for Not in a project). Folded by default;
+    /// remembered across launches (Mike, 11 Nov).
+    var openProjectRows: Set<String> = Set(UserDefaults.standard.stringArray(forKey: AppModel.openProjectRowsKey) ?? []) {
+        didSet { UserDefaults.standard.set(openProjectRows.sorted(), forKey: Self.openProjectRowsKey) }
+    }
+    static let openProjectRowsKey = "projectsList.openRows"
+
+    func toggleProjectRow(_ id: String) {
+        if openProjectRows.remove(id) == nil { openProjectRows.insert(id) }
+    }
     /// Inbox sections folded away under their heading, remembered across
     /// launches (Mike asked 27 Oct). Hibernating and Archive start folded.
     var collapsedSections: Set<InboxSection> = AppModel.storedCollapsedSections() {

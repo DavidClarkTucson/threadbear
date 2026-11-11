@@ -1100,6 +1100,16 @@ enum Automation {
                 if name == "expand" { app.collapsedScheduleSections.remove(section) } else { app.collapsedScheduleSections.insert(section) }
                 return "ok"
             }
+            if let key = c["projectRow"] as? String {
+                // A project's row in the folded Projects view (projectDecisions
+                // experiment), by title or id, as its chevron does; "-" or
+                // "Not in a project" for the threads in none.
+                let id = key == "Not in a project" ? ProjectFolds.unfiledId
+                    : app.projects.first(where: { $0.id == key || $0.title == key })?.id ?? (key == ProjectFolds.unfiledId ? key : nil)
+                guard let id else { return "error no project \(key)" }
+                if (name == "expand") != app.openProjectRows.contains(id) { app.toggleProjectRow(id) }
+                return "ok"
+            }
             if let raw = c["section"] as? String {
                 // An inbox heading, as clicking it does.
                 guard let section = InboxSection(rawValue: raw) else {
