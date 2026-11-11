@@ -1192,6 +1192,7 @@ impl Threadbear {
             RUNNERS => self.activity_panel_view(RUNNERS, ghost, window, cx),
             UPDATES => self.activity_panel_view(UPDATES, ghost, window, cx),
             CONNECTORS => self.activity_panel_view(CONNECTORS, ghost, window, cx),
+            USAGE => self.usage_panel(ghost, window, cx),
             // Highlights, Files, Patches and a patch's own panels are sections of
             // the one pane beside the thread (highlights.rs), each its own panel
             // in the dock, as in the Swift app.

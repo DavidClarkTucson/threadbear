@@ -27,6 +27,7 @@ pub mod sidebar;
 pub mod slash;
 pub mod transcript;
 pub mod updates;
+pub mod usage;
 pub mod zoom;
 pub use chrono;
 pub mod reducer;

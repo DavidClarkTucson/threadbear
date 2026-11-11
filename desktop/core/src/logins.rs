@@ -28,6 +28,8 @@ pub struct Account {
     pub models: Vec<ModelChoice>,
     pub default_effort: Option<String>,
     pub email: Option<String>,
+    /// "Max", "Team", "Pro Lite": the Usage panel's tip on a login.
+    pub plan: Option<String>,
     pub note: Option<String>,
     /// Kept as it came (AccountUsage), for the badge a later slice draws.
     pub usage: Option<Value>,

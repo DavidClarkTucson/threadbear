@@ -169,6 +169,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "runners" => crate::runners_panel::automation(app, cmd, window, cx),
         "updates" => crate::updates_panel::automation(app, cmd, cx),
         "connectors" => crate::connectors_panel::automation(app, cmd, cx),
+        "usage" => crate::usage::automation(app, cmd, cx),
         "move" => crate::move_sheet::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("section").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("scheduleSection").is_some() => crate::scheduled::automation(app, cmd, cx),

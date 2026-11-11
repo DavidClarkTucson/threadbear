@@ -121,6 +121,8 @@ pub struct Threadbear {
     pub(crate) librarian: crate::librarian::LibrarianState,
     /// What the Librarian page's picture says when it's poked.
     pub(crate) librarian_pokes: crate::home_page::Pokes,
+    /// The Usage panel's numbers and the honey pot (usage.rs).
+    pub(crate) usage: crate::usage::UsageState,
     /// The runner's settings (`settings.get`, then `settings.updated`), as
     /// they came: the Librarian page's Runs on reads them, Settings will.
     pub(crate) runner_settings: Option<Value>,
@@ -286,6 +288,7 @@ impl Threadbear {
         let mut sidebar = crate::sidebar::SidebarState::new(cx);
         sidebar.order = settings.inbox_order();
         let scheduled = crate::scheduled::ScheduledState::new(settings.saved.collapsed_schedule_sections.as_deref());
+        let usage = crate::usage::UsageState::new(settings.saved.usage_chart_range.as_deref(), settings.saved.usage_show_model_weeks);
         let folded: HashSet<&'static str> = match &settings.saved.collapsed_sections {
             // The section keys are the Swift enum's raw values.
             Some(saved) => ["starred", "inbox", "running", "hibernating", "archived"].into_iter().filter(|k| saved.iter().any(|s| s == k)).collect(),
@@ -348,6 +351,7 @@ impl Threadbear {
             restoring_place: false,
             librarian: crate::librarian::LibrarianState::new(),
             librarian_pokes: crate::home_page::Pokes::new(crate::home_page::Art::Librarian),
+            usage,
             runner_settings: None,
             small_jobs: vec!["claude".into()],
             settings_window: None,
@@ -926,6 +930,7 @@ impl Threadbear {
             "runners": self.runners_dump(cx),
             "updates": self.updates_dump(cx),
             "connectors": self.connectors_dump(cx),
+            "usage": self.usage_dump(cx),
             "header": self.header_dump(),
             "panels": self.side.read(cx).dump(cx),
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),

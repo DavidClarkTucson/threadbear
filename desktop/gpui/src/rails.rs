@@ -178,8 +178,15 @@ impl Threadbear {
         button.dot = self.updates_dot();
         button.quiet_dot = self.updates_quiet_dot();
         foot.push(rail_button(button, |this, _, cx| this.toggle_under_threads(shell::UPDATES, cx), cx));
+        // Usage, as a honey pot filled to the room the next thread would get,
+        // its tooltip each pool's best room (usage.rs). Toggles its panel
+        // under the threads, as VS Code's bar does its views.
         let usage_shown = self.dock.read(cx).controller.is_showing(shell::USAGE);
-        let usage = rail_button(RailButton::new("rail-usage", "gauge.with.dots.needle.33percent", "Usage", usage_shown), |this, _, cx| this.toggle_under_threads(shell::USAGE, cx), cx);
+        let (pot, tip) = self.honey_pot();
+        let mut button = RailButton::new("rail-usage", "gauge.with.dots.needle.33percent", "Usage", usage_shown);
+        button.face = Some(pot);
+        button.tip = tip;
+        let usage = rail_button(button, |this, _, cx| this.toggle_under_threads(shell::USAGE, cx), cx);
         let mut button = RailButton::new("rail-settings", "gearshape", "Settings", false);
         button.tip = self.shortcut_tip("Settings", ShortcutCommand::Settings);
         let settings = rail_button(button, |this, window, cx| this.run_command(shell::Command::Settings, window, cx), cx);

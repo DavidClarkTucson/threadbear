@@ -222,6 +222,62 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 The Usage panel and the honey pot (`usage.spend`, `usage.pools`, `rail.honeypot`)
+
+- Usage in the activity bar is the honey pot: filled to the room on the
+  login the next new thread would use (the tighter of its 5-hour and weekly
+  windows; empty at its limit or unknown), draining in a short step as it's
+  spent and rising with a drip down the outside when that login's window
+  resets, its tooltip each pool's best room. It opens the panel under the
+  threads, as the placeholder did.
+- The panel, as the Swift one: Today, Last hour and 7 days, each with its
+  short line where it fits and the sentence in its tip; tokens by the hour
+  today or by the day for the week, stacked by login in the logins' own
+  colours, with the dashed line at now, the hovered bar's breakdown and the
+  key (Today or 7 days is remembered as `usage.chartRange`). Then a card per
+  pool (each provider named in a mixed pool, the logins in no pool last, a
+  card per provider without pools): each login's dot, name, note and today's
+  tokens, its 5-hour bar and weekly charts (the rolling week with last
+  week's readings, broken at the reset, this pace dashed on to the reset, an
+  orange dot where it runs out), a model's own week (Weekly Fable), what to
+  do about each window, and the lines under it (old numbers, credits, Token
+  Stats' notices, the shared part said once at the foot).
+- The Settings card main has had since 368d99d8: Show Weekly Fable, on by
+  default and remembered as `usage.showModelWeeks`, there only while a login
+  has a model's own week.
+- The numbers and words are `desktop/core/src/usage.rs` (UsageStatsMath,
+  LimitPace, RollingWeek, UsageGroups, HoneyLevel, the parts of
+  AccountUsageText the panel reads, LoginColours), with the Swift tests
+  ported; the panel and the dump both read them.
+- The panel is a view of its own drawn `cached`, as the Threads panel is.
+  Drawn with the shell, every spinner frame laid it out and painted its
+  charts again, and open wide a debug build spent so long on frames that it
+  stopped answering. Charts scrolled out of sight aren't painted.
+- Both apps' dumps say what the panel draws (`usage`: the pot's level, login
+  and tooltip, the tiles, chart, cards, notes, `settings` and footer), and
+  both apps' `usage` command takes `range` and `showModelWeeks`.
+- Not the same yet: the switch is this app's small one (28 by 16, as on the
+  Librarian page and in Settings) where macOS 27's is 44 by 20 with a pill
+  knob; the row is kept 20 tall so the card lines up. Where scroll bars
+  always show, the Swift panel keeps room for one and GPUI's scroll views
+  don't, so a tile's line can fit in one app and not the other. The CLIs at
+  the end of the Swift `usage` text are the Updates panel's here.
+- Files: `desktop/core/src/usage.rs` and `desktop/gpui/src/usage.rs` (new),
+  a few lines in `app.rs`, `rails.rs`, `shell.rs`, `settings.rs`,
+  `automation.rs` and `main.rs`, core's `logins.rs` (a login's plan) and
+  `new_thread.rs` (`day_name` shared); `features/usage.feature` and its
+  steps; the Swift dump (`AppDump.swift`) and `usage` command
+  (`Automation+Commands.swift`), `app/README.md`.
+- Verification: usage.feature's 4 scenarios on Tinker Desk against both apps
+  (4 of 4 each) and rails.feature on the GPUI app; core's usage tests; the
+  panel side by side in both apps, docked and wide, by the hour and the day,
+  with the Settings card on and off, in dark and light, overlaid and
+  measured (the pot, the card edges, the headers, the switch row), and both
+  dumps compared scene by scene (the same, but for one "runs out" time a
+  minute on as the clock moved between runs). The drip, in a build with the
+  pot slowed tenfold, as the debug build's pictures come too slowly to catch
+  it.
+
 ### 2026-11-11 The Runners, Updates and Connectors panels, with their buttons and dots (`runners.panel`, `updates.panel`, `connectors.panel`, `rail.activity`, `rail.dots`)
 
 - Connectors, Runners and Updates are at the foot of the activity bar, above
@@ -291,7 +347,6 @@ built parsers and gates with no launch of the app, which is the trap.)
   the new choice at once. Left as they are, as they're the whole app's: every
   panel sits 2 points higher under the dock's bar, bruce's Mac mini is the
   icon set's server, and GPUI's text draws a little lighter.
-
 ### 2026-11-11 Point for point with the Swift app: the composer, its card, and what's round them
 
 - Mike: "can you do like a pixel by pixel comparison ... this decision panel

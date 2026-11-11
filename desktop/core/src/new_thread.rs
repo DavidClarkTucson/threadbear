@@ -110,7 +110,8 @@ pub fn clock<Tz: TimeZone>(d: &DateTime<Tz>) -> String {
     }
 }
 
-fn day_name<Tz: TimeZone>(d: &DateTime<Tz>, now: &DateTime<Tz>) -> String {
+/// `AccountUsageText.dayName`: "tomorrow", "yesterday", else "Thu".
+pub fn day_name<Tz: TimeZone>(d: &DateTime<Tz>, now: &DateTime<Tz>) -> String {
     if d.date_naive() == (now.clone() + Duration::days(1)).date_naive() {
         return "tomorrow".to_owned();
     }

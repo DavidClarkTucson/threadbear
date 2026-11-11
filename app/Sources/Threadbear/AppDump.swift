@@ -491,6 +491,69 @@ struct AppDump: Encodable {
     struct Usage: Encodable {
         var shown: Bool
         var lines: [String]
+        /// The activity bar's honey pot: how full, for which login, and its
+        /// tooltip.
+        var icon: UsageIcon
+        /// What the panel draws, part by part (`UsagePanel`), the same as
+        /// the GPUI app's dump: the tiles and the chart once the stats have
+        /// come, a card per pool, the notes over them and the line under.
+        var tiles: [UsageTile] = []
+        var chart: UsageChart? = nil
+        var cards: [UsageCard] = []
+        var notes: [String] = []
+        /// The Settings card's switch, while some login has a model's own
+        /// week for it to switch.
+        var settings: UsageSettingsInfo? = nil
+        var footer: String? = nil
+    }
+
+    struct UsageSettingsInfo: Encodable {
+        /// What it says: "Show Weekly Fable".
+        var `switch`: String
+        var on: Bool
+    }
+
+    struct UsageIcon: Encodable {
+        var percent: Int
+        var login: String?
+        var tip: String
+    }
+
+    struct UsageTile: Encodable {
+        var title: String
+        var value: String
+        var detail: String?
+    }
+
+    struct UsageChart: Encodable {
+        var title: String
+        var range: String
+        /// The key under it: the logins that spent something here.
+        var key: [String]
+        var empty: String?
+    }
+
+    struct UsageCard: Encodable {
+        var title: String
+        var today: String?
+        var logins: [UsageLogin]
+    }
+
+    struct UsageLogin: Encodable {
+        var name: String
+        /// The provider over it, in a card that mixes them.
+        var provider: String?
+        var note: String?
+        var today: String?
+        var status: String?
+        var meters: [UsageMeter]
+        var more: [String]
+    }
+
+    struct UsageMeter: Encodable {
+        var title: String
+        var left: String
+        var verdict: String?
     }
 
     struct ActionInfo: Codable {
@@ -701,7 +764,7 @@ struct AppDump: Encodable {
             moveSheet: app.moveRequest == nil ? nil : moveSheetNow,
             decisions: app.selectedThread.flatMap { decisions($0, app: app) },
             transcript: transcript,
-            usage: Usage(shown: app.usageShown, lines: usageLines(app)),
+            usage: usage(app),
             project: app.openProject.map { project in
                 let threads = ProjectSections.threads(in: project.id, from: app.threads.values)
                 return ProjectInfo(id: project.id, title: project.title,
@@ -1178,6 +1241,84 @@ struct AppDump: Encodable {
         let counts = parts.filter { $0.1 > 0 }.map { "\($0.1) \($0.0)" }
         let folded = app.collapsedHighlights.isEmpty ? [] : ["folded: \(app.collapsedHighlights.sorted().joined(separator: " "))"]
         return ((sections.brief != nil ? ["a brief"] : []) + counts + folded).joined(separator: ", ")
+    }
+
+    /// The Usage panel and its icon, part by part, as `UsagePanel` and
+    /// `UsageActivityButton` work them out, for the specs (features/usage.feature)
+    /// and the GPUI app's dump of the same shape.
+    @MainActor
+    static func usage(_ app: AppModel) -> Usage {
+        let now = app.now
+        let accounts = app.accounts
+        let groups = UsageGroups.build(pools: app.poolsSupported ? app.pools : [], accounts: accounts)
+        // Filled to the room on the login the next new thread would use.
+        let login = app.newThreadAccountId
+        let level = HoneyLevel.level(app.draftLogins.account(login)?.usage)
+        var out = Usage(shown: app.usageShown, lines: usageLines(app),
+                        icon: UsageIcon(percent: Int((level * 100).rounded()), login: login, tip: UsageGroups.tooltip(groups, now: now)))
+        let ids = accounts.map(\.id)
+        if let stats = app.usageStats {
+            let calendar = Calendar.current
+            let today = UsageStatsMath.today(stats, accounts: ids, now: now)
+            let usual = UsageStatsMath.usualByNow(stats, accounts: ids, now: now)
+            let week = UsageStatsMath.total(stats, accounts: ids, from: calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now)) ?? now, to: now.addingTimeInterval(1))
+            let hoursToday = max(1, now.timeIntervalSince(calendar.startOfDay(for: now)) / 3600)
+            out.tiles = [
+                UsageTile(title: "Today", value: UsageStatsMath.tokens(today.total), detail: usual.map { "usually " + UsageStatsMath.tokens($0) }),
+                UsageTile(title: "Last hour", value: UsageStatsMath.tokens(UsageStatsMath.lastHour(stats, accounts: ids, now: now)),
+                          detail: UsageStatsMath.tokens(Int(saturating: Double(today.total) / hoursToday)) + "/h today"),
+                UsageTile(title: "7 days", value: UsageStatsMath.tokens(week.total), detail: UsageStatsMath.tokens(week.total / 7) + " a day"),
+            ]
+            // The chart's range is the panel's @AppStorage.
+            let byDay = UserDefaults.standard.string(forKey: "usage.chartRange") == "week"
+            let bars = byDay ? UsageStatsMath.byDay(stats, accounts: ids, days: 7, now: now) : UsageStatsMath.todayByHour(stats, accounts: ids, now: now)
+            let spending = ids.filter { id in bars.contains { $0.accountId == id } }
+            out.chart = UsageChart(title: byDay ? "Tokens by day" : "Tokens by hour", range: byDay ? "week" : "today",
+                                   key: spending.map { AccountName.login($0, accounts: accounts) },
+                                   empty: bars.isEmpty ? (stats.ready ? "Nothing spent yet" : "Reading the transcripts…") : nil)
+        }
+        let notices = AccountUsageText.notices(accounts)
+        // The Settings card's switch is the panel's @AppStorage, on until
+        // it's turned off.
+        let showModelWeeks = UserDefaults.standard.object(forKey: UsagePanel.showModelWeeksKey) as? Bool ?? true
+        out.cards = groups.map { group in
+            let today = app.usageStats.map { UsageStatsMath.today($0, accounts: group.accounts.map(\.id), now: now) }
+            let logins = group.providers.flatMap { section in
+                section.accounts.map { account in
+                    usageLogin(account, provider: group.providers.count > 1 ? ModelPicker.providerTitle(section.provider) : nil,
+                               notice: notices.own[account.id], stats: app.usageStats, showModelWeeks: showModelWeeks, now: now)
+                }
+            }
+            return UsageCard(title: group.title, today: today.flatMap { $0.total > 0 ? UsageStatsMath.tokens($0.total) + " today" : nil }, logins: logins)
+        }
+        let modelWeeks = UsagePanel.modelWeekTitles(accounts)
+        if !modelWeeks.isEmpty { out.settings = UsageSettingsInfo(switch: "Show " + modelWeeks.joined(separator: ", "), on: showModelWeeks) }
+        if !accounts.contains(where: { $0.usage != nil }) { out.notes.append("The usage numbers need a newer runner.") }
+        if let stats = app.usageStats, !stats.ready { out.notes.append("Still reading the transcripts, so these are partial.") }
+        let source = [AccountUsageText.sourceLine(accounts, now: now), notices.shared].compactMap { $0 }
+        out.footer = source.isEmpty ? nil : source.joined(separator: ". ")
+        return out
+    }
+
+    /// One login's row as `LoginRow` draws it: its meters (the main windows,
+    /// then a model's own week unless the switch is off) with what each says
+    /// to do, then the quiet lines under them.
+    private static func usageLogin(_ account: Account, provider: String?, notice: String?, stats: UsageStats?, showModelWeeks: Bool, now: Date) -> UsageLogin {
+        let usage = account.usage
+        let today = stats.map { UsageStatsMath.today($0, accounts: [account.id], now: now) }
+        let stale = usage?.stale == true
+        let meters = (AccountUsageText.mainWindows(usage) + (showModelWeeks ? AccountUsageText.modelWeeks(usage) : [])).map { window in
+            let samples = stats?.samples(account.id, kind: window.kind, title: window.title) ?? []
+            return UsageMeter(title: window.title, left: AccountUsageText.percent(window.remainingPercent) + " left",
+                              verdict: LimitPace.verdict(window, pace: LimitPace.of(window, samples: samples, now: now), stale: stale, now: now)?.text)
+        }
+        var more: [String] = []
+        if stale, let readAt = usage?.readAt { more.append("Numbers from " + AccountUsageText.when(readAt, now: now)) }
+        more += AccountUsageText.extraLines(usage, notice: notice, now: now)
+        let status = usage == nil ? "Nothing known yet" : (usage?.blocked == true ? "Limit reached" : nil)
+        return UsageLogin(name: AccountName.title(account), provider: provider, note: account.note.flatMap { $0.isEmpty ? nil : $0 },
+                          today: today.flatMap { $0.total > 0 ? UsageStatsMath.tokens($0.total) + " today" : nil },
+                          status: status, meters: meters, more: more)
     }
 
     /// What the Usage panel says: each login's room by pool and provider

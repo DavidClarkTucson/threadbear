@@ -900,6 +900,21 @@ extension Automation {
             RunLoop.main.run(until: Date().addingTimeInterval(0.5))
             return app.usageShown ? "ok shown" : "error the panel didn't open"
         }
+        // The chart's Today or 7 days, as its segmented control sets them:
+        // the panel's @AppStorage, which a scripted click can't reach between
+        // the two segments under one tooltip.
+        if let range = c["range"] as? String {
+            guard range == "today" || range == "week" else { return "error range is today or week" }
+            UserDefaults.standard.set(range, forKey: "usage.chartRange")
+            return "ok " + range
+        }
+        // The Settings card's switch for a model's own week, as a click on it
+        // sets it: the panel's @AppStorage. A click by its tip would land on
+        // whatever's there when the card is scrolled out of sight.
+        if let on = c["showModelWeeks"] as? Bool {
+            UserDefaults.standard.set(on, forKey: UsagePanel.showModelWeeksKey)
+            return on ? "ok on" : "ok off"
+        }
         if let title = c["click"] as? String {
             if title == "Check now" { app.checkClis(); return "ok" }
             guard let provider = c["provider"] as? String, let cli = app.clis.first(where: { $0.provider == provider }) else { return "error provider is claude or codex" }

@@ -50,6 +50,7 @@ mod slash_palette;
 mod style;
 mod thread;
 mod updates_panel;
+mod usage;
 mod viewer;
 
 use app::Threadbear;

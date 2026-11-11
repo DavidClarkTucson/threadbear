@@ -63,6 +63,13 @@ pub struct Saved {
     /// `runnersPanelOpen`: the runners whose details are open in the Runners
     /// panel, their ids with commas between.
     pub runners_panel_open: Option<String>,
+    /// `usage.chartRange`: the Usage panel's chart, "today" or "week".
+    #[serde(rename = "usage.chartRange")]
+    pub usage_chart_range: Option<String>,
+    /// `usage.showModelWeeks`: the Usage panel's switch for a model's own
+    /// week ("Weekly Fable"). None is on.
+    #[serde(rename = "usage.showModelWeeks")]
+    pub usage_show_model_weeks: Option<bool>,
 }
 
 /// The settings file: where it is and what's in it. Reading is at launch only;
