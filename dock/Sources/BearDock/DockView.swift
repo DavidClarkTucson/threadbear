@@ -209,16 +209,6 @@ private struct TitleTip: ViewModifier {
     }
 }
 
-/// A tab title's hover tip, when its panel has one.
-private struct TitleTip: ViewModifier {
-    let text: String?
-    let options: DockOptions
-
-    func body(content: Content) -> some View {
-        if let text { content.dockTip(text, options) } else { content }
-    }
-}
-
 extension View {
     @MainActor func dockTip(_ text: String, _ options: DockOptions) -> AnyView {
         options.tip(AnyView(self), text)
