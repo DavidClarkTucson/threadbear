@@ -1050,7 +1050,7 @@ mod tests {
         assert_eq!(account_label("claude-main", &l.accounts), "gmail");
         assert_eq!(account_label("claude-3", &l.accounts), "bearworks");
         assert_eq!(account_label("codex-main", &l.accounts), "Codex");
-        assert_eq!(login_name("claude-2", &l.accounts), "convex");
+        assert_eq!(login_name("claude-2", &l.accounts), "work");
     }
 
     #[test]

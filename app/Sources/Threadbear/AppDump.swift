@@ -299,6 +299,8 @@ struct AppDump: Encodable {
     struct LimitInfo: Encodable {
         var text: String
         var button: String?
+        /// The box's Carry on by itself, "Yes" or "No", when it offers it.
+        var carryOn: String? = nil
     }
 
     struct Transcript: Encodable {
@@ -1140,7 +1142,7 @@ struct AppDump: Encodable {
             let title = AccountUsageText.switchTitle(target, accounts: app.accounts)
             return waiting ? title.replacingOccurrences(of: "Switch to", with: "Pin to") : title
         }
-        return LimitInfo(text: advice.text, button: button)
+        return LimitInfo(text: advice.text, button: button, carryOn: advice.stopped ? (thread.carryOnAtReset ? "Yes" : "No") : nil)
     }
 
     /// A chip's badge as it reads after the title.

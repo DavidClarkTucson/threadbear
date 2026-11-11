@@ -175,6 +175,84 @@ impl Composer {
         }
     }
 
+    /// `LimitBox`: the thread's login is at its limit, or its last turn
+    /// stopped on it. At the top of the box, over a line like the card of
+    /// asks: what happened, Switch to (a pool thread's Pin to) the login with
+    /// the most room, and whether it carries on by itself once the limit
+    /// resets. Mike asked for it here on 10 Nov, in place of a bar across the
+    /// top of the thread that read as an error and offered only the switch.
+    fn render_limit_box(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        use gpui_kit::base::TestSupportExt as _;
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+        let thread_id = self.thread_id.clone()?;
+        let app = self.app.upgrade()?;
+        let (thread, advice) = {
+            let t = app.read(cx);
+            let thread = t.threads.get(&thread_id)?.clone();
+            // While it moves to another Mac there's nothing to switch.
+            if thread.moving.is_some() {
+                return None;
+            }
+            let advice = t.limit_advice(&thread, cx)?;
+            (thread, advice)
+        };
+        let now = threadbear_core::sidebar::local_now();
+        let when = advice.carries_on_at.map(|at| threadbear_core::sidebar::carries_on_when(at, &now));
+        // Waiting to carry on reads as a quiet clock, not the red gauge.
+        let waiting = advice.carries_on_at.is_some() && thread.carry_on_at_reset;
+        let text = match (&when, waiting) {
+            (Some(when), true) => format!("{} Carries on by itself {when}.", advice.text),
+            _ => advice.text.clone(),
+        };
+        let secondary = style::secondary_text(cx);
+        let mark = if waiting { crate::icons::symbol("clock").with_size(px(13.)).text_color(secondary) } else { crate::icons::symbol("gauge.with.dots.needle.100percent").with_size(px(13.)).text_color(cx.theme().danger) };
+        let mut column = v_flex()
+            .w_full()
+            .gap(px(8.))
+            .px(px(style::COMPOSER_PADDING))
+            .pt(px(10.))
+            .pb(px(10.))
+            .text_size(px(style::size::LABEL))
+            .line_height(px(16.))
+            .child(h_flex().items_start().gap(px(8.)).child(div().flex_none().pt(px(1.)).child(mark)).child(crate::highlights::tipped(div().id("limit-text").flex_1().min_w_0(), text.clone()).child(text)));
+        if advice.target.is_some() || advice.stopped {
+            let mut row = h_flex().gap(px(10.)).items_center();
+            if let Some((account, title)) = advice.target.clone() {
+                let title = crate::header::limit_button_title(title, advice.pool);
+                let tip = "Carry on this thread on that login now, from where it is";
+                let (app, id) = (self.app.clone(), thread.id.clone());
+                row = row.child(
+                    div().id("limit-switch").test_support().aria_label(tip).child(Button::new("limit-switch-button").label(title).small().secondary().tooltip(tip).on_click(move |_, _, cx| {
+                        app.update(cx, |a, cx| a.switch_account(&id, account.clone(), cx)).ok();
+                    })),
+                );
+            }
+            if advice.stopped {
+                let on = thread.carry_on_at_reset;
+                let tip: String = if on {
+                    format!("It carries on from where it stopped {}. No to leave it until you send a message", when.clone().unwrap_or_else(|| "once its limit resets".into()))
+                } else {
+                    "It waits for you to send a message. Yes to carry on from where it stopped once there's room".into()
+                };
+                let (app, id) = (self.app.clone(), thread.id.clone());
+                let menu = Button::new("limit-carry-on-button").label(if on { "Yes" } else { "No" }).small().secondary().dropdown_caret(true).tooltip(tip.clone()).dropdown_menu(move |menu: PopupMenu, _, _| {
+                    let mut menu = menu;
+                    for (label, value) in [("Yes", true), ("No", false)] {
+                        let (app, id) = (app.clone(), id.clone());
+                        menu = menu.item(PopupMenuItem::new(label).checked(on == value).on_click(move |_, _, cx| {
+                            app.update(cx, |a, cx| a.set_carry_on_at_reset(&id, value, cx)).ok();
+                        }));
+                    }
+                    menu
+                });
+                row = row.child(h_flex().gap(px(6.)).items_center().child(div().text_color(secondary).child("Carry on by itself")).child(div().id("limit-carry-on").test_support().aria_label(tip).child(menu)));
+            }
+            column = column.child(row);
+        }
+        Some(v_flex().w_full().child(column).child(div().w_full().h(gpui_kit::px(1.)).bg(style::hairline(cx))).into_any_element())
+    }
+
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.input.update(cx, |s, cx| s.focus(window, cx));
     }
@@ -824,7 +902,9 @@ impl Render for Composer {
         let creating = self.creating(cx);
         let send_button = self.render_send_button(running, creating, cx);
         let controls = self.render_controls(send_button, window, cx);
-        // The box: the open card over a line, then the message.
+        // The box: the limit box and the open card, each over a line, then
+        // the message.
+        let limit = self.render_limit_box(cx);
         let card = self.render_card(window, cx);
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
         let palette = self.render_palette(window, cx);
@@ -863,6 +943,7 @@ impl Render for Composer {
                     .when(!cx.theme().is_dark(), |s| s.shadow_md())
                     // Clicking the card's padding puts the cursor in the text.
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| this.focus(window, cx)))
+                    .children(limit)
                     .children(card)
                     .child(body)
                     // Measures the box for the palette, which sits on its top

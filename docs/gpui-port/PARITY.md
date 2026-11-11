@@ -203,6 +203,24 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 The limit box on the composer (`banner.limit`)
+
+- The Swift app moved a thread at its limit from a bar across the top of
+  the thread into a box at the top of its message field (ae80b80b, Mike's
+  call on 10 Nov), after the last full run, so its `banner.limit` scenario
+  failed there while the GPUI app still drew the bar. The GPUI app has the
+  box now: what happened, and when it carries on by itself ("Carries on by
+  itself at 11:06 am."), with a clock while it waits and the red gauge
+  otherwise; Switch to (a pool thread's Pin to) the login with the most
+  room; and Carry on by itself, Yes or No (`threads.update
+  carryOnAtReset`), for a turn that stopped at the limit on this Mac.
+- A pinned thread waiting for its own login (`waitingForRoom` without a
+  pool, also new on 10 Nov) gets the box too.
+- Both dumps say what the box offers (`limit.carryOn`), and the scenario
+  checks it.
+- Verification: header.feature on Linux and on Tinker Desk against both
+  apps (12 of 12 each); the thread side by side in both apps (compare.ts).
+
 ### 2026-11-11 The Scheduled view, its page and the editor (`schedule.list`, `schedule.page`, `schedule.editor`)
 
 - Scheduled in the activity bar opens the list in the sidebar and its page in
