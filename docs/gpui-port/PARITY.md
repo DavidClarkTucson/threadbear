@@ -222,6 +222,56 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 Updates, crash reports and the import after Codex's reviews (`system.selfupdate`, `system.crash`, `system.swiftimport`)
+
+- A crash report never carries a panic's own text now, only Rust's own
+  wording for the panics it raises (an index out of bounds with its numbers,
+  an unwrap on None, an overflow) and "panic" for any other: scrubbing free
+  text missed things ("couldn't open /Users/mike/Secret Project/clients.csv"
+  kept "Project/clients.csv"). It's checked again as a report goes out, so a
+  record kept by an older build goes by the same rule. Where it happened, the
+  location and the frames, still goes.
+- Only the installed app following main for real swaps or deletes anything
+  at the install place on quit: a scripted or debug app showing a made-up
+  update could have swapped Mike's installed app, or deleted its old copy.
+- An update goes in with one exchange (renamex_np's RENAME_SWAP; renameat2's
+  RENAME_EXCHANGE on Linux), so there's never a moment with no app, and a
+  note beside it says which build was coming in while it happens: a swap
+  killed after the exchange leaves the old bundle staged, and the next launch
+  knows not to put it back. Not by the builds' times, which a wrong clock
+  gets wrong. The note stays until the old bundle is out of the way.
+- The relaunch after an update keeps every Threadbear setting the app was
+  started with (Sentry off, its data folder, the old THREADBARE_ names),
+  never a thread's identity or the scripting switch.
+- The update's and install-app.sh's builds on a check host go in folders of
+  this Mac's own (its hardware id with the checkout's path), so two Macs with
+  the same user name sharing a host don't build in each other's, and the
+  binaries come from where the build says it built, so an older remote.sh in
+  main can't hand back another folder's. A failed build fails the install
+  rather than copying the last good build's binaries under the new commit.
+- private_file's appends open with O_NOFOLLOW.
+- The import from the Swift app goes in three parts, the settings, the drafts
+  and the small files, each done once. Each reads first, then saves the
+  record that it's done (checking the save), then writes: a read or a record
+  that fails leaves it for the next launch, and nothing done is done twice,
+  so a draft sent since or a setting changed back since stays. A drafts file here
+  that can't be read as drafts is never written over, and a file or settings
+  export over 8 MB is left where it is.
+- Files: `desktop/core/src/{crash_report,app_update,private_file}.rs`,
+  `desktop/core/Cargo.toml` (libc, Unix only), `desktop/gpui/src/{crash_reporting,
+  app_update,swift_import,settings}.rs`, `desktop/scripts/{remote,stage-update,
+  install-app}.sh`, `desktop/core/tests/open_gate_source.rs` (the import's
+  `defaults export` line, reworded), and `features/crash-reports.feature`.
+- Verification: on Tinker Desk, core's tests (new: Rust's own wording only;
+  a swap cut short before and after its exchange, finished the right way
+  each time), a check of the app without the automation feature, the source
+  test that guards the open gate, and the GPUI app's `@system.*` and
+  `@updates.panel` scenarios, 13 of 13. The real update script, run into a
+  throwaway folder against main (whose remote.sh is still the older one):
+  the build on Tinker Desk said where it built, the binaries came from
+  there, and the bundle was made and signed. Codex read the fix three times
+  more; each look's findings are fixed above.
+
 ### 2026-11-12 Fewer frames while a thread works somewhere else (idle redraws)
 
 - The sidebar's spinners (a working row's, one working in the background, a
