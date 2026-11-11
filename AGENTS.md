@@ -126,6 +126,15 @@ and ask the user what they use instead, rather than trying to reach them.
   shot of the build beside the mockup he picked and check the layout
   matches, not just the wording. The done card shipped as a card in the
   transcript when he'd picked one joined to the composer (30 Oct).
+- A feature Mike uses (a card, a button, a panel, a window, a tool that
+  shows him something): once it's live on his app, show it working
+  before you report it done. Make a real example he can try there and
+  then (a show_options with a clip in it, a small new thread that offers
+  the new button, a patch panel with sample rows), plus a clip or shot
+  in the reply. Don't end on "the first thread that uses it will be its
+  first outing". He had to ask "can you show me an example so I can try
+  it?" on 6, 9 and 10 Nov (a602647d, 7c4ec91c, 69683b5d), found by the
+  nightly retro.
 - Animations: hand anything longer than a hover fade to Core Animation
   (keyframes, `animator()`, SwiftUI's own animations), never step it from
   the main thread each frame, and before landing try it with the main
