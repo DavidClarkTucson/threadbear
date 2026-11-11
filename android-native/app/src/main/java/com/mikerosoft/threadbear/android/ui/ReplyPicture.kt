@@ -40,6 +40,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -365,19 +366,32 @@ fun PictureViewer(url: String, alt: String, preview: LoadedPicture, close: () ->
     val scope = rememberCoroutineScope()
     var full by remember { mutableStateOf<LoadedPicture?>(null) }
     var saving by remember { mutableStateOf(false) }
-    LaunchedEffect(url) {
+    // A fetch that came to nothing: said so, with Try again, never a spinner
+    // left turning for good (offline, say, when the file had to come again).
+    var failed by remember { mutableStateOf(false) }
+    var attempt by remember { mutableStateOf(0) }
+    LaunchedEffect(url, attempt) {
         // A video's file is the whole of it already, while it's still on disk:
         // the disk budget may have let it go since the row loaded it, and the
         // loader fetches it again then.
         val video = preview.video
-        if (video == null || !video.exists()) full = runCatching { PictureLoader.picture(context, url, null) }.getOrNull()
+        if (video == null || !video.exists()) {
+            failed = false
+            full = runCatching { PictureLoader.picture(context, url, null) }.getOrNull()
+            failed = full == null && preview.video != null
+        }
     }
     // Never the preview's video once its file has gone: the player would get a dead path.
     val picture = full ?: preview.takeIf { p -> p.video?.exists() != false }
     Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             val video = picture?.video
-            if (picture == null) {
+            if (picture == null && failed) {
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Couldn't load the video", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { attempt++ }) { Text("Try again", color = Color.White) }
+                }
+            } else if (picture == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), strokeWidth = 2.dp, color = Color.White)
             } else if (video != null) {
                 AndroidView(
