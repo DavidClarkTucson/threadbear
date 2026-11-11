@@ -78,6 +78,8 @@ export type Dump = {
     rows: Row[];
   };
   banner?: { style: string; text: string; detail?: string } | null;
+  /** The sub-agent whose transcript is open in place of its thread's, by id. */
+  subagent?: string | null;
   /** The error bar's text, when it's up. */
   error?: string | null;
   /** The window's panels, in one line ("row[threads (no title) 29% | thread 47% | ...]"). */

@@ -139,6 +139,11 @@ pub struct Threadbear {
     pub(crate) pending_open: Option<String>,
     /// What the Dock badge says now (notify.rs), so it's only set when that changes.
     pub(crate) dock_badge: Option<String>,
+    /// The sub-agent whose transcript is in the main panel, by its thread and
+    /// id, and its pane (`subagentSelection`).
+    pub(crate) subagent: Option<(String, String)>,
+    pub(crate) subagent_pane: Option<Entity<ThreadPane>>,
+    subagent_events: Option<Subscription>,
     /// An agent's show_panel requests shown so far (`panelRequestGate`).
     pub(crate) panel_gate: threadbear_core::panel_requests::Gate,
     /// Pin requests whose highlights have been fetched once for them, so a
@@ -273,6 +278,11 @@ impl Threadbear {
         // What's typed and not sent is written as the app quits (drafts.rs).
         let quitting = cx.on_app_quit(|this, cx| {
             this.save_drafts(cx);
+            // A setting changed in the last moment waits for the throttled
+            // save (`save_settings_soon`), which a quit would otherwise lose.
+            if std::mem::take(&mut this.settings_dirty) {
+                this.settings.save();
+            }
             async {}
         });
         // A thread is read once Mike's looking at it (AppModel.isLooking,
@@ -367,6 +377,9 @@ impl Threadbear {
             pending_open: None,
             dock_badge: None,
             panel_gate: Default::default(),
+            subagent: None,
+            subagent_pane: None,
+            subagent_events: None,
             pins_fetched: HashSet::new(),
             last_drop: None,
             starting_runner: false,
@@ -593,6 +606,9 @@ impl Threadbear {
                         // relay) stays marked as that runner's.
                         t.runner_id = self.threads.get(&t.id).and_then(|old| old.runner_id.clone());
                         if let Some(pane) = &self.pane {
+                            pane.update(cx, |p, cx| p.summary_changed(&t, cx));
+                        }
+                        if let Some(pane) = &self.subagent_pane {
                             pane.update(cx, |p, cx| p.summary_changed(&t, cx));
                         }
                         let before = self.threads.insert(t.id.clone(), t.clone());
@@ -829,6 +845,8 @@ impl Threadbear {
     }
 
     pub(crate) fn open(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        // A thread (its own row, say) in place of one of its sub-agents.
+        self.close_subagent(cx);
         if self.selected.as_deref() == Some(id.as_str()) {
             // Open already, behind a page (a schedule's target was clicked):
             // the page goes.
@@ -882,7 +900,40 @@ impl Threadbear {
 
     /// Nothing open: the new-thread screen's place in the history. For going
     /// Back to it (`show(place)` with no thread).
+    /// A sub-agent's transcript in the main panel, with its thread selected
+    /// under it (`selectSubagent`): Back, or opening a thread, puts the
+    /// thread back.
+    pub(crate) fn open_subagent(&mut self, thread_id: String, subagent_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected.as_deref() != Some(thread_id.as_str()) || self.shows_home {
+            self.open(thread_id.clone(), window, cx);
+        }
+        self.close_subagent(cx);
+        let (Some(summary), Some(composer)) = (self.threads.get(&thread_id).cloned(), self.composers.get(&thread_id).cloned()) else { return };
+        let client = self.client.clone();
+        let pane = cx.new(|cx| ThreadPane::new_subagent(client, summary, subagent_id.clone(), composer, cx));
+        // A thread: link in its transcript opens that thread, as in a thread's.
+        self.subagent_events = Some(cx.subscribe_in(&pane, window, |this, _, event: &crate::rows::OpenThreadRequest, window, cx| {
+            let matches: Vec<String> = this.threads.keys().filter(|k| **k == event.0 || k.starts_with(&event.0)).cloned().collect();
+            if let [only] = matches.as_slice() {
+                this.open(only.clone(), window, cx);
+            }
+        }));
+        self.subagent = Some((thread_id, subagent_id));
+        self.subagent_pane = Some(pane);
+        cx.notify();
+    }
+
+    /// Back to the thread from one of its sub-agents.
+    pub(crate) fn close_subagent(&mut self, cx: &mut Context<Self>) {
+        if self.subagent.take().is_some() {
+            self.subagent_pane = None;
+            self.subagent_events = None;
+            cx.notify();
+        }
+    }
+
     pub(crate) fn select_none(&mut self, cx: &mut Context<Self>) {
+        self.close_subagent(cx);
         if let Some(old) = self.pane.take() {
             old.read(cx).unsubscribe();
         }
@@ -1017,7 +1068,9 @@ impl Threadbear {
             },
             // The librarian's state in words, once the runner has said.
             "librarian": librarian_state,
-            "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
+            // The transcript on show: a sub-agent's in place of its thread's.
+            "transcript": self.subagent_pane.as_ref().map(|p| p.read(cx)).or(pane).map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
+            "subagent": self.subagent.as_ref().map(|(_, id)| id.clone()),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": self.banner_dump(),
             "limit": self.limit_dump(cx),

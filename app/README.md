@@ -304,7 +304,8 @@ runner that crashed or was stopped, for the "Can't reach the runner" bar.
 `mock.failEvents` (`threadId`, `times`, default 1) makes that thread's next
 reads of its events fail, for the "Couldn't load this thread" view.
 `mock.keywords` (`title`, `keywords`) gives a thread the librarian's search
-words, for finding it by what it's about.
+words, for finding it by what it's about. `mock.forgetSubagent` (`threadId`,
+`subagentId`) drops a sub-agent's record, as a CLI that cleaned it up has.
 
 `mock.slow` (`ms`, `queueMs`; both 0 turns it off) plays a runner on a
 loaded Mac: `ms` holds every `threads.send`, `threads.create` and

@@ -91,6 +91,13 @@ pub struct ThreadPane {
     /// The wait before a message still queued on an idle thread is let go
     /// (`check_queued`).
     queued_check: Option<Task<()>>,
+    /// A sub-agent's transcript rather than the thread's (`ThreadSession`'s
+    /// `subagentId`): read whole with `threads.subagent`, no composer.
+    pub(crate) subagent_id: Option<String>,
+    /// The runner has no record of what it did (-32006).
+    subagent_missing: bool,
+    refreshing: bool,
+    _poll: Option<Task<()>>,
     pub(crate) scroller: Entity<TranscriptList>,
     /// Everything the rows themselves hold between frames (rows.rs).
     pub(crate) rows: crate::rows::RowsState,
@@ -125,6 +132,10 @@ impl ThreadPane {
             error: None,
             load_failed: None,
             queued_check: None,
+            subagent_id: None,
+            subagent_missing: false,
+            refreshing: false,
+            _poll: None,
             scroller,
             rows: Default::default(),
             composer,
@@ -141,6 +152,142 @@ impl ThreadPane {
         pane.load(cx);
         pane.load_buttons(cx);
         pane
+    }
+
+    /// A sub-agent's transcript (`selectSubagent`): read again every 3 s
+    /// while it runs, as the Swift app's `pollSubagent` does, and as the
+    /// thread's summary says it has done something.
+    pub fn new_subagent(client: Arc<Client>, summary: ThreadSummary, subagent_id: String, composer: Entity<Composer>, cx: &mut Context<Self>) -> Self {
+        let scroller = cx.new(|cx| TranscriptList::new(0, cx));
+        let mut pane = ThreadPane {
+            client,
+            summary,
+            feed: ThreadFeed::new(TranscriptModel::new(None)),
+            loaded: false,
+            error: None,
+            load_failed: None,
+            queued_check: None,
+            subagent_id: Some(subagent_id),
+            subagent_missing: false,
+            refreshing: false,
+            _poll: None,
+            scroller,
+            rows: Default::default(),
+            composer,
+            open_rows: HashSet::new(),
+            chosen: HashMap::new(),
+            pending: vec![],
+            next_pending: 0,
+            flush_queued: false,
+            loading_older: false,
+            older_skip: None,
+            older_failures: 0,
+            _subs: vec![],
+        };
+        pane.load_subagent(cx);
+        pane._poll = Some(cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_secs(3)).await;
+            let Ok(running) = this.update(cx, |this, cx| {
+                let running = this.subagent_live().is_some();
+                this.refresh_subagent(cx);
+                running
+            }) else {
+                break;
+            };
+            if !running {
+                break;
+            }
+        }));
+        pane
+    }
+
+    /// Where a read is up to (loaded, no record, failed, rows), for the
+    /// automation's `subagent`.
+    #[cfg(feature = "automation")]
+    pub(crate) fn read_state(&self) -> (bool, bool, Option<String>, usize) {
+        (self.loaded, self.subagent_missing, self.load_failed.clone(), self.feed.model().rows().len())
+    }
+
+    /// Its entry in the thread's list of sub-agents, as the summary has it now.
+    pub(crate) fn subagent_entry(&self) -> Option<threadbear_core::sidebar::Subagent> {
+        let id = self.subagent_id.as_deref()?;
+        threadbear_core::sidebar::subagents(&self.summary).into_iter().find(|s| s.id == id)
+    }
+
+    /// When it started, in seconds, while it's still running: its working
+    /// line follows that.
+    fn subagent_live(&self) -> Option<f64> {
+        self.subagent_entry().filter(|s| s.running()).map(|s| s.started_ms() as f64 / 1000.)
+    }
+
+    /// Every event it has so far, in one read (`openSubagent`). No record of
+    /// it (-32006) says so rather than failing.
+    fn load_subagent(&mut self, cx: &mut Context<Self>) {
+        let Some(subagent_id) = self.subagent_id.clone() else { return };
+        let (client, id, root) = (self.client.clone(), self.summary.id.clone(), self.summary.cwd.clone());
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "threads.subagent", json!({ "threadId": id, "subagentId": subagent_id })).await;
+            this.update(cx, |this, cx| {
+                match res {
+                    Ok(v) => {
+                        let events: Vec<Event> = v["events"].as_array().into_iter().flatten().filter_map(Event::decode).collect();
+                        let mut model = TranscriptModel::new(Some(root));
+                        model.load(events, &[]);
+                        model.known_start = true;
+                        this.feed = ThreadFeed::new(model);
+                        let live = this.subagent_live();
+                        let _ = this.feed.set_live_turn(live.map(|_| ""), live);
+                        this.loaded = true;
+                        this.load_failed = None;
+                        this.subagent_missing = false;
+                        this.scroller.update(cx, |s, cx| s.reset(this.feed.model().rows().len(), cx));
+                        this.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
+                    }
+                    Err(e) if e.code == -32006 => {
+                        this.subagent_missing = true;
+                        this.load_failed = Some("There's no record of what this sub-agent did.".into());
+                    }
+                    Err(e) => this.load_failed = Some(e.message),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Reads a running sub-agent again and adds what's new (`refreshSubagent`):
+    /// the runner numbers its events from 1 on every read and the CLI only adds
+    /// to its record, so the new ones are past the last seq shown.
+    pub(crate) fn refresh_subagent(&mut self, cx: &mut Context<Self>) {
+        let Some(subagent_id) = self.subagent_id.clone() else { return };
+        if !self.loaded || self.refreshing {
+            return;
+        }
+        self.refreshing = true;
+        let (client, id) = (self.client.clone(), self.summary.id.clone());
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "threads.subagent", json!({ "threadId": id, "subagentId": subagent_id })).await;
+            this.update(cx, |this, cx| {
+                this.refreshing = false;
+                let Ok(v) = res else { return };
+                let accepted = this.feed.accepted_seq();
+                let fresh: Vec<Event> = v["events"].as_array().into_iter().flatten().filter_map(Event::decode).filter(|e| e.seq > accepted).collect();
+                if !fresh.is_empty() {
+                    let action = this.feed.catch_up(fresh);
+                    this.handle(action, cx);
+                }
+                // Its working line goes once it has finished.
+                let live = this.subagent_live();
+                if this.feed.model().open_turn().is_some() != live.is_some() {
+                    let change = this.feed.set_live_turn(live.map(|_| ""), live);
+                    this.apply(change, cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(crate) fn client_handle(&self) -> Arc<Client> {
@@ -175,6 +322,9 @@ impl ThreadPane {
     }
 
     pub fn load(&mut self, cx: &mut Context<Self>) {
+        if self.subagent_id.is_some() {
+            return self.load_subagent(cx);
+        }
         let client = self.client.clone();
         let id = self.summary.id.clone();
         let root = self.summary.cwd.clone();
@@ -261,10 +411,10 @@ impl ThreadPane {
                     .px(px(20.))
                     .gap(px(8.))
                     .items_center()
-                    .child(div().text_size(px(13.)).line_height(px(crate::style::natural_line(13.))).font_weight(FontWeight::SEMIBOLD).child("Couldn't load this thread."))
+                    .child(div().text_size(px(13.)).line_height(px(crate::style::natural_line(13.))).font_weight(FontWeight::SEMIBOLD).child(if self.subagent_id.is_some() { "Couldn't load this sub-agent." } else { "Couldn't load this thread." }))
                     .child(div().text_size(px(13.)).line_height(px(crate::style::natural_line(13.))).text_color(secondary).text_center().child(message))
                     // A regular push button, as Swift's Button("Try again").
-                    .child(crate::push_button::PushButton::new("load-retry", "Try again", "Load the thread again").render(cx, {
+                    .child(crate::push_button::PushButton::new("load-retry", "Try again", if self.subagent_id.is_some() { "Load the sub-agent's transcript again" } else { "Load the thread again" }).render(cx, {
                         let me = cx.entity().downgrade();
                         move |_, _, cx| {
                             me.update(cx, |this, cx| this.retry_load(cx)).ok();
@@ -277,7 +427,8 @@ impl ThreadPane {
     // Opening it reads it, as on the Mac, while the window's in front: one
     // opened behind other windows stays unread until he comes back to it.
     pub(crate) fn mark_seen(&self) {
-        if self.summary.unread() && is_looking() {
+        // Reading a sub-agent isn't reading its thread.
+        if self.summary.unread() && is_looking() && self.subagent_id.is_none() {
             let client = self.client.clone();
             let params = json!({ "threadId": self.summary.id, "seq": self.summary.last_seq });
             RT.spawn(async move { client.call("threads.markSeen", params).await });
@@ -285,12 +436,24 @@ impl ThreadPane {
     }
 
     pub fn unsubscribe(&self) {
+        if self.subagent_id.is_some() {
+            return;
+        }
         let client = self.client.clone();
         let params = json!({ "threadId": self.summary.id });
         RT.spawn(async move { client.call("threads.unsubscribe", params).await });
     }
 
     pub fn summary_changed(&mut self, t: &ThreadSummary, cx: &mut Context<Self>) {
+        if t.id == self.summary.id && self.subagent_id.is_some() {
+            let before = self.subagent_entry().map(|s| (s.status, s.tool_uses, s.activity));
+            self.summary = t.clone();
+            if self.subagent_entry().map(|s| (s.status, s.tool_uses, s.activity)) != before {
+                self.refresh_subagent(cx);
+            }
+            cx.notify();
+            return;
+        }
         if t.id == self.summary.id {
             self.summary = t.clone();
             if self.loaded {
@@ -1023,10 +1186,15 @@ impl Render for ThreadPane {
             .when_some(self.error.clone(), |s, e| s.child(div().px_7().py_1().text_sm().text_color(danger).child(e)))
             .when(!self.loaded && self.error.is_none() && self.load_failed.is_none(), |s| s.child(div().p_4().text_sm().text_center().text_color(muted).child("Loading…")))
             .map(|s| match self.load_failed.clone() {
+                // No record of it is a plain note, not something that failed.
+                Some(message) if !self.loaded && self.subagent_missing => s.child(div().flex_1().flex().items_center().justify_center().text_size(px(13.)).text_color(muted).child(message)),
                 Some(message) if !self.loaded => s.child(self.render_load_failure(message, cx)),
+                _ if self.loaded && self.subagent_id.is_some() && self.feed.model().rows().is_empty() => s.child(div().flex_1().flex().items_center().justify_center().text_size(px(13.)).text_color(muted).child("Nothing yet.")),
                 _ => s.child(div().flex_1().min_h_0().child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx))),
             })
-            .child(self.composer.clone())
+            // A sub-agent can't be written to: it takes its brief from the
+            // agent that started it.
+            .when(self.subagent_id.is_none(), |s| s.child(self.composer.clone()))
             .children(drop_layer)
     }
 }

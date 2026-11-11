@@ -1164,10 +1164,13 @@ impl SidePane {
                         .trailing(Some(side::subagent_duration(s, now)))
                         .detail(Some(side::subagent_detail(s)))
                         .tip(format!("{}. Click to read its transcript.", side::subagent_status_text(s)))
-                        .on_click(move |this, window, cx| {
-                            let id = id.clone();
-                            if let Some(app) = this.app.upgrade() {
-                                app.update(cx, |t, cx| t.open(id, window, cx));
+                        .on_click({
+                            let sub_id = s.id.clone();
+                            move |this, window, cx| {
+                                let (id, sub_id) = (id.clone(), sub_id.clone());
+                                if let Some(app) = this.app.upgrade() {
+                                    app.update(cx, |t, cx| t.open_subagent(id, sub_id, window, cx));
+                                }
                             }
                         });
                     list = list.child(pr.render(p, cx));

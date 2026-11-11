@@ -1498,6 +1498,13 @@ async function dispatch(client, method, p) {
       const at = new Date(Date.now() + (p.minutes ?? 60) * 60_000).toISOString();
       return dispatch(client, 'schedules.create', { title: p.text ?? 'See how it went', text: p.text ?? 'See how it went.', at, threadId: entry.summary.id, createdBy: entry.summary.id });
     }
+    // A sub-agent whose record the CLI has cleaned up: threads.subagent
+    // answers -32006 for it, for the "no record" view.
+    case 'mock.forgetSubagent': {
+      const t = need(p.threadId);
+      t.subagentEvents?.delete(p.subagentId);
+      return { ok: true };
+    }
     // The librarian's search words on a thread, by title, as it leaves
     // them after reading it: for searching by what a thread is about.
     case 'mock.keywords': {

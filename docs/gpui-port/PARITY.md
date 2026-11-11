@@ -277,6 +277,32 @@ built parsers and gates with no launch of the app, which is the trap.)
   minute on as the clock moved between runs). The drip, in a build with the
   pot slowed tenfold, as the debug build's pictures come too slowly to catch
   it.
+### 2026-11-11 A sub-agent's own transcript (`header.subagent`, `sidebar.subagents`, `highlights.subagents`)
+
+- A click on a sub-agent, under its thread in the sidebar or in Highlights,
+  opens its own transcript in place of the thread's (`threads.subagent`),
+  under a bar with Back to the thread, its title, and what it is ("Explore ·
+  Done · 4 tool calls · from Why is the build slow on CI?"). It has no
+  composer, as it takes its brief from the agent that started it. While it
+  runs it's read again every 3 s and as the thread's summary says it did
+  something, with the working line until it finishes. The open one is marked
+  in the sidebar. "Couldn't load this sub-agent." with Try again when the read
+  fails, "There's no record of what this sub-agent did." when the runner has
+  none (-32006), and "Nothing yet." for one that hasn't done anything.
+- Opening a thread, or the new-thread page, puts the thread back.
+- A setting changed in the moment before a quit is saved as the app quits
+  (the Usage helper found it waited on the throttled save and was lost).
+- Both apps' dumps say which sub-agent is open (`subagent`), and the GPUI app
+  takes the Swift app's `subagent` command. The mock can drop a sub-agent's
+  record (`mock.forgetSubagent`).
+- Files: `desktop/gpui/src/{thread,app,header,shell,sidebar,highlights,
+  automation}.rs`, `app/Tools/mock-runner/server.mjs`,
+  `features/subagents.feature` and its steps.
+- Verification: on Tinker Desk, `@header.subagent` passes on both apps (2 of
+  2), and `@sidebar.subagents`, `@highlights.subagents` and `@foundation.rpc`
+  on GPUI. Pictures of a sub-agent open in both apps, dark: the bar's title,
+  meta line and Back, and the transcript under it, sit where Swift's do.
+
 ### 2026-11-11 An agent's show_panel, and pictures in replies (`panel.requests`, `rich.localpicture`)
 
 - A panel an agent asks to show (`show_panel`, and `pin` with `show`) comes up

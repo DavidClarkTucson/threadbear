@@ -1242,7 +1242,11 @@ impl Threadbear {
         let page = self.home_page();
         let banners = self.render_banners(window, cx);
         let main: AnyElement = match (&self.pane, page) {
-            (Some(pane), None) => div().size_full().child(pane.clone()).into_any_element(),
+            (Some(pane), None) => match self.subagent_pane.clone() {
+                // One of its sub-agents, under a bar back to the thread (`SubagentHeader`).
+                Some(sub) => v_flex().size_full().child(self.render_subagent_header(cx)).child(div().flex_1().min_h_0().child(sub)).into_any_element(),
+                None => div().size_full().child(pane.clone()).into_any_element(),
+            },
             (_, Some(SidebarMode::Scheduled)) => self.render_scheduled_home(cx),
             (_, Some(SidebarMode::Librarian)) => self.render_librarian_home(cx),
             (_, Some(page)) => div().size_full().flex().items_center().justify_center().text_color(muted).child(format!("The {} page isn't in this app yet.", if page == SidebarMode::Projects { "Projects" } else { "Librarian" })).into_any_element(),

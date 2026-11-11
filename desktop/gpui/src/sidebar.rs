@@ -1352,6 +1352,8 @@ impl Threadbear {
 
     /// `SubagentList`: indented rows under the thread with a drawn trunk.
     fn render_subagents(&mut self, t: &ThreadSummary, section: &'static str, now: i64, p: &Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        // The one whose transcript is open is marked, as a selected row is.
+        let selected_sub = self.subagent.as_ref().filter(|(thread, _)| *thread == t.id).map(|(_, id)| id.clone());
         let all = rows::subagents(t);
         if all.is_empty() {
             return vec![];
@@ -1364,7 +1366,7 @@ impl Threadbear {
         shown
             .iter()
             .enumerate()
-            .map(|(i, row)| render_subagent_row(t, row, i == 0, i == last, now, p, cx).into_any_element())
+            .map(|(i, row)| render_subagent_row(t, row, i == 0, i == last, selected_sub.as_deref() == Some(row.subagent.id.as_str()), now, p, cx).into_any_element())
             .collect()
     }
 
@@ -1585,14 +1587,12 @@ fn render_loading_rows(p: &Palette) -> impl IntoElement {
 }
 
 /// `SubagentRowView`: one indented row, hanging off the thread's tile.
-fn render_subagent_row(t: &ThreadSummary, row: &rows::SubagentRow, first: bool, last: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> impl IntoElement {
+fn render_subagent_row(t: &ThreadSummary, row: &rows::SubagentRow, first: bool, last: bool, selected: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> impl IntoElement {
     let sub = &row.subagent;
     let elbow_end = TRUNK + 6. + INDENT * row.depth as f32;
     let leading = TRUNK + 9. + INDENT * row.depth as f32;
     let (guide, secondary, faint, fg, failed) = (p.guide, p.secondary, p.faint, p.fg, p.failed);
     let running = sub.running();
-    // Selected sub-agents can't be shown yet (no transcript for one in this
-    // app); a click opens its thread instead.
     let glyph: AnyElement = match sub.status.as_str() {
         "running" => Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(secondary).with_size(px(11.)).into_any_element(),
         "completed" => icon("checkmark", 9., faint).into_any_element(),
@@ -1609,8 +1609,8 @@ fn render_subagent_row(t: &ThreadSummary, row: &rows::SubagentRow, first: bool, 
         }
         parts.join(" · ")
     };
-    let thread_id = t.id.clone();
-    let shown_tip: SharedString = tip.into();
+    let (thread_id, sub_id) = (t.id.clone(), sub.id.clone());
+    let shown_tip: SharedString = format!("{tip}. Click to read its transcript.").into();
     let tooltip_text = shown_tip.clone();
     let hover = p.hover;
     div()
@@ -1622,8 +1622,9 @@ fn render_subagent_row(t: &ThreadSummary, row: &rows::SubagentRow, first: bool, 
         .pl(px(leading))
         .pr(px(TRAILING))
         .rounded(px(CORNER))
+        .when(selected, |s| s.bg(p.selected))
         .hover(move |s| s.bg(hover))
-        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.open(thread_id.clone(), window, cx)))
+        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.open_subagent(thread_id.clone(), sub_id.clone(), window, cx)))
         // A faint line down from the thread's tile with an elbow into the
         // glyph, like a file tree (`SubagentGuide`).
         .child(render_guide(first, last, elbow_end, guide))

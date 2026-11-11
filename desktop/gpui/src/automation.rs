@@ -97,6 +97,43 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     // `send` from the new-thread box waits for the thread it starts and says
     // its id, as the Swift command does, for `tb show` and the like.
     let from_new = cmd["cmd"] == "send" && app.read_with(cx, |t, _| t.selected.is_none()).map_err(|e| e.to_string())?;
+    // A sub-agent's transcript, as a click on its row does, waited on until
+    // it's read, as the Swift command does: {"thread": id or its start, "id"}.
+    if cmd["cmd"] == "subagent" {
+        let sub = cmd["id"].as_str().filter(|s| !s.is_empty()).ok_or("id is the sub-agent's id")?.to_owned();
+        let thread = app
+            .read_with(cx, |t, _| match cmd["thread"].as_str() {
+                Some(start) => t.thread_id_from(start),
+                None => t.selected.clone().ok_or_else(|| "no thread selected".to_owned()),
+            })
+            .map_err(|e| e.to_string())??;
+        let opener = app.clone();
+        cx.update_window(window, |_, window, cx| {
+            crate::thread::scripted_input(|| {
+                opener.update(cx, |t, cx| {
+                    t.set_mode(crate::shell::SidebarMode::Inbox, cx);
+                    t.open_subagent(thread.clone(), sub.clone(), window, cx);
+                })
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+        let started = std::time::Instant::now();
+        let wait = cmd["timeout"].as_f64().unwrap_or(10.);
+        loop {
+            let state = app.read_with(cx, |t, cx| t.subagent_pane.as_ref().map(|p| p.read(cx).read_state())).map_err(|e| e.to_string())?;
+            match state {
+                Some((true, _, _, rows)) => return Ok(json!(format!("ok {sub} {rows} rows"))),
+                Some((_, true, _, _)) => return Ok(json!(format!("ok {sub} no record"))),
+                Some((_, _, Some(failed), _)) => return Err(format!("couldn't load: {failed}")),
+                _ => {}
+            }
+            if started.elapsed().as_secs_f64() > wait {
+                return Err(format!("timed out loading {sub}"));
+            }
+            cx.background_executor().timer(std::time::Duration::from_millis(20)).await;
+        }
+    }
     let weak = app.clone();
     // A design review's window (review_window.rs), as the Swift command.
     if cmd["cmd"] == "review" {
