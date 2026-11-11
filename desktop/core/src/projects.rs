@@ -788,6 +788,30 @@ pub fn is_sending(t: &ThreadSummary, sent_for: Option<u64>) -> bool {
     sent_for.is_some_and(|seq| t.asks_seq == Some(seq) && is_waiting(t))
 }
 
+/// A waiting thread's asks as its card has them (`decisionCard`), every one,
+/// ticked ones too, for drawing on its project's page the way its composer
+/// draws them. The summary carries what the card needs: the asks with their
+/// options, what each does, and their links.
+pub fn decision_asks(t: &ThreadSummary) -> Vec<crate::reducer::Ask> {
+    t.asks
+        .iter()
+        .flatten()
+        .filter_map(|a| {
+            crate::reducer::Ask::decode(&json!({
+                "action": a.action, "where": a.place, "reply": a.reply, "why": a.why, "options": a.options,
+                "optionNotes": a.option_notes, "suggested": a.suggested, "links": a.links, "ticked": a.ticked,
+            }))
+        })
+        .collect()
+}
+
+/// A decision as the dump says it: "Title: first ask | second ask", its open
+/// asks in plain words, and "(sending)" while an answer's on its way.
+pub fn decision_line(t: &ThreadSummary, sending: bool) -> String {
+    let asks: Vec<String> = t.asks.iter().flatten().filter(|a| a.ticked != Some(true)).map(|a| crate::sidebar::preview_plain(&a.action)).collect();
+    format!("{}: {}{}", t.title, asks.join(" | "), if sending { " (sending)" } else { "" })
+}
+
 // ---------------------------------------------------------------- the Projects page's cards
 
 /// What a project's card says about its threads (`ProjectCardStatus`):
@@ -1513,6 +1537,25 @@ mod tests {
         let mut t = asking("t", 1., &["a"], 1);
         t.preview = "Batching is in (#67).\nMore after".into();
         assert_eq!(status_line(&t).as_deref(), Some("Batching is in (#67)."));
+    }
+
+    #[test]
+    fn a_decisions_card_has_what_its_composer_would_draw() {
+        let t: ThreadSummary = serde_json::from_value(json!({
+            "id": "t", "title": "Compare SQLite", "status": "idle", "needs": "you", "needsYou": true, "asksSeq": 7,
+            "asks": [
+                { "action": "Keep **plain files** for now?", "why": "Faster for every size.", "options": ["Keep files", "Move to SQLite"],
+                  "optionNotes": ["Revisit at 5,000 threads", "About two days of work"], "suggested": 0, "links": [{ "title": "Numbers", "url": "https://example.com/n" }] },
+                { "action": "Done already", "ticked": true },
+            ],
+        }))
+        .unwrap();
+        let asks = decision_asks(&t);
+        assert_eq!(asks.len(), 2, "ticked ones too, as the card draws them");
+        assert_eq!(asks[0].option_notes, ["Revisit at 5,000 threads", "About two days of work"]);
+        assert_eq!((asks[0].suggested, asks[0].links.len(), asks[1].ticked), (Some(0), 1, true));
+        assert_eq!(decision_line(&t, false), "Compare SQLite: Keep plain files for now?", "open asks only, in plain words");
+        assert_eq!(decision_line(&t, true), "Compare SQLite: Keep plain files for now? (sending)");
     }
 
     #[test]

@@ -33,6 +33,7 @@ mod open_gate;
 mod patch_icons;
 mod patches;
 mod prefs;
+mod project_decisions;
 mod project_page;
 mod projects;
 mod projects_list;

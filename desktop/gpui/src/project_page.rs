@@ -30,6 +30,11 @@ impl Threadbear {
         let threads: Vec<ThreadSummary> = rules::threads_in(&project.id, self.threads.values()).into_iter().cloned().collect();
         let header = self.render_page_header(&project, threads.len(), window, cx);
         let mut column = v_flex().w_full().gap(px(30.)).child(header);
+        // The projectDecisions experiment: its threads' open cards of asks
+        // first, as that's what's waiting on Mike (project_decisions.rs).
+        if let Some(decisions) = self.render_decisions_section(&project, window, cx) {
+            column = column.child(decisions);
+        }
         if let Some(parts) = self.render_parts_section(&project, cx) {
             column = column.child(parts);
         }
@@ -615,8 +620,9 @@ fn icon_button(id: impl Into<SharedString>, symbol: &str, tip: &str, cx: &App, o
         .into_any_element()
 }
 
-/// A small push button (`.controlSize(.small)`), for Save and Cancel.
-fn small_push_button(id: &'static str, label: &'static str, tip: &'static str, cx: &App, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> AnyElement {
+/// A small push button (`.controlSize(.small)`), for Save, Cancel and a
+/// decision's Open thread.
+pub(crate) fn small_push_button(id: impl Into<ElementId>, label: &'static str, tip: impl Into<SharedString>, cx: &App, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> AnyElement {
     let color = style::label_text(cx);
     let ink = if cx.theme().is_dark() { 1. } else { 0. };
     crate::highlights::tipped(

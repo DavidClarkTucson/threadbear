@@ -247,9 +247,11 @@ impl Threadbear {
         let is_page = project.is_some_and(|pr| self.projects.open.as_deref() == Some(pr.id.as_str()));
         let chevron_color = if hovering { p.secondary } else { p.faint };
         let toggle_id = id.to_owned();
-        let chevron = tipped!(div().flex_none().w(px(20.)).py(px(6.)).h_full().flex().items_center().justify_center(), ElementId::Name(format!("fold-chevron-{id}").into()), if open { "Hide its threads" } else { "Show its threads" })
+        // 20 by 22 with 6 over and under, as the Swift chevron's frame, which
+        // makes the row 34 tall.
+        let chevron = tipped!(div().flex_none().w(px(20.)).py(px(6.)), ElementId::Name(format!("fold-chevron-{id}").into()), if open { "Hide its threads" } else { "Show its threads" })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_project_row(&toggle_id, cx)))
-            .child(icon(if open { "chevron.down" } else { "chevron.right" }, 9., chevron_color));
+            .child(div().h(px(22.)).flex().items_center().justify_center().child(icon(if open { "chevron.down" } else { "chevron.right" }, 9., chevron_color)));
         let mark: AnyElement = match project {
             Some(pr) => project_icon(Some(pr), "", 16., cx),
             None => div().size(px(16.)).flex().items_center().justify_center().child(icon("square.dashed", 12., p.secondary)).into_any_element(),

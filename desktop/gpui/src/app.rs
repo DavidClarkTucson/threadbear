@@ -1092,6 +1092,7 @@ impl Threadbear {
             // cards while it's showing (projects.rs, projects_page.rs).
             "project": self.project_page_dump(),
             "projectCards": self.project_cards_dump(),
+            "projectDecisions": self.project_decisions_dump(),
             "banner": self.banner_dump(),
             "limit": self.limit_dump(cx),
             "error": self.error_message.clone(),

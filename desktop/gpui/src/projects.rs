@@ -60,6 +60,12 @@ pub(crate) struct ProjectsState {
     pub(crate) list_scroll: ScrollHandle,
     pub(crate) home_scroll: ScrollHandle,
     pub(crate) page_scroll: ScrollHandle,
+    /// Answers sent from a project's page that their threads haven't taken
+    /// yet, by thread (`decisionSends`).
+    pub(crate) decision_sends: HashMap<String, crate::project_decisions::DecisionSend>,
+    /// Each decision's card on a project's page, by thread: what's picked on
+    /// it (project_decisions.rs).
+    pub(crate) decision_cards: HashMap<String, Entity<crate::project_decisions::DecisionCard>>,
     /// Each picture icon's blurred copy for its card's backdrop, by path;
     /// None while it's being made or when it can't be (projects_page.rs).
     pub(crate) backdrops: HashMap<String, Option<std::sync::Arc<Image>>>,

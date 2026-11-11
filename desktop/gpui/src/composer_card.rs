@@ -472,20 +472,67 @@ impl Composer {
         column.into_any_element()
     }
 
+    /// One of an ask's links: through the thread's own link handling, as a
+    /// link in its transcript goes (a file into the pane, a page through the
+    /// open gate, a review to its window).
+    /// A path becomes a file URL the one way the app makes them, with `#`,
+    /// `?`, `%` and spaces kept as part of the name: pasted into `file://`,
+    /// a `#` in a folder's name cut the path short there (the open gate's
+    /// source check caught it).
+    fn open_ask_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let url = if target.starts_with('/') { threadbear_core::open_policy::file_url(target) } else { target.to_owned() };
+        if let Some(pane) = self.pane.upgrade() {
+            pane.update(cx, |p, cx| p.link_clicked(&url, "", window, cx));
+        }
+    }
+
+    /// The reading column's text style for the card's paragraphs, one per
+    /// appearance and text size, as its sizes are zoomed when it's built
+    /// (see `rows::reading_style`).
+    fn card_reading_style(&mut self, cx: &App) -> gpui_kit::base::TextViewStyle {
+        let key = (cx.theme().is_dark(), style::zoom_percent());
+        match &self.card_style {
+            Some((k, style)) if *k == key => style.clone(),
+            _ => {
+                let built = crate::rows::reading_style(cx);
+                self.card_style = Some((key, built.clone()));
+                built
+            }
+        }
+    }
+}
+
+/// What drawing a card's asks (`render_ask`) needs from what it's on: the
+/// composer's card (here), or a thread's decision on its project's page
+/// (project_decisions.rs), so the two look and answer alike, Recommended
+/// star, rows and Something else box included.
+pub(crate) trait AskHost: Sized + 'static {
+    /// The answer picked on this ask, `OWN_ANSWER` for Something else.
+    fn ask_pick(&self, ask: usize) -> Option<i64>;
+    /// Where the asks' links open from: this Mac or another, and the folder
+    /// a relative file is in.
+    fn ask_place(&self, cx: &App) -> (crate::open_gate::Origin, String);
+    fn ask_reading_style(&mut self, cx: &App) -> gpui_kit::base::TextViewStyle;
+    fn ask_pick_answer(&mut self, ask: usize, option: i64, window: &mut Window, cx: &mut Context<Self>);
+    fn ask_open_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>);
+    fn ask_answer_box(&mut self, ask: usize, window: &mut Window, cx: &mut Context<Self>) -> Entity<TextareaState>;
+    /// Return in an ask's box; `command` is ⌘Return.
+    fn ask_box_return(&mut self, ask: usize, command: bool, window: &mut Window, cx: &mut Context<Self>);
+
+    /// An ask: its paragraph (numbered on a card of several), where, its
+    /// links, and its answers as buttons or rows, with Something else's box.
     fn render_ask(&mut self, index: usize, ask: &Ask, numbered: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let picked = self.card.picks.get(&(index as i64)).copied();
+        let picked = self.ask_pick(index);
         let choices = composer::choices(ask);
         // A numbered ask's text starts past its number, as in a list in a
         // message; its buttons line up with the text, not the number.
         let indent = if numbered { px(metrics::INDENT) } else { px(0.) };
         // Its links through the open gate, from the thread's folder; with no
         // thread to say, or another runner's, no file of it opens here.
-        let thread = self.chip_data(cx).summary;
-        let origin = if thread.as_ref().is_some_and(|t| !t.is_remote()) { crate::open_gate::Origin::ThisMac } else { crate::open_gate::Origin::OtherMac };
-        let cwd = thread.map(|t| t.cwd).unwrap_or_default();
+        let (origin, cwd) = self.ask_place(cx);
         // The paragraph, 12 under what's above, in a message's markdown, so a
         // list in the why looks the way it would in the message.
-        let text = crate::open_gate::reading_markdown_view(("ask-text", index), ask_paragraph(ask), origin, &cwd).style(self.card_reading_style(cx));
+        let text = crate::open_gate::reading_markdown_view(("ask-text", index), ask_paragraph(ask), origin, &cwd).style(self.ask_reading_style(cx));
         let paragraph = if numbered {
             // The number where a list's goes (MarkdownRenderer.markerStart).
             h_flex()
@@ -518,7 +565,7 @@ impl Composer {
                 row = row.child(card_button(("ask-link", index * 100 + n), &format!("{title} ↗"), look, tip, cx).on_click(move |_, window, cx| {
                     if let Some(this) = this.upgrade() {
                         let target = target.clone();
-                        this.update(cx, |this, cx| this.open_ask_link(&target, window, cx));
+                        this.update(cx, |this, cx| this.ask_open_link(&target, window, cx));
                     }
                 }));
             }
@@ -549,7 +596,7 @@ impl Composer {
                 let this = this.clone();
                 buttons = buttons.child(card_button(("answer", index * 100 + n), &title, look, "Pick this answer", cx).on_click(move |_, window, cx| {
                     if let Some(this) = this.upgrade() {
-                        this.update(cx, |this, cx| this.pick_answer(index, n as i64, window, cx));
+                        this.update(cx, |this, cx| this.ask_pick_answer(index, n as i64, window, cx));
                     }
                 }));
             }
@@ -557,7 +604,7 @@ impl Composer {
             let this2 = this.clone();
             buttons = buttons.child(card_button(("answer-own", index), if own { "✓ Something else" } else { "Something else…" }, if own { ButtonLook::Picked } else { ButtonLook::Plain }, "Answer in your own words", cx).on_click(move |_, window, cx| {
                 if let Some(this) = this2.upgrade() {
-                    this.update(cx, |this, cx| this.pick_answer(index, OWN_ANSWER, window, cx));
+                    this.update(cx, |this, cx| this.ask_pick_answer(index, OWN_ANSWER, window, cx));
                 }
             }));
             block = block.child(buttons);
@@ -565,7 +612,7 @@ impl Composer {
             block = block.child(self.render_answer_rows(index, ask, picked, indent, cx));
         }
         if picked == Some(OWN_ANSWER) {
-            let input = self.answer_box(index, window, cx);
+            let input = self.ask_answer_box(index, window, cx);
             let this3 = this.clone();
             // AskAnswerBox: 8 under the buttons, 10 and 6 in from its edge.
             block = block.child(
@@ -575,7 +622,7 @@ impl Composer {
                     .capture_action(move |action: &Enter, window, cx| {
                         if action.secondary {
                             if let Some(this) = this3.upgrade() {
-                                this.update(cx, |this, cx| this.answer_box_return(index, true, window, cx));
+                                this.update(cx, |this, cx| this.ask_box_return(index, true, window, cx));
                                 cx.stop_propagation();
                             }
                         }
@@ -596,41 +643,21 @@ impl Composer {
         block.into_any_element()
     }
 
-    /// One of an ask's links: through the thread's own link handling, as a
-    /// link in its transcript goes (a file into the pane, a page through the
-    /// open gate, a review to its window).
-    /// A path becomes a file URL the one way the app makes them, with `#`,
-    /// `?`, `%` and spaces kept as part of the name: pasted into `file://`,
-    /// a `#` in a folder's name cut the path short there (the open gate's
-    /// source check caught it).
-    fn open_ask_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let url = if target.starts_with('/') { threadbear_core::open_policy::file_url(target) } else { target.to_owned() };
-        if let Some(pane) = self.pane.upgrade() {
-            pane.update(cx, |p, cx| p.link_clicked(&url, "", window, cx));
-        }
-    }
-
-    /// The reading column's text style for the card's paragraphs, one per
-    /// appearance and text size, as its sizes are zoomed when it's built
-    /// (see `rows::reading_style`).
-    fn card_reading_style(&mut self, cx: &App) -> gpui_kit::base::TextViewStyle {
-        let key = (cx.theme().is_dark(), style::zoom_percent());
-        match &self.card_style {
-            Some((k, style)) if *k == key => style.clone(),
-            _ => {
-                let built = crate::rows::reading_style(cx);
-                self.card_style = Some((key, built.clone()));
-                built
-            }
-        }
-    }
-
     /// An ask's answers as rows (RowRenderer.answerRows): a circle, the label,
     /// a star and "Recommended" on the agent's, what it does under it, then "Something else…".
     fn render_answer_rows(&mut self, index: usize, ask: &Ask, picked: Option<i64>, indent: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let choices = composer::choices(ask);
         let this = cx.entity().downgrade();
-        let mut rows = v_flex().mt(px(10.)).ml(indent).rounded(px(10.)).overflow_hidden().bg(style::answer_rows_fill(cx));
+        // As the Swift rows are laid out, a paragraph each (measured against
+        // its composer card and decisions page, which draw them the same): a
+        // box with a small corner 4 under the ask's words, 14 over the first
+        // row's words (12 here, as its box starts 2 into that) and 6 over the
+        // others', 2 and 6 under each (a point less where the hairline over a
+        // row takes one, which the Swift rule doesn't), a 13 pt line for a
+        // note just under its label, the code pad under the last, and a line
+        // of 8 under the box.
+        let last = choices.len();
+        let mut rows = v_flex().mt(px(4.)).mb(px(8.)).ml(indent).rounded(px(3.)).overflow_hidden().bg(style::answer_rows_fill(cx)).border_1().border_color(style::primary_opacity(cx, 0.05));
         for n in 0..=choices.len() {
             let own = n == choices.len();
             let value = if own { OWN_ANSWER } else { n as i64 };
@@ -646,38 +673,77 @@ impl Composer {
                     .items_start()
                     .gap(px(8.))
                     .px(px(10.))
-                    .py(px(7.))
-                    .when(n > 0, |s| s.border_t_1().border_color(style::hairline(cx)))
+                    .pt(px(if n == 0 { 12. } else { 6. }))
+                    .pb(px(if n == last { 12. } else if n == 0 { 8. } else { 7. }))
+                    .when(n > 0, |s| s.border_t_1().border_color(style::primary_opacity(cx, 0.055)))
                     .cursor_pointer()
                     .hover(|s| s.bg(style::hover_fill(cx)))
                     .tooltip(move |window, cx| Tooltip::new(if own { "Answer in your own words" } else { "Pick this answer" }).build(window, cx))
                     .on_click(move |_, window, cx| {
                         if let Some(this) = this.upgrade() {
-                            this.update(cx, |this, cx| this.pick_answer(index, value, window, cx));
+                            this.update(cx, |this, cx| this.ask_pick_answer(index, value, window, cx));
                         }
                     })
-                    .child(div().pt(px(3.)).child(tick_circle(is_picked, cx)))
+                    .child(div().pt(px(1.)).child(tick_circle(is_picked, cx)))
                     .child(
                         v_flex()
                             .flex_1()
                             .min_w_0()
                             .child(
-                                h_flex().gap(px(8.)).child(div().text_size(px(style::size::COMPOSER)).text_color(if own { style::quiet_text(cx) } else { cx.theme().foreground }).child(label)).when(suggested, |s| {
+                                h_flex().items_baseline().gap(px(8.)).child(div().text_size(px(style::size::COMPOSER)).line_height(px(18.)).text_color(if own { style::quiet_text(cx) } else { cx.theme().foreground }).child(label)).when(suggested, |s| {
+                                    // The small font, the star two points under it.
                                     s.child(
                                         h_flex()
+                                            .items_baseline()
                                             .gap(px(3.))
-                                            .child(div().text_size(px(10.)).text_color(style::recommended_star(cx)).child("★"))
-                                            .child(div().text_size(px(12.)).text_color(style::quiet_text(cx)).child("Recommended")),
+                                            .child(div().text_size(px(9.)).text_color(style::recommended_star(cx)).child("★"))
+                                            .child(div().text_size(px(style::size::SMALL)).text_color(style::secondary_label(cx)).child("Recommended")),
                                     )
                                 }),
                             )
-                            .when_some(note, |s, note| s.child(div().text_size(px(12.)).text_color(style::quiet_text(cx)).child(note))),
+                            .when_some(note, |s, note| s.child(div().mt(px(1.)).text_size(px(style::size::SMALL)).line_height(px(13.)).text_color(style::secondary_label(cx)).child(note))),
                     ),
             );
         }
         rows.into_any_element()
     }
+}
 
+impl AskHost for Composer {
+    fn ask_pick(&self, ask: usize) -> Option<i64> {
+        self.card.picks.get(&(ask as i64)).copied()
+    }
+
+    /// Its links through the open gate, from the thread's folder; with no
+    /// thread to say, or another runner's, no file of it opens here.
+    fn ask_place(&self, cx: &App) -> (crate::open_gate::Origin, String) {
+        let thread = self.chip_data(cx).summary;
+        let origin = if thread.as_ref().is_some_and(|t| !t.is_remote()) { crate::open_gate::Origin::ThisMac } else { crate::open_gate::Origin::OtherMac };
+        (origin, thread.map(|t| t.cwd).unwrap_or_default())
+    }
+
+    fn ask_reading_style(&mut self, cx: &App) -> gpui_kit::base::TextViewStyle {
+        self.card_reading_style(cx)
+    }
+
+    fn ask_pick_answer(&mut self, ask: usize, option: i64, window: &mut Window, cx: &mut Context<Self>) {
+        self.pick_answer(ask, option, window, cx);
+    }
+
+    fn ask_open_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_ask_link(target, window, cx);
+    }
+
+    fn ask_answer_box(&mut self, ask: usize, window: &mut Window, cx: &mut Context<Self>) -> Entity<TextareaState> {
+        self.answer_box(ask, window, cx)
+    }
+
+    fn ask_box_return(&mut self, ask: usize, command: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.answer_box_return(ask, command, window, cx);
+    }
+}
+
+impl Composer {
     // ---- For the automation ----
 
     /// The picks as the Swift dump's `decisions` says them.
@@ -868,7 +934,7 @@ fn starts_a_block(text: &str) -> bool {
 
 /// The card's measures (RowRenderer.asksText and doneText, which build it as
 /// TextKit lines, each a line height with spacing round it).
-mod metrics {
+pub(crate) mod metrics {
     /// A paged card's heading, and the done card's: a button tall.
     pub const PAGED_HEADING: f32 = 38.;
     /// Otherwise the heading is a work line, 6 over the first ask.

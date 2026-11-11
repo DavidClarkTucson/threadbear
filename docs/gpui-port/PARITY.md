@@ -222,6 +222,45 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Decisions on a project's page, and the folded Projects view (`projects.decisions`)
+
+- With the projectDecisions experiment on, a project's page opens on its
+  threads' (and its parts' threads') open cards of asks, newest first, under
+  Decisions ("4 decisions from 3 threads"). Each card is its thread's: its
+  title and how long ago, a line on what it's doing, its asks drawn by the
+  composer card's own code (`AskHost` in composer_card.rs, which the
+  composer's card now goes through too), and Open thread. A pick that
+  answers the last open ask sends the thread's own `threads.send` with the
+  answers; Something else opens its box, where Return sends once every ask
+  has an answer and ⌘Return sends what's answered. Until the thread takes it
+  the card is one line, "Sending to <title>…" with a spinner and what was
+  answered, and takes no clicks; refused, the picks come back with the
+  runner's reason.
+- A project's card on the Projects page says how many decisions wait in it,
+  and the sidebar's Projects view folds each project to one row (its icon,
+  its name, its decisions in the needs-you orange or its threads' count, a
+  chevron that shows its threads), folded by default and remembered
+  (`projectsList.openRows`), Not in a project too.
+- A thread summary's asks now keep their option notes, reply and links
+  (core's `OpenAsk`), which the cards draw from.
+- The answer rows the decisions share with the composer's card now take the
+  Swift rows' spacing, measured against both of the Swift app's: a box with
+  a small corner, 14 over the first row's words and 6 over the rest, a
+  note in the small font just under its label, and 8 under the box. They
+  were 7 points a row taller.
+- Not here yet: the cards sliding in and out, and holding a pick while the
+  thread's own box has a message on its way (the Swift app waits for that
+  too; here only an answer sent from the page holds it).
+- Files: `desktop/gpui/src/project_decisions.rs` (new); `composer_card.rs`
+  (`AskHost`, the rows' spacing), `project_page.rs`, `projects.rs`,
+  `projects_list.rs`, `app.rs`, `automation.rs` and `main.rs`; core's
+  `projects.rs` and `inbox.rs`; `features/projects.feature`.
+- Verification: projects.feature's 7 scenarios on Tinker Desk against the
+  GPUI app, the 5 decisions ones no longer pending, with projects-views,
+  composer-cards and cards (34 of 34); core's tests. The decisions page and
+  a thread's composer card side by side with the Swift app's in dark and
+  measured: the rows, the card and the folded rows within a point or two.
+
 ### 2026-11-11 Projects: the sidebar's view, the page of cards and a project's page (`projects.list`, `projects.home`, `projects.page`, `projects.parts`, `projects.newthread`, `header.projectchip`, `highlights.projects`)
 
 - Projects in the activity bar opens the sidebar's Projects view and the

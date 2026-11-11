@@ -96,6 +96,13 @@ pub struct OpenAsk {
     pub options: Option<Vec<String>>,
     pub suggested: Option<usize>,
     pub ticked: Option<bool>,
+    /// What each option does, the reply a plain ask wants, and the ask's
+    /// links, as they came: a decision on a project's page draws the thread's
+    /// card from these (`projects::decision_asks`), as its composer draws it
+    /// from the turn.
+    pub option_notes: Option<Vec<String>>,
+    pub reply: Option<String>,
+    pub links: Option<Vec<Value>>,
 }
 
 impl OpenAsk {
