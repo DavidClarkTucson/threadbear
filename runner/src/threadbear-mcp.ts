@@ -1207,9 +1207,10 @@ export function buildThreadbearTools(
             const fields = Object.fromEntries(Object.entries({ title, goals, state, notes, appendNote, addFolders: added, notion, links, addLinks, parent: parentShown }).filter(([, v]) => v !== undefined));
             await confirm('update_project', [`Change the brief of the project "${p.title}", which "${top.title}" (${accessName(top, caller)}) is told`], { project: p.id, ...fields }, extra?.signal);
             if (addFolders?.length) for (const [i, f] of addFolders.entries()) await sameFolder(f, added![i]!);
-            // The goals shown are the goals given: a parent changed while the
-            // card waited is refused.
-            if (newParent && (await pc.get(newParent.id)).project.goals !== newParent.goals) {
+            // The title and goals shown are what it gets: a parent changed
+            // while the card waited is refused.
+            const nowParent = newParent ? (await pc.get(newParent.id)).project : undefined;
+            if (newParent && (nowParent!.goals !== newParent.goals || nowParent!.title !== newParent.title)) {
               throw new Error(`"${newParent.title}" changed while the user was being asked, so "${p.title}" wasn't made a part of it. Ask again.`);
             }
           }

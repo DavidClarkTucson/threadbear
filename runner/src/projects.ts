@@ -336,6 +336,9 @@ export class Projects {
     if (parent?.goals) bits.push(`${parent.title}'s goals: ${clip(parent.goals, 200)}`);
     if (p.goals) bits.push(`Goals: ${clip(p.goals, 300)}`);
     if (p.state) bits.push(`State: ${clip(p.state, 300)}`);
+    // A parent's parts, as a fresh session's brief names them (Codex review).
+    const parts = this.partsOf(p.id).filter((x) => !x.archived);
+    if (parts.length) bits.push(clip(`Parts: ${parts.map((x) => `${x.title} (${x.id})`).join(', ')}.`, 300));
     bits.push('read_project has its notes; update_project keeps it current.');
     return bits.join(' ');
   }

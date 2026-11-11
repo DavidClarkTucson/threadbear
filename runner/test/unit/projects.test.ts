@@ -1662,3 +1662,10 @@ test('parts: a projects.json with a cycle or three levels loads with nothing hid
   const parentOf = Object.fromEntries(projects.list().map((p) => [p.id, p.parentId ?? null]));
   assert.deepEqual(parentOf, { p_a: null, p_b: null, p_top: null, p_mid: 'p_top', p_low: null, p_self: null, p_lost: null });
 });
+
+test("parts: a session that joins a parent mid-way hears its parts' names too", () => {
+  const { projects } = setup();
+  const tb = projects.create({ title: 'Threadbear', by: 'mike' });
+  projects.create({ title: 'GPUI port', parent: tb.id, by: 'mike' });
+  assert.match(projects.joinedLine(projects.record(tb.id)!), /Parts: GPUI port \(p_[0-9a-f]+\)\./);
+});
