@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-119 of 329 features have a spec so far, across 217 scenarios.
+122 of 329 features have a spec so far, across 220 scenarios.
 
-Scenarios passing: Swift: 206 of 217, Mac: 205 of 217, Windows: 192 of 217, Linux: 205 of 217.
+Scenarios passing: Swift: 207 of 220, Mac: 208 of 220, Windows: 192 of 220, Linux: 208 of 220.
 
 
 ### 0. Foundations everything else needs
@@ -189,6 +189,14 @@ Scenarios passing: Swift: 206 of 217, Mac: 205 of 217, Windows: 192 of 217, Linu
 | `schedule.page` Scheduled page | pass | pass | pending | pass |
 | `schedule.list` Scheduled list | pass | pass | pending | pass |
 | `schedule.editor` Schedule editor | pass | pass | pending | pass |
+
+### 15. Settings
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `settings.window` Settings window | pass | pass | pending | pass |
+| `settings.general` General | pending | pass | pending | pass |
+| `settings.models` Models | pending | pass | pending | pass |
 
 ### 17. Navigation, shortcuts, main menu
 
