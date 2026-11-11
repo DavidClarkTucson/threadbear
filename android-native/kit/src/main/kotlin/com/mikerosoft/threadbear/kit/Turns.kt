@@ -108,7 +108,11 @@ object Turns {
             val body = if (starter == null) turn else turn.drop(1)
             if (starter != null) out += ThreadItem.Message(starter)
             if (busy && i == turns.size - 1) { out += shownWhole(body); continue }
-            val reply = replies(body)
+            // A plan stays out of the fold wherever it is in the turn: it's
+            // what Go ahead approves, and a sent-back one is what he asked
+            // to change.
+            val replyOnly = replies(body)
+            val reply = if (replyOnly.isEmpty()) emptyList() else (replyOnly.toSet() + body.indices.filter { body[it].plan }).toList()
             if (reply.isEmpty()) { out += shownWhole(body); continue }
             val replySet = reply.toSet()
             val folded = body.filterIndexed { k, _ -> k !in replySet }

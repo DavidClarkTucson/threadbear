@@ -97,3 +97,17 @@ class BackendTest {
         assertEquals(true, b.cancel("c1"))
     }
 }
+
+class BackendPicturesAndHistoryTest {
+    @Test fun lateImagesAndLoadEarlierGoToTheirFunctions() = runTest {
+        val t = FakeTransport()
+        t.subscriptions = { _, _ -> listOf("""[{"seq":922,"url":"https://x/922.png"},{"seq":"bad","url":"x"}]""") }
+        val b = PhoneBackend(t, "x")
+        assertEquals(listOf(922), b.images("t1", 921).toList().single().map { it.seq })
+        assertEquals("phone:images", t.calls.last().first)
+        assertEquals("921", t.calls.last().second["from"].toString())
+        assertEquals("cmd1", b.loadEarlier("t1", 40))
+        assertEquals("phone:loadEarlier", t.calls.last().first)
+        assertEquals("40", t.calls.last().second["beforeSeq"].toString())
+    }
+}

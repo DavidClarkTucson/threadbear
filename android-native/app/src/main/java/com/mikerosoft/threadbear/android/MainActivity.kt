@@ -25,6 +25,8 @@ import com.mikerosoft.threadbear.android.ui.NewThreadScreen
 import com.mikerosoft.threadbear.android.ui.PocketScreen
 import com.mikerosoft.threadbear.android.ui.RunnerOrderScreen
 import com.mikerosoft.threadbear.android.ui.SettingsScreen
+import com.mikerosoft.threadbear.android.ui.LocalPageForward
+import com.mikerosoft.threadbear.android.ui.rememberPageForward
 import com.mikerosoft.threadbear.android.ui.PairScreen
 import com.mikerosoft.threadbear.android.ui.ThreadScreen
 import com.mikerosoft.threadbear.android.ui.ThreadbearTheme
@@ -97,6 +99,8 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
             model.shell.justStarted.value = null
             if (nav.currentDestination?.route == "inbox") nav.navigate("thread/$id")
         }
+        // Forward to the thread last backed out of, for a swipe left on a thread.
+        CompositionLocalProvider(LocalPageForward provides rememberPageForward(nav)) {
         NavHost(nav, startDestination = "inbox") {
             composable("inbox") {
                 InboxScreen(
@@ -131,6 +135,7 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
                 ThreadScreen(threadId = entry.arguments?.getString("id") ?: "", back = { nav.popBackStack() },
                     open = { nav.navigate("thread/$it") })
             }
+        }
         }
     }
 

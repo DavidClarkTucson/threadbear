@@ -189,6 +189,21 @@ class PhoneBackend(private val transport: ConvexTransport, private val token: St
         return command("phone:create", args(*a.toTypedArray()))
     }
 
+    /**
+     * API 37: pictures of rows read once, from `from` on. A picture can
+     * finish uploading after its row went into a chunk or slid off the live
+     * page, and neither is read again.
+     */
+    fun images(threadId: String, from: Int): Flow<List<MessageImage>> =
+        live("phone:images", args("threadId" to JsonPrimitive(threadId), "from" to JsonPrimitive(from))) { it.lossyList(MessageImage::read) }
+
+    /** Asks the thread's runner for its slash commands (API 62): the list comes back as the command's result. */
+    suspend fun slashCommands(threadId: String): String = command("phone:slashCommands", args("threadId" to JsonPrimitive(threadId)))
+
+    /** Before API 2: asks the runner to page older messages into phone:thread. */
+    suspend fun loadEarlier(threadId: String, beforeSeq: Int): String =
+        command("phone:loadEarlier", args("threadId" to JsonPrimitive(threadId), "beforeSeq" to JsonPrimitive(beforeSeq)))
+
     suspend fun registerDevice(pushToken: String, environment: String, platform: String, pushKey: String?) {
         val a = mutableListOf<Pair<String, JsonElement>>(
             "apnsToken" to JsonPrimitive(pushToken), "environment" to JsonPrimitive(environment), "platform" to JsonPrimitive(platform),
