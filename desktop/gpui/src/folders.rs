@@ -466,7 +466,7 @@ impl SidePane {
                 }
             } else {
                 let watched = key.clone();
-                match FolderWatch::new(cx, move |this: &mut SidePane, folders, cx| this.folders_changed(&watched, folders, cx)) {
+                match FolderWatch::new(cx, move |this: &mut SidePane, folders, _, cx| this.folders_changed(&watched, folders, cx)) {
                     Some(watch) => Keeping::Watch(watch),
                     None => {
                         self.folders.kept = None;

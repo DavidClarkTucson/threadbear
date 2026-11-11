@@ -49,7 +49,7 @@ you go.
 ### Files and folders in the pane
 - [x] No Preview/Markdown switch on a Markdown file (`file.markdown`)
 - [x] No find bar (`file.find`)
-- [ ] Files are read-only: no editing, autosave or ⌘S (`file.editor`,
+- [x] Files are read-only: no editing, autosave or ⌘S (`file.editor`,
   `file.conflict`)
 - [ ] PDFs, videos and .html files open in their own app rather than the pane
   (`file.quicklook`, `file.video`, `file.htmlpreview`)

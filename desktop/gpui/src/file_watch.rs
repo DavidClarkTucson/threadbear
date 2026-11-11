@@ -25,8 +25,9 @@ pub(crate) struct FolderWatch {
 
 impl FolderWatch {
     /// A watch that calls `changed` on its owner with the folders (as they
-    /// were asked for) something happened in, or to.
-    pub(crate) fn new<T: 'static>(cx: &mut Context<T>, changed: impl Fn(&mut T, Vec<String>, &mut Context<T>) + 'static) -> Option<Self> {
+    /// were asked for) something happened in, or to, and the paths the system
+    /// named (real ones), for a watch on one file in its folder to pick out.
+    pub(crate) fn new<T: 'static>(cx: &mut Context<T>, changed: impl Fn(&mut T, Vec<String>, Vec<PathBuf>, &mut Context<T>) + 'static) -> Option<Self> {
         let folders: Arc<Mutex<HashMap<PathBuf, String>>> = Arc::default();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<PathBuf>>();
         let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
@@ -58,7 +59,7 @@ impl FolderWatch {
                 if touched.is_empty() {
                     continue;
                 }
-                if this.update(cx, |this, cx| changed(this, touched, cx)).is_err() {
+                if this.update(cx, |this, cx| changed(this, touched, paths, cx)).is_err() {
                     break;
                 }
             }

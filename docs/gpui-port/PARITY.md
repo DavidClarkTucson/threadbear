@@ -314,6 +314,48 @@ built parsers and gates with no launch of the app, which is the trap.)
   spacing are the Swift bar's. The card covered its own link
   when there was no room under it and sat under the pointer rather than
   the link; both brought in.
+### 2026-11-11 Working on a file in the pane: the pencil, autosave, ⌘S, and a file changed under typing (`file.editor`, `file.conflict`)
+
+- A whole text file on this runner's machine (not over 2 MB, and UTF-8) has
+  the Swift bar's pencil, and Done while it's being worked on; a Markdown
+  file's Markdown view is the same, now taking typing (its menu's tip says
+  so again). Its own text shows with line numbers, coloured as code where
+  it's code, a tab a tab and nothing closed or indented for you, as AppKit's
+  text view types. Another Mac's file has no pencil: only the copy would
+  change, as the Swift app says.
+- What's typed is written into the file 800 ms after the typing stops, on
+  ⌘S, on Done, on leaving the file (Back, another file, section or thread)
+  and on quitting, in place (the same file, so its mode and owner stay).
+  Before each write the file is read: someone else's change the watch hasn't
+  reported yet isn't written over.
+- The file is watched while it's open, read or worked on. Changed on disk
+  with nothing typed, it shows the new text (a drawn page reads it again
+  where it was; the editor keeps the cursor's line). Changed under unsaved
+  typing, the conflict bar asks, two lines as the Swift one: "Changed on
+  disk while you were editing." with Take the file's and Keep mine; nothing
+  is saved until Mike picks, and Done stays editing meanwhile. A file that
+  turns too big or not UTF-8 stops taking typing and says why; one that's
+  gone says "This file isn't there any more."
+- The rules are core's `EditSession` (the Swift TextFileController's saving,
+  checking and both sides of the conflict, with tests), over the
+  TextFileDocument port from the first slice.
+- Both apps' `preview` command takes `edit`, `insert`, `save` and `resolve`
+  (the Swift app already did), and the dumps' `previewMode` says "reading"
+  or "editing" for the pencil and Done, `previewNote` the conflict bar's
+  words or the note.
+- Not the same yet: the gutter's numbers are the kit's (see the first
+  slice's note), and undo is the kit's own, not AppKit's.
+- Files: `desktop/gpui/src/file_edit.rs`, `files.rs`, `file_watch.rs`; the
+  lines in `highlights.rs` that save on leaving a file and on quitting;
+  `features/file-editing.feature` and its steps; `docs/on-your-mac.md` (the
+  pane's `desktop-files.json`).
+- Verification: file-editing.feature's 5 scenarios (typing saved by itself and
+  by ⌘S, Done, Keep mine, Take the file's, a file rewritten under the read
+  view) on Tinker Desk against the GPUI app and the Swift app, 5 of 5 on each,
+  with file-previews, folders, highlights, picture-viewer and patches still
+  passing on the GPUI app and file-previews and folders on the Swift app. The
+  conflict bar and the editor side by side with the Swift app's in dark: the
+  bar's buttons land on the same points, the yellow the same.
 
 ### 2026-11-11 The Terminal after three Codex reviews, in both apps (`terminal.panel`, `terminal.putcommand`, `terminal.lifecycle`)
 

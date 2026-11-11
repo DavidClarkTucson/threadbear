@@ -43,8 +43,11 @@ File references are where to look.
   If you turn on the `gpuiApp` experiment and run
   `desktop/scripts/install-app.sh`, also `~/Applications/Threadbear GPUI.app`,
   which keeps its window and panel layout in `desktop-settings.json` and
-  `gpui-prefs.json` in the data folder, and what a click on a link in a
-  reply does (its menu's Default) in `desktop-links.json` there.
+  `gpui-prefs.json` in the data folder, what a click on a link in a reply
+  does (its menu's Default) in `desktop-links.json` there, the side pane's
+  folded headings in `desktop-highlights.json`, and how it shows files and
+  folders (Preview or Markdown, list or icons, the sort, hidden files) in
+  `desktop-files.json`.
 - **The GPUI app's web runtime, only if you install it** (its Install web
   runtime button, or Settings > General > Web runtime; nothing is fetched
   until you press one): Chromium, as CEF's official minimal build 156.0.15,

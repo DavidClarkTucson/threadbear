@@ -279,6 +279,12 @@ impl SidePane {
         pane.load_projects(cx);
         pane.load_schedules(cx);
         crate::file_find::bind_keys(cx);
+        crate::file_edit::bind_keys(cx);
+        // Quitting mid-edit: what's typed is written before the app goes.
+        pane._subs.push(cx.on_app_quit(|this, cx| {
+            this.save_every_edit(cx);
+            async {}
+        }));
         pane
     }
 
@@ -332,8 +338,12 @@ impl SidePane {
             return;
         }
         let new_thread = self.seen.as_ref().map(|k| &k.0) != Some(&key.0);
+        let id = key.0.clone();
+        // Leaving a thread whose file was being worked on: what's typed is saved.
+        if let Some(left) = self.seen.as_ref().map(|k| k.0.clone()).filter(|_| new_thread) {
+            self.leave_edit(&left, cx);
+        }
         self.seen = Some(key);
-        let id = thread.id.clone();
         if new_thread {
             let fetched = self.highlights.contains_key(&id);
             // Show-all and the edited files don't stick to a thread we leave (HighlightsView's @State per thread).
@@ -461,6 +471,7 @@ impl SidePane {
     /// Shows a section (`choosePanel`), closing a preview over another one.
     pub(crate) fn choose_section(&mut self, thread_id: &str, id: &str, cx: &mut Context<Self>) {
         if self.previews.get(thread_id).is_some_and(|p| p.from != id) {
+            self.leave_edit(thread_id, cx);
             self.previews.remove(thread_id);
         }
         self.chosen.insert(thread_id.to_owned(), id.to_owned());
@@ -554,6 +565,8 @@ impl SidePane {
     pub(crate) fn show_preview(&mut self, mut preview: PanePreview, thread_id: &str, cx: &mut Context<Self>) {
         // It takes an explanation's place, as a preview of its own would.
         self.stop_explaining(thread_id);
+        // A file being worked on is saved before anything takes its place.
+        self.leave_edit(thread_id, cx);
         preview.opened = self.previews.get(thread_id).map_or(0, |p| p.opened) + 1;
         // A Markdown file opens as its bar's menu last left it, on this
         // runner's machine (`MarkdownView.opensRaw`).
@@ -574,6 +587,7 @@ impl SidePane {
     /// then out to the section (`previewBack`).
     pub(crate) fn preview_back(&mut self, thread_id: &str, cx: &mut Context<Self>) {
         let Some(current) = self.previews.get(thread_id).cloned() else { return };
+        self.leave_edit(thread_id, cx);
         match current.back.split_last() {
             None => {
                 self.previews.remove(thread_id);
@@ -592,6 +606,7 @@ impl SidePane {
     }
 
     pub(crate) fn close_preview(&mut self, thread_id: &str, cx: &mut Context<Self>) {
+        self.leave_edit(thread_id, cx);
         self.previews.remove(thread_id);
         cx.notify();
     }
