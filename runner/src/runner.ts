@@ -74,6 +74,9 @@ import { SessionNotFoundError } from './adapters/types.ts';
 import type { RewindResult } from './adapters/types.ts';
 import type { ThreadRecord, ThreadStore, QueuedSend, SubagentRecord } from './store.ts';
 import { cutOut } from './store.ts';
+
+// The presses a thread keeps for its agent to hear of (Runner.notePress).
+const MAX_PRESS_NOTES = 20;
 import { appliedChanges, undoChanges } from './undo-edits.ts';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
@@ -364,8 +367,6 @@ type Runtime = {
   retriedFresh: boolean;
   // News of the standing instructions went out in this turn (settleInstructionsNews).
   instructionsNewsSent?: boolean;
-  // The presses told in this turn, put back if it doesn't complete.
-  pressesSent?: string[];
   // Where the live session's transcript was carried from, if it moved
   // folder; used only if resuming the copy fails.
   carried?: ThreadRecord['handoff'];
@@ -980,10 +981,15 @@ export class Runner {
     const onlyCards = rec.status === 'waiting' && !rec.turnId;
     if (onlyCards) rec.status = 'idle';
     const midTurn = rec.status === 'starting' || rec.status === 'running' || rec.status === 'waiting';
+    // A turn the restart cut off may never have read what it was told of
+    // presses (a crash, or Codex still holding the message). One that isn't
+    // mid-turn settled already, unless the runner's stop ended it (stopTurn).
+    if (!midTurn) this.settlePresses(rec, false);
     if (!midTurn && rec.pendingApprovals.length === 0 && rec.queue.length === 0) return false;
     // The turn may have ended on disk just before a crash stopped
     // thread.json being saved; then it only needs its status back.
     const ended = midTurn && rec.turnId ? this.findTurnCompleted(rec.id, rec.turnId) : undefined;
+    if (midTurn) this.settlePresses(rec, Boolean(ended));
     // thread.json can be behind the log (a crash before it was saved): a card
     // may have been answered there, and a later "expired" would replace the
     // answer. A turn that ended there closed its own cards, but a subagent's
@@ -2572,6 +2578,9 @@ export class Runner {
             // the move's note, any other thread with earlier turns the
             // not-found one.
             let text = this.forAgent(first);
+            // The presses it carried went to the session that's gone.
+            const pressed = this.inFlightPressNews(rec);
+            if (pressed) text = `${pressed}\n\n${text}`;
             const earlier = rec.lastTurnCompletedSeq > 0;
             if (!inUse && (rt.carried || earlier)) {
               rec.handoff = rt.carried ?? { fromCwd: rec.cwd, fromAccountId: rec.accountId, lost: true };
@@ -3442,21 +3451,61 @@ export class Runner {
     return `Note from Threadbear: the user's standing instructions${before === undefined || before === INSTRUCTIONS_CLEARED ? '' : ' have changed, and replace any earlier ones'}.\n\n${standingText(standing)}`;
   }
 
-  // The thread's reply buttons Mike has pressed since its agent last heard,
-  // as a line before his next message. The Daily brief, 8 Nov 2026: he
-  // pressed RSVP yes, then said go ahead in his reply, and the agent, which
-  // hadn't seen the press, sent the same job again with send_message.
-  pressNews(rec: ThreadRecord): string | undefined {
-    const ids = rec.pressesUntold;
-    if (!ids?.length) return undefined;
-    const lines = ids.flatMap((id) => {
-      const b = rec.buttons?.find((x) => x.id === id);
-      if (!b?.pressed) return [];
-      const where = b.send ? `messaged "${b.send.threadTitle}"` : 'started a thread';
-      return [`- "${b.title}" ${where} (${b.pressed.threadId.slice(0, 8)})`];
-    });
-    if (!lines.length) return undefined;
-    return `Note from Threadbear: the user pressed ${lines.length === 1 ? 'this button' : 'these buttons'} in your reply, so ${lines.length === 1 ? 'that job is' : 'those jobs are'} already done or under way. Don't send ${lines.length === 1 ? 'it' : 'them'} again.\n${lines.join('\n')}`;
+  // A press of one of the thread's reply buttons, for its agent. The Daily
+  // brief, 8 Nov 2026: Mike pressed RSVP yes, then said go ahead in his
+  // reply, and the agent, which hadn't seen the press, sent the same job
+  // again with send_message. The line is made now, with what was sent, as
+  // the button itself can be gone by the time it's told.
+  notePress(rec: ThreadRecord, b: ReplyButton): void {
+    if (!b.pressed) return;
+    const brief = (b.send?.text ?? b.start?.text ?? '').replace(/\s+/g, ' ').trim();
+    const where = b.send ? `messaged "${b.send.threadTitle}"` : 'started a thread';
+    const line = `- "${b.title}" ${where} (${b.pressed.threadId.slice(0, 8)}): ${brief.length > 200 ? `${brief.slice(0, 200)}...` : brief}`;
+    const list = (rec.presses ?? []).filter((p) => p.id !== b.id);
+    list.push({ id: b.id, line });
+    // Bounded: the oldest told ones go first.
+    while (list.length > MAX_PRESS_NOTES) {
+      const i = list.findIndex((p) => p.told && !p.told.inFlight);
+      list.splice(i >= 0 ? i : 0, 1);
+    }
+    rec.presses = list;
+  }
+
+  pressNewsText(lines: string[]): string {
+    const one = lines.length === 1;
+    return `Note from Threadbear: the user pressed ${one ? 'this button' : 'these buttons'} in your reply, so ${one ? 'that job has' : 'those jobs have'} already been sent and ${one ? 'is' : 'are'} done or under way. Don't send ${one ? 'it' : 'them'} again; if the user now asks for something different from what a button sent, do only the difference.\n${lines.join('\n')}`;
+  }
+
+  // The presses its agent hasn't heard of, as a line to go before the
+  // message being sent now, marked as told by that message.
+  takePressNews(st: ThreadState): string | undefined {
+    const untold = st.rec.presses?.filter((p) => !p.told) ?? [];
+    if (!untold.length) return undefined;
+    const seq = this.store.log(st.rec.id).lastSeq;
+    for (const p of untold) p.told = { seq, inFlight: true };
+    return this.pressNewsText(untold.map((p) => p.line));
+  }
+
+  // The presses told in the turn now going, for a fresh session that
+  // replays its first message (startSession's retry).
+  inFlightPressNews(rec: ThreadRecord): string | undefined {
+    const lines = rec.presses?.filter((p) => p.told?.inFlight).map((p) => p.line) ?? [];
+    return lines.length ? this.pressNewsText(lines) : undefined;
+  }
+
+  // A completed turn keeps what it told; any other end (a failure, Stop, a
+  // restart part way) tells it again with the next message.
+  settlePresses(rec: ThreadRecord, completed: boolean): void {
+    for (const p of rec.presses ?? []) {
+      if (!p.told?.inFlight) continue;
+      if (completed) delete p.told.inFlight;
+      else delete p.told;
+    }
+  }
+
+  // Going back to the message at seq cuts what it and later ones told.
+  retellPressesFrom(rec: ThreadRecord, seq: number): void {
+    for (const p of rec.presses ?? []) if (p.told && p.told.seq >= seq) delete p.told;
   }
 
   // Sends a message with any change to the standing instructions in front.
@@ -3468,20 +3517,16 @@ export class Runner {
     const { rec, rt } = st;
     const before = rec.instructionsTold;
     const standing = this.instructionsNews(rec);
-    const presses = rec.pressesUntold;
-    const pressed = this.pressNews(rec);
+    const presses = structuredClone(rec.presses);
+    const pressed = this.takePressNews(st);
     const lead = [standing, pressed].filter(Boolean).join('\n\n');
     try {
       rt.session!.send(lead ? { ...message, text: `${lead}\n\n${message.text}` } : message);
     } catch (e) {
       if (before === undefined) delete rec.instructionsTold;
       else rec.instructionsTold = before;
-      if (presses) rec.pressesUntold = presses;
+      rec.presses = presses;
       throw e;
-    }
-    if (pressed) {
-      delete rec.pressesUntold;
-      rt.pressesSent = [...(rt.pressesSent ?? []), ...presses!];
     }
     if (!standing) return;
     // A turn that ends any other way may have dropped it (a message Codex was
@@ -3499,8 +3544,7 @@ export class Runner {
   // arrived, so the next message says what's current.
   settleInstructionsNews(st: ThreadState, completed: boolean): void {
     const { rec, rt } = st;
-    if (rt.pressesSent && !completed) rec.pressesUntold = [...new Set([...rt.pressesSent, ...(rec.pressesUntold ?? [])])];
-    rt.pressesSent = undefined;
+    this.settlePresses(rec, completed);
     if (rt.instructionsNewsSent && !completed && rec.instructionsTold !== undefined) rec.instructionsTold = INSTRUCTIONS_REWOUND;
     rt.instructionsNewsSent = false;
   }

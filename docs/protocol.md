@@ -942,11 +942,15 @@ as the agent wrote the words and Mike only chose to send them.
 
 The thread whose reply had the button hears of the press before Mike's
 next message to it: a line from Threadbear naming each button pressed
-since and the thread it started or messaged, so its agent doesn't send
-the same job again (on 8 Nov 2026 the Daily brief did, after Mike pressed
-RSVP yes and then said go ahead in his reply). A turn that doesn't
-complete hears it again. A run's press already tells the agent how its
-command went, so it isn't in that line.
+since, the thread it started or messaged and the start of what it sent,
+so its agent doesn't send the same job again (on 8 Nov 2026 the Daily
+brief did, after Mike pressed RSVP yes and then said go ahead in his
+reply). The line is kept on the thread (`presses` in thread.json, the
+last 20) from the press, so it outlives the button. A turn that doesn't
+complete (a failure, Stop, a restart part way) hears it again, so does a
+fresh session that replays the message, and so does an edit back past
+the message that carried it. A run's press already tells the agent how
+its command went, so it isn't in that line.
 
 Safety. Only a thread's own agent can make its buttons: `add_button` is
 bound to the calling thread like the other threadbear tools, and there's

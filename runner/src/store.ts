@@ -10,6 +10,8 @@ import type { WakeWhen } from './wake-when.ts';
 export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number };
 
 // What thread.json holds: the public summary fields plus a few internal ones.
+export type PressNote = { id: string; line: string; told?: { seq: number; inFlight?: boolean } };
+
 export type ThreadRecord = {
   id: string;
   title: string;
@@ -165,9 +167,12 @@ export type ThreadRecord = {
   // told, so it hears each change once; 'cleared' or 'rewound' (instructions.ts).
   // Absent while it has never held any.
   instructionsTold?: string;
-  // Its reply buttons Mike has pressed that its agent hasn't heard of yet
-  // (Runner.pressNews), so it doesn't send the same job again itself.
-  pressesUntold?: string[];
+  // Its reply buttons Mike has pressed, for its agent to hear of before his
+  // next message (Runner.takePressNews), so it doesn't send the same job
+  // again itself. Each keeps its own line, as the button can go (MAX_BUTTONS,
+  // a move); `told` once a message carried it, `inFlight` until that turn
+  // completes, and `seq` so an edit back past that message tells it again.
+  presses?: PressNote[];
   // Highlights (highlights.ts): what's been found and pinned, and the
   // event it had read up to. Brought up to date when a client asks.
   highlights?: HighlightState;

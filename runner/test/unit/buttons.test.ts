@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeHarness } from '../helpers/fakes.ts';
+import { makeHarness, tick } from '../helpers/fakes.ts';
+import { SessionNotFoundError } from '../../src/adapters/types.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import { AGENT_MESSAGE_PREFIX } from '../../src/protocol.ts';
 
@@ -234,4 +235,68 @@ test("a press told in a turn that didn't complete is told again", () => {
   session.result('failed', undefined, 'overloaded');
   h.runner.send(thread.id, 'try again');
   assert.match(session.sent.at(-1)!.text, /"RSVP yes"/);
+});
+
+// Codex's review of the first try at the above.
+function pressed() {
+  const { h, thread, folder } = fixture();
+  const other = h.runner.create({ text: 'SF trip', accountId: 'claude-3' }).thread;
+  const rsvp = h.runner.createButton(thread.id, { title: 'RSVP yes', send: { threadId: other.id, text: 'RSVP yes to the party for 11 Dec' } }).button;
+  const session = h.adapter.sessions.find((s) => s.opts.threadId === thread.id)!;
+  session.result();
+  h.runner.pressButton(thread.id, rsvp.id);
+  return { h, thread, folder, session };
+}
+const allSent = (h: ReturnType<typeof makeHarness>, id: string) => h.adapter.sessions.filter((s) => s.opts.threadId === id).flatMap((s) => s.sent.map((m) => m.text));
+
+test('the line says what the button sent, and outlives the button', () => {
+  const { h, thread, session } = pressed();
+  // As a move to another runner does.
+  (h.runner as any).threads.get(thread.id).rec.buttons = [];
+  h.runner.send(thread.id, 'go');
+  assert.match(session.sent.at(-1)!.text, /"RSVP yes" messaged "[^"]*" \([0-9a-f]{8}\): RSVP yes to the party for 11 Dec/);
+  assert.match(session.sent.at(-1)!.text, /something different/);
+});
+
+test('a restart part way through the turn that told it tells it again', () => {
+  const { h, thread } = pressed();
+  h.runner.send(thread.id, 'go');
+  const back = h.restart();
+  back.runner.send(thread.id, 'still there?');
+  const texts = allSent(back, thread.id);
+  assert.ok(texts.some((t) => /"RSVP yes"/.test(t)), JSON.stringify(texts));
+});
+
+test('a completed turn that told it, then a restart, does not tell it again', () => {
+  const { h, thread, session } = pressed();
+  h.runner.send(thread.id, 'go');
+  session.result();
+  const back = h.restart();
+  back.runner.send(thread.id, 'thanks');
+  assert.ok(!allSent(back, thread.id).some((t) => /"RSVP yes"/.test(t)));
+});
+
+test('editing back past the message that told it tells it again', async () => {
+  const { h, thread, session } = pressed();
+  h.adapter.rewind = async () => ({ resumeAt: 'entry-1' });
+  const { turnId } = h.runner.send(thread.id, 'go ahead');
+  session.result();
+  const seq = h.store.log(thread.id).read(1, h.store.log(thread.id).lastSeq).find((e) => e.type === 'user.message' && e.turnId === turnId)!.seq;
+  await h.runner.editMessage(thread.id, seq, 'go ahead, and book the gym');
+  const texts = allSent(h, thread.id);
+  assert.match(texts.at(-1)!, /"RSVP yes"[\s\S]*go ahead, and book the gym$/);
+});
+
+test('a fresh session that replays the message keeps the line', async () => {
+  const { h, thread } = pressed();
+  const back = h.restart();
+  back.runner.send(thread.id, 'go');
+  const resumed = back.adapter.last;
+  assert.equal(resumed.opts.resume, true);
+  assert.match(resumed.sent.at(-1)!.text, /"RSVP yes"/);
+  resumed.sink.exited(new SessionNotFoundError('gone'));
+  await tick();
+  const fresh = back.adapter.last;
+  assert.notEqual(fresh, resumed);
+  assert.match(fresh.sent[0].text, /"RSVP yes"[\s\S]*go$/);
 });
