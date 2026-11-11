@@ -404,6 +404,10 @@ impl Threadbear {
                 }
                 "librarian.updated" => self.librarian.status = Some(threadbear_core::librarian::Status::decode(&params["librarian"])),
                 "settings.updated" => self.runner_settings = Some(params["settings"].clone()),
+                // A login appearing or going, its models once asked, its
+                // usage; and the pools after a save: both replace `hello`'s.
+                "accounts.updated" => self.logins.set_accounts(&params["accounts"]),
+                "pools.updated" => self.logins.set_pools(&params["pools"]),
                 "instructions.updated" => self.standing_instructions = Some(threadbear_core::runner_settings::StandingInstructions::decode(&params["instructions"])),
                 "projects.updated" => {
                     self.librarian.projects_made = crate::librarian::projects_made(&params["projects"]);
