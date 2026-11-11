@@ -693,6 +693,8 @@ export class Runner {
   refusing?: string;
   startedAt = 0;
   startupNotices: { level: 'info' | 'warning' | 'error'; message: string }[] = [];
+  // settleUnvouched has run: a handover's adopt can come before start.
+  unvouchedSettled = false;
   // Accounts whose CLI has been asked for its models (or is being asked).
   probed = new Set<string>();
   rescanTimer?: TimerHandle;
@@ -777,6 +779,11 @@ export class Runner {
   start(opts: { skip?: ReadonlySet<string> } = {}): void {
     this.startedAt = this.clock.now();
     const { records, broken } = this.store.loadAll();
+    // Which worktrees the always-trust doesn't reach, before anything below
+    // can read a patch or start a CLI (runner/moves.ts): every thread on
+    // disk, a draining runner's included, and before a record that can't be
+    // read is rebuilt without its worktree.
+    this.settleUnvouched(records, broken);
     for (const id of broken) {
       if (opts.skip?.has(id)) continue;
       const rec = this.rebuild(id);
@@ -786,10 +793,6 @@ export class Runner {
     // sessions and folders, so none of them may run (real-copy.ts).
     const copy = realCopy(this.store.home);
     if (copy) for (const rec of records) this.store.save(neutraliseCopied(rec, copy.work));
-    // Which worktrees the always-trust doesn't reach, before anything below
-    // can read a patch or start a CLI (runner/moves.ts). Every thread on
-    // disk, a draining runner's included.
-    this.settleUnvouched(records);
     let stopped = 0;
     for (const rec of records) {
       if (opts.skip?.has(rec.id)) continue;
@@ -830,7 +833,13 @@ export class Runner {
     this.seedPatchTrust(records.map((r) => r.cwd));
     this.flush();
     void this.settleLostCleanups();
-    for (const st of this.threads.values()) if (st.rec.queue.some(q => q.reviewId) && this.bucket(st.rec) === 'inbox') this.kickQueue(st);
+    for (const st of this.threads.values()) {
+      try {
+        if (st.rec.queue.some(q => q.reviewId) && this.bucket(st.rec) === 'inbox') this.kickQueue(st);
+      } catch (e) {
+        this.recoveryFailed(st, e);
+      }
+    }
     this.armSnoozeTimer();
     // Waits for room are in thread.json, so they outlive a restart.
     this.armRoomTimer();
@@ -3326,7 +3335,16 @@ export class Runner {
         // A retry with nothing new: the app already has this summary.
         if (retry) continue;
       }
-      this.notify({ method: 'thread.updated', params: { thread: this.summary(st) } });
+      // One thread whose summary can't be made (a record another runner
+      // wrote wrong) doesn't stop the others' saves and news.
+      let thread: ThreadSummary;
+      try {
+        thread = this.summary(st);
+      } catch (e) {
+        this.log.error("couldn't make a thread's summary", { threadId: id, error: String(e) });
+        continue;
+      }
+      this.notify({ method: 'thread.updated', params: { thread } });
     }
     if (failed && !this.stopping) this.saveRetryTimer = this.clock.setTimeout(() => this.flush(), SAVE_RETRY_MS);
   }

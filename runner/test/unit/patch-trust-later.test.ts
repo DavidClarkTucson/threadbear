@@ -676,6 +676,34 @@ test('schedule check: a script changed while the card was up isn\'t approved', a
   sched.stop();
 });
 
+// Finding 89, from the tools: moving a schedule's folder approves nothing in
+// the Scheduler any more, so update_schedule passes the check along with the
+// card it showed for the new folder, and that card's yes is what approves
+// it there. Without it, the card approved nothing (Muse's review).
+test('schedule check: moving its folder from a thread that asks first approves it there only as the card showed it', async () => {
+  const one = repo({ 'check.sh': '#!/bin/sh\necho\n' });
+  const two = repo({ 'check.sh': '#!/bin/sh\necho two\n' });
+  {
+    const { sched, asked, call, h } = askTools(one, 'ask');
+    const sc = await sched.create({ text: 'Look', title: 'Watch', cron: '*/5 * * * *', cwd: one, check: './check.sh' });
+    const r = await call('update_schedule', { scheduleId: sc.id, folder: two });
+    assert.equal(r.isError, undefined, r.content[0]?.text);
+    assert.equal(asked.length, 1, 'a card for it');
+    assert.equal(h.runner.patchTrust.checkApproved('./check.sh', two).approved, true);
+    sched.stop();
+  }
+  {
+    const three = repo({ 'check.sh': '#!/bin/sh\necho three\n' });
+    const { sched, call, h } = askTools(one, 'ask', () => fs.appendFileSync(path.join(three, 'check.sh'), '# swapped\n'));
+    const sc = await sched.create({ text: 'Look', title: 'Watch', cron: '*/5 * * * *', cwd: one, check: './check.sh' });
+    const r = await call('update_schedule', { scheduleId: sc.id, folder: three });
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, /changed while the approval card was up/);
+    assert.equal(h.runner.patchTrust.checkApproved('./check.sh', three).approved, false);
+    sched.stop();
+  }
+});
+
 test('Codex review: naming this runner doesn\'t get a thread that asks first past the check on the card', async () => {
   const dir = repo({ 'x.py': 'print(1)\n', 'ok.sh': '#!/bin/sh\necho\n' });
   {

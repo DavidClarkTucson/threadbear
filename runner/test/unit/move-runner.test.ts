@@ -222,11 +222,24 @@ test('a moved record with bad press notes is cleaned, and never stops the runner
   assert.equal((await t.runner.adoptMoved(r)).adopted, true);
   const live = JSON.parse(fs.readFileSync(path.join(tHome, 'threads', id, 'thread.json'), 'utf8'));
   assert.deepEqual(live.presses, [{ id: 'b2', line: 'kept' }, { id: 'b3', line: 'x'.repeat(2000), told: { seq: 4 } }]);
-  // Written as the finding had it, after adoption: the next starts still work.
+  // Written as the finding had it, after adoption, and its neighbours as
+  // Muse's review found them: the next starts still work.
   live.presses = {};
+  live.queue = {};
+  live.waitingOn = 'x';
+  live.needs = { seq: 1, needs: 'nothing', asks: {} };
+  live.looseEnds = { seq: 1, ends: 3 };
+  live.subagents = [null, 4];
   fs.writeFileSync(path.join(tHome, 'threads', id, 'thread.json'), JSON.stringify(live));
   const again = makeHarness(tHome, {}, { accounts: new FakeAccounts(accounts) });
-  assert.equal(again.runner.threads.get(id)?.rec.presses, undefined);
+  const back = again.runner.threads.get(id)!.rec as any;
+  assert.equal(back.presses, undefined);
+  assert.deepEqual(back.queue, []);
+  assert.equal(back.waitingOn, undefined);
+  assert.equal(back.needs.asks, undefined);
+  assert.equal(back.looseEnds, undefined);
+  assert.deepEqual(back.subagents, []);
+  again.runner.summary(again.runner.threads.get(id)!);
   const third = makeHarness(tHome, {}, { accounts: new FakeAccounts(accounts) });
   assert.ok(third.runner.threads.has(id));
 });

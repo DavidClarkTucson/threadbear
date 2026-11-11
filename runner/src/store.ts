@@ -45,6 +45,60 @@ export function cleanPresses(raw: unknown): PressNote[] | undefined {
   return out.length ? out : undefined;
 }
 
+// What a thread.json read from disk may hold where the runner goes through
+// a list or a field of an object, put in the shape the runner expects: a
+// list that isn't one goes (or is empty, for the two every record has), as
+// do its entries that aren't the kind it holds, and an object that isn't
+// one goes. Another runner may have written it (a move), and recover,
+// summary and the start loop walk these for every thread: `presses: {}`,
+// then `queue: {}`, stopped the runner at every start (security review and
+// Muse's review of the fix, 11 Nov 2026, finding 96). True if it changed.
+const OBJECT_LISTS = ['waitingOn', 'reviews', 'buttons', 'subagents', 'projects', 'rewinds', 'queue'];
+const STRING_LISTS = ['reviewDeliveries', 'allowRules', 'pendingApprovals', 'projectsLeft', 'projectsTold'];
+const OBJECTS = ['needs', 'looseEnds', 'stoppedWork', 'highlights', 'worktree', 'handoff', 'moved', 'startedBy'];
+const NESTED: [string, string, 'object' | 'string' | 'number'][] = [
+  ['needs', 'asks', 'object'],
+  ['needs', 'ticked', 'number'],
+  ['needs', 'open', 'string'],
+  ['looseEnds', 'ends', 'object'],
+  ['stoppedWork', 'what', 'string'],
+  ['highlights', 'items', 'object'],
+  ['highlights', 'edited', 'string'],
+];
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+function listOf(v: unknown, kind: 'object' | 'string' | 'number'): unknown[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.filter((x) => (kind === 'object' ? isObject(x) : typeof x === kind));
+}
+export function normaliseRecord(rec: Record<string, unknown>): boolean {
+  const before = JSON.stringify(rec);
+  for (const k of OBJECTS) if (rec[k] !== undefined && !isObject(rec[k])) delete rec[k];
+  for (const [k, kind] of [...OBJECT_LISTS.map((k) => [k, 'object'] as const), ...STRING_LISTS.map((k) => [k, 'string'] as const)]) {
+    if (rec[k] === undefined) continue;
+    const list = listOf(rec[k], kind);
+    if (list) rec[k] = list;
+    else delete rec[k];
+  }
+  rec.queue ??= [];
+  rec.pendingApprovals ??= [];
+  for (const [o, k, kind] of NESTED) {
+    const obj = rec[o];
+    if (!isObject(obj) || obj[k] === undefined) continue;
+    const list = listOf(obj[k], kind);
+    if (list) obj[k] = list;
+    else delete obj[k];
+  }
+  // looseEnds is drawn from its ends; one without them is no check.
+  if (isObject(rec.looseEnds) && !Array.isArray(rec.looseEnds.ends)) delete rec.looseEnds;
+  if (rec.presses !== undefined) {
+    const presses = cleanPresses(rec.presses);
+    if (presses) rec.presses = presses;
+    else delete rec.presses;
+  }
+  if (rec.title !== undefined && typeof rec.title !== 'string') rec.title = String(rec.title);
+  return JSON.stringify(rec) !== before;
+}
+
 export type ThreadRecord = {
   id: string;
   title: string;
@@ -414,11 +468,9 @@ export class ThreadStore {
     rec.queue ??= [];
     rec.pendingApprovals ??= [];
     rec.lastTurnCompletedSeq ??= 0;
-    if (rec.presses !== undefined) {
-      const presses = cleanPresses(rec.presses);
-      if (presses) rec.presses = presses;
-      else delete rec.presses;
-    }
+    // A folder the runner can't use isn't a thread it can load: rebuilt.
+    if (typeof rec.cwd !== 'string') return undefined;
+    normaliseRecord(rec as unknown as Record<string, unknown>);
     return rec;
   }
 

@@ -187,6 +187,13 @@ export const handoversPart = {
     // Neutralised like the ones loaded at start (real-copy.ts).
     const copy = realCopy(this.store.home);
     if (copy) this.store.save(neutraliseCopied(rec, copy.work));
+    // A thread handed over while this runner is still connecting to the old
+    // one comes before start: which worktrees are held is worked out first,
+    // from every thread on disk (Muse's review, 11 Nov 2026).
+    if (!this.unvouchedSettled) {
+      const all = this.store.loadAll();
+      this.settleUnvouched(all.records, all.broken);
+    }
     // An old runner's mark of a worktree the always-trust doesn't reach
     // (settleUnvouched), set after this one started.
     const w = rec.worktree;

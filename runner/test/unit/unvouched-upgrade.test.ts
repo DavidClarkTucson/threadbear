@@ -174,3 +174,44 @@ test("one thread whose recovery throws doesn't stop the runner starting, and is 
     Runner.prototype.recover = recover;
   }
 });
+
+// Muse's review of the fix: a thread handed over while the new runner is
+// still connecting to the old one is adopted before start, so before the
+// list was worked out; and a record that can't be read was rebuilt without
+// its worktree before the list was worked out, which then lost it for good.
+test('90/91: a handover before start, and a record that can not be read, still hold a moved worktree', async () => {
+  {
+    const c = checkout();
+    fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+    const { h, trust, id } = await runnerWith(c, (rec) => (rec.worktree = { ...c.worktree }));
+    assert.equal((await trust.check(c.patch, 0)).trusted, true, 'not moved: trusted');
+    // Another thread, moved here before any mark, on disk but not loaded,
+    // and the list lost: as a runner adopting it mid-connect would find it.
+    const other = '0123abcd-0000-4000-8000-000000000001';
+    fs.cpSync(path.join(c.home, 'threads', id), path.join(c.home, 'threads', other), { recursive: true });
+    const recFile = path.join(c.home, 'threads', other, 'thread.json');
+    fs.writeFileSync(recFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(recFile, 'utf8')), id: other }));
+    const n = fs.readFileSync(path.join(c.home, 'threads', other, 'events.ndjson'), 'utf8').split('\n').filter(Boolean).length;
+    fs.appendFileSync(path.join(c.home, 'threads', other, 'events.ndjson'), JSON.stringify({ seq: n + 1, type: 'system.note', text: `Moved from Bruce to M5, in ${c.wt}.` }) + '\n');
+    fs.rmSync(c.side);
+    const fresh = new PatchTrust({ file: c.file, always: [c.repo] });
+    (h.runner as any).patchTrust = fresh;
+    h.runner.unvouchedSettled = false;
+    h.runner.adopt(other);
+    assert.equal((await fresh.check(c.patch, 0)).trusted, false, 'held before the adopted thread could load anything');
+  }
+  {
+    const c = checkout();
+    fs.writeFileSync(c.file, JSON.stringify({ version: 3, folders: {} }));
+    const { id } = await runnerWith(c, (rec) => (rec.worktree = { ...c.worktree }));
+    const dir = path.join(c.home, 'threads', id);
+    const n = fs.readFileSync(path.join(dir, 'events.ndjson'), 'utf8').split('\n').filter(Boolean).length;
+    fs.appendFileSync(path.join(dir, 'events.ndjson'), JSON.stringify({ seq: n + 1, type: 'system.note', text: `Moved from Bruce to M5, in ${path.join(c.wt, 'sub')}. Its worktree's work changes this repo's patches.` }) + '\n');
+    fs.writeFileSync(path.join(dir, 'thread.json'), '{ broken');
+    fs.rmSync(c.side);
+    const trust = new PatchTrust({ file: c.file, always: [c.repo] });
+    makeHarness(c.home, {}, { patchTrust: trust });
+    assert.equal((await trust.check(c.patch, 0)).trusted, false, 'held from its log, though its record was rebuilt');
+    assert.equal((await trust.check(path.join(c.repo, '.threadbear', 'patches', 'w.ts'), 0)).trusted, true, 'a note can only hold a worktree, never the checkout');
+  }
+});

@@ -930,7 +930,7 @@ export function buildThreadbearTools(
           // Only a mode it has itself: one it inherits is set, so the runs keep
           // it if the default changes.
           if (permissionMode !== undefined && !current.threadId && permissionMode === current.permissionMode) permissionMode = undefined;
-          // Moving it re-approves its check there too (Scheduler.update).
+          // Moving it re-approves its check there too (passed along below).
           const checkNow = typeof check === 'string' ? check : newFolder !== undefined ? current.check : undefined;
           card = checkGuard(checkNow, current.threadId ? await threadFolder(current.threadId) : (newFolder ?? (current.cwd ? path.resolve(expandHome(current.cwd)) : undefined)), caller);
           await confirm('update_schedule', reasons, { scheduleId: current.id, ...Object.fromEntries(Object.entries({ text, title, when, cron, timezone, paused, folder: newFolder, account: acc, pool: pl, model, effort, permissionMode, check, checkTimeoutSecs }).filter(([, v]) => v !== undefined)) }, extra?.signal);
@@ -963,7 +963,12 @@ export function buildThreadbearTools(
           model,
           effort,
           permissionMode,
-          ...(check !== undefined ? { check } : {}),
+          // Moving it to another folder takes its check along, approved
+          // there as this call's card showed it (from a thread that asks
+          // first) or as it is (Full): the Scheduler approves nothing for a
+          // folder alone, so an app's save can't (security review, 11 Nov
+          // 2026, finding 89).
+          ...(check !== undefined ? { check } : newFolder !== undefined && current.check && !current.threadId ? { check: current.check } : {}),
           ...card,
           ...(checkTimeoutSecs !== undefined ? { checkTimeoutSecs } : {}),
         });

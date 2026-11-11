@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Runner } from '../runner.ts';
-import { cleanPresses, type ThreadRecord } from '../store.ts';
+import { normaliseRecord, type ThreadRecord } from '../store.ts';
 import type { RunnerPart } from './part.ts';
 import { providerName } from '../providers.ts';
 import { paths } from '../config.ts';
@@ -127,17 +127,10 @@ function cappedNote(was: string, from: string): string {
 // the main Mac capMovedMode. The note's line about the mode goes in
 // `notes`. True if it changed.
 function sanitizeMoved(rec: Record<string, any>, atMostAsk: boolean, from: string, notes: string[]): boolean {
-  let changed = dropMovedPowers(rec);
-  // What it was told of button presses, well formed and bounded, as the
-  // runner goes through them at every start (cleanPresses).
-  if (rec.presses !== undefined) {
-    const presses = cleanPresses(rec.presses);
-    if (JSON.stringify(presses) !== JSON.stringify(rec.presses)) {
-      if (presses) rec.presses = presses;
-      else delete rec.presses;
-      changed = true;
-    }
-  }
+  // Lists and objects the runner walks at every start in the shape it
+  // expects, press notes well formed and bounded (store.ts normaliseRecord).
+  let changed = normaliseRecord(rec);
+  changed = dropMovedPowers(rec) || changed;
   if (atMostAsk) {
     const capped = capMovedMode(rec);
     if (capped.was && !notes.some((n) => n.includes('so it asks before tools run here'))) notes.push(cappedNote(capped.was, from));
@@ -306,6 +299,45 @@ export function eventsSayMovedIn(threadDir: string): boolean {
   }
 }
 
+// The worktrees a thread's log says it was moved into: the folder in each
+// "Moved from ..., in <folder>." note, up to the top of its checkout, when
+// that's a linked worktree (its .git a file). Only a worktree: the log came
+// from the other runner, which could name any folder, and holding the
+// checkout itself would take its trust away.
+export function movedInWorktrees(threadDir: string): string[] {
+  if (!eventsSayMovedIn(threadDir)) return [];
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(threadDir, 'events.ndjson'), 'utf8');
+  } catch {
+    return [];
+  }
+  const out = new Set<string>();
+  for (const line of text.split('\n')) {
+    if (!line.includes('"text":"Moved from ')) continue;
+    let ev: { type?: unknown; text?: unknown };
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (ev.type !== 'system.note' || typeof ev.text !== 'string') continue;
+    const m = /^Moved from .*?, in (\/.+?)\.(?: |$)/.exec(ev.text);
+    if (!m) continue;
+    for (let dir = m[1]!; path.dirname(dir) !== dir; dir = path.dirname(dir)) {
+      let isFile: boolean | undefined;
+      try {
+        isFile = fs.lstatSync(path.join(dir, '.git')).isFile();
+      } catch {
+        continue;
+      }
+      if (isFile) out.add(dir);
+      break;
+    }
+  }
+  return [...out];
+}
+
 export const movesPart = {
   // At start, before anything loads a patch or starts a CLI: the worktrees
   // the always-trust doesn't reach, worked out again from the threads when
@@ -318,7 +350,11 @@ export const movesPart = {
   // log says it was moved here, as a move finished before any mark can't
   // say whether its work changed what trust covers. A clean move is held
   // too, then: trusting its patches in Patches lets them run.
-  settleUnvouched(this: Runner, records: ThreadRecordLike[]): void {
+  // `broken`: threads whose record can't be read, about to be rebuilt
+  // without their worktree: the worktree their log's note names is held,
+  // if it's one (movedInWorktrees).
+  settleUnvouched(this: Runner, records: ThreadRecordLike[], broken: string[] = []): void {
+    this.unvouchedSettled = true;
     const trust = this.patchTrust;
     if (!trust.unvouchedKnown || !trust.settleUnvouched || trust.unvouchedKnown()) return;
     const live = new Set<string>();
@@ -336,6 +372,7 @@ export const movesPart = {
       if (w.removedAt && !fs.existsSync(w.path)) continue;
       if (w.movedIn === true || w.unvouched === true || eventsSayMovedIn(this.store.threadDir(rec.id))) held.push(w.path);
     }
+    for (const id of broken) held.push(...movedInWorktrees(this.store.threadDir(id)));
     trust.settleUnvouched(held);
     this.log.info('worked out which worktrees patch trust holds', { held: held.length });
   },

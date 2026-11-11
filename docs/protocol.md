@@ -957,9 +957,13 @@ brief did, after Mike pressed RSVP yes and then said go ahead in his
 reply). The line is kept on the thread (`presses` in thread.json, the
 last 20) from the press, so it outlives the button. Read from disk (a
 moved thread's thread.json is the old runner's), only well-formed notes
-are kept, at most 220, each line at most 2,000 characters; and a thread
-whose recovery throws at start or on a handover is said in a notice and
-left as it is, rather than stopping the runner. A turn that doesn't
+are kept, at most 220, each line at most 2,000 characters. Every list and
+object in a record that the runner walks is put in the shape it expects
+as it's read (`normaliseRecord` in store.ts: a `queue` that isn't a list
+is empty, entries of the wrong kind go), a record whose folder isn't a
+string is rebuilt, and a thread whose recovery or summary throws at start
+or on a handover is said in a notice and left as it is, rather than
+stopping the runner. A turn that doesn't
 complete (a failure, Stop, a restart part way) hears it again, so does a
 fresh session that replays the message, and so does an edit back past
 the message that carried it. A run's press already tells the agent how
@@ -5079,7 +5083,8 @@ kept in `schedules.json` in the data dir.
   the same one or another, approves nothing, so a check moved to another
   folder is held there until it's passed again (the apps' editors send the
   folder only when it changed, and show no check; security review, 11 Nov
-  2026). The backend's row says what
+  2026). `update_schedule` with a new folder passes the check along, so it's
+  approved there as that call's card showed it (as it is, from Full). The backend's row says what
   to run, never that it was approved. Before each run it's worked out afresh,
   and the check doesn't run unless that hash is stored and its folder is
   there. A script changed, a link retargeted, a file that turned up, a thread
@@ -5641,7 +5646,10 @@ again and carries on from the state.
   move brought; `patch-trust.json`'s array is taken in whenever that file
   is read. While the file can't be read, no worktree of an always-trusted
   checkout has its trust, only the checkout. A first start's seeding
-  trusts none of a held worktree's patches (security review, 11 Nov 2026). A move whose uncommitted work brings anything under a
+  trusts none of a held worktree's patches. A thread handed over before
+  start works the list out first, and a record that can't be read (about
+  to be rebuilt without its worktree) holds the linked worktree its log's
+  note names (security review, 11 Nov 2026). A move whose uncommitted work brings anything under a
   `node_modules` folder fails: those files would be untracked on T, which
   trust reads as installed packages and doesn't hash (one an older runner
   placed loses its untracked `node_modules` files at adopt, and setup
