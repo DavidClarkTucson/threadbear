@@ -29,6 +29,7 @@ object Updates {
     val available: StateFlow<AppUpdate.Available?> = _available
     private var lastAsked = 0L
     private const val EVERY_MS = 6 * 60 * 60 * 1000L
+    private const val LIMIT = 512 * 1024
 
     val installed: String? get() = BuildConfig.RELEASE_DATE.takeIf { it.isNotEmpty() }
 
@@ -40,7 +41,7 @@ object Updates {
         lastAsked = now
         scope.launch {
             val body = withContext(Dispatchers.IO) { runCatching { fetch(url) }.getOrNull() } ?: return@launch
-            _available.value = AppUpdate.newer(body, mine)
+            _available.value = AppUpdate.newer(body, mine, BuildConfig.UPDATE_REPO)
         }
     }
 
@@ -51,8 +52,18 @@ object Updates {
         conn.setRequestProperty("Accept", "application/vnd.github+json")
         return try {
             if (conn.responseCode != 200) null
-            // A release's JSON is a few KB; more than this isn't one.
-            else conn.inputStream.use { it.readNBytes(512 * 1024) }.toString(Charsets.UTF_8)
+            // A release's JSON is a few KB; more than this isn't one. Read by
+            // hand: readNBytes is Android 13+, and the app runs from Android 10.
+            else conn.inputStream.use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                while (out.size() < LIMIT) {
+                    val n = input.read(buf, 0, minOf(buf.size, LIMIT - out.size()))
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                }
+                out.toString(Charsets.UTF_8.name())
+            }
         } finally {
             conn.disconnect()
         }

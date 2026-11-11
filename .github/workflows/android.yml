@@ -5,17 +5,20 @@
 # is always the newest and the app's update check can find it.
 #
 # Mike chose GitHub releases over Google Play, and the signing key living in
-# this repo's Actions secrets over his Mac (11 Nov 2026): GitHub builds it, so
-# nothing runs on his laptop, and it goes on while the Mac's asleep. Only this
-# repo has the secrets; in a fork the job is skipped (a fork builds its own,
-# with its own key).
+# GitHub over his Mac (11 Nov 2026): GitHub builds it, so nothing runs on
+# his laptop, and it goes on while the Mac's asleep. The key and the
+# Firebase config are secrets of the `android-release` environment, which
+# only hands them to a job running on a release/* tag (its deployment
+# policy), and only Mike can write tags (the "Only Mike writes tags"
+# ruleset): a cloud/ branch, a PR or a manual run on main never sees them.
+# In a fork the job is skipped (a fork builds its own, with its own key).
 #
-# The check job builds and tests the app on every change to android-native/
-# on main or in a PR (no secrets): on 11 Nov 2026 a commit elsewhere took a
-# field out of the kit and main didn't build for Android for hours, as
-# nothing built it. The daily tag waits for main's checks (runner/src/
-# upstream.ts ciVerdict), so a broken Android build now holds the release
-# rather than shipping one.
+# The check job builds and tests the app on every push to main, and on PRs
+# that touch android-native/ (no secrets): on 11 Nov 2026 a commit elsewhere
+# took a field out of the kit and main didn't build for Android for hours,
+# as nothing built it. Every push, not only Android ones, so each commit has
+# an Android verdict for the daily tag to wait on (runner/src/upstream.ts
+# ciVerdict reads the runs on that exact commit).
 #
 # Costs nothing: standard ubuntu runners, free for a public repo; a newer
 # push cancels the check before it.
@@ -25,34 +28,26 @@ on:
   push:
     tags: ['release/*']
     branches: [main]
-    paths:
-      - 'android-native/**'
-      - '.github/workflows/android.yml'
   pull_request:
     paths:
       - 'android-native/**'
       - '.github/workflows/android.yml'
+  # Run on a release/* tag to build (or finish) that release's APK.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "A release/YYYY-MM-DD tag to build and attach to (blank: just build main, as a test, and keep the APK as an artifact)"
-        required: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-${{ github.ref }}
   # A newer push to main or a PR replaces its check; a release build always finishes.
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   check:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -67,35 +62,56 @@ jobs:
         run: cd android-native && ./gradlew --no-daemon :kit:test :app:assembleDebug
 
   apk:
-    if: github.repository == 'mikecann/threadbear' && (startsWith(github.ref, 'refs/tags/release/') || github.event_name == 'workflow_dispatch')
+    if: github.repository == 'mikecann/threadbear' && startsWith(github.ref, 'refs/tags/release/')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # The key's only way in: this environment gives its secrets to release/* tags alone.
+    environment: android-release
+    permissions:
+      contents: write
     env:
-      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      TAG: ${{ github.ref_name }}
+      # The release key's certificate, so a swapped secret can't ship an APK
+      # no installed copy would take (Android wants the same key for an update).
+      CERT_SHA256: 185d962a979b9015485c6ea8450cbc52e31153b058922e3eb80823848609c358
     steps:
+      # The tag itself, by its full ref, never a branch with the same name.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG || github.sha }}
+          ref: ${{ github.ref }}
 
       - name: Skip a release from before the Android app
         id: has
         run: |
           if [ -d android-native ]; then echo "yes=1" >> "$GITHUB_OUTPUT"; else echo "No android-native/ at this tag."; fi
 
-      - uses: actions/setup-java@v4
+      - name: Skip a release that has its APK already
+        id: todo
         if: steps.has.outputs.yes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Never replaced: phones on this date wouldn't be offered a rebuild anyway.
+          if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx threadbear-android.apk; then
+            echo "$TAG already has its APK."
+          else
+            echo "yes=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: steps.todo.outputs.yes
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Android SDK platform and build tools
-        if: steps.has.outputs.yes
+        if: steps.todo.outputs.yes
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" >/dev/null
 
-      - name: Key and Firebase config from the secrets
-        if: steps.has.outputs.yes
+      - name: Key and Firebase config from the environment's secrets
+        if: steps.todo.outputs.yes
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
@@ -104,36 +120,33 @@ jobs:
           printf '%s' "$GOOGLE_SERVICES_JSON" > android-native/app/google-services.json
 
       - name: Build the release APK
-        if: steps.has.outputs.yes
+        if: steps.todo.outputs.yes
         env:
           THREADBEAR_KEYSTORE: ${{ runner.temp }}/release.jks
           THREADBEAR_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          case "$TAG" in release/*) export THREADBEAR_RELEASE="${TAG#release/}";; esac
+          export THREADBEAR_RELEASE="${TAG#release/}"
           cd android-native
           ./gradlew --no-daemon :kit:test :app:assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/threadbear-android.apk"
-          # Signed with the release key, not left unsigned or debug-signed.
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/threadbear-android.apk" | grep -q 'CN=Threadbear Android'
+          # Signed with the release key itself, by its certificate's digest.
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/threadbear-android.apk" \
+            | grep -q "certificate SHA-256 digest: $CERT_SHA256"
 
       - name: Attach it to the tag's release
-        if: steps.has.outputs.yes && env.TAG != ''
+        if: steps.todo.outputs.yes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           notes="The Android app for this release. Install threadbear-android.apk on an Android phone (allow installs from your browser when it asks); the app offers each newer release itself."
+          # "Latest" only for the newest release tag, so building an older one
+          # later can't make phones' update check go backwards.
+          newest=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/release/" --jq '.[].ref' | sed 's#refs/tags/##' | sort | tail -1)
+          latest=false; [ "$newest" = "$TAG" ] && latest=true
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --title "$TAG" --notes "$notes" --latest
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes "$notes" --latest="$latest"
           fi
-          gh release upload "$TAG" "$RUNNER_TEMP/threadbear-android.apk" --clobber
-
-      - name: Keep a test build
-        if: steps.has.outputs.yes && env.TAG == ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: threadbear-android-test
-          path: ${{ runner.temp }}/threadbear-android.apk
-          retention-days: 7
+          gh release upload "$TAG" "$RUNNER_TEMP/threadbear-android.apk"
 
       - name: Never leave the key on the runner
         if: always()

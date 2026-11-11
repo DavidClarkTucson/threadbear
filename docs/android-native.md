@@ -135,15 +135,21 @@ standard (free) GitHub runner and attaches it to that tag's GitHub release
 as `threadbear-android.apk`, so the newest is always at
 https://github.com/mikecann/threadbear/releases/latest/download/threadbear-android.apk.
 A release from before `android-native/` existed is skipped, and in a fork
-the job doesn't run (no secrets there).
+the job doesn't run (no secrets there). The same workflow builds and tests
+the app on every push to main and on PRs that touch it, so each commit has
+an Android verdict for the daily tag to wait on.
 
 - The version is the tag's date (`versionName` 2026-11-12, `versionCode`
   20261112), so each release installs over the last. A local build is
   `dev`, version code 1, and never offers itself an update.
-- The release key (`threadbear`, RSA 4096, made 11 Nov 2026) is in the
-  repo's Actions secrets (`ANDROID_KEYSTORE_BASE64`,
-  `ANDROID_KEYSTORE_PASSWORD`), with `ANDROID_GOOGLE_SERVICES_JSON` for push;
-  Mike's choice over keeping it on his Mac. The backup is
+- The release key (`threadbear`, RSA 4096, made 11 Nov 2026, certificate
+  SHA-256 `185d962a…c358`, pinned in the workflow) is a secret of the
+  `android-release` environment (`ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`, with `ANDROID_GOOGLE_SERVICES_JSON` for push),
+  which only hands secrets to jobs on release/* tags; only Mike can write
+  tags (the "Only Mike writes tags" ruleset). Mike's choice over keeping it
+  on his Mac. A release's APK is never replaced once attached, and only
+  the newest release tag is marked latest. The backup is
   `~/.config/threadbear-android/release.jks` and `release-password` on the
   M5, which a local `:app:assembleRelease` signs with. Android installs an
   update only if it's signed like the installed app, so losing the key
