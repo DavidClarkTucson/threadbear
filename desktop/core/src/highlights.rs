@@ -1045,6 +1045,9 @@ pub struct PatchInfo {
     pub project_id: Option<String>,
     pub matched: Option<Vec<String>>,
     pub live_error: Option<String>,
+    /// A home patch runs something Threadbear can't follow, so threads that
+    /// ask first ask before every file edit: what, where, and what to change.
+    pub edits_ask: Option<String>,
     pub icon: Option<String>,
     pub icon_file: Option<String>,
     pub untrusted: Option<String>,

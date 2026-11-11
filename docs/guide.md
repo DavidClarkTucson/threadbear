@@ -355,8 +355,13 @@ In Ask before edits and Auto, an edit to a file Threadbear runs by itself
 (a patch, a file a patch uses, or Claude Code's settings) always asks, with
 no Always allow, and the card says Threadbear runs the file as code. If a
 patch runs something Threadbear can't follow, every edit asks, and the card
-says it can't tell whether the file runs as code. Even once you allow it, the
-patch waits for you to trust it in Patches.
+says it can't tell whether the file runs as code. The thread then says which
+patch it is, the command and why, and so does that patch in Patches. Usually
+it's a command built from something only known as it runs, like
+`node ${script}`: write it as plain text, or from constants in the patch
+(`node ${join(import.meta.dirname, 'x.mjs')}`), and edits go back to normal.
+URLs, patterns and prompt text in a patch don't count, only what it runs. Even
+once you allow it, the patch waits for you to trust it in Patches.
 
 The mode belongs to one thread. A new thread starts on your default mode
 again unless you pick otherwise, so if you're unsure about a task, switch it

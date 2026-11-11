@@ -359,6 +359,10 @@ impl SidePane {
             if let Some(error) = &patch.live_error {
                 row = row.child(div().text_size(px(style::size::DETAIL)).text_color(p.failed).child(error.clone()));
             }
+            // Why threads in Ask and Auto ask before every edit.
+            if let Some(why) = &patch.edits_ask {
+                row = row.child(div().text_size(px(style::size::DETAIL)).text_color(p.needs_you).child(why.clone()));
+            }
         }
         if let Some(matched) = patch.matched.as_ref().filter(|m| !m.is_empty()) {
             let names: Vec<String> = matched.iter().map(|m| core::last_component(m).to_owned()).collect();

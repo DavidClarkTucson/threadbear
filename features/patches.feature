@@ -57,3 +57,10 @@ Feature: What a folder's patches give a thread
     Then the chip "tools.reseed-dev-db" is offered
     When I run the chip "tools.reseed-dev-db"
     Then the transcript shows a line about "Reseed dev DB"
+
+  @manual @patches.list
+  Scenario: A home patch that makes every edit ask says which and why
+    When a home patch's panel runs a command built from a value only known as it runs, like "node ${script}"
+    And I show the "threadbear.patches" section of the pane
+    Then the patch says threads in Ask and Auto ask before every file edit, with the command, its line and what to change
+    And an Auto thread's first edit that asks says the same in the transcript

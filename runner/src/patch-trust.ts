@@ -1135,6 +1135,40 @@ export function actionCommandProblem(command: string, folder: string, files: str
   return undefined;
 }
 
+// What `command` run from `start.folder` reaches, its scripts outside the
+// repo too, each followed from its own folder and repo (checkDigest, and the
+// commands of a patch that loads without a hash). `missing`: files it names
+// that aren't there yet.
+function followOutside(command: string, label: string, start: FollowOptions, reads: Reads): { files: Set<string>; missing: Set<string>; problem?: string } {
+  const files = new Set<string>();
+  const missing = new Set<string>();
+  const seen = new Set<string>();
+  const queue: { file: string; dir: string }[] = [];
+  let problem: string | undefined;
+  const take = (reach: ScriptReach) => {
+    for (const f of reach.files) files.add(f);
+    for (const f of reach.missing) missing.add(f);
+    for (const { file, dirs } of reach.outside ?? []) for (const dir of dirs) queue.push({ file, dir });
+    problem ??= reach.problem;
+  };
+  take(reachOfCommand(command, label, { ...start, outside: true }));
+  while (queue.length) {
+    const { file: script, dir } = queue.shift()!;
+    const key = `${script}\0${dir}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (seen.size > MAX_HELPERS) {
+      problem ??= `${label} reaches more than ${MAX_HELPERS} scripts outside its repo, more than patch trust follows.`;
+      break;
+    }
+    files.add(script);
+    // The script's own repo bounds what's followed as part of it, from the
+    // folder it runs in: its `./x` is there, not beside it.
+    take(reachOf(script, { ...followOptions(path.dirname(script), reads), folder: dir, outside: true }));
+  }
+  return { files, missing, ...(problem ? { problem } : {}) };
+}
+
 // What a schedule's check runs, for binding its approval to (a card, or an
 // owner's or Full thread's call): the command, and every file it reaches
 // from `cwd` by its bytes. Its scripts outside the repo too, as a check is
@@ -1154,30 +1188,9 @@ export function checkDigest(command: string, cwd: string, commandOnly = false): 
   if (commandOnly) return { hash: sha256(Buffer.from(JSON.stringify([CHECK_TAG, command, []]))), files: [] };
   const reads = new Reads();
   const start = followOptions(cwd, reads);
-  const files = new Set<string>();
-  const seen = new Set<string>();
-  const queue: { file: string; dir: string }[] = [];
-  let problem: string | undefined;
-  const take = (reach: ScriptReach) => {
-    for (const f of reach.files) files.add(f);
-    for (const { file, dirs } of reach.outside ?? []) for (const dir of dirs) queue.push({ file, dir });
-    problem ??= reach.problem;
-  };
-  take(reachOfCommand(command, 'the check', { ...start, outside: true }));
-  while (queue.length) {
-    const { file: script, dir } = queue.shift()!;
-    const key = `${script}\0${dir}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (seen.size > MAX_HELPERS) {
-      problem ??= `the check reaches more than ${MAX_HELPERS} scripts outside its repo, more than patch trust follows.`;
-      break;
-    }
-    files.add(script);
-    // The script's own repo bounds what's followed as part of it, from the
-    // folder it runs in: its `./x` is there, not beside it.
-    take(reachOf(script, { ...followOptions(path.dirname(script), reads), folder: dir, outside: true }));
-  }
+  const followed = followOutside(command, 'the check', start, reads);
+  const files = followed.files;
+  let problem = followed.problem;
   if (problem) {
     for (const word of command.split(/[\s'"`;&|()<>=]+/)) {
       if (!word || word.length > MAX_PATH) continue;
@@ -1211,6 +1224,16 @@ export function commandFiles(command: string, folder: string): { files: string[]
   const real = realpath(folder);
   const reach = reachOfCommand(command, 'the command', { folder: real, top: repoTop(real), scanJs: scriptScan, resolveImport: resolveHelper, namedPaths });
   return { files: [...reach.files, ...reach.missing], ...(reach.problem ? { problem: reach.problem } : {}) };
+}
+
+// commandFiles, and the scripts it runs outside the folder's repo too, each
+// followed from its own folder (followOutside): what a command a patch that
+// loads without a hash builds from an absolute path reaches, which no word
+// in its text names whole (writeRunsAsCode).
+export function commandFilesOutside(command: string, folder: string): { files: string[]; problem?: string } {
+  const reads = new Reads();
+  const { files, missing, problem } = followOutside(command, 'the command', followOptions(folder, reads), reads);
+  return { files: [...files, ...missing], ...(problem ? { problem } : {}) };
 }
 
 // Why a command a trusted-by-hash patch's live function (`when`, `badge`,

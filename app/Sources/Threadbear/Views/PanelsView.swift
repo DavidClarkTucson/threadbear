@@ -457,6 +457,13 @@ struct PatchesList: View {
                         .foregroundStyle(Color(nsColor: Theme.failed))
                         .textSelection(.enabled)
                 }
+                // Why threads in Ask and Auto ask before every edit.
+                if let editsAsk = patch.editsAsk {
+                    Text(editsAsk)
+                        .font(.system(size: TypeScale.detail))
+                        .foregroundStyle(Color(nsColor: Theme.needsYou))
+                        .textSelection(.enabled)
+                }
             }
             // A tool patch: why it's here, when it came from another repo.
             if let matched = patch.matched, !matched.isEmpty {

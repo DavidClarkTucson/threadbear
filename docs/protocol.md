@@ -450,6 +450,10 @@ type PatchInfo = {
   hash?: string         // with untrusted: the version patches.trust would trust
   helpers?: string[]    // with untrusted: the local files it imports or names
                         // (absolute), whose text the hash covers too
+  editsAsk?: string     // a patch that loads without a hash runs something
+                        // Threadbear can't follow, so threads in Ask and Auto
+                        // ask before every file edit: which, why, and what to
+                        // change (see "Agent writes that run as code")
 }
 
 type Panel = {
@@ -4261,17 +4265,37 @@ settings' name, there yet or not, from the login's folder or the thread's
 script, quoted names included, and what it imports or runs in turn), and
 for patches that load without trust (home's, Threadbear's own checkout's)
 what each is a link to, imports and names, absolute or `~/` paths in it,
-and what each of its strings reaches as a command from where its commands
-run: the thread's folder, or for a patch from a folder of one of the thread's
-projects, that folder, as its hooks run there at the end of the thread's turns.
-One of those that can run something it can't follow (a script that isn't there
-yet included, as the follow stops there) makes every edit ask. Strings that
-aren't commands don't count towards that, though what they name still asks: one
-found only in place in the patch file's own `export default { ... }`, as its
-`icon`, `appliesTo` or `worktree.keep`, or an action's, panel's or hook's
-`title`, `note`, `icon`, `on`, `tell`, `prompt`, `url` or `edited`, and a plain
-web address with nothing a shell would split or expand. Neither does a
-patch's `worktree` setup or check: setup runs what's committed, in a new
+and what each command it runs reaches (its scripts outside the folder too)
+from where its commands run: the thread's folder, or for a patch from a folder
+of one of the thread's projects, that folder, as its hooks run there at the end
+of the thread's turns. Its commands are what reaches somewhere a command runs
+(`src/patch-commands.ts`): a call to the `sh` its live functions and `items`
+are handed (as `sh(...)`, `ctx.sh(...)`, taken out as `{ sh }` or handed to a
+helper in the same file), an object's `run`, `setup`, `check` or `teardown`,
+and node:child_process's `exec`, `execFile`, `spawn` and `fork` (their `Sync`
+forms and `promisify` too). Each is worked out from the code as far as it
+plainly can be: strings, templates, `+`, constants declared once with `const`,
+`path.join` and the like, `import.meta.dirname` and `.url`, `fileURLToPath`,
+`homedir()`, a one-line helper (`quote(s)`), `[...].join(' ')` and both sides of
+`a ? b : c`. Anything else is a value worked out as it runs, followed as an
+unset shell variable: fine as a plain argument (`gh pr view ${n}`), and
+something it can't follow where it picks what runs (`node ${script}`,
+`${bin} --help`, `sh -c ${x}`). One command it can't follow (a script that
+isn't there yet included, as the follow stops there) makes every edit ask. A
+file it can't read that way (one that imports a package or a Node module that
+could run something, like `node:cluster`, or passes `sh` or a child_process
+function around, takes a property by a computed name, has a getter, or uses
+`require` or `import()`) is read as before: every string in it as a command it
+might run, except for strings found only in place in the patch file's own
+`export default { ... }` as its `icon`, `appliesTo` or `worktree.keep`, or an
+action's, panel's or hook's `title`, `note`, `icon`, `on`, `tell`, `prompt`,
+`url` or `edited`, and plain web addresses with nothing a shell would split or
+expand. How a patch quotes a value it splices into a command is its own
+business, then and now: what's checked is which files it runs. When a patch
+makes every edit ask, the thread says so (a `system.note`, once per patch and
+command, the first time an edit asks for it) and the patch's entry in
+Patches has `editsAsk`: which file, the line and command, why, and what to
+change. A patch's `worktree` setup or check doesn't count either: setup runs what's committed, in a new
 worktree, and the check when a land is asked for, so neither runs what an agent
 just wrote until it has got past a step that's asked about. Its `teardown`
 does count, as it runs in the worktree as the agent left it. A repo's setup has to

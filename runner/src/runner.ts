@@ -396,6 +396,8 @@ type Runtime = {
   // rules not trusted for a thread that asks first (StartSessionOptions.heldGrants).
   claudeHeldGrants?: boolean;
   claudeNoted?: string;
+  // The last patch said to make every edit ask (noteEditsAsk), so it's said once.
+  editsAskNoted?: string;
   // The installed version when the live session was started (what E says
   // new sessions start on), and whether it has got going since.
   startVersion?: string;

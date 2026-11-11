@@ -677,6 +677,10 @@ public struct PatchInfo: Sendable, Hashable, Codable, Identifiable {
     public var matched: [String]?
     /// A `when` or `badge` function that threw or took too long.
     public var liveError: String?
+    /// A patch that loads without a hash (a home patch) runs something
+    /// Threadbear can't follow, so threads that ask first ask before every
+    /// file edit: what, where, and what to change.
+    public var editsAsk: String?
     /// The patch file's icon: a symbol, or a picture (as Panel's).
     public var icon: String?
     public var iconFile: String?
@@ -718,6 +722,7 @@ public struct PatchInfo: Sendable, Hashable, Codable, Identifiable {
         projectId = (try? c.decodeIfPresent(String.self, forKey: .projectId)) ?? nil
         matched = (try? c.decodeIfPresent([String].self, forKey: .matched)) ?? nil
         liveError = (try? c.decodeIfPresent(String.self, forKey: .liveError)) ?? nil
+        editsAsk = (try? c.decodeIfPresent(String.self, forKey: .editsAsk)) ?? nil
         icon = (try? c.decodeIfPresent(String.self, forKey: .icon)) ?? nil
         iconFile = (try? c.decodeIfPresent(String.self, forKey: .iconFile)) ?? nil
         untrusted = (try? c.decodeIfPresent(String.self, forKey: .untrusted)) ?? nil

@@ -93,6 +93,9 @@ pub struct DockView {
     /// Each split's length along its axis, from the last frame, for the
     /// dividers (the 80 pt minimum is in points).
     split_lengths: Rc<RefCell<HashMap<String, f64>>>,
+    /// Each group's tab strip, which scrolls sideways once its tabs don't
+    /// fit, and the tab it last brought into view (`tab_strip`).
+    tab_scrolls: HashMap<String, (ScrollHandle, PanelId)>,
     // The drag's animations: SwiftUI gets these from withAnimation; here they
     // run on GPUI's frames, driven by time, not frame counts.
     pub(crate) lift: Option<SpringRun>,
@@ -129,6 +132,7 @@ impl DockView {
             press_moved: false,
             escape_watch: None,
             split_lengths: Rc::new(RefCell::new(HashMap::new())),
+            tab_scrolls: HashMap::new(),
             lift: None,
             landing: None,
             preview: None,
@@ -650,10 +654,31 @@ impl DockView {
                     )
                     .context_menu(self.panel_menu(selected.clone(), false)),
             );
+        } else if single {
+            bar = bar.child(self.tab(&selected, true, true, theme, window, cx));
         } else {
-            for panel in &group.panels {
-                bar = bar.child(self.tab(panel, *panel == group.selected, single, theme, window, cx));
+            // Tabs that don't fit scroll, rather than running off the bar's
+            // trailing edge where no one could reach them (Ville, 11 Nov 2026).
+            let (handle, shown) = self.tab_scrolls.entry(group.id.clone()).or_insert_with(|| (ScrollHandle::new(), PanelId::default())).clone();
+            if shown != group.selected {
+                if let Some(i) = group.panels.iter().position(|p| *p == group.selected) {
+                    handle.scroll_to_item(i);
+                }
+                self.tab_scrolls.insert(group.id.clone(), (handle.clone(), group.selected.clone()));
             }
+            let mut strip = h_flex()
+                .id(ElementId::Name(format!("dock-tabs-{}", group.id).into()))
+                .flex_shrink_1()
+                .min_w(px(0.))
+                .h_full()
+                .items_center()
+                .gap(px(2.))
+                .overflow_x_scroll()
+                .track_scroll(&handle);
+            for panel in &group.panels {
+                strip = strip.child(div().flex_none().child(self.tab(panel, *panel == group.selected, false, theme, window, cx)));
+            }
+            bar = bar.child(strip);
         }
         // The empty part of a bar: moves its panel (or the window, HoldDrag).
         let press_panel = selected.clone();
