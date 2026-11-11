@@ -284,7 +284,10 @@ impl Terminals {
         let quitting = cx.on_app_quit(|this: &mut Terminals, cx| {
             #[cfg(unix)]
             {
-                let shells: Vec<(i32, Born)> = this.sessions.values().filter_map(|s| s.read(cx).process()).collect();
+                // Those still being ended after their thread went too: the
+                // thread that would finish them goes with the app.
+                let mut shells: Vec<(i32, Born)> = this.sessions.values().filter_map(|s| s.read(cx).process()).collect();
+                shells.extend(ENDING.lock().unwrap_or_else(|e| e.into_inner()).iter().copied());
                 end_shells_now(&shells);
             }
             #[cfg(not(unix))]
@@ -1469,15 +1472,23 @@ fn end_shell(pid: i32, when: Born) {
     if !signal(pid, when, libc::SIGHUP) {
         return;
     }
+    ENDING.lock().unwrap_or_else(|e| e.into_inner()).push((pid, when));
     std::thread::spawn(move || {
         for next in [libc::SIGTERM, libc::SIGKILL] {
             std::thread::sleep(Duration::from_secs(2));
             if !signal(pid, when, next) {
-                return;
+                break;
             }
         }
+        // Gone, or told to with SIGKILL, which it can't refuse.
+        ENDING.lock().unwrap_or_else(|e| e.into_inner()).retain(|&shell| shell != (pid, when));
     });
 }
+
+/// Shells `end_shell` is still ending, so quitting in the meantime ends them
+/// itself (Codex's review, 11 Nov: archive, then quit within four seconds).
+#[cfg(unix)]
+static ENDING: Mutex<Vec<(i32, Born)>> = Mutex::new(Vec::new());
 
 /// Ends every shell as the app quits: as `end_shell`, but within about half
 /// a second and over before this returns, as nothing the app starts outlives

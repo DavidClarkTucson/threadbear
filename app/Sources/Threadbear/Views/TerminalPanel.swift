@@ -61,8 +61,19 @@ final class Terminals {
 
     private func stop(_ key: TerminalKey) {
         guard let s = sessions.removeValue(forKey: key) else { return }
+        noteEnding(s)
         s.stop()
         generation += 1
+    }
+
+    /// Shells let go but maybe not ended yet: SwiftTerm's own SIGTERM and
+    /// SIGKILL come a while after, and go with the app if it quits first, so
+    /// `endAllNow` ends these too (Codex's review, 11 Nov: archive, then quit).
+    @ObservationIgnored private var ending: [(pid: pid_t, born: TerminalSession.Born)] = []
+
+    private func noteEnding(_ session: TerminalSession) {
+        ending.removeAll { TerminalSession.born($0.pid) != $0.born }
+        if let shell = session.runningShell { ending.append(shell) }
     }
 
     /// Called whenever the app's thread list changes: stops the shells of
@@ -168,7 +179,7 @@ final class Terminals {
     /// (Codex's review, 11 Nov). Each signal only while the pid is still the
     /// process that was started.
     func endAllNow() {
-        let shells = sessions.values.compactMap(\.runningShell)
+        let shells = sessions.values.compactMap(\.runningShell) + ending
         let alive = { shells.contains { TerminalSession.born($0.pid) == $0.born } }
         for (sig, wait) in [(SIGHUP, 0.4), (SIGTERM, 0.2), (SIGKILL, 0.1)] {
             for shell in shells where TerminalSession.born(shell.pid) == shell.born { kill(shell.pid, sig) }
@@ -183,6 +194,7 @@ final class Terminals {
         guard let old = sessions[key] else { return }
         let fresh = TerminalSession(target: old.target)
         sessions[key] = fresh
+        noteEnding(old)
         old.stop()
         generation += 1
         focusTick += 1
@@ -251,8 +263,10 @@ final class PromptWatchingTerminalView: LocalProcessTerminalView {
     /// safe, sends it anyway (Codex's review, 11 Nov).
     func pasteChecked(_ text: String) {
         guard !text.isEmpty, !pasteNow(text, asked: false) else { return }
+        #if DEBUG
         // A scripted app never asks (no one would answer) and takes Cancel.
         if Automation.instanceId != nil { return }
+        #endif
         let question = TerminalPut.pasteQuestion(text)
         let alert = NSAlert()
         alert.messageText = question.title
@@ -270,6 +284,8 @@ final class PromptWatchingTerminalView: LocalProcessTerminalView {
         let bracketed = terminalStateSnapshot().bracketedPasteMode
         if !bracketed, !asked, TerminalPut.pasteRuns(text) { return false }
         onText?()
+        // To the bottom, as Terminal goes when you paste.
+        if canScroll { scroll(toPosition: 1) }
         send(data: TerminalPut.pasteBytes(text, bracketed: bracketed)[...])
         return true
     }
@@ -418,7 +434,9 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
     /// Pasted as the terminal's own paste is: bracketed where the shell
     /// asked for that, so a newline in it doesn't run anything.
     func put(_ text: String) {
-        view.pasteText(text)
+        // Only ever typed while the shell has asked for brackets (putStep).
+        if view.canScroll { view.scroll(toPosition: 1) }
+        view.send(data: TerminalPut.pasteBytes(text, bracketed: true)[...])
         promptLine = .put(text)
     }
 

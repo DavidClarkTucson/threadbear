@@ -155,6 +155,20 @@ Feature: The Terminal
     When the app quits
     Then the shell that wrote "shell.pid" in the folder of "Rename the Settings tabs" has ended
 
+  # Archiving starts ending it, two seconds a step; quitting in the meantime
+  # mustn't leave it to a thread that goes with the app.
+  @terminal.lifecycle
+  Scenario: Quitting just after archiving still stops a shell that ignores the hang-up
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "trap '' HUP TERM; echo $$ > shell.pid; echo ready; while :; do :; done" and press Return in the Terminal
+    Then the Terminal shows the line "ready"
+    When I archive the open thread
+    Then the shell of "Rename the Settings tabs" has stopped
+    When the app quits
+    Then the shell that wrote "shell.pid" in the folder of "Rename the Settings tabs" has ended
+
   @terminal.lifecycle
   Scenario: A shell that has exited can be started again
     Given the thread "Rename the Settings tabs" works in a folder of its own

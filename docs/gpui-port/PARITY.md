@@ -222,6 +222,70 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 The Terminal after three Codex reviews, in both apps (`terminal.panel`, `terminal.putcommand`, `terminal.lifecycle`)
+
+- A paste that would run lines by itself asks first. When the program in the
+  terminal hasn't asked for pastes to be marked (bracketed paste, which
+  macOS's own bash never does) and the text has a line break, each line goes
+  in as Return and runs as it arrives: Codex showed a shell block copied while
+  the Terminal was busy, then pasted there, running its first lines. Now
+  "Paste 2 lines?" asks, as Windows Terminal and iTerm do, a scripted app
+  answers Cancel, and what's sent is the text that was asked about. Without
+  brackets a paste also loses its control characters (^A, ^C, ESC would each
+  be a key, and readline can have ^A bound to accept-line). The Swift app no
+  longer uses SwiftTerm's own paste for this: it kept some controls, and when
+  it saw the line breaks it pasted anyway. Text an input method puts in all
+  at once with a control in it (a text expander's snippet, dictated
+  paragraphs) is a paste too, not keys.
+- A second block's command is copied while another one put there waits for
+  Return, with "Another command's waiting for Return, so it's copied". It
+  used to clear the first with ^U and check the screen, but a shell can have
+  ^U bound to anything, Return included, and a partial delete passed the
+  check and left the two run together.
+- The shell has to be the one reading the terminal before play types there:
+  its group has the terminal, the program its pid runs is the shell that was
+  started (`exec ssh -tt elsewhere` or `exec vim` keeps the pid and the
+  group; proc_pidpath, /proc/<pid>/exe on Linux), and nothing else is in its
+  group (with job control off, `ssh -tt` stays in the shell's group).
+- A shell that ignores the hang-up still ends. Archiving or deleting its
+  thread in the GPUI app sends SIGHUP, then SIGTERM and SIGKILL two seconds
+  apart on a thread of its own (SwiftTerm's LocalProcess already did this
+  when a session is let go); before, the library waited for the shell before
+  closing the pty, so one that ignored SIGHUP stayed, working in a folder the
+  next thread may be given. Quitting either app does the same within about
+  half a second, before the app goes, to shells still being ended after their
+  thread went too. Each signal goes only while the pid is still the process
+  that was started (by its start time; a zombie counts as gone).
+- `open_gate_source.rs` let the whole Terminal file off; it now allows only
+  the line that starts the shell, once.
+- Left as they are, from the reviews: an input method sending a command and
+  then Return as two commits (that's typing, as far as anything can tell); a
+  key someone has bound to accept-line themselves (Tab, but any key can be,
+  so only brackets help there); a program run in the Terminal that ignores
+  SIGHUP and SIGTERM outliving it, as one run with nohup does; and the
+  shell being reaped and its pid handed on between checking its start time
+  and signalling it, as both systems give pids out in turn, so that needs
+  every other pid used in the microseconds between two system calls.
+- Both apps' `terminal` command takes `commit` (an input method's text all at
+  once); the GPUI app takes `quit`, as the Swift app does.
+- Files: `desktop/core/src/terminal.rs`, `desktop/gpui/src/{terminal,
+  shell_blocks,automation}.rs`, `desktop/core/tests/open_gate_source.rs`,
+  `app/Sources/ThreadbearCore/Markdown/ShellBlock.swift` and its tests,
+  `app/Sources/Threadbear/Views/TerminalPanel.swift`,
+  `app/Sources/Threadbear/{Transcript/TextKit,Automation,ThreadbearApp}.swift`,
+  `features/terminal.feature` and its steps, `features/support/gpui.ts`, and
+  `docs/guide.md`. The replacing scenario is now the copy; new ones: a shell
+  that execs another program is busy, so is one with a program in its group,
+  a paste of lines asks, an input method's snippet is pasted, and a shell
+  that ignores the hang-up ends on archive, on quit, and on quit just after
+  archive, checked by its pid. Both dumps' `terminal` give `pastesMarked`.
+- Verification: on Tinker Desk, terminal.feature's 22 scenarios, GPUI 22 of
+  22 and Swift 22 of 22; core's tests (the open gate's source test with its
+  one allowed line among them) and the Swift app's ShellBlockTests, 17 of 17.
+  Codex read it three times, trying to break each fix: what it found the
+  first two times is fixed, and of the third, archive-then-quit is fixed and
+  the rest is left as said above.
+
 ### 2026-11-11 Thread chips in replies and agents' messages (`rich.threadchips`, `transcript.reply`, `transcript.agentmessage`)
 
 - A thread's id in a reply (its first 8 characters or the whole id, as `tb
