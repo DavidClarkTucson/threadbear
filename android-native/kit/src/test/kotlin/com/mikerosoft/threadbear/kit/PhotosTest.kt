@@ -46,6 +46,18 @@ class PhotoPrepTest {
         assertEquals(2048 to 1, PhotoPrep.fitted(100_000, 2))
     }
 
+    /** A decode its waiter gave up on still holds its turn until it ends, once (Codex's second pass). */
+    @Test fun aTurnIsHeldUntilTheWorkEnds() = runTest {
+        val first = PhotoPrep.takeTurn()
+        val second = PhotoPrep.takeTurn()
+        assertEquals(0, PhotoPrep.freeTurns)
+        first()
+        first()
+        assertEquals(1, PhotoPrep.freeTurns)
+        second()
+        assertEquals(2, PhotoPrep.freeTurns)
+    }
+
     @Test fun aSmallPhotoIsNotBlownUp() {
         assertEquals(300 to 200, PhotoPrep.fitted(300, 200))
     }

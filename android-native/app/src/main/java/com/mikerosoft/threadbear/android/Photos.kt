@@ -31,11 +31,15 @@ import com.mikerosoft.threadbear.kit.TransportError
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -154,13 +158,18 @@ object PhotoDecoding {
 
     private class TooBig : RuntimeException("Too big a picture")
 
-    /** Two at a time across the app, off the main thread. Null when it isn't a picture this can read, or it's too big. */
-    suspend fun prepare(source: () -> ImageDecoder.Source, bytes: Long? = null): Prepared? = PhotoPrep.inTurn {
-        within(DECODE_MS) {
+    /**
+     * Two at a time across the app, off the main thread. Null when it isn't
+     * a picture this can read, it's too big, or its provider has stalled.
+     * The turn is given back when the decode really ends, not when its
+     * waiter gives up, so stalled decodes can't let more run at once.
+     */
+    suspend fun prepare(source: () -> ImageDecoder.Source, bytes: Long? = null): Prepared? {
+        // Both turns held by decodes that never end: refused rather than waiting for good.
+        val turn = withTimeoutOrNull(DECODE_MS) { PhotoPrep.takeTurn() } ?: return null
+        return ProviderCalls.call(DECODE_MS, onEnd = turn) {
             try {
                 prepared(source(), bytes)
-            } catch (e: CancellationException) {
-                throw e
             } catch (_: Throwable) {
                 // Not a picture, too big, or out of memory on a huge one: refused, not a crash.
                 null
@@ -174,13 +183,54 @@ object PhotoDecoding {
     private const val DECODE_MS = 30_000L
 
     /**
-     * `work` on a background thread, or null after `ms`. Another app's
-     * provider can stall a call for good, and a blocked read doesn't hear a
-     * cancel, so it's left to finish on its own thread rather than waited
-     * for (Codex's review): the photo is refused instead of the box hanging.
+     * Every call into another app's provider (type, size, decode) runs here,
+     * on a few threads of its own rather than Dispatchers.IO. A stalled
+     * provider can block a call for good, and a blocked read doesn't hear a
+     * cancel, so the waiter gives up after its timeout and the call is left
+     * to finish on its thread. Pasting stalled pictures again and again can
+     * then only ever tie up these threads, never the app's shared pool
+     * (Codex's second pass): with all of them stuck, new reads are refused
+     * at once until one comes free.
      */
-    private suspend fun <T> within(ms: Long, work: () -> T?): T? =
-        withTimeoutOrNull(ms) { photoScope.async(Dispatchers.IO) { work() }.await() }
+    private object ProviderCalls {
+        private const val THREADS = 4
+        private val running = AtomicInteger(0)
+        private val pool = Executors.newFixedThreadPool(THREADS) { r -> Thread(r, "photo-provider").apply { isDaemon = true } }
+
+        /**
+         * `work`'s answer, or null if it failed, took longer than `ms`, or
+         * every thread's busy. `onEnd` runs once when the work itself ends
+         * (or at once if it never starts), whatever the waiter did.
+         */
+        suspend fun <T> call(ms: Long, onEnd: () -> Unit = {}, work: () -> T?): T? {
+            // Counted until the work really ends, so stuck ones keep their place: never more than THREADS, and never a queue.
+            if (running.incrementAndGet() > THREADS) {
+                running.decrementAndGet()
+                onEnd()
+                return null
+            }
+            val answer = CompletableDeferred<T?>()
+            try {
+                pool.execute {
+                    try {
+                        answer.complete(work())
+                    } catch (_: Throwable) {
+                        answer.complete(null)
+                    } finally {
+                        running.decrementAndGet()
+                        onEnd()
+                    }
+                }
+            } catch (_: RejectedExecutionException) {
+                running.decrementAndGet()
+                onEnd()
+                return null
+            }
+            return withTimeoutOrNull(ms) { answer.await() }
+        }
+    }
+
+    private suspend fun <T> within(ms: Long, work: () -> T?): T? = ProviderCalls.call(ms, work = work)
 
     /**
      * A uri from the picker, the camera or a paste. With `imagesOnly` (a
