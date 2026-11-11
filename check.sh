@@ -124,10 +124,15 @@ if [ "$LOCAL" = 0 ] && [ "$E2E" = 0 ]; then
       PRIORITY="$( [ -x "$NODE" ] && [ -f "$RUNNER_JSON" ] && "$NODE" -e '
         try { const p = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).jobPriority; if (["background", "low", "normal"].includes(p)) console.log(p) } catch {}' "$RUNNER_JSON")" ;;
     esac
+    # nice adds to what it's run at, and tb land and the runner's update
+    # already nice this at low, so a check that's at 10 or more stays as it
+    # is rather than going to the bottom (Codex's review, 11 Nov).
+    NICENESS="$(ps -o nice= -p $$ 2>/dev/null | tr -d ' ')"
     case "$PRIORITY" in
       normal) exec "$0" --local ${ARGS[@]+"${ARGS[@]}"} ;;
       background) if command -v taskpolicy >/dev/null 2>&1; then exec taskpolicy -b "$0" --local ${ARGS[@]+"${ARGS[@]}"}; fi ;;
     esac
+    [ "${NICENESS:-0}" -ge 10 ] 2>/dev/null && exec "$0" --local ${ARGS[@]+"${ARGS[@]}"}
     exec nice -n 10 "$0" --local ${ARGS[@]+"${ARGS[@]}"}
   fi
 elif [ "$E2E" = 1 ] && [ "$LOCAL" = 0 ]; then
