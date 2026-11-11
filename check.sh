@@ -124,8 +124,11 @@ export THREADBEAR_NODE="$NODE"
 # Every test makes its own temp data dir; none may find the real one.
 # THREADBEAR_CHECK_BUSY_EXIT is only for sending this run to a host: the
 # check-remote tests run under it would otherwise exit with it (Codex, 9 Nov).
+# THREADBEAR_THREAD_KEY too: with THREADBEAR_RUNNER_HOME gone, tb would take
+# the thread's key for any test runner's home and send it there, where it's
+# refused (tb.test.ts and worktrees-landing.test.ts, David's Mac, 11 Nov).
 unset THREADBEAR_HOME THREADBEAR_DATA_DIR THREADBEAR_PORT THREADBEAR_URL THREADBEAR_LOG \
-  THREADBEAR_THREAD_ID THREADBEAR_RUNNER_VERSION THREADBEAR_RUNNER_HOME THREADBEAR_CHECK_BUSY_EXIT
+  THREADBEAR_THREAD_ID THREADBEAR_THREAD_KEY THREADBEAR_RUNNER_VERSION THREADBEAR_RUNNER_HOME THREADBEAR_CHECK_BUSY_EXIT
 # And their old names, which the runner and tb would otherwise take for these.
 for v in $(compgen -e | grep '^THREADBARE_' || true); do unset "$v"; done
 # No runner a check starts may install or update a CLI.
@@ -320,8 +323,6 @@ if [ "$QUICK" = 0 ]; then
 fi
 # The iPhone app's logic and source checks (ios/ThreadbearKit), on the Mac.
 # The app itself only builds with Xcode; ios/scripts/sim-shots.sh does that.
-# Convex's Swift library (convex-swift) ships for Apple silicon only, so
-# on an Intel Mac the kit can't build at all.
 if [ "$RUNNER_ONLY" = 1 ]; then
   :
 # Convex's Swift library (convex-swift) ships for Apple silicon only, so
