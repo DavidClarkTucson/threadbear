@@ -123,9 +123,23 @@ impl DockContent for Panels {
     }
 
     fn icon(&self, panel: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let symbol = panel_symbol(panel)?;
         let color = cx.theme().muted_foreground;
-        Some(icons::symbol(symbol).with_size(px(13.)).text_color(color).into_any_element())
+        if let Some(symbol) = panel_symbol(panel) {
+            return Some(icons::symbol(symbol).with_size(px(13.)).text_color(color).into_any_element());
+        }
+        // A patch's panel: its own picture or symbol, as on the rail.
+        let (found, _) = self.patch_panel(panel, cx)?;
+        let symbol = threadbear_core::highlights::panel_symbol(&found).to_owned();
+        Some(crate::patch_icons::patch_icon(found.icon_file.as_deref(), &symbol, 13., Some(color)))
+    }
+
+    fn badge(&self, panel: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        // Where a patch's panel came from, over its icon's corner, smaller
+        // than the rail's (`PanelOriginBadge(side: 11)` on a tab).
+        let (found, thread) = self.patch_panel(panel, cx)?;
+        let origin = threadbear_core::highlights::PanelOrigin::of_panel(&found, &thread.patches());
+        let icons = self.app.upgrade()?.read(cx).sidebar.project_icons.clone();
+        crate::patch_icons::origin_badge(&origin, crate::patch_icons::project_mark(&origin, &thread, &icons), 10., cx)
     }
 
     fn view(&self, panel: &str, ghost: bool, window: &mut Window, cx: &mut App) -> AnyElement {
@@ -162,6 +176,16 @@ impl DockContent for Panels {
 }
 
 /// `WindowDock.symbol(of:)`: the icon on a panel's tab.
+impl Panels {
+    /// The open thread's patch panel with this id, and the thread.
+    fn patch_panel(&self, panel: &str, cx: &App) -> Option<(threadbear_core::highlights::Panel, threadbear_core::inbox::ThreadSummary)> {
+        let app = self.app.upgrade()?;
+        let thread = app.read(cx).open_thread()?.clone();
+        let found = thread.panels().into_iter().find(|p| p.id == panel)?;
+        Some((found, thread))
+    }
+}
+
 fn panel_symbol(panel: &str) -> Option<&'static str> {
     Some(match panel {
         THREADS => "bubble.left.and.bubble.right",

@@ -22,6 +22,7 @@ mod icons;
 mod move_sheet;
 mod new_thread;
 mod open_gate;
+mod patch_icons;
 mod patches;
 mod prefs;
 mod rails;

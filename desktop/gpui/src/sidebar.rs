@@ -635,7 +635,9 @@ impl Threadbear {
             MenuAction::PickTime => self.open_pick_time(id, window, cx),
             MenuAction::WakeWhen => self.open_wake_when(id, window, cx),
             MenuAction::Delete => self.delete_row(id, window, cx),
-            MenuAction::Rename => self.open_rename(id, window, cx),
+            // The bar's own title, opened on the thread and selected, as the
+            // Swift menu's Rename does (`startRenaming`).
+            MenuAction::Rename => self.start_renaming(id, window, cx),
             MenuAction::CopyId => cx.write_to_clipboard(ClipboardItem::new_string(id)),
             // BearDock isn't in this app yet, so a thread opens in the main pane.
             MenuAction::OpenInPanel => self.open(id, window, cx),
@@ -815,30 +817,6 @@ impl Threadbear {
                     entity.update(cx, |this, cx| this.snooze_row(id, ms, window, cx)).ok();
                     true
                 })
-        });
-    }
-
-    /// Rename, from the row's menu (the Swift app makes the header a field;
-    /// this app's header isn't editable yet).
-    fn open_rename(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(current) = self.threads.get(&id).map(|t| t.title.clone()) else { return };
-        let entity = cx.entity().downgrade();
-        let field = cx.new(|cx| InputState::new(window, cx).placeholder("Name this thread").default_value(current));
-        window.open_alert_dialog(cx, move |dialog, _, _| {
-            let (entity, field_read, id) = (entity.clone(), field.clone(), id.clone());
-            dialog.title("Rename thread").width(px(400.)).child(Input::new(&field)).button_props(DialogButtonProps::default().ok_text("Rename").show_cancel(true)).on_ok(move |_, _, cx| {
-                let title = field_read.read(cx).value().trim().to_string();
-                if !title.is_empty() {
-                    let id = id.clone();
-                    entity
-                        .update(cx, |this, cx| {
-                            let local = title.clone();
-                            this.update_thread(&id, move |t| t.title = local, json!({ "title": title }), cx)
-                        })
-                        .ok();
-                }
-                true
-            })
         });
     }
 
