@@ -36,7 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -99,7 +99,8 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
     val model = LocalModel.current
     val vm: ThreadViewModel = viewModel(key = threadId) { ThreadViewModel(model, threadId) }
     val loaded by vm.loaded.collectAsStateWithLifecycle()
-    var draft by rememberSaveable { mutableStateOf("") }
+    // The reply's words and photos (Composer.kt).
+    val box = rememberPhotoBox()
     val thread = (loaded as? Loaded.Here)?.detail?.thread
     val stopping by model.stopping.collectAsStateWithLifecycle()
 
@@ -112,8 +113,7 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
             if (thread != null) {
                 val offline = model.offlineRunner(thread)
                 Composer(
-                    text = draft,
-                    onText = { draft = it },
+                    box = box,
                     placeholder = when {
                         offline != null -> "$offline is offline, this will wait"
                         thread.isBusy -> "Steer the agent"
@@ -122,10 +122,12 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
                     running = thread.isBusy,
                     canStop = model.apiVersion == 0 || model.apiVersion >= BackendApi.STOP,
                     stopping = threadId in stopping,
-                    onSend = {
-                        val text = draft
-                        draft = ""
-                        vm.send(text) { failed -> if (draft.isEmpty()) draft = failed }
+                    onSend = { message, photos ->
+                        // Cleared at once, as the message shows below as it goes;
+                        // a send that fails puts it all back if nothing's been typed since.
+                        val typed = box.text.text.toString()
+                        box.clear()
+                        vm.send(message, photos = photos) { if (box.isEmpty) box.restore(typed, photos) else photos.forEach { it.upload?.drop() } }
                     },
                     onStop = { model.stop(threadId) },
                 )
@@ -139,7 +141,7 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
             Loaded.Gone -> Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("This thread's gone", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            is Loaded.Here -> Transcript(vm, l.detail.thread, l.detail.messages, inner, back) { draft = it }
+            is Loaded.Here -> Transcript(vm, l.detail.thread, l.detail.messages, inner, back) { box.text.setTextAndPlaceCursorAtEnd(it) }
         }
     }
 }
@@ -493,61 +495,5 @@ private fun StatusCard(vm: ThreadViewModel, thread: PhoneThread, messages: List<
             archive = { model.change(thread.threadId, ThreadChange.Archive); leave() },
         )
         else -> Spacer(Modifier.height(1.dp))
-    }
-}
-
-/**
- * The reply box. Send turns into Stop while a turn runs with nothing typed;
- * Stop spins and takes no more taps until the turn has ended.
- */
-@Composable
-private fun Composer(
-    text: String,
-    onText: (String) -> Unit,
-    placeholder: String,
-    running: Boolean,
-    canStop: Boolean,
-    stopping: Boolean,
-    onSend: () -> Unit,
-    onStop: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val signals = LocalSignals.current
-    Surface(color = colors.background) {
-        Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(22.dp)).background(colors.surfaceContainerHigh)
-                    .heightIn(min = 44.dp).padding(horizontal = 16.dp, vertical = 11.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                BasicTextField(
-                    value = text,
-                    onValueChange = onText,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
-                    cursorBrush = SolidColor(signals.accent),
-                    maxLines = 6,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            Spacer(Modifier.width(6.dp))
-            val hasText = text.isNotBlank()
-            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-                when {
-                    hasText -> IconButton(onClick = onSend, modifier = Modifier.size(40.dp).clip(CircleShape).background(signals.accent)) {
-                        Icon(Line.ArrowUp, "Send", Modifier.size(20.dp), tint = Color.White)
-                    }
-                    running && canStop && stopping -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = colors.onSurfaceVariant)
-                    running && canStop -> IconButton(onClick = onStop, modifier = Modifier.size(40.dp).clip(CircleShape).border(1.dp, colors.outline, CircleShape)) {
-                        Icon(Line.Stop, "Stop", Modifier.size(16.dp), tint = colors.onSurface)
-                    }
-                    else -> Icon(Line.ArrowUp, null, Modifier.size(20.dp), tint = signals.faint)
-                }
-            }
-        }
     }
 }

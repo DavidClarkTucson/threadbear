@@ -161,6 +161,7 @@ fun InboxScreen(open: (String) -> Unit) {
                     SwipeRow(t, section, now, projectById, wakeMap, open)
                 }
             }
+            startingRows()
             if (sections.starred.isNotEmpty()) section(PhoneSection.STARRED, sections.starred, null)
             section(PhoneSection.INBOX, sections.inbox, null) { EmptyInbox() }
             if (sections.running.isNotEmpty() || !folds.isFolded(PhoneSection.RUNNING)) section(PhoneSection.RUNNING, sections.running, null)

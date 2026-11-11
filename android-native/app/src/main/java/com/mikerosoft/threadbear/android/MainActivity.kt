@@ -21,6 +21,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mikerosoft.threadbear.android.ui.InboxScreen
+import com.mikerosoft.threadbear.android.ui.NewThreadScreen
 import com.mikerosoft.threadbear.android.ui.PairScreen
 import com.mikerosoft.threadbear.android.ui.ThreadScreen
 import com.mikerosoft.threadbear.android.ui.ThreadbearTheme
@@ -77,8 +78,21 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
         LaunchedEffect(open) {
             open?.let { nav.navigate("thread/$it") { launchSingleTop = true }; openThread.value = null }
         }
+        // A failed start tapped in the inbox: the new thread screen again, as it was.
+        val retry by model.starts.retryDraft.collectAsStateWithLifecycle()
+        LaunchedEffect(retry) {
+            if (retry != null && nav.currentDestination?.route != "new") nav.navigate("new") { launchSingleTop = true }
+        }
         NavHost(nav, startDestination = "inbox") {
             composable("inbox") { InboxScreen(open = { nav.navigate("thread/$it") }) }
+            composable("new") {
+                NewThreadScreen(
+                    close = { nav.popBackStack() },
+                    // Called after it's closed, once the thread's made: opened only
+                    // if the inbox is still showing (not another thread, nor the next new one).
+                    opened = { id -> if (nav.currentDestination?.route == "inbox") nav.navigate("thread/$id") },
+                )
+            }
             composable("thread/{id}") { entry ->
                 ThreadScreen(threadId = entry.arguments?.getString("id") ?: "", back = { nav.popBackStack() },
                     open = { nav.navigate("thread/$it") })

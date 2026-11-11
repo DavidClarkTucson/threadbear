@@ -21,6 +21,7 @@ import com.mikerosoft.threadbear.kit.ThreadChange
 import com.mikerosoft.threadbear.kit.ThreadDetail
 import com.mikerosoft.threadbear.kit.TransportError
 import com.mikerosoft.threadbear.kit.WaitingSend
+import com.mikerosoft.threadbear.kit.WaitingSends
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -117,15 +118,27 @@ class ThreadViewModel(private val model: AppModel, val threadId: String) : ViewM
      * Sends what's typed. It shows straight away under the transcript, then
      * as the backend's waiting row, then as the message itself.
      */
-    fun send(text: String, answers: List<AskAnswer> = emptyList(), onSent: () -> Unit = {}, onFailed: (String) -> Unit) {
+    fun send(
+        text: String,
+        answers: List<AskAnswer> = emptyList(),
+        photos: List<PickedPhoto> = emptyList(),
+        onSent: () -> Unit = {},
+        onFailed: (String) -> Unit,
+    ) {
         val b = model.backend.value ?: return
         val words = text.trim()
-        if (words.isEmpty()) return
+        if (words.isEmpty() && photos.isEmpty()) return
         val key = nextKey++
-        locals.update { it + LocalSend(key, words) }
+        // With photos, as the transcript will have it: "[1 picture]" for the ones no marker places.
+        val shown = if (photos.isEmpty()) words
+            else WaitingSends.mirrored(WaitingSend("", CommandState.PENDING, words, photos.size, 0.0))
+        locals.update { it + LocalSend(key, shown) }
         viewModelScope.launch {
             try {
-                val id = b.send(threadId, words, answers)
+                // Up already, as Send waits for them; one that failed gets a fresh try.
+                val images = model.upload(photos)
+                val id = b.send(threadId, words, answers, images)
+                sent(photos)
                 onSent()
                 locals.update { list -> list.map { if (it.key == key) it.copy(commandId = id) else it } }
                 watch(key, id)
