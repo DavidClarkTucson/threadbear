@@ -245,6 +245,17 @@ branch); giving it back deletes that branch. Run in a thread, `tb land`
 refuses another thread's `thread/<id8>` branch: someone else is working
 in that folder (`THREADBEAR_THREAD_ID= tb land` lands it anyway).
 
+Run in a thread, `tb land` lands the thread's own worktree from that
+worktree, from its repo's main checkout, or from a folder outside git.
+From any other checkout the folder wins: a thread's sub-agents work in
+worktrees of their own and inherit its `THREADBEAR_THREAD_ID`, and on 11
+Nov one's `tb land` went for the parent's half-done branch. If that
+checkout can't be landed, it says so and that the thread's own wasn't
+touched. Besides `thread/` branches it takes Claude Code's own worktrees,
+`.claude/worktrees/<name>` on `worktree-<name>`: they're made for one
+helper's work and thrown away, which is what the `thread/` rule is
+there to tell apart from main and branches kept by hand.
+
 A hand-merge, landing without `tb land`, holds the same landing lock.
 From the worktree, on a Mac:
 

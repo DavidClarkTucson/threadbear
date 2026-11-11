@@ -14,7 +14,7 @@ import { parseWhen as parseLater, relativeFuture } from './when.ts';
 import { DEV_HELP, formatModels, logsCommand, runDev } from './tb-dev.ts';
 import { findWorktreePatch, isInside } from './patches.ts';
 import { TRUST_ALL } from './patch-trust.ts';
-import { land, landTargetFromGit, type LandTarget } from './worktrees.ts';
+import { checkoutTop, land, landTargetFromGit, realpath, type LandTarget } from './worktrees.ts';
 import { landRefusal } from './follow-origin.ts';
 import { activityCommand } from './activity.ts';
 import { pairCommand } from './pair.ts';
@@ -325,27 +325,37 @@ async function main(argv: string[]): Promise<number> {
 
 type Flags = Record<string, string | boolean | string[] | undefined>;
 
-// `tb land` (docs/thread-worktrees.md, worktrees.ts). Inside a thread
-// (THREADBEAR_THREAD_ID) the runner says where the thread's worktree is;
-// otherwise, or when the thread has none, it's the git checkout this runs
-// in, if that's on a thread/ branch. The check is the one in that
+// `tb land` (docs/thread-worktrees.md, worktrees.ts). The checkout this
+// runs in, if that's on a thread/ branch; inside a thread
+// (THREADBEAR_THREAD_ID), the runner's record of the thread's worktree when
+// this runs in that worktree, its repo's main checkout or no checkout at
+// all. Anywhere else, the folder wins: a thread's sub-agents work in
+// worktrees of their own with its THREADBEAR_THREAD_ID, and went for the
+// parent's (GPUI port thread, 11 Nov). The check is the one in that
 // worktree's own patch, so a branch that changes it lands under its own.
 async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean): Promise<number> {
   const here = process.cwd();
   let target: Omit<LandTarget, 'check'> | undefined;
   let from = here;
   const threadId = process.env.THREADBEAR_THREAD_ID;
+  let notThreads = '';
   if (threadId) {
     const t = await threadFromRunner(cfg, threadId);
     if (t?.worktree) {
-      target = t.worktree;
-      if (!isInside(here, t.worktree.path)) from = isInside(t.cwd, t.worktree.path) ? t.cwd : t.worktree.path;
+      const top = await checkoutTop(here);
+      const own = !top || sameDir(top, t.worktree.path) || sameDir(top, t.worktree.mainCheckout);
+      if (own) {
+        target = t.worktree;
+        if (!top || !sameDir(top, t.worktree.path)) from = isInside(t.cwd, t.worktree.path) ? t.cwd : t.worktree.path;
+      } else {
+        notThreads = ` (It didn't land this thread's worktree, ${t.worktree.path}, as you're in another checkout: run tb land in that folder to land it.)`;
+      }
     }
   }
   if (!target) {
     const found = await landTargetFromGit(here, threadId);
     if (!found.target) {
-      console.error(found.reason);
+      console.error(found.reason + notThreads);
       return 1;
     }
     target = found.target;
@@ -362,6 +372,8 @@ async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean):
     readCheck: async () => (await findWorktreePatch(from, undefined, undefined, undefined, TRUST_ALL, true))?.check,
   });
 }
+
+const sameDir = (a: string, b: string): boolean => realpath(a) === realpath(b);
 
 // The thread's summary, or undefined when the runner can't be reached or
 // doesn't know it (tb land then goes by git alone).

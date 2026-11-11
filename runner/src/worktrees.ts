@@ -644,8 +644,22 @@ function runCheck(command: string, cwd: string, shell = ['/bin/sh', '-c']): Prom
 // (thread/<its id8>) is refused, as that's another thread's work. On 8 Nov
 // a borrowed worktree turned out to be shared with a thread brought back,
 // and the borrower committed on that thread's branch without noticing.
+// The top of the git checkout `cwd` is in, or undefined outside one.
+export function checkoutTop(cwd: string): Promise<string | undefined> {
+  return gitOut(cwd, ['rev-parse', '--show-toplevel']);
+}
+
+// A worktree Claude Code made for a sub-agent (Agent's worktree isolation,
+// `claude --worktree`): `<repo>/.claude/worktrees/<name>` on
+// `worktree-<name>`. The thread/ rule is there so a stray tb land doesn't
+// put main, or a branch someone keeps by hand, onto main; these are made
+// for one helper's work and thrown away, like a thread's own.
+function isClaudeWorktree(top: string, branch: string): boolean {
+  return branch === `worktree-${path.basename(top)}` && path.basename(path.dirname(top)) === 'worktrees' && path.basename(path.dirname(path.dirname(top))) === '.claude';
+}
+
 export async function landTargetFromGit(cwd: string, threadId?: string): Promise<{ target?: Omit<LandTarget, 'check'>; reason?: string }> {
-  const top = await gitOut(cwd, ['rev-parse', '--show-toplevel']);
+  const top = await checkoutTop(cwd);
   if (!top) return { reason: `${cwd} isn't in a git checkout. Run tb land in a thread's worktree.` };
   const branch = await gitOut(top, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (branch === 'HEAD') {
@@ -653,7 +667,7 @@ export async function landTargetFromGit(cwd: string, threadId?: string): Promise
     // detached by hand.
     return { reason: `${top} is detached, not on a thread/ branch. tb land runs in a thread's own worktree; to land from this one, git checkout -b thread/<name> in it first.` };
   }
-  if (!branch?.startsWith('thread/')) {
+  if (!branch?.startsWith('thread/') && !(branch && isClaudeWorktree(top, branch))) {
     return { reason: `${top} is on ${branch ?? 'no branch'}, not a thread/ branch. tb land runs in a thread's own worktree.` };
   }
   const owner = /^thread\/([0-9a-f]{8})$/.exec(branch)?.[1];
