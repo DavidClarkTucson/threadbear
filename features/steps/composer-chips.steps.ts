@@ -42,6 +42,34 @@ Then('the {string} menu says {string} and {string}', async function (this: Threa
   assert.deepEqual(lines.slice(0, 2), [first, second]);
 });
 
+// Send's right-click menu, through a real right-click on it in both apps.
+async function sendMenu(world: ThreadbearWorld): Promise<string[]> {
+  const out = await world.app.do({ cmd: 'composer-menu', menu: 'send' });
+  return JSON.parse(out.slice(out.indexOf('['))) as string[];
+}
+
+Then('right-clicking Send offers {string}', async function (this: ThreadbearWorld, items: string) {
+  assert.deepEqual(await sendMenu(this), items.split(' | '));
+});
+
+// With nothing of its own, the right-click is the panel's (Hide Title and
+// the like), in both apps.
+Then('right-clicking Send doesn\'t offer {string}', async function (this: ThreadbearWorld, item: string) {
+  const items = await sendMenu(this);
+  assert.ok(!items.includes(item), `it offers ${item}: ${items.join(', ')}`);
+});
+
+When('I right-click Send and choose {string}', async function (this: ThreadbearWorld, item: string) {
+  await this.app.do({ cmd: 'composer-menu', menu: 'send', click: item });
+});
+
+Then('the schedule editor is open on a new schedule that sends {string}', async function (this: ThreadbearWorld, text: string) {
+  type Editor = { isNew: boolean; text: string };
+  const editor = await this.until('the schedule editor', (d) => (d as unknown as { scheduleEditor?: Editor }).scheduleEditor);
+  assert.equal(editor.isNew, true, 'it opened on a schedule that exists');
+  assert.equal(editor.text, text);
+});
+
 When('I open the context ring\'s popover', async function (this: ThreadbearWorld) {
   await this.app.do({ cmd: 'composer-menu', menu: 'context', show: true });
 });

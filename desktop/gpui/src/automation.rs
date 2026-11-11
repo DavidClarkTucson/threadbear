@@ -144,6 +144,10 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     if cmd["cmd"] == "review" {
         return crate::review_window::automation(&weak, window, cmd, cx).await;
     }
+    // Send's right-click menu (composer_send.rs), read the same way.
+    if cmd["cmd"] == "composer-menu" && cmd["menu"] == "send" {
+        return crate::composer_send::menu_command(window, cmd, cx).await;
+    }
     // A reply link's right-click menu (reply_links.rs): the kit builds it
     // after the press, so it's read in a turn of its own.
     if cmd["cmd"] == "peek" && ["menu", "click", "default"].iter().any(|k| cmd.get(*k).is_some()) {

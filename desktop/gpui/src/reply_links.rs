@@ -1006,7 +1006,7 @@ pub(crate) async fn menu_command(app: &WeakEntity<crate::app::Threadbear>, windo
 /// The items of the `nth` menu on screen (0 the first opened, 1 a submenu
 /// beside it), by their words and where they are, top to bottom.
 #[cfg(feature = "automation")]
-fn open_menu_items(window: &mut Window, nth: usize) -> Vec<(String, Bounds<Pixels>)> {
+pub(crate) fn open_menu_items(window: &mut Window, nth: usize) -> Vec<(String, Bounds<Pixels>)> {
     use gpui_kit::test::TestQueryExt as _;
     let elements = window.elements();
     let mut menus: Vec<_> = elements.iter().filter(|e| e.visible() && e.role() == Some(Role::Menu)).collect();

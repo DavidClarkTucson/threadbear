@@ -1624,6 +1624,15 @@ enum Automation {
             return "ok shown=\(app.terminalShown) focus=\(focused) cwd=\(target.cwd) shells=\(Terminals.shared.debugSummary)"
         case "menu":
             return menu(c, app: app)
+        case "composer-menu" where c["menu"] as? String == "send":
+            // Send's right-click menu (its `iconContextMenu`), through a real
+            // right-click on it: lists its items, or `click` chooses one.
+            // "Send (" is the start of its tooltip, running or not.
+            var menu: [String: Any] = ["tipPrefix": "Send (", "right": true]
+            if let title = c["click"] as? String { menu["pick"] = title }
+            let said = realMenu(menu, window: window)
+            // No menu at all is a menu with nothing in it.
+            return said == "error no menu opened" ? "ok []" : said
         case "composer-menu":
             return composerMenu(c, app: app)
         case "menu-popover":

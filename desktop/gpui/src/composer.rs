@@ -914,6 +914,9 @@ impl Composer {
     }
 
     fn render_send_button(&self, running: bool, creating: bool, cx: &mut Context<Self>) -> AnyElement {
+        // Each state named as SendButton's are, for VoiceOver and the
+        // scripts that right-click it (composer_send.rs).
+        use gpui_kit::base::TestSupportExt as _;
         let can_send = self.can_send(cx);
         let side = px(style::size::SEND_BUTTON);
         let circle = || div().flex().items_center().justify_center().size(side).rounded_full();
@@ -922,6 +925,8 @@ impl Composer {
         if creating {
             return circle()
                 .id("composer-starting")
+                .test_support()
+                .aria_label("Starting the thread")
                 .bg(style::send_faint_fill(cx))
                 .child(Spinner::new().color(style::quiet_text(cx)).with_size(px(14.)))
                 .tooltip(|window, cx| Tooltip::new("Starting the thread").build(window, cx))
@@ -930,6 +935,8 @@ impl Composer {
         if running && !can_send && self.stopping {
             return circle()
                 .id("composer-stopping")
+                .test_support()
+                .aria_label("Stopping")
                 .bg(style::send_faint_fill(cx))
                 .child(Spinner::new().color(style::quiet_text(cx)).with_size(px(14.)))
                 .tooltip(|window, cx| Tooltip::new("Stopping").build(window, cx))
@@ -939,6 +946,8 @@ impl Composer {
             let (fg, bg) = (cx.theme().background, cx.theme().foreground);
             return circle()
                 .id("composer-stop")
+                .test_support()
+                .aria_label("Stop")
                 .cursor_pointer()
                 .bg(bg)
                 .child(Icon::from(IconName::Square).with_size(px(10.)).text_color(fg))
@@ -950,6 +959,8 @@ impl Composer {
         let (fg, bg) = if can_send { (cx.theme().background, cx.theme().foreground) } else { (style::faint_text(cx), style::send_faint_fill(cx)) };
         circle()
             .id("composer-send")
+            .test_support()
+            .aria_label("Send")
             .when(can_send, |s| s.cursor_pointer())
             .bg(bg)
             .child(Icon::from(IconName::ArrowUp).with_size(px(14.)).text_color(fg))
@@ -1084,6 +1095,8 @@ impl Render for Composer {
         let strip = self.render_strip(cx);
         let creating = self.creating(cx);
         let send_button = self.render_send_button(running, creating, cx);
+        // Right-click it to send the message later (composer_send.rs).
+        let send_button = self.with_send_menu(send_button, cx);
         let controls = self.render_controls(send_button, window, cx);
         // The box: the limit box and the open card, each over a line, then
         // the message.

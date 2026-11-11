@@ -760,12 +760,17 @@ extension Automation {
         let hold = c["hold"] as? Double ?? 0.2
         let sub = c["sub"] as? String
         var submenu: NSMenu?
+        // `pick`: the item to choose once the menu has been read, as a click
+        // on it would; chosen after the menu closes.
+        let pick = c["pick"] as? String
+        var picked: (menu: NSMenu, index: Int)?
         let watch = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
             guard let menu = note.object as? NSMenu else { return }
             let isSub = menu === submenu
             if !isSub {
                 titles = menu.items.map { $0.isSeparatorItem ? "---" : $0.title + ($0.submenu != nil ? " >" : "") }
                 if let sub { submenu = menu.items.first { $0.title == sub }?.submenu }
+                if let pick, let index = menu.items.firstIndex(where: { $0.title == pick }) { picked = (menu, index) }
             }
             // Timers: the main queue can't break into a menu's tracking.
             let opened = Timer(timeInterval: 0.15, repeats: false) { _ in
@@ -816,6 +821,12 @@ extension Automation {
         else if sub != nil { return "error no submenu \(sub ?? "") in " + json(titles) }
         // Menus stuck (MenuWatch): the click opened a popover, no menu to cancel.
         if titles.isEmpty { MenuPopover.close() }
+        if let pick {
+            guard let picked else { return titles.isEmpty ? "error no menu opened" : "error no item \(pick) in " + json(titles) }
+            picked.menu.performActionForItem(at: picked.index)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            return "ok"
+        }
         return titles.isEmpty ? "error no menu opened" : "ok " + json(titles)
     }
 

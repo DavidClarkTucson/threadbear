@@ -267,6 +267,29 @@ built parsers and gates with no launch of the app, which is the trap.)
   panel and Highlights take the room in the same shares, the title in the
   same place after the traffic lights. thread-links.sh's Swift typechecked
   and run on Tinker Desk (it has no Threadbear, so "open nothing").
+### 2026-11-11 Right-click Send to schedule the message (`composer.schedulefromsend`)
+
+- A right-click on the send button (or Stop, or its spinner) offers
+  Schedule…, which opens the schedule editor on a new schedule with what's
+  in the box, as "+" > Schedule… does (SendButton's `iconContextMenu`). Not on
+  another Mac's thread or a new one for another Mac, whose schedules are
+  made there: the right-click is the panel's then (Hide Title, Open in New
+  Window), in both apps.
+- The send button's states have the Swift button's names for VoiceOver and
+  scripts: Send, Stop, Stopping, Starting the thread.
+- Scripts: both apps' `composer-menu` takes `send`, a real right-click on the
+  button: it lists the menu, or `click` chooses an item (the Swift app's
+  `realMenu` takes `pick` for that). The GPUI one takes `keep` to leave the
+  menu up for a picture.
+- Files: `desktop/gpui/src/composer_send.rs` (new), the hooks in
+  `desktop/gpui/src/{composer,automation,main}.rs`, `reply_links.rs`'s
+  `open_menu_items` shared, `app/Sources/Threadbear/{Automation,
+  Automation+Commands}.swift`, `features/composer-chips.feature` and its steps.
+- Verification: composer-chips.feature's two new scenarios on Tinker Desk, 2
+  of 2 on each app, with the permission, model and send ones still passing
+  on GPUI; a picture of the GPUI menu, the kit's context menu with the clock
+  as the app's other right-click menus have it.
+
 ### 2026-11-11 Chips in the composer: copying pictures, thread ids and card links (`composer.chipcopy`, `composer.threadid`, `composer.cardmention`)
 
 - ⌘C or ⌘X over chips puts the words on the clipboard as the agent would

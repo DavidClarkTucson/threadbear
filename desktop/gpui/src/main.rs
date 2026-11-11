@@ -15,6 +15,7 @@ mod composer;
 mod composer_card;
 mod composer_chips;
 mod composer_inline;
+mod composer_send;
 mod connectors_panel;
 mod deep_links;
 mod ding;

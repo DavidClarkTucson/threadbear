@@ -68,8 +68,8 @@ you go.
 - [ ] No "Pinned to … · Unpin" line in the model picker, and no Claude
   breakdown in the context ring (`composer.modelpicker`,
   `composer.contextring`)
-- [ ] No right-click on Send to schedule the message
-  (`composer.schedulefromsend`)
+- [x] No right-click on Send to schedule the message
+  (`composer.schedulefromsend`). In since 11 Nov
 - [ ] The slash palette can't be resized (`composer.slash.resize`)
 - [ ] The card: no lab-review findings on it, no slide between pages, picks
   don't show as chips while it's collapsed, no pictures in a Something else

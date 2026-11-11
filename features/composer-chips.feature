@@ -30,6 +30,19 @@ Feature: The chips under the message box
     When I pick "High" from the "model" menu
     Then the model chip says "Claude · Fable 5.1 · High"
 
+  @composer.schedulefromsend
+  Scenario: Right-clicking Send offers to send the message later
+    When I type "Check the backups tonight" in the composer
+    Then right-clicking Send offers "Schedule…"
+    When I right-click Send and choose "Schedule…"
+    Then the schedule editor is open on a new schedule that sends "Check the backups tonight"
+
+  @composer.schedulefromsend @remote-threads
+  Scenario: Another Mac's thread has no Schedule… on Send, as its schedules are made there
+    When I open the thread "Check the photo library backup"
+    And I type "Check it again" in the composer
+    Then right-clicking Send doesn't offer "Schedule…"
+
   @composer.contextring
   Scenario: The context ring says how full the thread is
     When I open the thread "Make uploads resume after a crash"
