@@ -3262,6 +3262,14 @@ itself), the runner checks:
   rest of that checkout's status, which holds other threads' work;
 - `unpushed`: commits it made (its Highlights' commits) in a repo outside
   its worktree that has a remote, which no remote branch contains;
+- `unmerged`: commits it pushed there that are on an `origin` branch but
+  not on `origin/HEAD` (or `origin/main`, `origin/master`), one line per
+  branch, at most three. For a GitHub remote the runner asks `gh pr list
+  -R <owner/repo> --head <branch>` (from a temp folder, so the repo's git
+  config never runs; kept a minute): an open PR names itself ("PR #1092 in
+  website is still a draft"), and a merged or closed one drops the line,
+  as a squash merge leaves the commits off main. Added 11 Nov 2026, when
+  a thread said Done with three draft PRs unmerged;
 - `thread`: a thread it started (`startedBy.threadId`), not archived,
   that's running or waiting on Mike, with `threadId`;
 - `scheduled`: a schedule that sends to it and will run again (`at`:

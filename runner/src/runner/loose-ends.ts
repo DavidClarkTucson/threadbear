@@ -41,8 +41,10 @@ export const looseEndsPart = {
       // What it changed anywhere else, and the commits it made there.
       this.catchUpHighlights(st);
       const hl = rec.highlights;
-      const commits = (hl?.items ?? []).filter((h) => h.kind === 'commit' && h.sha && !h.pushed).map((h) => h.sha!);
-      ends.push(...(await editedLooseEnds(hl?.edited ?? [], commits, own?.path)));
+      const made = (hl?.items ?? []).filter((h) => h.kind === 'commit' && h.sha);
+      const commits = made.filter((h) => !h.pushed).map((h) => h.sha!);
+      const pushed = made.filter((h) => h.pushed).map((h) => h.sha!);
+      ends.push(...(await editedLooseEnds(hl?.edited ?? [], commits, own?.path, pushed)));
       ends.push(...agentLooseEnds(rec.needs?.open));
       const children: ChildThread[] = [];
       for (const other of this.threads.values()) {
