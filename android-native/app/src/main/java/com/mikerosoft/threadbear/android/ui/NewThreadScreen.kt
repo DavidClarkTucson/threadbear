@@ -89,6 +89,11 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewThreadScreen(close: () -> Unit) {
+    // The keyboard goes down with the screen: popping the route left it up
+    // over the inbox, where the Starting row was hidden under it.
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val closeScreen = close
+    @Suppress("NAME_SHADOWING") val close = { keyboard?.hide(); closeScreen() }
     val model = LocalModel.current
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
