@@ -111,7 +111,10 @@ test("text that runs in a fork names none of Mike's machines or addresses", () =
   const files = [
     ...sourceFiles(path.join(REPO, 'runner/src'), ['.ts', '.md']),
     ...sourceFiles(path.join(REPO, 'app/Sources'), ['.swift']),
-    ...['gpui', 'core', 'client'].flatMap((d) => sourceFiles(path.join(REPO, 'desktop', d, 'src'), ['.rs'])),
+    ...['gpui', 'core', 'client', 'dock', 'web'].flatMap((d) => sourceFiles(path.join(REPO, 'desktop', d, 'src'), ['.rs'])),
+    // The native Android app (added 10 Nov) ships to other people's phones
+    // too, so the 11 Nov fork-leak review added it here.
+    ...['app', 'kit'].flatMap((d) => sourceFiles(path.join(REPO, 'android-native', d, 'src/main'), ['.kt'])),
     ...['ios/Threadbear', 'ios/ThreadbearKit/Sources', 'ios/NotificationService'].flatMap((d) => sourceFiles(path.join(REPO, d), ['.swift'])),
     ...sourceFiles(path.join(REPO, 'web/src'), ['.ts', '.tsx']),
     ...sourceFiles(path.join(REPO, 'convex'), ['.ts']).filter((f) => !f.includes('/_generated/')),
