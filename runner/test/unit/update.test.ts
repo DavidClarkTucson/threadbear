@@ -176,7 +176,8 @@ function harness(releaseExtra: Partial<ReleaseJson> = {}, depsExtra: Partial<Upd
       if (h.deployResult.ok) {
         // As deploy.mjs would: a new release, current pointing at it.
         fs.mkdirSync(path.join(home, 'runner', 'releases', h.deployResult.id), { recursive: true });
-        fs.rmSync(path.join(home, 'runner', 'current'));
+        // A symlink to a directory: unlink it, rmSync refuses it (Node 24.12).
+        fs.unlinkSync(path.join(home, 'runner', 'current'));
         fs.symlinkSync(path.join('releases', h.deployResult.id), path.join(home, 'runner', 'current'));
       }
       return h.deployResult;

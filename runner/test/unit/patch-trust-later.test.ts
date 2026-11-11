@@ -705,7 +705,7 @@ test('Codex review: a thread moved while the card was up approves nothing, even 
 test('Codex review 3: a folder by a link retargeted while the card was up approves nothing', async () => {
   const dir = repo({ 'A/check.sh': '#!/bin/sh\necho\n', 'B/check.sh': '#!/bin/sh\necho\n' }, { link: 'A' });
   const made = askTools(dir, 'ask', () => {
-    fs.rmSync(path.join(dir, 'link'));
+    fs.unlinkSync(path.join(dir, 'link'));
     fs.symlinkSync('B', path.join(dir, 'link'));
   });
   const r = await made.call('schedule_message', { text: 'Look', cron: '*/5 * * * *', new_thread: true, runner: 'runner', folder: path.join(dir, 'link'), check: './check.sh' });
