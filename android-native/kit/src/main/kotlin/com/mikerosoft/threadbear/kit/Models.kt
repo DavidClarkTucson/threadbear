@@ -478,6 +478,12 @@ object BackendApi {
     const val WAITING_SENDS = 57
     const val STOP = 69
     const val STARS = 27
+    /** A message or new thread can carry photos (phone:imageUploadUrl). */
+    const val PHOTOS = 18
+    /** Accounts carry their models and phone:create takes an effort. */
+    const val MODELS = 20
+    /** phone:runners lists runners in Mike's order, so there's one to choose. */
+    const val RUNNER_ORDER = 56
 }
 
 enum class CommandState { PENDING, TAKEN, DONE, FAILED }
