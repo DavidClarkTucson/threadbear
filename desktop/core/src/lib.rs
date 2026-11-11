@@ -50,6 +50,7 @@ pub mod selection_copy;
 pub mod sign_in;
 pub mod sidebar;
 pub mod slash;
+pub mod swift_import;
 pub mod terminal;
 pub mod text_file;
 pub mod thread_link;

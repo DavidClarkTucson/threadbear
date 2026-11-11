@@ -63,6 +63,9 @@ pub struct Saved {
     /// `activityLog` (ActivityRecorder): Settings > General's Keep an
     /// activity log (activity.rs). Off until it's turned on.
     pub activity_log: Option<bool>,
+    /// When the Swift app's settings and drafts were brought across
+    /// (swift_import.rs): once, so none is.
+    pub swift_import: Option<String>,
     /// `runnersPanelOpen`: the runners whose details are open in the Runners
     /// panel, their ids with commas between.
     pub runners_panel_open: Option<String>,

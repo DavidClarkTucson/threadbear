@@ -86,6 +86,8 @@ pub struct Threadbear {
     pub(crate) last_window_title: String,
     pub(crate) archived_note: Option<ArchivedNote>,
     pub(crate) inbox_end_note: Option<InboxEndNote>,
+    /// What came across from the Swift app, while its note's up (swift_import.rs).
+    pub(crate) import_note: Option<String>,
     pub(crate) note_counter: u64,
     pub(crate) note_task: Option<Task<()>>,
     pub(crate) archived_task: Option<Task<()>>,
@@ -365,6 +367,7 @@ impl Threadbear {
             last_window_title: String::new(),
             archived_note: None,
             inbox_end_note: None,
+            import_note: None,
             note_counter: 0,
             note_task: None,
             archived_task: None,
@@ -1153,6 +1156,8 @@ impl Threadbear {
             "zoom": crate::style::zoom_percent(),
             "archivedNote": self.archived_note.as_ref().map(|n| n.thread.clone()),
             "inboxEndNote": self.inbox_end_note.as_ref().map(|n| if n.empty { "empty" } else { "end" }),
+            // What came across from the Swift app, while its note's up.
+            "importNote": self.import_note.clone(),
             "rails": self.rails_dump(cx),
             // What the activity bar's Runners, Updates and Connectors panels say.
             "runners": self.runners_dump(cx),

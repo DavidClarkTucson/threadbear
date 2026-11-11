@@ -425,6 +425,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `system.crash` | Crash reporting | Sentry from installed release | sentry-rust (inferred), installed releases only and no user text. | build | S | `CrashReporting` |
 | `system.hangwatch` | Hang watch | Samples the stuck main thread | Watchdog thread is ours, but sampling is per OS (`sample` is macOS only), and GPUI's `profiler/hang.rs` gives tasks rather than stacks. | shim | M | `HangWatch`, `HangSample` |
 | `system.activitylog` | Activity log | What you click, off by default | GPUI event hook naming controls through the tooltip helper, off by default. | build | M | `ActivityRecorder`, `Activity` |
+| `system.swiftimport` | Bringing the Swift app's settings across | Zoom, folded sections, Inbox order, appearance, panel layout, window, the ding, Ask before quitting, link clicks, file views and unsent drafts, once, with a note | Reads the Swift app's defaults with `defaults export` (macOS only, as only the Mac had the Swift app) and its `app-drafts.json`. The port's own: the Swift app has nothing to bring. | shim | S | none |
 | `system.testharness` | Scripted test harness | `dev-app.sh` do, dump, shot | `#[gpui_kit::test]`, `TestAppContext` and `render_to_image` (macOS and Linux only), plus our own debug command channel and `dump`. | build | XL | `Automation`, `Automation+Commands`, `Automation+Waiting`, `AppDump`, `Screenshots`, `Perf` |
 
 ## 20. Tour, setup, about, juice
@@ -477,21 +478,21 @@ Size is `none` throughout: the planning docs don't size these, and work the app 
 | kit | 65 | 1 | 66 |
 | build | 197 | 16 | 213 |
 | web | 6 | 1 | 7 |
-| shim | 23 | 0 | 23 |
+| shim | 24 | 0 | 24 |
 | hard | 13 | 0 | 13 |
 | drop | 3 | 0 | 3 |
-| Total | 306 | 18 | 324 |
+| Total | 307 | 18 | 325 |
 
 **Per size**
 
 | Size | Inventory | Planned | All |
 |---|---|---|---|
-| S | 169 | 0 | 169 |
+| S | 170 | 0 | 170 |
 | M | 95 | 0 | 95 |
 | L | 33 | 0 | 33 |
 | XL | 5 | 0 | 5 |
 | none | 4 | 18 | 22 |
-| Total | 306 | 18 | 324 |
+| Total | 307 | 18 | 325 |
 
 **The `hard` rows**
 

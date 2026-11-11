@@ -43,9 +43,12 @@ const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs
 /// says (a shell block's command is typed at its prompt for you to run).
 /// The hang watch runs macOS's `sample` on the app itself, inside
 /// `sandbox-exec` with core's fixed profile (hang_sample.rs), and nothing else.
+/// The first launch reads the Swift app's settings with `defaults export` of
+/// its own domain, once (swift_import.rs).
 const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/src/terminal.rs", "let pty = tty::new(&options, self.size.window_size(), 0)?;", 1),
     ("gpui/src/hang_watch.rs", "let mut sample = Command::new(\"/usr/bin/sandbox-exec\");", 1),
+    ("gpui/src/swift_import.rs", "let out = Command::new(\"/usr/bin/defaults\").args([\"export\", \"com.mikerosoft.threadbear\", \"-\"]).stderr(Stdio::null()).output().ok()?;", 1),
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {

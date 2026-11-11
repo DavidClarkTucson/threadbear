@@ -258,6 +258,40 @@ built parsers and gates with no launch of the app, which is the trap.)
   click within a second opened too, and a `blob:` page loaded). The GPUI
   app's web-panels.feature, 13 of 13, twice in a row on Tinker Desk's
   desktop; the web crate's tests.
+### 2026-11-11 The Swift app's settings and drafts, brought across once (`system.swiftimport`)
+
+- The first time the app opens on the real data folder, it reads the Swift
+  app's settings (`defaults export com.mikerosoft.threadbear -`, an XML
+  property list, read with roxmltree; nothing it points to is fetched) and
+  its unsent drafts (`app-drafts.json`), and fills in what this app hasn't
+  got of its own: the zoom, folded sections (the Inbox's, the schedules', the
+  projects list's open rows, Highlights' headings), the Inbox's order, the
+  appearance, the panel layout (saved there as JSON data), the window's place
+  (AppKit's bottom-left frame turned to a top-left one), the ding and its
+  volume, Ask before quitting, the activity log switch, the Usage panel's
+  chart and the Runners panel, what a click on a link does, and how files and
+  folders show. A draft comes across only into an empty box.
+- Once: `swiftImport` in desktop-settings.json says when, so a setting
+  changed here later is never overwritten, and a launch on a mock's or a dev
+  runner's data folder never reads Mike's.
+- A note over the main panel says what came ("Brought across from the Swift
+  app: your zoom and Inbox order, and an unsent draft."), in the inbox-end
+  note's capsule, for ten seconds unless the pointer's on it, or until it's
+  clicked. Its names always come in the same order.
+- `importNote` in the dump while it's up; THREADBEAR_SWIFT_DEFAULTS names a
+  property list to read in place of the Swift app's, for the specs.
+- Files: `desktop/core/src/swift_import.rs` and
+  `desktop/gpui/src/swift_import.rs` (new), a line each in `main.rs`,
+  `app.rs`, `settings.rs`, `header.rs`, core's `open_gate_source.rs` (the one
+  `defaults export`), `features/swift-import.feature` and its steps,
+  `docs/gpui-port/features.md` (the row), `docs/guide.md`,
+  `docs/on-your-mac.md`.
+- Verification: on Tinker Desk, swift-import.feature on the GPUI app (1 of
+  1: a made-up export with the zoom at 125% and the Inbox newest first, and
+  a draft in app-drafts.json; after a relaunch the zoom, the order and the
+  draft are there and the note says so; the launch after that has no note),
+  with core's tests for the reading (7) and the open gate's source check.
+  The Swift app has nothing to bring, so it's `@swift-pending` there.
 
 ### 2026-11-11 Web panels after Codex's review: only a click opens anything, and only web pages load (`panel.web`, `panel.convex`)
 

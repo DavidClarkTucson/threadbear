@@ -83,6 +83,7 @@ mod sidebar;
 mod slash_palette;
 mod slash_resize;
 mod style;
+mod swift_import;
 mod terminal;
 mod terminal_element;
 mod thread;
@@ -172,7 +173,10 @@ fn main() {
         rich_boxes::init(cx);
         // And the panels' pages, the Convex dashboard's among them.
         web_panels::init(cx);
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+        // The Swift app's settings and drafts, brought across once, before
+        // anything reads them (swift_import.rs).
+        let brought = swift_import::run_once(&mut settings, cx);
         let bounds = initial_bounds(&settings, cx);
         let (window, app) = gpui_kit::open_window(
             WindowOptions {
@@ -192,5 +196,8 @@ fn main() {
         )
         .expect("failed to open the window");
         deep_links::listen(links, app.downgrade(), window, cx);
+        if let Some(note) = brought {
+            app.update(cx, |t, cx| t.show_import_note(note, cx));
+        }
     });
 }

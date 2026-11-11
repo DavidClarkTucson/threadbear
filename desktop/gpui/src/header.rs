@@ -1059,10 +1059,13 @@ impl Threadbear {
         if let Some(note) = self.inbox_end_note {
             return overlay.child(self.render_inbox_end_toast(note, cx)).into_any_element();
         }
+        if let Some(text) = self.import_note.clone() {
+            return overlay.child(self.render_import_note(text, cx)).into_any_element();
+        }
         div().into_any_element()
     }
 
-    fn toast_capsule(&self, id: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(crate) fn toast_capsule(&self, id: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
         let bg = cx.theme().popover;
         let border = cx.theme().border;
         div()

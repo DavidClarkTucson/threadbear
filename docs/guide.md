@@ -1699,6 +1699,16 @@ a newer release goes into the same thread. A release Mike marks important
 (a security or data fix) starts one straight away. Change how often, or
 turn it off, in Settings (⌘,) > General > Updates from Mike.
 
+### Moving to the new desktop app
+
+The first time the new desktop app (the `gpuiApp` experiment) opens, it
+brings across what the Mac app remembers: the zoom, folded sections, the
+Inbox's order, the appearance, the panel layout, where the window was, the
+ding, Ask before quitting, the activity log switch, what a click on a link
+does, how files and folders show, and anything typed in a message box and
+not sent. It only fills in what it hasn't got of its own, does it once, and
+a note at the top says what came across.
+
 ### Light and dark
 
 Threadbear follows your Mac's appearance (System Settings > Appearance)

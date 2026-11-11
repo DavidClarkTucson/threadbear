@@ -7400,10 +7400,12 @@ dependencies = [
 name = "threadbear-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bzip2",
  "chrono",
  "markdown",
  "qrcodegen",
+ "roxmltree 0.21.2",
  "rustc-demangle",
  "serde",
  "serde_json",

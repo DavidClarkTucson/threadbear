@@ -101,8 +101,9 @@ File references are where to look.
   can put text on the clipboard (OSC 52) but not read it.
 - **Files:** the data folder `~/Library/Application Support/Threadbear`
   (threads, settings, `secrets/`, runner releases, the pinned release key
-  `upstream-signers`, the Mac app's `app-drafts.json`, what's typed but not
-  sent in each message box, so a quit or relaunch doesn't lose it, and
+  `upstream-signers`, the Mac app's `app-drafts.json` and the GPUI app's
+  `desktop-drafts.json`, what's typed but not sent in each message box, so
+  a quit or relaunch doesn't lose it, and
   `sync-sent.json`, hashes of what's already in your
   Convex mirror so a restart sends only what changed, and
   `shared-pools.json`, the last pools your Convex backend had, which every
@@ -362,6 +363,11 @@ File references are where to look.
   again. It never reads it. Without the access macOS refuses, with no prompt.
 - Whether `Threadbear.app` is in `/Applications` or `~/Applications`, as a Mac
   without it is probably one nobody sits at.
+- The GPUI app, the first time it opens on the data folder: the Mac app's
+  own settings (`defaults export com.mikerosoft.threadbear`) and its unsent
+  drafts (`app-drafts.json`), to fill in its own files where they have
+  nothing yet (`desktop/gpui/src/swift_import.rs`). Once: `swiftImport` in
+  `desktop-settings.json` says when, and neither is read again.
 - The `.env*` files in the folders your threads work in (the folder, the
   folders directly inside it, and up to its repo's root; not `.env.example`
   and the like, your home folder or external drives), and everything in its

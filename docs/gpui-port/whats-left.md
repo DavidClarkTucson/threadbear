@@ -139,7 +139,8 @@ you go.
 - [x] Crash reports to Sentry, and the hang watch (`system.crash`,
   `system.hangwatch`)
 - [x] The activity log (`system.activitylog`, `foundation.tooltips`)
-- [ ] Bringing the Swift app's settings and drafts across on first launch
+- [x] Bringing the Swift app's settings and drafts across on first launch
+  (`system.swiftimport`)
 - [ ] Windows and Linux: notifications, the badge, a menu bar and window
   buttons (`dock.titlebar`, `menu.*`)
 - [ ] Accessibility below the window (`foundation.accessibility`)
