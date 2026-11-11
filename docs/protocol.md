@@ -3276,8 +3276,10 @@ itself), the runner checks:
   config never runs; kept a minute): an open PR names itself ("PR #1092 in
   website is still a draft"), and a merged or closed one whose head is
   still the branch's tip drops the line, as a squash merge leaves the
-  commits off main (one from before newer pushes doesn't). Its git reads go
-  through `untrustedGit`, so a repo's config can't run anything. Besides
+  commits off main (one from before newer pushes doesn't). Every git the
+  check runs (the worktree's status and commits too) goes through
+  `untrustedGit`, so neither a repo's config nor a submodule's can run
+  anything: it runs by itself when a turn ends, in any mode. Besides
   the repos of its `edited` files, the thread's own folder is looked in
   for its commits (a repo it reached only through a shell, elsewhere,
   isn't found). Only `origin` counts: work pushed to a fork remote isn't
@@ -5558,7 +5560,10 @@ again and carries on from the state.
   `untrustedGit` (runner/src/safe-git.ts): the repo's config is read first,
   and every filter driver it or yours names is switched off (clean, smudge
   and process blank, not required), with no hooks, fsmonitor, signing,
-  diff programs, submodule recursion or auto gc, and no fetching at all
+  diff programs or auto gc, and git never looks inside a submodule
+  (`--ignore-submodules=all` on status and diff, `--no-recurse-submodules`
+  on fetch and checkout, `git submodule` refused), as a submodule's own
+  config is one Threadbear hasn't read, and no fetching at all
   but the bundle (file only) and T's fetch of `origin` (https, ssh or
   file, git's own upload-pack, and only your own credential helpers, ssh
   command and alternates command). A repo with a filter name git's `-c`

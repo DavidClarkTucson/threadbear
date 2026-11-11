@@ -11,19 +11,31 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { LooseEnd, Schedule } from './protocol.ts';
-import { git, MAIN, type WorktreeRecord } from './worktrees.ts';
+import { MAIN, type WorktreeRecord } from './worktrees.ts';
 import { untrustedGit } from './safe-git.ts';
+
+// Any repo a thread touched can be anyone's (a clone it just made, a folder
+// from a zip with its own .git/config), and these run by themselves when a
+// turn ends, in any mode. So every git here goes through safe-git: no
+// filters, hooks, fsmonitor, lazy fetch or submodule's own config (Codex's
+// review and the security review, 11 Nov 2026).
+const readGit = (dir: string, args: string[]) => untrustedGit(dir, args, { timeoutMs: 30_000 });
 
 // The thread's own worktree: commits on its branch that main doesn't have,
 // and files in it that aren't committed. Untracked ones count, as a new
 // file the agent wrote and never committed is lost when the worktree goes;
 // ignored ones (build output, the linked node_modules) don't show at all.
+// Through safe-git like the rest (readGit): the worktree's files
+// can be another runner's (a move), and its status would otherwise run the
+// filters its .gitattributes pick and look inside its submodules with
+// their own config, all automatically when a turn ends (security review,
+// 11 Nov 2026).
 export async function worktreeLooseEnds(w: WorktreeRecord): Promise<LooseEnd[]> {
   const out: LooseEnd[] = [];
-  const ahead = await git(w.mainCheckout, ['rev-list', '--count', `${MAIN}..refs/heads/${w.branch}`]);
+  const ahead = await readGit(w.mainCheckout, ['rev-list', '--count', `${MAIN}..refs/heads/${w.branch}`]);
   const commits = ahead.ok ? Number.parseInt(ahead.stdout.trim(), 10) : 0;
   if (commits > 0) out.push({ kind: 'unlanded', text: `${commits === 1 ? '1 commit' : `${commits} commits`} on ${w.branch} ${commits === 1 ? "isn't" : "aren't"} on ${MAIN}` });
-  const status = await git(w.path, ['status', '--porcelain', '--untracked-files=all']);
+  const status = await readGit(w.path, ['status', '--porcelain', '--untracked-files=all']);
   const files = status.ok ? status.stdout.split('\n').filter((l) => l.trim()).length : 0;
   if (files > 0) out.push({ kind: 'uncommitted', text: `${files === 1 ? '1 file' : `${files} files`} in its worktree ${files === 1 ? "isn't" : "aren't"} committed` });
   return out;
@@ -45,10 +57,6 @@ export async function worktreeLooseEnds(w: WorktreeRecord): Promise<LooseEnd[]> 
 // by (Codex's review, 11 Nov 2026).
 export type EditedOptions = { pushed?: string[]; dirs?: string[]; prs?: PrLookup };
 
-// Any repo a thread touched can be anyone's (a clone it just made), so these
-// reads go through safe-git: no hooks, fsmonitor or lazy fetch through the
-// repo's own config (Codex's review, 11 Nov 2026).
-const readGit = (dir: string, args: string[]) => untrustedGit(dir, args, { timeoutMs: 30_000 });
 
 export async function editedLooseEnds(edited: string[], commits: string[], skip?: string, opts: EditedOptions = {}): Promise<LooseEnd[]> {
   const { pushed = [], dirs = [], prs = githubPr } = opts;

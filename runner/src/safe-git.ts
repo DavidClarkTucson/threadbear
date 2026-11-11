@@ -192,6 +192,38 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
     return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
   }
   const [sub, ...rest] = args;
+  if (sub === 'submodule') return { ok: false, code: 1, stdout: '', stderr: "git submodule runs git in each submodule with that submodule's own config, which Threadbear hasn't read, so it left git alone." };
   const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : [];
-  return execGit(dir, [...config, '-C', dir, ...(sub ? [sub, ...pack, ...rest] : [])], env, timeout);
+  const inside = sub ? (NO_SUBMODULES[sub] ?? []) : [];
+  return execGit(dir, [...config, '-C', dir, ...(sub ? [sub, ...inside, ...pack, ...rest] : [])], env, timeout);
 }
+
+// A submodule is a repo of its own, with its own config (.git/modules/<name>/
+// config, or a .git inside it), and the settings above only switch off what
+// the outer repo's config names. git starts another git inside a submodule to
+// see whether it changed (status, diff) or to fetch or check it out too, and
+// that one runs the filters, fsmonitor or sshCommand the submodule's config
+// names: `git status` ran a submodule's `filter.<name>.clean` through
+// untrustedGit (security review, 11 Nov 2026). So these never look inside
+// one. Only the command line beats a repo's own `submodule.<name>.ignore` or
+// `fetchRecurseSubmodules` (-c diff.ignoreSubmodules doesn't), so it's a flag
+// on each command that would. A submodule shows as its commit, as if clean.
+const IGNORE: readonly string[] = ['--ignore-submodules=all'];
+const NO_RECURSE: readonly string[] = ['--no-recurse-submodules'];
+const NO_SUBMODULES: Record<string, readonly string[]> = {
+  status: IGNORE,
+  diff: IGNORE,
+  'diff-index': IGNORE,
+  'diff-files': IGNORE,
+  fetch: NO_RECURSE,
+  pull: NO_RECURSE,
+  clone: NO_RECURSE,
+  checkout: NO_RECURSE,
+  switch: NO_RECURSE,
+  restore: NO_RECURSE,
+  reset: NO_RECURSE,
+  'read-tree': NO_RECURSE,
+  grep: NO_RECURSE,
+  'ls-files': NO_RECURSE,
+  push: ['--recurse-submodules=no'],
+};

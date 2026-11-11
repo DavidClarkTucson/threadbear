@@ -203,6 +203,46 @@ test('looseEnds: files a thread changed in a shared checkout count, not the rest
   assert.deepEqual(await editedLooseEnds([path.join(local, 'x.txt')], [sh(local, 'git rev-parse HEAD')]), []);
 });
 
+// Security review, 11 Nov 2026 (finding 85): a folder from a zip carries its
+// own .git/config, and a `filter.<name>.clean` there, picked by its
+// .gitattributes, ran from the done card's `git status` as the owner, in
+// Ask mode, with nobody asked. A submodule's own config did the same
+// through the safe git, as git runs another git inside it to see whether
+// it changed.
+test("looseEnds: a repo's own filter, or a submodule's, never runs from the check", async () => {
+  const root = fs.realpathSync(tmpDir('tb-loose-filter-'));
+  const marker = path.join(root, 'ran');
+  const payload = path.join(root, 'payload.sh');
+  fs.writeFileSync(payload, `#!/bin/sh\necho "$1" >> '${marker}'\ncat\n`, { mode: 0o755 });
+  const sub = path.join(root, 'vendor-src');
+  fs.mkdirSync(sub);
+  sh(sub, 'git init -q -b main && echo "*.txt filter=sub" > .gitattributes && echo one > v.txt && git add -A && git commit -qm v');
+  const repo = path.join(root, 'from-a-zip');
+  fs.mkdirSync(repo);
+  sh(repo, `git init -q -b main && echo "*.md filter=evil" > .gitattributes && echo one > notes.md && git add -A && git commit -qm init`);
+  sh(repo, `git -c protocol.file.allow=always submodule add -q ${sub} vendor && git commit -qm vendor`);
+  // Planted after the commits, as an archive would bring them.
+  sh(repo, `git config filter.evil.clean "${payload} repo" && git config submodule.vendor.ignore none`);
+  sh(path.join(repo, 'vendor'), `git config filter.sub.clean "${payload} submodule"`);
+  // Same-size edits, so git has to hash them (through the filter) to know.
+  sh(repo, 'echo two > notes.md && echo two > vendor/v.txt');
+  const ran = () => (fs.existsSync(marker) ? [...new Set(fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean))].sort() : []);
+  // Plain git runs both, so the checks below mean something.
+  sh(repo, 'git status --porcelain >/dev/null');
+  assert.deepEqual(ran(), ['repo', 'submodule']);
+  fs.rmSync(marker);
+  sh(repo, 'touch -t 202001010000 notes.md vendor/v.txt');
+  assert.deepEqual(await editedLooseEnds([path.join(repo, 'notes.md')], []), [{ kind: 'uncommitted', text: "1 file it changed in from-a-zip isn't committed" }]);
+  // Its own worktree: the whole status, submodule and all.
+  sh(repo, 'touch -t 202001010001 notes.md vendor/v.txt');
+  const own: WorktreeRecord = { repo: 'from-a-zip', mainCheckout: repo, path: repo, branch: 'main', base: sh(repo, 'git rev-parse main') };
+  assert.deepEqual(await worktreeLooseEnds(own), [{ kind: 'uncommitted', text: "1 file in its worktree isn't committed" }]);
+  // And a file it changed inside the submodule, which is a repo of its own.
+  sh(repo, 'touch -t 202001010002 notes.md vendor/v.txt');
+  assert.deepEqual(await editedLooseEnds([path.join(repo, 'vendor', 'v.txt')], []), [{ kind: 'uncommitted', text: "1 file it changed in vendor isn't committed" }]);
+  assert.deepEqual(ran(), []);
+});
+
 // 11 Nov 2026: thread 0222c475 said Done with its work pushed to draft PRs
 // that weren't merged, and the card showed a plain Done.
 test('looseEnds: work pushed to a branch that main lacks is open until its PR is merged or closed', async () => {
