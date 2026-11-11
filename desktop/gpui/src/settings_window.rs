@@ -209,6 +209,10 @@ impl SettingsWindow {
                 cx.notify();
             }));
         }
+        // The web runtime's row follows its download.
+        if let Some(runtime) = crate::web_runtime::runtime(cx) {
+            subs.push(cx.observe(&runtime, |_, _, cx| cx.notify()));
+        }
         // In front, the app is: threads in the main window still read as
         // Mike looks at them (`Threadbear::looking_changed`).
         let looking_app = app.clone();
@@ -463,8 +467,12 @@ impl SettingsWindow {
     fn render_general(&mut self, settings: Option<&RunnerSettings>, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         // This Mac's own, so they're here while the runner's away too.
         let mut sections = vec![self.appearance_section(cx), self.quitting_section(cx), self.notifications_section(cx)];
+        // The web runtime is this Mac's too (web_runtime.rs), last, so it
+        // moves nothing the Swift app's General has.
+        let web_runtime = section("settings-web-runtime", "Web runtime", crate::web_runtime::SETTINGS_ABOUT, "check whether it's installed and working, or why a diagram or panel isn't showing.", vec![row("Web runtime", crate::web_runtime::settings_control(cx), cx)], cx);
         let Some(settings) = settings else {
             sections.push(plain_note(&waiting_text(&self.app, cx), cx));
+            sections.push(web_runtime);
             return sections;
         };
         let home = std::env::var("HOME").unwrap_or_default();
@@ -557,6 +565,7 @@ impl SettingsWindow {
             vec![row("Version", div().text_size(px(13.)).text_color(style::secondary_text(cx)).child(if version.is_empty() { "Not connected".to_owned() } else { version }), cx)],
             cx,
         ));
+        sections.push(web_runtime);
         sections
     }
 
@@ -1008,6 +1017,8 @@ impl SettingsWindow {
             "labReview": settings.as_ref().map(|s| s.lab_review),
             "privateFolders": settings.as_ref().map(|s| s.private_folders.clone()),
             "smallJobsPool": settings.as_ref().and_then(|s| s.pool.clone()),
+            // General's Web runtime row, as it reads.
+            "webRuntime": crate::web_runtime::settings_words(cx),
         })
     }
 }

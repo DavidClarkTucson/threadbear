@@ -33,16 +33,25 @@ trap 'rm -rf "$work"' EXIT
 if [ -n "$build_on" ]; then
   "$root/desktop/scripts/remote.sh" "$build_on" -- bash -c "cd desktop && nice cargo build --release -p threadbear-gpui --features $features 2>&1 | tail -2"
   key="$(printf '%s' "$root" | shasum | cut -c1-10)"
-  scp -q "$build_on:.cache/threadbear-check/gpui/target-$key/release/threadbear-gpui" "$work/threadbear-gpui"
+  # The app and its web helper, which the same build makes (desktop/gpui/Cargo.toml).
+  for bin in threadbear-gpui threadbear-web-helper; do
+    scp -q "$build_on:.cache/threadbear-check/gpui/target-$key/release/$bin" "$work/$bin"
+  done
 else
   export CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10
   (cd "$root/desktop" && taskpolicy -b "$root/scripts/one-build.sh" cargo build --release -p threadbear-gpui --features "$features")
-  cp "$root/desktop/target/release/threadbear-gpui" "$work/threadbear-gpui"
+  cp "$root/desktop/target/release/threadbear-gpui" "$root/desktop/target/release/threadbear-web-helper" "$work/"
 fi
 
 bundle="$work/Threadbear GPUI.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$work/threadbear-gpui" "$bundle/Contents/MacOS/threadbear-gpui"
+# Beside the app, where it looks for it: the web runtime's helper processes
+# are copies of it, made in the data folder when Chromium first starts
+# (desktop/gpui/src/web_runtime.rs). Signed first, so the bundle's own
+# signature takes it in as signed code.
+cp "$work/threadbear-web-helper" "$bundle/Contents/MacOS/threadbear-web-helper"
+codesign --force --sign - "$bundle/Contents/MacOS/threadbear-web-helper" 2>/dev/null
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

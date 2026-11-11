@@ -1109,6 +1109,8 @@ impl Threadbear {
             "usage": self.usage_dump(cx),
             "header": self.header_dump(),
             "panels": self.side.read(cx).dump(cx),
+            // Where the web runtime has got to (web_runtime.rs).
+            "webRuntime": crate::web_runtime::dump(cx),
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
             "terminal": crate::terminal::dump(self, cx),
         })

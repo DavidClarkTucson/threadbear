@@ -57,7 +57,8 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 fn nothing_opens_outside_the_gate() {
     let desktop = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned();
     let mut files = Vec::new();
-    for crate_dir in ["gpui", "dock", "client", "core/src"] {
+    // web/ too: the web runtime's pages are where a link would most want out.
+    for crate_dir in ["gpui", "dock", "client", "core/src", "web"] {
         rust_files(&desktop.join(crate_dir), &mut files);
     }
     assert!(files.iter().any(|f| f.ends_with("gpui/src/open_gate.rs")), "the gate wasn't found, so this test isn't looking in the right place");

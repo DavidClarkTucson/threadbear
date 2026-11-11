@@ -35,6 +35,7 @@ pub mod terminal;
 pub mod transcript;
 pub mod updates;
 pub mod usage;
+pub mod web_runtime;
 pub mod zoom;
 pub use chrono;
 pub mod reducer;

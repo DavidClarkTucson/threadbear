@@ -1,0 +1,39 @@
+// Where each scenario's app keeps the web runtime (THREADBEAR_WEB_RUNTIME_DIR,
+// desktop/core/src/web_runtime.rs): an empty folder of its own, so no spec
+// ever reads or writes the machine's, and so each starts with nothing
+// installed. A scenario tagged @web-runtime gets a folder shared by them all,
+// with the pinned build installed by the first that needs it (from
+// TB_WEB_RUNTIME_ARCHIVE, the archive downloaded once, so a run doesn't fetch
+// 135 MB per scenario), unless it's @web-runtime-fresh too.
+//
+// Only the Mac has a runtime so far: @web-prompt and @web-runtime scenarios
+// are skipped elsewhere, and @web-runtime ones on a Mac without the archive
+// (CI), rather than downloading it on every run.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const made: string[] = [];
+
+export function webRuntimeSetup(tags: string[]): 'skipped' | undefined {
+  const mac = process.platform === 'darwin';
+  if (tags.includes('@web-prompt') && !mac) return 'skipped';
+  if (tags.includes('@web-runtime')) {
+    if (!mac || !process.env.TB_WEB_RUNTIME_ARCHIVE) return 'skipped';
+    if (!tags.includes('@web-runtime-fresh')) {
+      const shared = process.env.TB_WEB_RUNTIME_DIR ?? path.join(os.tmpdir(), 'tb-spec-web-runtime');
+      fs.mkdirSync(shared, { recursive: true });
+      process.env.THREADBEAR_WEB_RUNTIME_DIR = shared;
+      return undefined;
+    }
+  }
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-spec-runtime-'));
+  made.push(fresh);
+  process.env.THREADBEAR_WEB_RUNTIME_DIR = fresh;
+  return undefined;
+}
+
+/** After the app's stopped: the scenario's own folder goes. */
+export function webRuntimeCleanup() {
+  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+}

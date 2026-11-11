@@ -44,6 +44,28 @@ File references are where to look.
   `desktop/scripts/install-app.sh`, also `~/Applications/Threadbear GPUI.app`,
   which keeps its window and panel layout in `desktop-settings.json` and
   `gpui-prefs.json` in the data folder.
+- **The GPUI app's web runtime, only if you install it** (its Install web
+  runtime button, or Settings > General > Web runtime; nothing is fetched
+  until you press one): Chromium, as CEF's official minimal build 156.0.15,
+  downloaded once from Spotify's CEF builds (135 MB, checked against the
+  size and hashes pinned in `desktop/core/src/web_runtime.rs` before
+  anything is unpacked), into
+  `~/Library/Application Support/Threadbear/web-runtime/` (about 330 MB):
+  the framework and five small "Threadbear Helper" apps beside it, copies
+  of the GPUI app's own `threadbear-web-helper`, in `Threadbear
+  Web.bundle` in a folder named for the build; `profile/`, Chromium's own
+  folder, where the web panels' sign-ins and site storage are kept between
+  launches (its cookies aren't locked with a Keychain key, as Chromium
+  would otherwise ask the Keychain for one: like the Swift app's WebKit
+  storage, they're protected by your account's file permissions); and
+  `web-runtime.log`, Chromium's warnings. The download goes through
+  `download/` and is deleted once it's unpacked. Chromium runs inside the
+  GPUI app's own process, started the first time something needs it, and
+  its helpers as child processes of the app (its renderers, GPU and network
+  processes), all stopping when the app quits. Its own process sandbox is
+  off for now, as it only covers a runtime inside the app's bundle
+  (`desktop/web/src/mac/host.rs`). Removing the `web-runtime` folder
+  uninstalls it.
 - **A LaunchAgent:** `~/Library/LaunchAgents/com.mikerosoft.threadbear.runner.plist`,
   which keeps the runner going while you're logged in. A runner on a Linux
   server (INSTALL.md, section 6) has a systemd user service in its place,
@@ -326,6 +348,7 @@ File references are where to look.
 | Convex (the Convex panel) | yours | Only for a thread in a Convex project, when its Convex panel opens: the runner's Convex CLI asks api.convex.dev for the project's deployments and a deploy key, the runner asks the deployment whether a kept key still works (`/api/check_admin_key`), and the panel loads Convex's embedded dashboard (dashboard-embedded.convex.dev) with that key. Sign in to Convex goes to auth.convex.dev. (`runner/src/convex-keys.ts`) |
 | Your other Macs, over ssh | yours | Only when you run `tb runner add <name> --ssh <host>` or `tb runner check --ssh <host>` on your first Mac: it reads that Mac's Threadbear `runner.json`, writes its id and the deployment's address there if it hasn't them, writes its new key into that Mac's `secrets/convex-key`, and looks whether that Mac has a deploy key, Convex panel keys or a Convex login (names only, never a key), through your own ssh setup with agent and port forwarding off (`runner/src/runner-keys.ts`). `tb runner audit` asks this Mac's runner for its threads' last seqs and your deployment for what the main key made. `tb runner rotate-owner` sets env vars on your deployment with your deploy key, and, if you give it a Convex team access token for that run (`CONVEX_TEAM_TOKEN`, never kept), asks api.convex.dev for the deployment's deploy keys (their names and dates) before it rotates. |
 | GitHub | Mike's repo | Release tags fetched every 6 hours; the fork at setup |
+| cef-builds.spotifycdn.com | Spotify (CEF's official builds) | Only from the GPUI app, and only when you press Install web runtime: one download of the pinned build (135 MB), which nothing is sent with. Threadbear will publish its own signed copy later. Chromium itself then goes online only for the pages the GPUI app's web panels show; its own background requests are off (`--disable-background-networking`), and an agent's html and diagrams reach nothing (`desktop/web/src/mac/sealed.rs`). |
 | downloads.claude.ai, registry.npmjs.org | Anthropic, npm | CLI version checks and installs; `npm ci` |
 | Anthropic, OpenAI | yours | Your threads, through the official CLIs on your own logins. With the `cardReviewer` experiment on (off by default), an approval card in a thread on Auto, with the thread's first and latest messages, goes to Opus through the same CLI so it can decide in your place. Unless you turn off Settings > General > Code review (`"labReview": false`), a thread's code change, with your message and the agent's reply, goes to your other provider's CLI as a review thread, as if you'd started one (or a fresh session of the same provider, with no other login). After a turn fails because the API couldn't be reached, the runner itself opens (and straight away closes) a connection to api.anthropic.com or chatgpt.com on port 443, at most once a minute, until one opens and the thread carries on. Nothing is sent over it (`runner/src/net-probe.ts`). |
 | OpenCode's Zen (opencode.ai), models.dev, and whichever providers you've logged it into | theirs | Only with the `acpAgents` experiment on and a thread on OpenCode: that thread's prompts and tool output, through the official CLI, and small jobs' text when a pool of only OpenCode logins is picked for them in Settings |

@@ -134,6 +134,11 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
             cx.background_executor().timer(std::time::Duration::from_millis(20)).await;
         }
     }
+    // The web runtime (web_runtime.rs): its install, Not now, and a check
+    // that it draws, each waited on as asked.
+    if cmd["cmd"] == "webRuntime" {
+        return crate::web_runtime::automation(cmd, cx).await;
+    }
     let weak = app.clone();
     // A design review's window (review_window.rs), as the Swift command.
     if cmd["cmd"] == "review" {

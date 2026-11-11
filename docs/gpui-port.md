@@ -423,6 +423,31 @@ would use native Wayland otherwise.
 A variant of A is to use the system web view for simple previews and CEF only
 for real browsing. I'd skip it: two engines means two sandboxes to prove.
 
+### How A is built (11 Nov)
+
+- **Where it comes from.** Threadbear has no place of its own to publish the
+  runtime yet, so the app downloads CEF's official minimal build from
+  Spotify's CDN (cef-builds.spotifycdn.com), pinned to 156.0.15, the build
+  the `cef` crate's bindings were made from. It's held to the size and the
+  SHA-1 Spotify publishes for it and a SHA-256 worked out from that same
+  file, all before anything is unpacked (`desktop/core/src/web_runtime.rs`).
+  **Publishing Threadbear's own signed copy (Ghostex's manifest with an
+  Ed25519 signature) waits for Mike**: it means a release place and a key.
+- **No CEF at build time.** cef-dll-sys's build script downloads CEF and
+  builds a C++ wrapper with cmake and ninja on every machine that builds the
+  app. On a Mac that wrapper only looks each C function up in the framework
+  once it's loaded, so `desktop/web` turns the script off and does that
+  itself, from the bindings' own declarations, with a check the compiler
+  makes that each one matches (`desktop/web/scripts/gen-loader.mjs`). The
+  app builds as before, with no extra tools.
+- **Chromium's sandbox is off for now.** On a Mac it lets a helper read only
+  inside the bundle macOS started the app from, and the runtime lives in the
+  data folder, so sandboxed helpers were refused the framework. The sealed
+  pages keep their own rules (no scripts in an agent's page, no network, no
+  navigation), and the panels show sites a patch or Convex names. Turning
+  the sandbox on means the framework inside the app bundle, which is
+  option B. **Mike's call.**
+
 ## Risks
 
 What stage 0 found (9 Nov):

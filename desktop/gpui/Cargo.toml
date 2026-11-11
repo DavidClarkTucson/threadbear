@@ -4,11 +4,28 @@ version = "0.1.0"
 description = "Threadbear as a native GPUI app"
 edition = "2021"
 publish = false
+# `cargo run` means the app, not its web helper.
+default-run = "threadbear-gpui"
+
+[[bin]]
+name = "threadbear-gpui"
+path = "src/main.rs"
+
+# The processes Chromium starts (src/web_helper.rs), built with the app so the
+# two always match. desktop/scripts/install-app.sh puts it beside the app.
+[[bin]]
+name = "threadbear-web-helper"
+path = "src/web_helper.rs"
 
 [dependencies]
 threadbear-client = { path = "../client" }
 threadbear-core = { path = "../core" }
 threadbear-dock = { path = "../dock" }
+# The web runtime (CEF), its download and its pages (../web).
+threadbear-web = { path = "../web" }
+# The download thread's updates and Chromium's answers, awaited on GPUI's
+# side. Already in the build through GPUI, at this version.
+futures = "=0.3.34"
 # Exactly this version: gpui-kit is young, so upgrades are done on purpose
 # and the specs (features/) say what they broke.
 # `syntect` colours the code a file preview shows (a pure-Rust highlighter,

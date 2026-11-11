@@ -6,6 +6,7 @@ import { sleep, type Driver, type Dump, type Row, type Thread } from './driver.t
 import { GpuiDriver } from './gpui.ts';
 import { longThreadFolder } from './long-thread.ts';
 import { SwiftDriver } from './swift.ts';
+import { webRuntimeCleanup, webRuntimeSetup } from './web-runtime.ts';
 
 // Whatever a person running the specs asked for (features/README.md), kept
 // apart from the long-thread scenarios setting it for themselves.
@@ -97,6 +98,8 @@ Before(async function (this: ThreadbearWorld, { pickle }) {
   // Parts of a project: Photo sync as a part of Threadbear.
   if (pickle.tags.some((t) => t.name === '@project-parts')) process.env.TB_MOCK_PARTS = '1';
   else delete process.env.TB_MOCK_PARTS;
+  // The web runtime's folder for this scenario (support/web-runtime.ts).
+  if (webRuntimeSetup(pickle.tags.map((t) => t.name)) === 'skipped') return 'skipped';
   await this.app.start();
 });
 
@@ -110,4 +113,5 @@ After(async function (this: ThreadbearWorld, { result, pickle }) {
     if (fs.existsSync(file)) this.attach(fs.readFileSync(file), 'image/png');
   }
   await this.app.stop();
+  webRuntimeCleanup();
 });

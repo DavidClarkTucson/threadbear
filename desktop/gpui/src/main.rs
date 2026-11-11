@@ -65,6 +65,7 @@ mod thread;
 mod updates_panel;
 mod usage;
 mod viewer;
+mod web_runtime;
 
 use app::Threadbear;
 use gpui_kit::*;
@@ -129,6 +130,8 @@ fn main() {
     // `Assets` has only gpui-kit's own hundred.
     gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(|cx| {
         gpui_kit::init(cx);
+        // Whether the web runtime is installed; nothing starts until a page needs it.
+        web_runtime::init(cx);
         let settings = Settings::load();
         let bounds = initial_bounds(&settings, cx);
         gpui_kit::open_window(

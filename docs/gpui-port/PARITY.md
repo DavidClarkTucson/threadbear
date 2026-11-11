@@ -419,6 +419,69 @@ built parsers and gates with no launch of the app, which is the trap.)
   bubble's height and place. The line under the header is half a point on a
   Retina screen and a faint whole pixel on a 1x one, where GPUI drops half
   a pixel.
+### 2026-11-11 The web runtime: Chromium when it's asked for, checked before it's unpacked (`foundation.webruntime`)
+
+- Install web runtime (Settings > General > Web runtime for now; the
+  question with Not now comes with the first things that need it, next)
+  downloads CEF's official minimal build 156.0.15 from Spotify's CDN, 135
+  MB, on a thread of its own, with its progress and a Cancel. It's kept
+  only if its size, the SHA-1 Spotify publishes and a SHA-256 pinned in
+  the app all match (checked again from the file just before unpacking),
+  then only the framework comes out of the archive, refusing any entry
+  that would land outside it (`..`, absolute names, links out, hard
+  links), into a `.partial` folder renamed into place once whole, in
+  `~/Library/Application Support/Threadbear/web-runtime/` (never the app
+  bundle). The state shows as Not installed, Downloading n of 135 MB,
+  Unpacking, Installed (running) or why it failed.
+- Chromium starts the first time something needs it, inside the app's own
+  process (the spike's run-loop timer and nested loop, Ghostex's AppKit
+  hooks), its helpers being copies of the app's `threadbear-web-helper` made
+  in the runtime's folder as "Threadbear Helper" apps. It draws a sealed
+  page with no window and DevTools hands its picture back, which is what
+  diagrams and pages will use. The sealed pages' request context keeps
+  nothing, cancels every request but the page's own data, has a dead
+  proxy and no network prediction, and allows no navigation, popups or
+  downloads.
+- Building it needs no CEF, cmake or ninja: cef-dll-sys's build script is
+  off and `desktop/web/src/mac/loader.rs` (generated from its bindings by
+  `desktop/web/scripts/gen-loader.mjs`) does its wrapper's one job, looking
+  each C function up in the framework once loaded, with a compile-time check
+  that every signature matches the bindings.
+- Found on the way: Chromium's sandbox on a Mac lets helpers read only
+  inside the app bundle macOS started, so with the runtime in the data
+  folder every sandboxed helper was refused the framework. It runs without
+  that sandbox for now; on is option B, the framework in the app (Mike's
+  call, gpui-port.md, "How A is built"). And helpers find the app by the
+  bundle they're in, so the runtime is laid out as CEF's own app layout in
+  a `Threadbear Web.bundle` Chromium is told is its main bundle.
+- Not here yet: the question where it's needed and diagrams, pages and
+  panels drawn through it (next); Remove in Settings (it can't go while
+  that run of the app has it loaded); Threadbear's own signed copy (waits
+  for Mike). Windows and Linux: no runtime yet, untested; the app says
+  it isn't available there, and their CI skips the runtime's scenarios.
+- Files: `desktop/web/` (new crate: `download.rs`, `mac/host.rs`,
+  `mac/sealed.rs`, `mac/offscreen.rs`, `mac/helper.rs`, `mac/loader.rs`,
+  `mac/loader_support.rs`, `native/appkit_hooks.m`, `scripts/gen-loader.mjs`),
+  `desktop/core/src/web_runtime.rs`, `desktop/gpui/src/web_runtime.rs` and
+  `web_helper.rs` (new), and the lines that hook them into `main.rs`,
+  `app.rs`, `automation.rs`, `settings_window.rs`, the Cargo files,
+  `desktop/scripts/install-app.sh` (ships the helper), core's open-gate
+  source test (now reads `web/` too); `features/web-runtime.feature`,
+  its steps and `support/web-runtime.ts` (each scenario gets an empty
+  runtime folder of its own); docs: on-your-mac.md, SECURITY.md,
+  forking.md, gpui-port.md, features.md's new row.
+- Verification: web-runtime.feature's 3 scenarios on Tinker Desk's desktop
+  (3 of 3: install from the pinned archive and a page drawn with no window,
+  800 by 240 pixels; a file that isn't the build refused unpacked; Settings'
+  row); a real download from Spotify's CDN through the app on Tinker Desk,
+  then a page drawn (picture checked by eye); core's tests (the 7 new ones:
+  a mismatched or short or long download never kept, the file checked again
+  before unpacking, only the framework unpacked, hostile entries refused,
+  helpers made once per binary) and integration tests, the client's and
+  the web crate's, all `--locked`; `cargo check --locked --workspace
+  --all-targets`; settings, window and reading-a-thread features on the
+  GPUI app (all pass but settings.feature's Keep the Mac awake, which fails
+  the same way with main's settings window).
 
 ### 2026-11-11 Projects: the sidebar's view, the page of cards and a project's page (`projects.list`, `projects.home`, `projects.page`, `projects.parts`, `projects.newthread`, `header.projectchip`, `highlights.projects`)
 
