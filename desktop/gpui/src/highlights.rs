@@ -179,6 +179,9 @@ pub(crate) enum MenuAction {
     OpenFolderRow { key: String, entry: threadbear_core::folders::FolderEntry },
     SortFolder { key: String, sort: threadbear_core::folders::FolderSort },
     FolderHidden { hidden: bool },
+    // A Scheduled row's (`scheduleRow`).
+    EditSchedule { id: String },
+    ShowSchedules,
 }
 
 /// The app's window of files read so far and folders looked at lives in
@@ -623,7 +626,7 @@ impl SidePane {
     }
 
     /// A menu item chosen.
-    pub(crate) fn run_menu_action(&mut self, action: MenuAction, thread: &ThreadSummary, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn run_menu_action(&mut self, action: MenuAction, thread: &ThreadSummary, window: &mut Window, cx: &mut Context<Self>) {
         match action {
             MenuAction::PreviewFile { path, title } => self.preview_path(&path, Some(title), thread, cx),
             MenuAction::PreviewPage { url } => crate::files::open_web(&url, cx),
@@ -636,6 +639,12 @@ impl SidePane {
             MenuAction::Reveal { path } => crate::files::reveal(&path, if thread.is_remote() { crate::open_gate::Origin::OtherMac } else { crate::open_gate::Origin::ThisMac }, cx),
             MenuAction::Copy { text } => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             MenuAction::Remove { id, title } => self.remove_highlight(id, title, thread.id.clone(), cx),
+            MenuAction::EditSchedule { id } => self.edit_schedule(&id, window, cx),
+            MenuAction::ShowSchedules => {
+                if let Some(app) = self.app.upgrade() {
+                    app.update(cx, |app, cx| app.set_mode(crate::shell::SidebarMode::Scheduled, cx));
+                }
+            }
             MenuAction::CopyPicture => {
                 self.copy_open_picture(cx);
             }
@@ -709,6 +718,18 @@ impl SidePane {
     fn open_file_row_menu(&mut self, path: &str, title: &str, thread: &ThreadSummary, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let items = Self::file_menu(path, title, thread);
         self.open_menu(items, position, window, cx);
+    }
+
+    /// A Scheduled row's right-click menu (`scheduleRow`'s `iconContextMenu`).
+    pub(crate) fn schedule_menu(id: &str) -> Vec<MenuItem> {
+        vec![MenuItem::action("Edit", "pencil", MenuAction::EditSchedule { id: id.to_owned() }), MenuItem::action("Show all schedules", "clock", MenuAction::ShowSchedules)]
+    }
+
+    /// A Scheduled row's click: the schedule in the app's editor (`editSchedule`).
+    pub(crate) fn edit_schedule(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(app) = self.app.upgrade() {
+            app.update(cx, |app, cx| app.edit_schedule(id, window, cx));
+        }
     }
 
     fn open_link_row_menu(&mut self, url: &str, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
@@ -1111,7 +1132,14 @@ impl SidePane {
             list = list.child(self.heading(Heading { key: fold::SCHEDULED.to_owned(), title: "Scheduled".into(), icon: Some(icon("clock", 11., p.secondary).into_any_element()), count: Some(scheduled.len()), folded, foldable: true, accessory: None }, p, cx));
             if !folded {
                 for row in scheduled {
-                    let pr = PaneRow::new(SharedString::from(format!("hl-sched-{}", row.id)), row.title).icon(if row.paused { "pause.circle" } else { "clock" }).trailing(row.when).detail(Some(row.detail));
+                    let (edit_id, menu_id) = (row.id.clone(), row.id.clone());
+                    let pr = PaneRow::new(SharedString::from(format!("hl-sched-{}", row.id)), row.title)
+                        .icon(if row.paused { "pause.circle" } else { "clock" })
+                        .trailing(row.when)
+                        .detail(Some(row.detail))
+                        .tip("Edit the schedule")
+                        .on_click(move |this, window, cx| this.edit_schedule(&edit_id, window, cx))
+                        .on_menu(move |this, pos, window, cx| this.open_menu(Self::schedule_menu(&menu_id), pos, window, cx));
                     list = list.child(pr.render(p, cx));
                 }
             }
@@ -1234,7 +1262,7 @@ impl SidePane {
         div().id("highlights-scroll").size_full().overflow_y_scroll().track_scroll(&self.scroll).child(list).into_any_element()
     }
 
-    fn schedule_rows(&self, thread: &ThreadSummary, cx: &App) -> Vec<core::ScheduleRow> {
+    pub(crate) fn schedule_rows(&self, thread: &ThreadSummary, cx: &App) -> Vec<core::ScheduleRow> {
         let threads = self.app.upgrade().map(|a| a.read(cx).threads.clone()).unwrap_or_default();
         core::schedule_rows(thread, &self.schedules, now_ms(), |s| match s.thread_id.as_deref() {
             Some(id) => threads.get(id).map_or_else(|| "A thread that's gone".to_owned(), |t| if t.title.is_empty() { "Untitled".to_owned() } else { t.title.clone() }),
@@ -1700,6 +1728,16 @@ fn highlight_command(side: &Entity<SidePane>, thread: &ThreadSummary, cmd: &Valu
             }
             cx.notify();
         });
+        return Ok(json!("ok"));
+    }
+    // A Scheduled row, by its title: "schedule" clicks it (the editor opens
+    // on it), "scheduleMenu" lists its right-click menu.
+    if let Some(title) = cmd["schedule"].as_str().or_else(|| cmd["scheduleMenu"].as_str()) {
+        let row = side.read(cx).schedule_rows(thread, cx).into_iter().find(|r| r.title == title).ok_or_else(|| format!("no Scheduled row {title}"))?;
+        if cmd["scheduleMenu"].is_string() {
+            return Ok(json!(format!("ok {}", SidePane::schedule_menu(&row.id).iter().map(|i| i.title.clone()).collect::<Vec<_>>().join(" | "))));
+        }
+        side.update(cx, |pane, cx| pane.edit_schedule(&row.id, window, cx));
         return Ok(json!("ok"));
     }
     let pane = side.read(cx);

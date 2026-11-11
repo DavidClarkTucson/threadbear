@@ -95,3 +95,9 @@ Feature: The thread's bar, banners and notes
     When I open the last thread in the Inbox
     And I press "down" with "cmd,opt"
     Then a note says I've reached the end of the inbox
+
+  @header.schedulechip
+  Scenario: The Scheduled chip says when its schedule runs, and opens it in the editor
+    When I open the thread "Export last quarter's invoices as CSV"
+    And I click the header's Scheduled chip for "Quarterly invoice export"
+    Then the schedule editor is open on "Export last quarter's invoices as CSV for the accountant." repeating on "0 8 1 1,4,7,10 *"

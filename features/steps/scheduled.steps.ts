@@ -87,3 +87,9 @@ Then('the schedule editor is open on {string} repeating on {string}', async func
   assert.equal(editor.text, text);
   assert.equal(editor.cron, cron);
 });
+
+Then('the schedule editor is open on the schedule that sends {string}', async function (this: ThreadbearWorld, text: string) {
+  const editor = await this.until('the schedule editor', (d) => (d as unknown as Extra).scheduleEditor);
+  assert.equal(editor.isNew, false, 'it opened on a new schedule');
+  assert.equal(editor.text, text);
+});

@@ -39,6 +39,15 @@ extension Automation {
             }
             return "ok"
         }
+        // A Scheduled row, by its title: "schedule" clicks it (the editor
+        // opens on it), "scheduleMenu" lists its right-click menu.
+        if let title = (c["schedule"] ?? c["scheduleMenu"]) as? String {
+            let rows = ScheduleRows.rows(for: thread, in: app.schedules, now: app.now, target: app.scheduleTarget)
+            guard let row = rows.first(where: { $0.title == title }) else { return "error no Scheduled row \(title)" }
+            if c["scheduleMenu"] != nil { return "ok Edit | Show all schedules" }
+            app.editSchedule(row.id)
+            return "ok"
+        }
         guard let fetched = app.highlights[thread.id] else { return "error highlights not fetched" }
         let sections = HighlightSections.build(fetched)
         func find(_ title: String) -> Highlight? {

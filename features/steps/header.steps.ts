@@ -132,3 +132,8 @@ Then("the limit line's button says {string}", async function (this: ThreadbearWo
 Then('the model chip is marked {string}', async function (this: ThreadbearWorld, badge: string) {
   await this.until(`the model chip marked "${badge}"`, (d) => d.composer.chipBadge === badge);
 });
+
+When("I click the header's Scheduled chip for {string}", async function (this: ThreadbearWorld, title: string) {
+  // Its tip names the schedule, and says when it runs (`StartedBySchedule.tip`).
+  await this.app.do({ cmd: 'click', tipPrefix: `Started by a schedule: ${title} (` });
+});

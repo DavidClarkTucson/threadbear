@@ -303,6 +303,8 @@ stopped. `mock.goAway` (`downMs`) is the same with no notice first, as a
 runner that crashed or was stopped, for the "Can't reach the runner" bar.
 `mock.failEvents` (`threadId`, `times`, default 1) makes that thread's next
 reads of its events fail, for the "Couldn't load this thread" view.
+`mock.keywords` (`title`, `keywords`) gives a thread the librarian's search
+words, for finding it by what it's about.
 
 `mock.slow` (`ms`, `queueMs`; both 0 turns it off) plays a runner on a
 loaded Mac: `ms` holds every `threads.send`, `threads.create` and

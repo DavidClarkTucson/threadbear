@@ -55,6 +55,9 @@ pub struct ThreadSummary {
     pub moving: Option<Value>,
     pub asked: Option<String>,
     pub preview: String,
+    /// The librarian's search words, for finding a thread by what it's about
+    /// when its title and preview don't say it (`matches`).
+    pub keywords: Option<String>,
     pub last_seq: u64,
     pub last_seen_seq: u64,
     /// The rail's panel buttons (`ThreadSummary.panels`) and Patches, as they
@@ -439,8 +442,56 @@ pub fn sections_ordered<'a>(threads: impl IntoIterator<Item = &'a ThreadSummary>
 
 /// Whether a sidebar search finds this thread: its title or its last reply,
 /// as ThreadSections.matches has it. `query` is already lowercase.
+/// Title, preview or the librarian's search words, case and accent
+/// insensitive (`ThreadSections.matches`). The search words find a thread by
+/// what it's about when neither says it ("dentist" for a wisdom tooth
+/// appointment).
 pub fn matches(t: &ThreadSummary, query: &str) -> bool {
-    t.title.to_lowercase().contains(query) || t.preview.to_lowercase().contains(query)
+    let query = fold(query);
+    [Some(t.title.as_str()), Some(t.preview.as_str()), t.keywords.as_deref()].into_iter().flatten().any(|text| fold(text).contains(&query))
+}
+
+/// Lower case with the accents taken off, for comparing as Swift's
+/// `[.caseInsensitive, .diacriticInsensitive]` does: "Café" and "cafe" are
+/// the same. Combining marks go, and the accented Latin letters become their
+/// plain ones; anything else is only lower-cased.
+pub fn fold(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if ('\u{300}'..='\u{36f}').contains(&c) {
+            continue;
+        }
+        match plain_letter(c) {
+            Some(plain) => out.push(plain),
+            None => out.extend(c.to_lowercase()),
+        }
+    }
+    out
+}
+
+fn plain_letter(c: char) -> Option<char> {
+    Some(match c {
+        'À'..='Å' | 'à'..='å' | 'Ā'..='ą' => 'a',
+        'Ç' | 'ç' | 'Ć'..='č' => 'c',
+        'Ď'..='đ' => 'd',
+        'È'..='Ë' | 'è'..='ë' | 'Ē'..='ě' => 'e',
+        'Ĝ'..='ģ' => 'g',
+        'Ĥ'..='ħ' => 'h',
+        'Ì'..='Ï' | 'ì'..='ï' | 'Ĩ'..='ı' => 'i',
+        'Ĵ' | 'ĵ' => 'j',
+        'Ķ' | 'ķ' => 'k',
+        'Ĺ'..='ł' => 'l',
+        'Ñ' | 'ñ' | 'Ń'..='ň' => 'n',
+        'Ò'..='Ö' | 'Ø' | 'ò'..='ö' | 'ø' | 'Ō'..='ő' => 'o',
+        'Ŕ'..='ř' => 'r',
+        'Ś'..='š' => 's',
+        'Ţ'..='ŧ' => 't',
+        'Ù'..='Ü' | 'ù'..='ü' | 'Ũ'..='ų' => 'u',
+        'Ŵ' | 'ŵ' => 'w',
+        'Ý' | 'ý' | 'ÿ' | 'Ŷ' | 'ŷ' | 'Ÿ' => 'y',
+        'Ź'..='ž' => 'z',
+        _ => return None,
+    })
 }
 
 /// The last part of a folder's path, on any platform.
@@ -571,6 +622,18 @@ mod tests {
         let (title, body) = notification_words(&asks);
         assert_eq!(title, "Thread 1");
         assert_eq!(body, "Ship it?");
+    }
+
+    #[test]
+    fn search_finds_the_librarians_words_whatever_the_case_and_accents() {
+        let t = thread(1, json!({ "title": "Café plans", "preview": "Booked the RÉSUMÉ review", "keywords": "dentist wisdom tooth" }));
+        assert!(matches(&t, "cafe"), "an accent in the title");
+        assert!(matches(&t, "CAFÉ"));
+        assert!(matches(&t, "resume"), "and in the preview");
+        assert!(matches(&t, "Dentist"), "the librarian's words");
+        assert!(!matches(&t, "dentistry"));
+        assert_eq!(fold("Ångström Łódź Ñandú"), "angstrom lodz nandu");
+        assert_eq!(fold("e\u{301}"), "e", "a combining accent goes too");
     }
 
     #[test]

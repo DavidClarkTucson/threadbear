@@ -361,6 +361,21 @@ impl ScheduleModels {
 
 /// Where the editor's Once picker starts: the next whole hour at least a
 /// quarter of an hour away (`ScheduleTime.defaultOnce`).
+/// The header's Scheduled chip on a thread a schedule started
+/// (`StartedBySchedule.tip`): the schedule's title as it was when it started
+/// the thread, and what it is now if it's still there: when it runs, or that
+/// it's paused. It may since have been renamed or deleted.
+pub fn started_by_tip(origin_title: &str, current: Option<&Schedule>) -> String {
+    let named = format!("Started by a schedule: {}", if origin_title.is_empty() { "Untitled" } else { origin_title });
+    let Some(current) = current else { return format!("{named}. It has since been deleted.") };
+    let when = if current.paused { "paused" } else { current.when_text.as_str() };
+    if when.is_empty() {
+        format!("{named}. Click to edit it.")
+    } else {
+        format!("{named} ({when}). Click to edit it.")
+    }
+}
+
 pub fn default_once_ms(now_ms: i64) -> i64 {
     let later = now_ms + 15 * 60_000;
     let hour = later - later.rem_euclid(3_600_000);
@@ -378,6 +393,15 @@ mod tests {
 
     fn schedule(v: serde_json::Value) -> Schedule {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn the_scheduled_chip_says_when_it_runs_or_what_happened_to_it() {
+        let mut live = Schedule { id: "s1".into(), title: "Renamed".into(), when_text: "Weekdays at 9:00".into(), ..Default::default() };
+        assert_eq!(started_by_tip("Morning brief", Some(&live)), "Started by a schedule: Morning brief (Weekdays at 9:00). Click to edit it.");
+        live.paused = true;
+        assert_eq!(started_by_tip("Morning brief", Some(&live)), "Started by a schedule: Morning brief (paused). Click to edit it.");
+        assert_eq!(started_by_tip("", None), "Started by a schedule: Untitled. It has since been deleted.");
     }
 
     #[test]
