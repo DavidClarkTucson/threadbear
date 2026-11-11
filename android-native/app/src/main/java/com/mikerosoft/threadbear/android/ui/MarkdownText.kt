@@ -46,6 +46,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mikerosoft.threadbear.kit.InlineMarks
 import com.mikerosoft.threadbear.kit.MarkdownBlock
 import com.mikerosoft.threadbear.kit.MessageButton
 import com.mikerosoft.threadbear.kit.ReplyButtons
@@ -270,12 +271,10 @@ private const val MAX_ROWS = 100
 private const val MAX_CELL_LINES = 8
 
 /**
- * Inline marks: escapes, `code`, **bold**, *italic*, ~~strike~~,
- * [links](url) and bare web addresses. A link's destination may have
- * spaces and one level of brackets, as agents write `[tests pass](work:npm
- * test (unit))`, which a strict parser showed as raw text on the iPhone
- * (Mike, 1 Nov; ThreadLinks.escapeDestinations there). Every link goes to
- * `onLink`, never straight to the system.
+ * Inline marks drawn: the kit's InlineMarks runs as styled text. Every link
+ * goes to `onLink`, never straight to the system. The runs come from one
+ * pass that can't loop (a bare address once parsed itself forever, Daybreak
+ * 11 Nov 2026), so this only styles them.
  */
 class InlineStyle(
     private val accent: Color,
@@ -283,37 +282,38 @@ class InlineStyle(
     /** Null: nothing in it is a link, its words only (a skill's description, Daybreak 8 Nov). */
     private val onLink: ((String) -> Unit)? = {},
 ) {
-    private val token = Regex(
-        """\\([\\`*_{}\[\]()#+\-.!|~<>])|(`+)(.+?)\2|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)|\[([^\]\n]+)]\(((?:[^()\n]|\([^()\n]*\))+?)\)|(https?://[^\s<>()]+[^\s<>().,;:!?'"])""",
-    )
-
-    fun parse(text: String): AnnotatedString = buildAnnotatedString { append(text, this) }
-
-    private fun append(text: String, b: AnnotatedString.Builder) {
-        var last = 0
-        for (m in token.findAll(text)) {
-            if (m.range.first > last) b.append(text.substring(last, m.range.first))
-            val g = m.groups
-            when {
-                g[1] != null -> b.append(g[1]!!.value)
-                g[3] != null -> b.withStyle(SpanStyle(fontFamily = Mono, fontSize = 0.9.em(), background = codeBg)) { append(" ${g[3]!!.value.trim()} ") }
-                g[4] != null -> b.withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(g[4]!!.value, b) }
-                g[5] != null -> b.withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(g[5]!!.value, b) }
-                g[6] != null -> b.withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(g[6]!!.value, b) }
-                g[7] != null -> b.withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[7]!!.value, b) }
-                g[8] != null -> b.withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[8]!!.value, b) }
-                g[9] != null -> link(b, g[9]!!.value, g[10]!!.value.trim())
-                g[11] != null -> link(b, g[11]!!.value, g[11]!!.value)
+    fun parse(text: String): AnnotatedString = buildAnnotatedString {
+        val runs = InlineMarks.parse(text, links = onLink != null)
+        var i = 0
+        while (i < runs.size) {
+            val link = runs[i].link
+            // A link's runs together, as one link with its words styled inside.
+            var j = i + 1
+            while (link != null && j < runs.size && runs[j].link == link) j++
+            val handler = onLink
+            if (link != null && handler != null) {
+                val url = link.url
+                withLink(LinkAnnotation.Clickable(url, TextLinkStyles(SpanStyle(color = accent))) { handler(url) }) {
+                    for (k in i until j) draw(this, runs[k])
+                }
+            } else {
+                for (k in i until j) draw(this, runs[k])
             }
-            last = m.range.last + 1
+            i = j
         }
-        if (last < text.length) b.append(text.substring(last))
     }
 
-    private fun link(b: AnnotatedString.Builder, words: String, url: String) {
-        val onLink = onLink ?: return append(words, b)
-        val annotation = LinkAnnotation.Clickable(url, TextLinkStyles(SpanStyle(color = accent))) { onLink(url) }
-        b.withLink(annotation) { append(words, b) }
+    private fun draw(b: AnnotatedString.Builder, run: InlineMarks.Run) {
+        if (run.marks.isEmpty()) return b.append(run.text)
+        val style = SpanStyle(
+            fontFamily = if (InlineMarks.Mark.CODE in run.marks) Mono else null,
+            fontSize = if (InlineMarks.Mark.CODE in run.marks) 0.9.em() else androidx.compose.ui.unit.TextUnit.Unspecified,
+            background = if (InlineMarks.Mark.CODE in run.marks) codeBg else Color.Unspecified,
+            fontWeight = if (InlineMarks.Mark.BOLD in run.marks) FontWeight.SemiBold else null,
+            fontStyle = if (InlineMarks.Mark.ITALIC in run.marks) FontStyle.Italic else null,
+            textDecoration = if (InlineMarks.Mark.STRIKE in run.marks) TextDecoration.LineThrough else null,
+        )
+        b.withStyle(style) { append(run.text) }
     }
 
     private fun Double.em() = androidx.compose.ui.unit.TextUnit(this.toFloat(), androidx.compose.ui.unit.TextUnitType.Em)

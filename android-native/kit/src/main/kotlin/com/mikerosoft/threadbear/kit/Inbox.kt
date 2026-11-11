@@ -176,7 +176,13 @@ object RowStatus {
 
 /** Short relative times, as on the Mac sidebar: "now", "5m", "3h", "Mon", "12 Oct". */
 object RelativeTime {
-    fun short(date: Instant, now: Instant, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.UK): String {
+    // Both dates held to FlexibleDate's range first, wherever they came from:
+    // past it toEpochMilli() overflows and atZone() throws, in the middle of
+    // drawing the inbox (Daybreak, 11 Nov 2026).
+    fun short(date: Instant, now: Instant, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.UK): String =
+        heldShort(FlexibleDate.held(date), FlexibleDate.held(now), zone, locale)
+
+    private fun heldShort(date: Instant, now: Instant, zone: ZoneId, locale: Locale): String {
         val seconds = (now.toEpochMilli() - date.toEpochMilli()) / 1000.0
         if (seconds < 60) return "now"
         if (seconds < 3600) return "${(seconds / 60).saturatingInt()}m"
@@ -189,8 +195,8 @@ object RelativeTime {
 
     /** "10:42" today, "Mon 10:42" otherwise. */
     fun clock(date: Instant, now: Instant, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.UK): String {
-        val d = date.atZone(zone)
-        val sameDay = d.toLocalDate() == now.atZone(zone).toLocalDate()
+        val d = FlexibleDate.held(date).atZone(zone)
+        val sameDay = d.toLocalDate() == FlexibleDate.held(now).atZone(zone).toLocalDate()
         return DateTimeFormatter.ofPattern(if (sameDay) "HH:mm" else "EEE HH:mm", locale).format(d)
     }
 }

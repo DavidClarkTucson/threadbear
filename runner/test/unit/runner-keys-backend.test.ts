@@ -1152,3 +1152,42 @@ test("codex 8 Nov: a count left above what a runner key's rows hold is put back 
   const after = s.rows('runnerStorage').find((x) => x.runnerId === BRUCE)!.messageBytes;
   assert.ok(after < 10_000, `count back to what's stored, not ${after}`);
 });
+
+// ------------------------------------------------------------ Daybreak, 11 Nov 2026
+
+// Findings 99 and 100: a runner key's own thread and schedule carried times
+// Android parsed and then threw drawing (toEpochMilli, atZone). What phones
+// read is only ever a time the apps can read; the Android kit holds them too.
+test("a runner key's thread and schedule times are ones the apps can read", async () => {
+  const s = await setup();
+  const far = '+999999999-12-31T23:59:59Z';
+  await s.bruce.upsert(thread('FAR', BRUCE, { status: 'idle', lastActivityAt: far, createdAt: far, snoozedUntil: far, starredAt: '+1000000000-06-01T00:00:00Z', archivedAt: 'x', woke: { at: far } }));
+  const t = s.rows('threads').find((r) => r.threadId === 'FAR')!;
+  assert.equal(t.lastActivityAt, new Date(t.lastActivityMs).toISOString());
+  assert.equal(t.createdAt, t.lastActivityAt);
+  for (const f of ['snoozedUntil', 'starredAt', 'archivedAt', 'woke']) assert.equal(t[f], undefined, f);
+  await s.bruce.upsert(thread('SINCE', BRUCE, { woke: { at: '2026-11-11T00:00:00.000Z', since: far } }));
+  assert.deepEqual(s.rows('threads').find((r) => r.threadId === 'SINCE')!.woke, { at: '2026-11-11T00:00:00.000Z' });
+  // Ordinary times are kept as written.
+  await s.bruce.upsert(thread('OK', BRUCE, { starredAt: '2026-11-11T03:06:54.388Z', snoozedUntil: '2026-11-12T09:00:00+01:00' }));
+  const ok = s.rows('threads').find((r) => r.threadId === 'OK')!;
+  assert.equal(ok.starredAt, '2026-11-11T03:06:54.388Z');
+  assert.equal(ok.snoozedUntil, '2026-11-12T09:00:00+01:00');
+  // The owner's runner is trusted as it was.
+  await s.owner.upsert(thread('MINE', M5, { starredAt: 'whatever' }));
+  assert.equal(s.rows('threads').find((r) => r.threadId === 'MINE')!.starredAt, 'whatever');
+
+  const token = 'phone-token';
+  await s.ctx.db.insert('tokens', { hash: await sha256(token), name: 'phone', expiresAt: Date.now() + 100_000, createdAt: Date.now() });
+  await call(s.ctx, sync.saveSchedule, { key: BRUCE_KEY, schedule: sched(UUID(7), BRUCE, { threadId: 'FAR', nextRunAt: '+1000000000-06-01T00:00:00Z' }) });
+  await call(s.ctx, sync.saveSchedule, { key: BRUCE_KEY, schedule: sched(UUID(8), BRUCE, { threadId: 'OK', nextRunAt: '2026-11-12T09:00:00.000Z' }) });
+  // A wake stored before the check is held to it when read.
+  await s.ctx.db.insert('scheduleWakes', { scheduleId: 'old', runnerId: BRUCE, threadId: 'SINCE', nextRunAt: far });
+  const wakes = await call(s.ctx, phone.wakes, { token });
+  assert.deepEqual(wakes.find((w: any) => w.scheduleId === UUID(7)), { scheduleId: UUID(7), threadId: 'FAR' });
+  assert.deepEqual(wakes.find((w: any) => w.scheduleId === UUID(8)), { scheduleId: UUID(8), threadId: 'OK', nextRunAt: '2026-11-12T09:00:00.000Z' });
+  assert.deepEqual(wakes.find((w: any) => w.scheduleId === 'old'), { scheduleId: 'old', threadId: 'SINCE' });
+  // A run that moves it on is checked the same way.
+  await call(s.ctx, sync.scheduleRan, { key: BRUCE_KEY, scheduleId: UUID(8), holder: 'h', lastRun: { at: 'a', outcome: 'sent' }, sent: true, expectUpdatedAt: 'u', nextRunAt: far });
+  assert.equal(s.rows('scheduleWakes').find((w) => w.scheduleId === UUID(8))!.nextRunAt, undefined);
+});

@@ -12,7 +12,7 @@ import { API_VERSION } from './version';
 import { pushOff } from './pushHealth';
 import { imagesFrom, phoneImage, replyImagesFrom } from './share';
 import { deleteIfUnused, endCommandFiles, eventBodyAnswer, finishedArgs, readEventBody, runnerName } from './sync';
-import { docBytes } from './runnerAccess';
+import { docBytes, isIsoTime } from './runnerAccess';
 import { HEADS_MARK } from './projectHeads';
 import { notesOf } from './projectNotes';
 
@@ -614,7 +614,8 @@ export const wakes = query({
   handler: async (ctx, { token }) => {
     await checkPhoneToken(ctx, token);
     const out = [];
-    for await (const w of ctx.db.query('scheduleWakes')) out.push({ scheduleId: w.scheduleId, ...(w.threadId ? { threadId: w.threadId } : {}), ...(w.nextRunAt ? { nextRunAt: w.nextRunAt } : {}) });
+    // A wake saved before syncWake checked its time is held to the same check.
+    for await (const w of ctx.db.query('scheduleWakes')) out.push({ scheduleId: w.scheduleId, ...(w.threadId ? { threadId: w.threadId } : {}), ...(isIsoTime(w.nextRunAt) ? { nextRunAt: w.nextRunAt } : {}) });
     return out;
   },
 });

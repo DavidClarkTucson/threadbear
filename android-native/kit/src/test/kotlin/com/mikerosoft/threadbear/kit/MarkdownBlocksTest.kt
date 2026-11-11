@@ -3,6 +3,7 @@ package com.mikerosoft.threadbear.kit
 import com.mikerosoft.threadbear.kit.MarkdownBlock.Alignment
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /** MarkdownBlocksTests.swift. */
 class MarkdownBlocksTest {
@@ -266,5 +267,27 @@ class MarkdownBlocksTest {
         val rows = (1..3000).joinToString("\n") { "| $it |" }
         val table = parse("| A |\n|---|\n$rows").first() as MarkdownBlock.Table
         assertEquals(MarkdownBlock.MAX_TABLE_CELLS - 1, table.rows.size)
+    }
+
+    // Daybreak, 11 Nov 2026 (finding 98): an 1,800-cell header, a one-cell
+    // divider and 1,000 one-cell rows came to 1.8 million cells to draw. Its
+    // divider doesn't match the header, so it's words; one whose divider does
+    // match still comes to no more cells than MAX_TABLE_CELLS, every table of
+    // the reply together.
+    @Test fun raggedAndWideTablesStayWithinTheirCells() {
+        val ragged = "|" + (1..1800).joinToString("|") { "h" } + "|\n|---|\n" + (1..1000).joinToString("\n") { "|x|" }
+        assertTrue(ragged.length < 8_000) // within a runner's message limit
+        assertTrue(parse(ragged).none { it is MarkdownBlock.Table })
+
+        for (width in listOf(24, 999, 1000, 1001, 1800)) {
+            val header = "|" + (1..width).joinToString("|") { "h" } + "|"
+            val divider = "|" + (1..width).joinToString("|") { "-" } + "|"
+            val text = listOf(header, divider).plus((1..1000).map { "|x|" }).joinToString("\n")
+            val again = (1..5).joinToString("\n\n") { text }
+            val tables = parse(again).filterIsInstance<MarkdownBlock.Table>()
+            val cells = tables.sumOf { it.header.size + it.rows.sumOf { r -> r.size } }
+            assertTrue(cells <= MarkdownBlock.MAX_TABLE_CELLS, "width $width: $cells cells")
+            assertTrue(tables.all { t -> t.rows.all { it.size == t.header.size } })
+        }
     }
 }
