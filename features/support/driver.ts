@@ -92,9 +92,17 @@ export type Dump = {
   header?: { title?: string; renaming?: boolean; backTip?: string; forwardTip?: string; shared?: boolean };
   /** The activity bar and the right rail, as drawn. */
   rails?: { activity: RailButton[]; right: RailButton[] };
+  /** What the activity bar's Runners, Updates and Connectors panels say, a line each. */
+  runners?: PanelLines;
+  updates?: PanelLines;
+  connectors?: PanelLines;
 };
 
-export type RailButton = { title: string; badge?: number | null; dot?: boolean; active: boolean };
+/** `dot` is the accent dot (something only you can do), `quietDot` the grey one. */
+export type RailButton = { title: string; badge?: number | null; dot?: boolean; quietDot?: boolean; active: boolean };
+
+/** One of the activity bar's panels: whether it's on show, and what it says. */
+export type PanelLines = { shown: boolean; lines: string[] };
 
 export interface Driver {
   readonly name: 'swift' | 'gpui';

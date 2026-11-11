@@ -391,12 +391,26 @@ struct AppDump: Encodable {
     var rails: Rails = Rails()
     /// The panel bar's title line and its buttons' tips (ThreadHeader).
     var header: Header? = nil
+    /// What the activity bar's Runners, Updates and Connectors panels draw,
+    /// a line each, and whether each is on show (as `usage` has it). The
+    /// GPUI app's dump says the same lines.
+    var runners: PanelLines? = nil
+    var updates: PanelLines? = nil
+    var connectors: PanelLines? = nil
 
     struct RailButton: Encodable {
         var title: String
         var badge: Int? = nil
+        /// The accent dot: something only Mike can do.
         var dot: Bool = false
+        /// The grey one: something going on that sorts itself out.
+        var quietDot: Bool = false
         var active: Bool
+    }
+
+    struct PanelLines: Encodable {
+        var shown: Bool
+        var lines: [String]
     }
 
     struct Rails: Encodable {
@@ -423,6 +437,18 @@ struct AppDump: Encodable {
             activity.append(RailButton(title: "Projects", active: app.sidebarMode == .projects))
             activity.append(RailButton(title: "Librarian", badge: app.librarian?.pendingCount, active: app.sidebarMode == .librarian))
         }
+        // The foot's panels, with their dots (ConnectorsActivityButton,
+        // RunnersActivityButton, UpdatesActivityButton).
+        if let connectors = app.connectors, connectors.state != "off" {
+            activity.append(RailButton(title: "Connectors", dot: ConnectorsText.needsYou(connectors), quietDot: ConnectorsText.quiet(connectors), active: app.connectorsShown))
+        }
+        if app.runners.count > 1 {
+            activity.append(RailButton(title: "Runners", quietDot: app.runners.contains { RunnersText.state($0) != .online }, active: app.runnersShown))
+        }
+        let side = UpdatesPanel.appSide(AppUpdater.shared)
+        activity.append(RailButton(title: "Updates", dot: UpdatesText.needsYou(app: side, runner: app.runnerUpdates),
+                                   quietDot: UpdatesText.shown(app: side, runner: app.runnerUpdates) || app.clis.contains(where: UpdatesText.cliPending),
+                                   active: app.updatesShown))
         var right: [RailButton] = []
         if let thread = app.paneThread {
             if app.openProject == nil {
@@ -704,8 +730,113 @@ struct AppDump: Encodable {
             zoom: TextZoom.shared.percent,
             inboxEndNote: app.inboxEndNote.map { $0.empty ? "empty" : "end" },
             rails: rails(app),
-            header: header(app)
+            header: header(app),
+            runners: PanelLines(shown: app.runnersShown, lines: runnersLines(app)),
+            updates: PanelLines(shown: app.updatesShown, lines: updatesLines(app)),
+            connectors: PanelLines(shown: app.connectorsShown, lines: connectorsLines(app))
         )
+    }
+
+    /// What the Runners panel draws (RunnersPanel), a line each: how many are
+    /// up, then each runner in Mike's order ("bruce *" for where new threads
+    /// start), its figures when its details are open, and what's running
+    /// there.
+    @MainActor
+    static func runnersLines(_ app: AppModel) -> [String] {
+        let open = Set((UserDefaults.standard.string(forKey: "runnersPanelOpen") ?? "").split(separator: ",").map(String.init))
+        let running = app.sections.running
+        let up = app.runners.filter { RunnersText.state($0) != .offline }.count
+        var lines = [up == app.runners.count ? "All online" : "\(up) of \(app.runners.count) online"]
+        for r in app.orderedRunners {
+            let isDefault = r.isSelf ? app.defaultRunnerId == nil : app.defaultRunnerId == r.id
+            lines.append("\(r.name)\(isDefault ? " *" : ""): \(RunnersText.stateLine(r, now: app.now))\(RunnersText.build(r).map { ", " + $0 } ?? "")")
+            if open.contains(r.id) {
+                if let s = app.runnerStats[r.id] {
+                    lines += RunnersText.gauges(s).map { "  \($0.title) \($0.text)\($0.high ? " (high)" : "")" }
+                    lines += (RunnersText.machineLines(s) + [RunnersText.staleLine(s, now: app.now)].compactMap { $0 }).map { "  " + $0 }
+                } else if RunnersText.state(r) == .offline {
+                    lines.append("  Offline, so it isn't sending figures.")
+                } else {
+                    lines.append(app.runnerStatsAsked ? "  Waiting for its figures. An older runner doesn't send them." : "  Asking for its figures…")
+                }
+            }
+            let paired = r.isSelf || !app.directRemoteLink || app.remoteRunners.first { $0.id == r.id }?.tokenFile != nil
+            if !paired { lines.append("  Not paired with this Mac") }
+            let on = RunnersText.running(on: r, in: running)
+            lines += on.prefix(6).map { "  > " + ($0.title.isEmpty ? "Untitled" : $0.title) }
+            if on.count > 6 { lines.append("  and \(on.count - 6) more") }
+        }
+        return lines
+    }
+
+    /// What the Updates panel draws (UpdatesPanel): its sections as "# App"
+    /// and so on, buttons in brackets, and each CLI as `usageLines` has it.
+    @MainActor
+    static func updatesLines(_ app: AppModel) -> [String] {
+        let side = UpdatesPanel.appSide(AppUpdater.shared)
+        var lines = ["# App", UpdatesText.appLine(side), "# Runner"]
+        if let runner = app.runnerUpdates {
+            let build = UpdatesText.buildLine(runner)
+            let old = UpdatesText.oldRunnersLine(runner)
+            let launcher = UpdatesText.launcherLine(runner)
+            let notFollowing = UpdatesText.followLines(runner)
+            if build == nil && old == nil && launcher == nil && notFollowing.isEmpty { lines.append("The runner is up to date.") }
+            lines += notFollowing
+            if let build { lines.append(build) }
+            if let old {
+                lines.append(old)
+                lines += runner.oldRunners.flatMap(\.threads).map { id in
+                    let title = app.threads[id]?.title ?? ""
+                    return "  > " + (title.isEmpty ? String(id.prefix(8)) : title)
+                }
+            }
+            if let launcher {
+                lines.append(launcher)
+                lines.append("  $ \(UpdatesText.installCommand(checkout: AppUpdater.shared.running?.checkout)) [Copy]")
+            }
+        } else {
+            lines += UpdatesText.runnerLines(nil)
+        }
+        if let upstream = app.runnerUpdates?.upstream, let text = UpdatesText.upstreamLine(upstream) {
+            lines += ["# From Mike", text]
+            if upstream.available, let release = upstream.release {
+                for group in UpdatesText.releaseLines(release) {
+                    if let heading = group.heading { lines.append("## " + heading) }
+                    lines += group.lines.map { "  " + $0 }
+                }
+                lines.append("[Bring Them In] [Let's Discuss]")
+            }
+        }
+        lines.append("# CLIs")
+        if app.clisSupported == false || (app.clisSupported == nil && app.clis.isEmpty) {
+            lines.append("The CLI versions need a newer runner.")
+        } else {
+            for cli in app.clis {
+                var line = CliText.statusLine(cli) + " (" + CliText.policyTitle(cli.policy).lowercased() + ")"
+                if let button = CliText.updateTitle(cli) { line += " [\(button)]" }
+                if let back = CliText.goBackTitle(cli) { line += " [\(back)]" }
+                if CliText.isUpdating(cli), let text = CliText.bannerText(cli) { line += ": " + text }
+                lines.append(line)
+                if let missing = cli.hold?.missing, !missing.isEmpty { lines.append("  Missing: " + missing.joined(separator: ", ")) }
+                if let managed = CliText.managedLine(cli) { lines.append("  " + managed) }
+            }
+            lines.append(CliText.checkedLine(app.clis, now: app.now).map { $0 + " [Check now]" } ?? "[Check now]")
+        }
+        return lines
+    }
+
+    /// What the Connectors panel draws (ConnectorsPanel): where the gateway
+    /// is, why there's nothing to list, or each service with its button.
+    @MainActor
+    static func connectorsLines(_ app: AppModel) -> [String] {
+        let status = app.connectors
+        var lines = [ConnectorsText.host(status) ?? "Gateway"]
+        if status?.services.isEmpty ?? true, let line = ConnectorsText.emptyLine(status) { lines.append(line) }
+        for s in status?.services ?? [] {
+            lines.append("\(s.title): \(ConnectorsText.stateLine(s))\(ConnectorsText.buttonTitle(s).map { " [\($0)]" } ?? "")")
+            if let message = s.message, s.state != "connected" { lines.append("  " + message) }
+        }
+        return lines
     }
 
     /// The page in the detail area, if one's in place of the thread.

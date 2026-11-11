@@ -154,6 +154,30 @@ impl Threadbear {
             button.badge = self.librarian.status.as_ref().map(|s| s.pending_count());
             views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Librarian, cx), cx));
         }
+        // Connectors, Runners and Updates at the foot (activity_panels.rs),
+        // each with its dot: the accent when only Mike can do something, grey
+        // while something sorts itself out.
+        let mut foot = vec![];
+        if self.connectors_on() {
+            let status = self.connectors_panel.status.as_ref();
+            let mut button = RailButton::new("rail-connectors", "powerplug", threadbear_core::connectors::tooltip(status), self.activity_panel_showing(shell::CONNECTORS, cx));
+            button.dot = threadbear_core::connectors::needs_you(status);
+            button.quiet_dot = threadbear_core::connectors::quiet(status);
+            foot.push(rail_button(button, |this, _, cx| this.toggle_under_threads(shell::CONNECTORS, cx), cx));
+        }
+        // Only with more than one runner: a panel of just this Mac says
+        // nothing the app doesn't.
+        if self.remote.all_runners.len() > 1 {
+            let runners = &self.remote.all_runners;
+            let mut button = RailButton::new("rail-runners", "server.rack", threadbear_core::runners::tooltip(runners), self.activity_panel_showing(shell::RUNNERS, cx));
+            // Worth a look, but not Mike's to fix from here.
+            button.quiet_dot = runners.iter().any(|r| threadbear_core::runners::state(r) != threadbear_core::runners::State::Online);
+            foot.push(rail_button(button, |this, _, cx| this.toggle_under_threads(shell::RUNNERS, cx), cx));
+        }
+        let mut button = RailButton::new("rail-updates", "arrow.down.circle", self.updates_tooltip(), self.activity_panel_showing(shell::UPDATES, cx));
+        button.dot = self.updates_dot();
+        button.quiet_dot = self.updates_quiet_dot();
+        foot.push(rail_button(button, |this, _, cx| this.toggle_under_threads(shell::UPDATES, cx), cx));
         let usage_shown = self.dock.read(cx).controller.is_showing(shell::USAGE);
         let usage = rail_button(RailButton::new("rail-usage", "gauge.with.dots.needle.33percent", "Usage", usage_shown), |this, _, cx| this.toggle_under_threads(shell::USAGE, cx), cx);
         let mut button = RailButton::new("rail-settings", "gearshape", "Settings", false);
@@ -178,6 +202,7 @@ impl Threadbear {
                     .child(self.window_grip())
                     .child(v_flex().items_center().gap(px(4.)).children(views))
                     .child(div().flex_1().min_h(px(8.)))
+                    .children(foot)
                     .child(usage)
                     .child(settings),
             )
@@ -239,6 +264,16 @@ impl Threadbear {
             activity.push(json!({ "title": "Projects", "active": mode == SidebarMode::Projects }));
             activity.push(json!({ "title": "Librarian", "badge": self.librarian.status.as_ref().map(|s| s.pending_count()), "active": mode == SidebarMode::Librarian }));
         }
+        // The foot's panels, with their dots: `dot` the accent, `quietDot` the grey.
+        if self.connectors_on() {
+            let status = self.connectors_panel.status.as_ref();
+            activity.push(json!({ "title": "Connectors", "dot": threadbear_core::connectors::needs_you(status), "quietDot": threadbear_core::connectors::quiet(status), "active": self.activity_panel_showing(shell::CONNECTORS, cx) }));
+        }
+        if self.remote.all_runners.len() > 1 {
+            let quiet = self.remote.all_runners.iter().any(|r| threadbear_core::runners::state(r) != threadbear_core::runners::State::Online);
+            activity.push(json!({ "title": "Runners", "dot": false, "quietDot": quiet, "active": self.activity_panel_showing(shell::RUNNERS, cx) }));
+        }
+        activity.push(json!({ "title": "Updates", "dot": self.updates_dot(), "quietDot": self.updates_quiet_dot(), "active": self.activity_panel_showing(shell::UPDATES, cx) }));
         let mut right = vec![];
         if let Some(thread) = self.open_thread() {
             let dock = self.dock.read(cx);

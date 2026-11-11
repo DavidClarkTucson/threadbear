@@ -157,6 +157,11 @@ pub struct Threadbear {
     pub(crate) new_thread: crate::new_thread::NewThreadState,
     /// Other runners' threads and logins (remote.rs).
     pub(crate) remote: crate::remote::RemoteState,
+    /// The activity bar's Runners, Updates and Connectors panels
+    /// (runners_panel.rs, updates_panel.rs, connectors_panel.rs).
+    pub(crate) runners_panel: crate::runners_panel::RunnersPanelState,
+    pub(crate) updates_panel: crate::updates_panel::UpdatesPanelState,
+    pub(crate) connectors_panel: crate::connectors_panel::ConnectorsPanelState,
     /// Each thread's slash commands, for the composer's palette.
     pub(crate) slash: crate::slash_palette::SlashState,
     /// The Move sheet, while it's up (move_sheet.rs).
@@ -347,6 +352,9 @@ impl Threadbear {
             all_projects: Vec::new(),
             new_thread: crate::new_thread::NewThreadState::new(),
             remote: Default::default(),
+            runners_panel: Default::default(),
+            updates_panel: Default::default(),
+            connectors_panel: Default::default(),
             slash: Default::default(),
             move_sheet: None,
             side,
@@ -438,6 +446,8 @@ impl Threadbear {
                     if let Some(providers) = hello["providers"].as_array() {
                         self.small_jobs = providers.iter().filter(|p| p["smallJobs"].as_bool() == Some(true)).filter_map(|p| p["id"].as_str().map(str::to_owned)).collect();
                     }
+                    // The runner's own update and the CLIs, for the Updates panel.
+                    self.updates_from_hello(hello);
                 }
                 self.status = status;
                 // Each time it's connected, the whole list again, and the
@@ -450,6 +460,8 @@ impl Threadbear {
                     self.load_runner_settings(cx);
                     self.load_schedules(cx);
                     self.load_remote(cx);
+                    self.load_clis(cx);
+                    self.load_connectors(cx);
                     self.side.update(cx, |side, cx| side.connected(cx));
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.load(cx));
@@ -505,6 +517,9 @@ impl Threadbear {
                     self.side.update(cx, |side, cx| side.schedules_updated(&params["schedules"], cx));
                 }
                 "remoteThreads.updated" => self.receive_remote(&params, cx),
+                "clis.updated" => self.clis_updated(&params),
+                "runner.updates" => self.runner_updates_changed(&params),
+                "connectors.updated" => self.connectors_updated(&params),
                 "thread.event" => {
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.event(&params, cx));
@@ -883,6 +898,10 @@ impl Threadbear {
             "archivedNote": self.archived_note.as_ref().map(|n| n.thread.clone()),
             "inboxEndNote": self.inbox_end_note.as_ref().map(|n| if n.empty { "empty" } else { "end" }),
             "rails": self.rails_dump(cx),
+            // What the activity bar's Runners, Updates and Connectors panels say.
+            "runners": self.runners_dump(cx),
+            "updates": self.updates_dump(cx),
+            "connectors": self.connectors_dump(cx),
             "header": self.header_dump(),
             "panels": self.side.read(cx).dump(cx),
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),

@@ -90,6 +90,10 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
         let client = app.read_with(cx, |t, _| t.client.clone()).map_err(|e| e.to_string())?;
         return call(client, method, cmd["params"].clone()).await.map_err(|e| e.message);
     }
+    // The runners' figures, asked for and waited on, as the Swift command does.
+    if cmd["cmd"] == "runners" && cmd["stats"].as_bool() == Some(true) {
+        return crate::runners_panel::stats_command(app, cx).await;
+    }
     // `send` from the new-thread box waits for the thread it starts and says
     // its id, as the Swift command does, for `tb show` and the like.
     let from_new = cmd["cmd"] == "send" && app.read_with(cx, |t, _| t.selected.is_none()).map_err(|e| e.to_string())?;
@@ -161,6 +165,10 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // that name a section, a row or a tip; the others fall through below.
         "hover" | "sort" | "archive-more" | "star" | "unstar" | "unarchive" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),
         "new" | "options" => crate::new_thread::automation(app, cmd, window, cx),
+        // The activity bar's panels, as the Swift app's commands of these names.
+        "runners" => crate::runners_panel::automation(app, cmd, window, cx),
+        "updates" => crate::updates_panel::automation(app, cmd, cx),
+        "connectors" => crate::connectors_panel::automation(app, cmd, cx),
         "move" => crate::move_sheet::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("section").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("scheduleSection").is_some() => crate::scheduled::automation(app, cmd, cx),

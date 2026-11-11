@@ -157,6 +157,11 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "arrow.down.circle" => IconName::CircleArrowDown,
         "checklist" => IconName::ListChecks,
         "powerplug" => IconName::Plug,
+        // The Runners, Updates and Connectors panels'.
+        "line.3.horizontal" => IconName::Menu,
+        "arrow.up.forward.square" => IconName::SquareArrowOutUpRight,
+        "arrow.up.forward" => IconName::ArrowUpRight,
+        "nosign" => IconName::Ban,
         "terminal" => IconName::Terminal,
         "pin" => IconName::Pin,
         "square.dashed" => IconName::SquareDashed,

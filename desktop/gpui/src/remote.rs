@@ -70,6 +70,8 @@ impl Threadbear {
         let remote = remote::decode_remote_threads(value);
         self.remote.runners = remote.runners.clone();
         self.remote.index = remote;
+        // Mike's runner order, for the Runners panel.
+        self.receive_runner_order();
         self.apply_remote_index(cx);
         self.apply_default_runner(cx);
         // The Dock badge counts other runners' threads too, as Swift's does.

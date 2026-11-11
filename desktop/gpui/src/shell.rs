@@ -26,6 +26,11 @@ pub(crate) const FILES: &str = "threadbear.files";
 pub(crate) const PATCHES: &str = "threadbear.patches";
 pub(crate) const USAGE: &str = "threadbear.usage";
 pub(crate) const TERMINAL: &str = "threadbear.terminal";
+/// The activity bar's other panels (activity_panels.rs), open until Mike
+/// closes them.
+pub(crate) const UPDATES: &str = "threadbear.updates";
+pub(crate) const CONNECTORS: &str = "threadbear.connectors";
+pub(crate) const RUNNERS: &str = "threadbear.runners";
 
 /// How often the settings file is written during a burst of changes.
 const SAVE_THROTTLE_MS: i64 = 300;
@@ -207,6 +212,9 @@ fn panel_symbol(panel: &str) -> Option<&'static str> {
         THREADS => "bubble.left.and.bubble.right",
         MAIN => "text.alignleft",
         USAGE => "gauge.with.dots.needle.33percent",
+        UPDATES => "arrow.down.circle",
+        CONNECTORS => "powerplug",
+        RUNNERS => "server.rack",
         TERMINAL => "terminal",
         HIGHLIGHTS => "pin",
         FILES => "folder",
@@ -363,6 +371,9 @@ impl Threadbear {
             THREADS => "Threads".into(),
             MAIN => self.main_panel_title(),
             USAGE => "Usage".into(),
+            UPDATES => "Updates".into(),
+            CONNECTORS => "Connectors".into(),
+            RUNNERS => "Runners".into(),
             TERMINAL => "Terminal".into(),
             HIGHLIGHTS => "Highlights".into(),
             FILES => "Files".into(),
@@ -392,7 +403,7 @@ impl Threadbear {
     /// `WindowDock.section(_:)` != nil: a pane section's panel, not the
     /// sidebar, the main panel or one of the activity bar's panels.
     pub(crate) fn is_pane_section(panel: &str) -> bool {
-        !matches!(panel, THREADS | MAIN | USAGE | TERMINAL)
+        !matches!(panel, THREADS | MAIN | USAGE | UPDATES | CONNECTORS | RUNNERS | TERMINAL)
     }
 
     /// `available` in `RootView.content`: Highlights, Files and a thread's own
@@ -436,15 +447,17 @@ impl Threadbear {
         }
     }
 
-    /// One of the activity bar's panels (Usage): as a tab beside another of
-    /// them if one's open, else under the threads list (`setShownUnderThreads`).
+    /// One of the activity bar's panels (Usage, Updates, Connectors, Runners):
+    /// as a tab beside another of them if one's open, else under the threads
+    /// list (`setShownUnderThreads`).
     pub(crate) fn toggle_under_threads(&mut self, panel: &str, cx: &mut Context<Self>) {
         if self.is_panel_showing(panel, cx) {
             self.dock.update(cx, |m, cx| m.close(panel, cx));
             return;
         }
         let under = self.dock.read(cx).layout().group_containing(THREADS).map(|g| DockDrop::edge(g.id, DockEdge::Bottom)).unwrap_or(DockDrop::window(DockEdge::Left));
-        self.dock.update(cx, |m, cx| m.show(panel, &[], under, cx));
+        let near: Vec<&str> = [USAGE, UPDATES, CONNECTORS, RUNNERS].into_iter().filter(|p| *p != panel).collect();
+        self.dock.update(cx, |m, cx| m.show(panel, &near, under, cx));
     }
 
     fn toggle_terminal(&mut self, cx: &mut Context<Self>) {
@@ -1176,6 +1189,9 @@ impl Threadbear {
                 AnyView::from(view).cached(StyleRefinement::default().size_full()).into_any_element()
             }
             MAIN => self.render_main_panel(window, cx).into_any_element(),
+            RUNNERS => self.activity_panel_view(RUNNERS, ghost, window, cx),
+            UPDATES => self.activity_panel_view(UPDATES, ghost, window, cx),
+            CONNECTORS => self.activity_panel_view(CONNECTORS, ghost, window, cx),
             // Highlights, Files, Patches and a patch's own panels are sections of
             // the one pane beside the thread (highlights.rs), each its own panel
             // in the dock, as in the Swift app.

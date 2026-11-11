@@ -222,6 +222,76 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 The Runners, Updates and Connectors panels, with their buttons and dots (`runners.panel`, `updates.panel`, `connectors.panel`, `rail.activity`, `rail.dots`)
+
+- Connectors, Runners and Updates are at the foot of the activity bar, above
+  Usage, as in the Swift app: Connectors once the runner says it watches a
+  gateway, Runners with more than one runner, Updates always. Each opens its
+  panel under the threads list (as a tab beside Usage or another of them if
+  one's open) and closes it again. The accent dot is something only Mike can
+  do (a service signed out; a launcher to reinstall, a release of Mike's to
+  bring in, a machine not following GitHub's main), the grey one something
+  that sorts itself out (the gateway out of reach, a service connecting or in
+  error; a runner offline or updating; a runner build or a CLI's new version
+  on its way). Their tooltips say what's going on, as the Swift icons' do.
+- Runners: how many are up, refresh (spinning until the runner answers) and
+  the ⓘ; then a card per runner in Mike's order, with its icon, name, a star
+  where new threads start, the commit it runs, its state ("Online, up 3h",
+  "Updating", "Offline, last seen 2d ago") with its dot, and the threads
+  running there, which open on a click. A click on its name opens its CPU,
+  memory and disk bars and what the machine is, kept across launches
+  (`runnersPanelOpen`). The figures are asked for every 10 s only while some
+  runner's details are open and the window can be seen, and the list every
+  30 s while the panel's on show. The cards drag into a new order, shown at
+  once and saved with `runners.setOrder`.
+- Updates: App, Runner (its build from main, threads finishing on the
+  previous version, which open, the launcher's command with Copy, and
+  machines not following GitHub's main), From Mike on a fork (the release's
+  notes, then Bring Them In and Let's Discuss, which start their thread and
+  open it, spinning meanwhile), and the CLIs (each one's version, Update or
+  Update anyway, Go back, what a held one lacks, its update policy as a menu
+  that shows the new choice at once and puts the old one back if the runner
+  refuses, and Check now).
+- Connectors: the gateway's machine with its admin page, refresh and the ⓘ;
+  a row per service with its state, its message, and Connect (its sign-in
+  page, through the open gate) or a quiet arrow to its page on the gateway;
+  and why there's nothing when the gateway can't be reached or isn't set up.
+- The words, figures, order and dots are in desktop/core (`runners.rs`,
+  `updates.rs`, `connectors.rs`), ported from RunnersText, RunnerStats,
+  UpdatesText, CliText and ConnectorsText with their tests. Swift's small
+  push buttons and borderless menu are drawn to its sizes
+  (`activity_panels.rs`).
+- Not here: the app's own update (the Swift app's AppUpdater section and the
+  icon's right-click popover), as this app doesn't build and swap itself in
+  yet, so its App section says how a new build goes in; Setup's button, which
+  comes with `tour.setup`; the tour's intros for these panels; and "Not paired
+  with this Mac", as this app reaches other Macs' threads only through Convex
+  so far.
+- Both apps' dumps give each panel's lines and whether it's on show
+  (`runners`, `updates`, `connectors`) and the rail buttons' `quietDot`. The
+  GPUI app takes the Swift app's `runners`, `updates` and `connectors`
+  commands, and `runners` with `drag` and `onto` drags one card onto another
+  through real pointer events and hit testing.
+- Files: `desktop/core/src/{runners,updates,connectors,remote}.rs`,
+  `desktop/gpui/src/{activity_panels,runners_panel,updates_panel,
+  connectors_panel,rails,shell,app,automation,remote,settings,icons}.rs`,
+  `app/Sources/Threadbear/AppDump.swift`,
+  `features/{runners,updates,connectors,rails}.feature` and their steps.
+- Verification: on Tinker Desk, rebased on main: the new scenarios with
+  the rails' and the dock's (`@runners.panel`, `@updates.panel`,
+  `@connectors.panel`, `@rail.activity`, `@rail.dots`, `@rail.right`,
+  `@dock.layout`, `@dock.reset`), GPUI 20 of 20 and Swift 19 of 19 (the card
+  drag is `@swift-pending`: a scripted drag in the Swift app needs the real
+  pointer); core's tests and the pairing check. Pictures of both apps' three
+  panels side by side in dark, and Updates in light, measured with
+  pixel-overlay and the pixels' colours: the lines sit where Swift's do, and
+  the push buttons (Swift's are a flat 7.5% fill with no edge, the same
+  widths), the menu's words and chevron and the default runner's star were
+  brought in to match. Choosing from the update policy menu by script shows
+  the new choice at once. Left as they are, as they're the whole app's: every
+  panel sits 2 points higher under the dock's bar, bruce's Mac mini is the
+  icon set's server, and GPUI's text draws a little lighter.
+
 ### 2026-11-11 Point for point with the Swift app: the composer, its card, and what's round them
 
 - Mike: "can you do like a pixel by pixel comparison ... this decision panel

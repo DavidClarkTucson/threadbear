@@ -4,6 +4,7 @@
 // libraries and take seconds.
 pub mod completion_sound;
 pub mod composer;
+pub mod connectors;
 pub mod folders;
 pub mod highlights;
 pub mod home;
@@ -18,10 +19,12 @@ pub mod pools;
 pub mod remote;
 pub mod reply_buttons;
 pub mod runner_settings;
+pub mod runners;
 pub mod schedules;
 pub mod sidebar;
 pub mod slash;
 pub mod transcript;
+pub mod updates;
 pub mod zoom;
 pub use chrono;
 pub mod reducer;

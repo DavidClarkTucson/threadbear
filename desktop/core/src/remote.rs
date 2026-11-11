@@ -21,6 +21,9 @@ pub struct RemoteRunner {
 pub struct RemoteThreads {
     pub runners: Vec<RemoteRunner>,
     pub threads: Vec<ThreadSummary>,
+    /// Mike's runner order (backend API 58), every runner's id: what the
+    /// phone and the Runners panel list them in. None from a backend without one.
+    pub order: Option<Vec<String>>,
 }
 
 impl RemoteRunner {
@@ -78,6 +81,7 @@ pub fn decode_remote_threads(value: &Value) -> RemoteThreads {
     RemoteThreads {
         runners: value["runners"].as_array().into_iter().flatten().filter_map(RemoteRunner::decode).collect(),
         threads: value["threads"].as_array().into_iter().flatten().filter_map(summary).collect(),
+        order: value["order"].as_array().map(|ids| ids.iter().filter_map(|id| id.as_str().map(str::to_owned)).collect()),
     }
 }
 
@@ -95,6 +99,14 @@ pub struct RunnerInfo {
     pub icon: Option<String>,
     pub online: bool,
     pub is_self: bool,
+    pub last_seen_ms: Option<i64>,
+    /// What its last heartbeat said, for the Runners panel (runners.rs).
+    /// None from a runner before they were passed on (5 Nov).
+    pub version: Option<String>,
+    pub release: Option<String>,
+    pub started_ms: Option<i64>,
+    /// An old release finishing its threads in a handover.
+    pub draining: bool,
 }
 
 /// `runners.list`'s answer, this runner first and then the rest by name.
@@ -104,12 +116,21 @@ pub fn decode_runners(value: &Value) -> Vec<RunnerInfo> {
         .into_iter()
         .flatten()
         .filter_map(|r| {
+            let id = r["id"].as_str().filter(|s| !s.is_empty())?.to_owned();
+            let text = |key: &str| r[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+            let is_self = r["self"].as_bool().unwrap_or(false);
             Some(RunnerInfo {
-                id: r["id"].as_str().filter(|s| !s.is_empty())?.to_owned(),
-                name: r["name"].as_str().unwrap_or("").to_owned(),
-                icon: r["icon"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
-                online: r["online"].as_bool().unwrap_or(false),
-                is_self: r["self"].as_bool().unwrap_or(false),
+                name: text("name").unwrap_or_else(|| id.clone()),
+                icon: text("icon"),
+                // The answering runner is plainly up; anything else unsaid is offline.
+                online: r["online"].as_bool().unwrap_or(is_self),
+                is_self,
+                last_seen_ms: r["lastSeenAt"].as_str().and_then(parse_ms),
+                version: text("version"),
+                release: text("release"),
+                started_ms: r["startedAt"].as_str().and_then(parse_ms),
+                draining: r["draining"].as_bool().unwrap_or(false),
+                id,
             })
         })
         .collect()
@@ -223,10 +244,27 @@ mod tests {
 
     #[test]
     fn runners_list_decodes_itself_and_the_others() {
-        let list = decode_runners(&json!({ "runners": [{ "id": "m", "name": "m5", "icon": "laptopcomputer", "online": true, "self": true }, { "id": "b", "name": "bruce", "online": false }] }));
-        assert_eq!(list.len(), 2);
+        let list = decode_runners(&json!({ "runners": [
+            { "id": "m", "name": "m5", "icon": "laptopcomputer", "self": true, "version": "0.1.0+20261105T064853Z-c4d90ca", "release": "20261105T064853Z-c4d90ca", "startedAt": "2026-11-11T01:00:00.000Z" },
+            { "id": "b", "name": "bruce", "online": false, "lastSeenAt": "2026-11-09T01:00:00.000Z", "draining": true },
+            { "id": "c", "name": "" },
+        ] }));
+        assert_eq!(list.len(), 3);
         assert!(list[0].is_self);
+        assert!(list[0].online, "the answering runner is up even if it doesn't say");
+        assert_eq!(list[0].release.as_deref(), Some("20261105T064853Z-c4d90ca"));
+        assert_eq!(list[0].started_ms, parse_ms("2026-11-11T01:00:00.000Z"));
         assert!(!list[1].online);
+        assert!(list[1].draining);
+        assert_eq!(list[1].last_seen_ms, parse_ms("2026-11-09T01:00:00.000Z"));
+        assert_eq!(list[2].name, "c", "no name is its id");
+        assert!(!list[2].online);
+    }
+
+    #[test]
+    fn the_runner_order_comes_with_the_other_runners() {
+        assert_eq!(decode_remote_threads(&json!({ "runners": [], "threads": [], "order": ["m", "b", 3] })).order, Some(vec!["m".to_string(), "b".to_string()]));
+        assert_eq!(decode_remote_threads(&json!({ "runners": [], "threads": [] })).order, None);
     }
 
     #[test]

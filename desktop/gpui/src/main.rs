@@ -4,12 +4,14 @@
 // channel; requests run there too and their results come back as tasks.
 // Read-outs that exist only for the scripted control (`automation.rs`).
 #![cfg_attr(not(feature = "automation"), allow(dead_code, unused_imports))]
+mod activity_panels;
 mod app;
 #[cfg(feature = "automation")]
 mod automation;
 mod composer;
 mod composer_card;
 mod composer_chips;
+mod connectors_panel;
 mod ding;
 mod drafts;
 mod files;
@@ -35,6 +37,7 @@ mod rails;
 mod remote;
 mod reply_buttons;
 mod rows;
+mod runners_panel;
 mod schedule_editor;
 mod scheduled;
 mod settings;
@@ -44,6 +47,7 @@ mod sidebar;
 mod slash_palette;
 mod style;
 mod thread;
+mod updates_panel;
 mod viewer;
 
 use app::Threadbear;
