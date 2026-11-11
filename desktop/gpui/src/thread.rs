@@ -23,30 +23,48 @@ const EVENTS_PAGE: u64 = 500;
 /// often, as ThreadSession does (30 Hz).
 const FLUSH_EVERY: Duration = Duration::from_millis(33);
 
-/// Which of the app's windows are in front, one bit each: a thread is read
-/// only while one is (AppModel.isLooking is the app being active). Each
-/// window says so from its own activation, as the app's "active window"
-/// isn't the question: on the Mac it's NSApp.mainWindow, which stays set
-/// once the app is behind another, and on X11 it moves after the callback.
-static LOOKING: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+/// The app's windows that are in front, by id: a thread is read only while
+/// one is (AppModel.isLooking is the app being active). Each window says so
+/// from its own activation, as the app's "active window" isn't the question:
+/// on the Mac it's NSApp.mainWindow, which stays set once the app is behind
+/// another, and on X11 it moves after the callback. The main window, Settings
+/// and each panel's window of its own; `SCRIPTED` is a script's `focus`.
+static LOOKING: std::sync::Mutex<std::collections::BTreeSet<u64>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
 
-#[derive(Clone, Copy)]
-pub(crate) enum Looker {
-    Main = 1,
-    Settings = 2,
-}
+pub(crate) const SCRIPTED: u64 = u64::MAX;
 
-pub(crate) fn set_looking(who: Looker, active: bool) {
-    use std::sync::atomic::Ordering::Relaxed;
-    if active {
-        LOOKING.fetch_or(who as u8, Relaxed);
-    } else {
-        LOOKING.fetch_and(!(who as u8), Relaxed);
+pub(crate) fn set_looking(window: u64, active: bool) {
+    if let Ok(mut windows) = LOOKING.lock() {
+        if active {
+            windows.insert(window);
+        } else {
+            windows.remove(&window);
+        }
     }
 }
 
 pub(crate) fn is_looking() -> bool {
-    LOOKING.load(std::sync::atomic::Ordering::Relaxed) != 0
+    LOOKING.lock().map(|w| !w.is_empty()).unwrap_or(true)
+}
+
+/// While a script's click goes through the window (automation's `click`),
+/// which isn't Mike at it: a scripted Swift app never counts as in front.
+static SCRIPTED_INPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn scripted_input<R>(f: impl FnOnce() -> R) -> R {
+    SCRIPTED_INPUT.store(true, std::sync::atomic::Ordering::Relaxed);
+    let result = f();
+    SCRIPTED_INPUT.store(false, std::sync::atomic::Ordering::Relaxed);
+    result
+}
+
+pub(crate) fn input_is_scripted() -> bool {
+    SCRIPTED_INPUT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A window's id for `set_looking`.
+pub(crate) fn window_key(window: &Window) -> u64 {
+    window.window_handle().window_id().as_u64()
 }
 
 pub struct ThreadPane {

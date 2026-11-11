@@ -144,8 +144,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             if cmd["close"].as_bool() == Some(true) {
                 let open = app.update(cx, |t, _| t.settings_window.take());
                 if let Some((handle, _)) = open {
+                    crate::thread::set_looking(handle.window_id().as_u64(), false);
                     handle.update(cx, |_, window, _| window.remove_window()).ok();
-                    crate::thread::set_looking(crate::thread::Looker::Settings, false);
                 }
                 return Ok(json!("ok closed"));
             }
@@ -361,9 +361,11 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let target = window.find_all_by_label(title).into_iter().find(|e| e.visible());
             let Some(target) = target else { return Err(format!("no button called {title:?}")) };
             let at = target.bounds().center();
-            window.pointer_move(at, None, cx);
-            window.pointer_down(at, MouseButton::Left, cx);
-            window.pointer_up(at, MouseButton::Left, cx);
+            crate::thread::scripted_input(|| {
+                window.pointer_move(at, None, cx);
+                window.pointer_down(at, MouseButton::Left, cx);
+                window.pointer_up(at, MouseButton::Left, cx);
+            });
             Ok(json!("click ok"))
         }
         "expand" | "collapse" => {
@@ -413,7 +415,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // As if the window had come to the front: both apps read a thread
         // only while it is, and a scripted one never is.
         "focus" => {
-            crate::thread::set_looking(crate::thread::Looker::Main, true);
+            crate::thread::set_looking(crate::thread::SCRIPTED, true);
             app.update(cx, |t, cx| {
                 if let Some(pane) = t.pane.clone() {
                     pane.read(cx).mark_seen();

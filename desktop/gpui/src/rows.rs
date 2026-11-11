@@ -173,7 +173,7 @@ impl ThreadPane {
             // The column as `row_wrap` lays it out, in the window's pixels
             // (its inset and width zoom; the list's width is already real).
             let list = self.rows.list_width;
-            let column = if list > 0. { (list - style::zoomed(SIDE_INSET) * 2.).min(style::zoomed(MAX_CONTENT_WIDTH)).max(style::zoomed(200.)) } else { style::zoomed(MAX_CONTENT_WIDTH) };
+            let column = if list > 0. { (list - style::zoomed(SIDE_INSET) * 2.).min(style::zoomed(MAX_CONTENT_WIDTH)).max(0.) } else { style::zoomed(MAX_CONTENT_WIDTH) };
             let max_text = gpui_kit::px((column * BUBBLE_SHARE).floor()) - px(BUBBLE_PAD_H * 2.);
             let fit = (!answered).then(|| widest_line(&text, max_text, window));
             let bubble = div()

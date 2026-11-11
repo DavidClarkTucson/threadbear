@@ -99,7 +99,7 @@ pub(crate) fn make_layout(saved: Option<&Value>) -> DockLayout {
 /// The `DockOptions` for this window, as `RootView.options` makes them: the
 /// bars are the window's title bar, with room for the traffic lights in the
 /// top-left panel's bar (the activity bar has the first 44 points of them).
-pub(crate) fn dock_options(cx: &App) -> DockOptions {
+pub(crate) fn dock_options(app: WeakEntity<Threadbear>, cx: &App) -> DockOptions {
     let traffic_lights = if cfg!(target_os = "macos") { (78. - f32::from(px(crate::rails::BAR_WIDTH))).max(0.) } else { 0. };
     DockOptions {
         header_height: f32::from(px(crate::header::HEADER_HEIGHT)),
@@ -110,6 +110,16 @@ pub(crate) fn dock_options(cx: &App) -> DockOptions {
         accent: Some(style::control_accent(cx)),
         window_content: None,
         prepare_window: None,
+        // A panel's window of its own in front counts as Mike looking, as
+        // the main window does (`Threadbear::looking_changed`). Going, it's
+        // only noted: that can come in the middle of the app's own update.
+        window_activation: Some(std::rc::Rc::new(move |active: bool, window: &mut Window, cx: &mut App| {
+            let key = crate::thread::window_key(window);
+            match app.upgrade() {
+                Some(app) if active => app.update(cx, |app, cx| app.looking_changed(key, true, cx)),
+                _ => crate::thread::set_looking(key, active),
+            }
+        })),
     }
 }
 
@@ -508,7 +518,7 @@ impl Threadbear {
         }
         style::set_zoom_percent(percent);
         apply_zoom_to_theme(percent, cx);
-        let options = dock_options(cx);
+        let options = dock_options(cx.entity().downgrade(), cx);
         self.dock_view.update(cx, |d, cx| d.set_options(options, cx));
         if let Some(pane) = &self.pane {
             pane.update(cx, |p, cx| p.remeasure_rows(cx));
@@ -1072,6 +1082,19 @@ impl Threadbear {
             .child(self.render_activity_bar(cx))
             .child(div().flex_1().min_w_0().h_full().child(self.dock_view.clone()))
             .when_some(rail, |s, r| s.child(r))
+            // A click or a key in the window means he's at it, for a window
+            // the system never tells it's in front of (an X server with no
+            // window manager): reading needs one (`looking_changed`).
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                if !crate::thread::is_looking() && !crate::thread::input_is_scripted() {
+                    this.looking_changed(crate::thread::window_key(window), true, cx);
+                }
+            }))
+            .capture_key_down(cx.listener(|this, _: &KeyDownEvent, window, cx| {
+                if !crate::thread::is_looking() && !crate::thread::input_is_scripted() {
+                    this.looking_changed(crate::thread::window_key(window), true, cx);
+                }
+            }))
             // The mouse's side buttons (`MouseNavigation`).
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), cx.listener(|this, _: &MouseDownEvent, window, cx| this.go_back(window, cx)))
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|this, _: &MouseDownEvent, window, cx| this.go_forward(window, cx)));

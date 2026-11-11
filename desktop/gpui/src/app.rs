@@ -224,7 +224,7 @@ impl Threadbear {
             model
         });
         let content = Rc::new(shell::Panels { app: app.clone() });
-        let options = shell::dock_options(cx);
+        let options = shell::dock_options(app.clone(), cx);
         let dock_view = {
             let model = dock.clone();
             cx.new(|cx| DockView::new(model, content, options, cx))
@@ -234,8 +234,8 @@ impl Threadbear {
         // which is the app being active, whichever of its windows is in
         // front): coming back reads the open one (appBecameActive). The
         // Settings window says so too (`SettingsWindow::new`).
-        crate::thread::set_looking(crate::thread::Looker::Main, window.is_window_active());
-        let looking = cx.observe_window_activation(window, |this, window, cx| this.looking_changed(crate::thread::Looker::Main, window.is_window_active(), cx));
+        crate::thread::set_looking(crate::thread::window_key(window), window.is_window_active());
+        let looking = cx.observe_window_activation(window, |this, window, cx| this.looking_changed(crate::thread::window_key(window), window.is_window_active(), cx));
         // Everything the menus say is the app's state, which notifies when it
         // changes (the dock's layout too: `dock_layout_changed`).
         // Its 20-second tick notifies too (SidebarState), so the badge's
@@ -338,8 +338,8 @@ impl Threadbear {
     /// One of the app's windows came to the front or went (`active`, as the
     /// window itself has it, set before its observers run): with any in
     /// front, the open thread is read.
-    pub(crate) fn looking_changed(&mut self, who: crate::thread::Looker, active: bool, cx: &mut Context<Self>) {
-        crate::thread::set_looking(who, active);
+    pub(crate) fn looking_changed(&mut self, window: u64, active: bool, cx: &mut Context<Self>) {
+        crate::thread::set_looking(window, active);
         if let (true, Some(pane)) = (crate::thread::is_looking(), self.pane.clone()) {
             pane.read(cx).mark_seen();
         }
