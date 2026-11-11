@@ -106,11 +106,10 @@ fn next_number() -> u32 {
     COUNT.fetch_add(1, Ordering::Relaxed) % 1000
 }
 
+/// A panic's message can carry any text the app had, so it's this user's
+/// only (`private_file`).
 fn write_record(folder: &Path, name: &str, record: &PanicRecord) -> std::io::Result<()> {
-    std::fs::create_dir_all(folder)?;
-    let temp = folder.join(format!(".{name}.json.tmp"));
-    std::fs::write(&temp, serde_json::to_vec(record).map_err(std::io::Error::other)?)?;
-    std::fs::rename(temp, folder.join(format!("{name}.json")))
+    threadbear_core::private_file::write(&folder.join(format!("{name}.json")), &serde_json::to_vec(record).map_err(std::io::Error::other)?)
 }
 
 /// The sending thread: what's waiting at launch, a moment after the app's
@@ -190,8 +189,7 @@ fn native_crashes(r: &Reporting) {
     // The newest few hundred names are plenty to remember.
     let from = names.len().saturating_sub(300);
     seen["names"] = Value::from(names[from..].to_vec());
-    let _ = std::fs::create_dir_all(&r.folder);
-    let _ = std::fs::write(&seen_file, seen.to_string());
+    let _ = threadbear_core::private_file::write(&seen_file, seen.to_string().as_bytes());
 }
 
 fn same_program(crash: &NativeCrash, exe: &Path) -> bool {

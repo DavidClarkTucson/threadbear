@@ -901,8 +901,9 @@ fn load_selections() -> HashMap<String, String> {
 
 fn save_selections(selections: &HashMap<String, String>) {
     if let Ok(text) = serde_json::to_string_pretty(&Stored { convex_deployments: selections.clone() }) {
-        // Best effort: it's a preference, not data.
-        let _ = std::fs::write(store_path(), text);
+        // Best effort: it's a preference, not data. Written whole, and only
+        // this user's, as everything in the data folder is.
+        let _ = threadbear_core::private_file::write(&store_path(), text.as_bytes());
     }
 }
 

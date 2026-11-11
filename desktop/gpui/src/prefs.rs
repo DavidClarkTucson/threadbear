@@ -28,8 +28,10 @@ pub fn load() -> Prefs {
     std::fs::read(path()).ok().and_then(|data| serde_json::from_slice(&data).ok()).unwrap_or_default()
 }
 
+/// Written whole, and only this user's: the recent slash commands say what
+/// they've been doing (`private_file`).
 pub fn save(prefs: &Prefs) {
     if let Ok(data) = serde_json::to_vec_pretty(prefs) {
-        let _ = std::fs::write(path(), data);
+        let _ = threadbear_core::private_file::write(&path(), &data);
     }
 }

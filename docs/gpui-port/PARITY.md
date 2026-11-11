@@ -1807,7 +1807,9 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Reply buttons in a reply are pills that press, with Swift's colours for
   start, send, pressed, pressing and failed (`rich.replybuttons`).
 - What's typed and not sent survives a quit (`desktop-drafts.json`, written
-  as the app quits and a moment after typing).
+  as the app quits and a moment after typing, readable only by your account
+  from its first byte, as every file the app writes is: `private_file.rs`,
+  and `PrivateFile` for the Swift app's drafts).
 - Quit, Hide, Hide Others, Show All and Minimize are in the menus and on their
   keys.
 - An ask's links (↗ and review links) are under it on the card

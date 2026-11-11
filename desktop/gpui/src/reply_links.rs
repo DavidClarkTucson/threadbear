@@ -78,9 +78,10 @@ fn save_prefs(update: impl FnOnce(&mut LinkPrefs)) {
         update(prefs);
         serde_json::to_vec_pretty(prefs).ok()
     });
-    // Best effort: it's a preference, not data.
+    // Best effort: it's a preference, not data. Written whole, and only
+    // this user's, as everything in the data folder is.
     if let Some(data) = data {
-        let _ = std::fs::write(prefs_path(), data);
+        let _ = threadbear_core::private_file::write(&prefs_path(), &data);
     }
 }
 

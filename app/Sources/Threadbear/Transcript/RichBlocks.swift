@@ -177,9 +177,11 @@ enum RichDiskCache {
         let base = folder.appendingPathComponent(key)
         for (image, look) in [(pictures.dark, "dark"), (pictures.light, "light")] {
             guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
-            try? data.write(to: URL(fileURLWithPath: base.path + "-\(look).png"), options: .atomic)
+            // A picture of a reply: this user's only, as the GPUI app's
+            // copies in the same folder are (PrivateFile).
+            try? PrivateFile.write(data, to: URL(fileURLWithPath: base.path + "-\(look).png"))
         }
-        try? "\(drawn.size.width) \(drawn.size.height) \(drawn.clipped ? 1 : 0)".write(to: base.appendingPathExtension("size"), atomically: true, encoding: .utf8)
+        try? PrivateFile.write(Data("\(drawn.size.width) \(drawn.size.height) \(drawn.clipped ? 1 : 0)".utf8), to: base.appendingPathExtension("size"))
         prune()
     }
 

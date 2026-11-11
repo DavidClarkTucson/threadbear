@@ -95,25 +95,12 @@ fn write_drafts(cx: &mut App) {
             _ => Ok(()),
         }
     } else {
-        write_private(&path, &serde_json::to_vec(&cache.encode()).unwrap_or_default())
+        // Only this user's, the temp file too (`private_file`).
+        threadbear_core::private_file::write(&path, &serde_json::to_vec(&cache.encode()).unwrap_or_default())
     };
     if let Err(e) = result {
         eprintln!("threadbear: couldn't save the review drafts: {e}");
     }
-}
-
-fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, data)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600))?;
-    }
-    std::fs::rename(&temp, path)
 }
 
 /// A `review.updated` from the runner for a thread with a window open on that

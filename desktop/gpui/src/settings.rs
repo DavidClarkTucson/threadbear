@@ -115,16 +115,11 @@ impl Settings {
     }
 
     /// Written whole and renamed into place, so a crash mid-write can't leave
-    /// half a file (the same as shortcuts.json's atomic write in the Swift app).
+    /// half a file (the same as shortcuts.json's atomic write in the Swift app),
+    /// and only this user's, as everything in the data folder is.
     pub fn save(&self) {
         let Ok(text) = serde_json::to_string_pretty(&self.saved) else { return };
-        if let Some(dir) = self.path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let temp = self.path.with_extension("json.tmp");
-        if std::fs::write(&temp, text).is_ok() {
-            let _ = std::fs::rename(&temp, &self.path);
-        }
+        let _ = threadbear_core::private_file::write(&self.path, text.as_bytes());
     }
 
     pub fn zoom_percent(&self) -> u32 {

@@ -56,7 +56,8 @@ pub(crate) fn save(prefs: &FilePrefs) {
         folder_show_hidden: Some(prefs.show_hidden),
     };
     if let Ok(text) = serde_json::to_string_pretty(&stored) {
-        // Best effort: it's a preference, not data.
-        let _ = std::fs::write(path(), text);
+        // Best effort: it's a preference, not data. Written whole, and only
+        // this user's, as everything in the data folder is.
+        let _ = threadbear_core::private_file::write(&path(), text.as_bytes());
     }
 }

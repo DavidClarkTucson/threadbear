@@ -71,17 +71,7 @@ async fn listen(file: String, tx: mpsc::UnboundedSender<Request>) {
 // The port and token, written whole and readable only by this user: a spec
 // waits for the file to appear, so it must never see half of one.
 fn write_private(file: &str, text: &str) {
-    let temp = format!("{file}.tmp");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        use std::io::Write as _;
-        let mut f = std::fs::OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(&temp).expect("the automation file");
-        f.write_all(text.as_bytes()).expect("the automation file");
-    }
-    #[cfg(not(unix))]
-    std::fs::write(&temp, text).expect("the automation file");
-    std::fs::rename(&temp, file).expect("the automation file");
+    threadbear_core::private_file::write(std::path::Path::new(file), text.as_bytes()).expect("the automation file");
 }
 
 async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value, cx: &mut AsyncApp) -> Result<Value, String> {

@@ -40,5 +40,9 @@ Then('the composer is still editing my first message', async function (this: Thr
 Then('the approval for {string} is still waiting', async function (this: ThreadbearWorld, command: string) {
   await sleep(2_000);
   const d = await this.app.dump();
-  assert.ok(d.transcript.rows.some((r) => r.kind === 'approval' && r.text.includes(command)), `the approval for "${command}" was answered`);
+  // An answered one stays a row for a moment, its text then ending in
+  // "(allow)" or "(deny)", before the work it let run folds it away.
+  const row = d.transcript.rows.find((r) => r.kind === 'approval' && r.text.includes(command));
+  assert.ok(row, `the approval for "${command}" was answered and has gone`);
+  assert.doesNotMatch(row.text, /\((allow|deny|answered)\)\s*$/, `the approval for "${command}" was answered`);
 });

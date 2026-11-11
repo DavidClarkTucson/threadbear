@@ -77,12 +77,8 @@ fn write_shortcuts(path: &Path, bindings: &ShortcutBindings) -> Result<(), Strin
             _ => Ok(()),
         };
     };
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(says)?;
-    }
-    let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    std::fs::write(&temp, format!("{text}\n")).map_err(says)?;
-    std::fs::rename(&temp, path).map_err(says)
+    // Only this user's, as everything in the data folder is (`private_file`).
+    threadbear_core::private_file::write(path, format!("{text}\n").as_bytes()).map_err(says)
 }
 
 impl SettingsWindow {

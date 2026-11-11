@@ -149,13 +149,11 @@ pub fn read(folder: &Path, name: &str) -> Option<Record> {
     serde_json::from_slice(&data).ok()
 }
 
-/// Written whole and renamed into place, so the next launch never reads half.
+/// Written whole and renamed into place, so the next launch never reads half,
+/// and this user's only, as a sample names what the app was doing.
 pub fn write(folder: &Path, name: &str, record: &Record) -> std::io::Result<()> {
-    std::fs::create_dir_all(folder)?;
     let data = serde_json::to_vec(record).map_err(std::io::Error::other)?;
-    let temp = folder.join(format!(".{name}.json.tmp"));
-    std::fs::write(&temp, data)?;
-    std::fs::rename(temp, folder.join(format!("{name}.json")))
+    crate::private_file::write(&folder.join(format!("{name}.json")), &data)
 }
 
 /// A past stall to send: its main thread's heaviest path and its record.

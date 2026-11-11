@@ -62,7 +62,8 @@ fn read(path: &std::path::Path) -> HashMap<String, Draft> {
 }
 
 /// Written whole and renamed into place, so a crash mid-write can't leave
-/// half a file; none at all when every box is empty.
+/// half a file, and only ever readable by this user, the temp file too
+/// (`private_file`); none at all when every box is empty.
 fn write(path: &std::path::Path, all: &HashMap<String, Draft>) -> std::io::Result<()> {
     if all.is_empty() {
         return match std::fs::remove_file(path) {
@@ -72,17 +73,7 @@ fn write(path: &std::path::Path, all: &HashMap<String, Draft>) -> std::io::Resul
     }
     let value: serde_json::Map<String, Value> = all.iter().map(|(k, d)| (k.clone(), json!({ "text": d.text, "images": d.images.iter().map(image_ref_json).collect::<Vec<_>>() }))).collect();
     let data = serde_json::to_vec(&Value::Object(value)).map_err(std::io::Error::other)?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, data)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600))?;
-    }
-    std::fs::rename(&temp, path)
+    threadbear_core::private_file::write(path, &data)
 }
 
 impl Threadbear {

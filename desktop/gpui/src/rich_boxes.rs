@@ -414,12 +414,10 @@ mod disk {
     }
 
     /// Written whole and renamed into place, so the Swift app or the next
-    /// launch never reads half a picture.
+    /// launch never reads half a picture, and only this user's: it's a
+    /// picture of a reply (`private_file`).
     fn write(path: &PathBuf, bytes: &[u8]) {
-        let fresh = path.with_extension("tmp");
-        if std::fs::write(&fresh, bytes).is_ok() {
-            let _ = std::fs::rename(&fresh, path);
-        }
+        let _ = threadbear_core::private_file::write(path, bytes);
     }
 
     pub(super) fn save(key: &str, id: &str, drawn: &threadbear_web::Drawn) {

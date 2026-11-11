@@ -1218,25 +1218,7 @@ pub(crate) fn limit_button_title(title: String, pool: bool) -> String {
 /// The sign-in script, readable and runnable by Mike only, written whole:
 /// into a new file of its own (never through whatever's at that name, a
 /// symlink in a shared /tmp included), then renamed over the old one, as
-/// Swift's `write(to:atomically:)` does.
+/// Swift's `write(to:atomically:)` does (`private_file`).
 fn write_script(path: &std::path::Path, text: &str) -> std::io::Result<()> {
-    use std::io::Write as _;
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let temp = path.with_extension(format!("{}-{nanos}.tmp", std::process::id()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o700);
-    }
-    let written = options.open(&temp).and_then(|mut file| {
-        file.write_all(text.as_bytes())?;
-        file.sync_all()
-    });
-    if let Err(e) = written.and_then(|()| std::fs::rename(&temp, path)) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e);
-    }
-    Ok(())
+    threadbear_core::private_file::write_with_mode(path, text.as_bytes(), 0o700)
 }
