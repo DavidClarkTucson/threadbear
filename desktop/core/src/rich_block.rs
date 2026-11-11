@@ -280,10 +280,11 @@ impl<V: Clone> PictureBudget<V> {
         self.keep_with(key, value, cost, |_| false)
     }
 
-    /// `keep`, never letting go of what `pinned` says is being drawn: it
-    /// goes over the budget for them rather than take a picture off the
-    /// screen (they're FrameBudget's, which holds half of it).
-    pub fn keep_with(&mut self, key: String, value: V, cost: usize, pinned: impl Fn(&V) -> bool) -> Vec<V> {
+    /// `keep`, never letting go of the blocks `pinned` says are being drawn,
+    /// by key: it goes over the budget for them rather than take a picture
+    /// off the screen (they're FrameBudget's, which holds half of it), and
+    /// `trim` brings it back once they're not.
+    pub fn keep_with(&mut self, key: String, value: V, cost: usize, pinned: impl Fn(&str) -> bool) -> Vec<V> {
         let mut gone = Vec::new();
         if let Some(at) = self.entries.iter().position(|(k, ..)| *k == key) {
             let (_, old, old_cost) = self.entries.remove(at).expect("there");
@@ -292,10 +293,17 @@ impl<V: Clone> PictureBudget<V> {
         }
         self.entries.push_back((key, value, cost));
         self.used += cost;
-        // Oldest first, never the newest.
+        gone.extend(self.trim_with(pinned));
+        gone
+    }
+
+    /// Back within the budget, oldest first, never the newest nor a pinned
+    /// one; gives back what went.
+    pub fn trim_with(&mut self, pinned: impl Fn(&str) -> bool) -> Vec<V> {
+        let mut gone = Vec::new();
         let mut at = 0;
         while self.used > self.budget && at + 1 < self.entries.len() {
-            if pinned(&self.entries[at].1) {
+            if pinned(&self.entries[at].0) {
                 at += 1;
                 continue;
             }
@@ -348,6 +356,8 @@ impl<V: Clone> PictureBudget<V> {
 /// at Daybreak 92).
 #[derive(Default)]
 pub struct FrameBudget {
+    /// The blocks drawn, by key, and their pictures, by image id.
+    keys: std::collections::HashSet<String>,
     ids: std::collections::HashSet<u64>,
     cost: usize,
 }
@@ -359,18 +369,26 @@ impl FrameBudget {
     /// frame holds and a newly drawn one fit in it together.
     pub const BYTES: usize = PictureBudget::<()>::BYTES / 2;
 
-    pub fn hand_out(&mut self, ids: [u64; 2], cost: usize, budget: usize) -> bool {
-        if ids.iter().all(|id| self.ids.contains(id)) {
-            return true;
+    pub fn hand_out(&mut self, key: &str, ids: [u64; 2], cost: usize, budget: usize) -> bool {
+        // The same pictures again (another block drawn alike shares them):
+        // nothing more in memory.
+        if !ids.iter().all(|id| self.ids.contains(id)) {
+            if self.cost > 0 && self.cost.saturating_add(cost) > budget {
+                return false;
+            }
+            self.cost = self.cost.saturating_add(cost);
+            self.ids.extend(ids);
         }
-        if self.cost > 0 && self.cost.saturating_add(cost) > budget {
-            return false;
-        }
-        self.cost = self.cost.saturating_add(cost);
-        self.ids.extend(ids);
+        self.keys.insert(key.to_owned());
         true
     }
 
+    /// Whether block `key` is drawn this frame.
+    pub fn pins(&self, key: &str) -> bool {
+        self.keys.contains(key)
+    }
+
+    /// Whether picture `id` is drawn this frame.
     pub fn holds(&self, id: u64) -> bool {
         self.ids.contains(&id)
     }
@@ -381,6 +399,7 @@ impl FrameBudget {
 
     /// The frame's over.
     pub fn end(&mut self) {
+        self.keys.clear();
         self.ids.clear();
         self.cost = 0;
     }
@@ -495,15 +514,18 @@ mod tests {
     #[test]
     fn a_frame_hands_out_no_more_than_the_budget() {
         let mut frame = FrameBudget::default();
-        assert!(frame.hand_out([1, 2], 500, 100), "the first always");
-        assert!(!frame.hand_out([3, 4], 1, 100), "nothing more past it");
-        assert!(frame.hand_out([1, 2], 500, 100), "the same again");
-        assert!(frame.holds(1) && !frame.holds(3));
+        assert!(frame.hand_out("a", [1, 2], 500, 100), "the first always");
+        assert!(!frame.hand_out("b", [3, 4], 1, 100), "nothing more past it");
+        assert!(frame.hand_out("c", [1, 2], 500, 100), "the same pictures again");
+        // One picture shared, the other not: it costs, and isn't drawn.
+        assert!(!frame.hand_out("d", [1, 9], 500, 100));
+        assert!(frame.holds(1) && !frame.holds(3) && !frame.holds(9));
+        assert!(frame.pins("a") && frame.pins("c") && !frame.pins("b") && !frame.pins("d"));
         frame.end();
-        assert!(frame.is_empty());
-        assert!(frame.hand_out([3, 4], 60, 100));
-        assert!(frame.hand_out([5, 6], 40, 100));
-        assert!(!frame.hand_out([7, 8], 1, 100));
+        assert!(frame.is_empty() && !frame.pins("a"));
+        assert!(frame.hand_out("b", [3, 4], 60, 100));
+        assert!(frame.hand_out("e", [5, 6], 40, 100));
+        assert!(!frame.hand_out("f", [7, 8], 1, 100));
     }
 
     #[test]
@@ -549,9 +571,11 @@ mod tests {
         // What's being drawn stays, over the budget if it must.
         assert!(kept.keep("a".into(), 'a', 60).is_empty());
         assert!(kept.keep("b".into(), 'b', 30).is_empty());
-        assert_eq!(kept.keep_with("c".into(), 'c', 60, |v| *v == 'a'), ['b']);
-        assert_eq!(kept.keep_with("d".into(), 'd', 60, |v| *v == 'a' || *v == 'c'), Vec::<char>::new());
+        assert_eq!(kept.keep_with("c".into(), 'c', 60, |k| k == "a"), ['b']);
+        assert_eq!(kept.keep_with("d".into(), 'd', 60, |k| k == "a" || k == "c"), Vec::<char>::new());
         assert_eq!(kept.used(), 180);
-        assert_eq!(kept.keep("e".into(), 'e', 1), ['a', 'c'], "under the budget once a and c go");
+        // Once they're not drawn, back within it.
+        assert_eq!(kept.trim_with(|_| false), ['a', 'c'], "under the budget once a and c go");
+        assert_eq!(kept.used(), 60);
     }
 }

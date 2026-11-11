@@ -330,7 +330,7 @@ impl RichStore {
         // One allocation for the same picture however many blocks drew it.
         let pictures = (self.shared(pictures.0), self.shared(pictures.1));
         let in_frame = &self.in_frame;
-        for (dark, light) in self.pictures.keep_with(key, pictures, cost, |(dark, light)| in_frame.holds(dark.id()) || in_frame.holds(light.id())) {
+        for (dark, light) in self.pictures.keep_with(key, pictures, cost, |key| in_frame.pins(key)) {
             self.let_go.extend([dark, light]);
         }
         self.release(cx);
@@ -343,7 +343,8 @@ impl RichStore {
         }
         let loaded = disk::load_pictures(key)?;
         self.keep_pictures(key.to_owned(), loaded.clone(), cx);
-        Some(loaded)
+        // The pair as kept: the same allocation as another block drawn alike.
+        self.pictures.get(key).or(Some(loaded))
     }
 
     /// Takes the pictures that left memory out of gpui's caches at once,
@@ -381,9 +382,9 @@ impl RichStore {
 
     /// A box's pictures for this frame, if they fit in what the frame's
     /// boxes may take up together (the first always does).
-    fn hand_out(&mut self, pictures: &(Arc<Image>, Arc<Image>)) -> bool {
+    fn hand_out(&mut self, key: &str, pictures: &(Arc<Image>, Arc<Image>)) -> bool {
         let cost = png_cost(&pictures.0.bytes).saturating_add(png_cost(&pictures.1.bytes));
-        let fits = self.in_frame.hand_out([pictures.0.id(), pictures.1.id()], cost, FrameBudget::BYTES);
+        let fits = self.in_frame.hand_out(key, [pictures.0.id(), pictures.1.id()], cost, FrameBudget::BYTES);
         if fits {
             for picture in [&pictures.0, &pictures.1] {
                 self.frame_images.entry(picture.id()).or_insert_with(|| picture.clone());
@@ -409,6 +410,11 @@ impl RichStore {
         self.frame_hooked = false;
         self.in_frame.end();
         self.frame_images.clear();
+        // What went over the budget for the frame's pictures comes back
+        // within it.
+        for (dark, light) in self.pictures.trim_with(|_| false) {
+            self.let_go.extend([dark, light]);
+        }
         self.release(cx);
     }
 
@@ -611,7 +617,7 @@ fn rich_box(block: &RichBlock, window: &mut Window, cx: &mut App) -> AnyElement 
     };
     // Only as many as the frame's budget holds (`hand_out`); the rest show
     // their source this frame.
-    let pictures = pictures.filter(|pair| store.update(cx, |s, _| s.hand_out(pair)));
+    let pictures = pictures.filter(|pair| store.update(cx, |s, _| s.hand_out(&key, pair)));
     // The frame's end, once a frame has handed any out.
     let hook = store.update(cx, |s, _| !s.in_frame.is_empty() && !std::mem::replace(&mut s.frame_hooked, true));
     if hook {
