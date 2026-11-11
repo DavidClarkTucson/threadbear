@@ -141,6 +141,9 @@ struct AppDump: Encodable {
         /// The open card in the box, for the behaviour specs: "Done" with
         /// its follow-ups, or "Needs you" with each ask.
         var card: [String]? = nil
+        /// What the card's Run buttons say, one per ask with a command
+        /// ("▶ Run: npm test", "Running…: npm test", "✓ Ran: npm test").
+        var cardRuns: [String]? = nil
         /// A new thread from this box is on its way: its words stay, greyed
         /// and locked, until the runner has made it (`composer.starting`).
         var creating: Bool = false
@@ -1501,7 +1504,7 @@ struct AppDump: Encodable {
                         pool: settings.pool, chip: ThreadSettings(app: app, thread: app.selectedThread).modelChipTitle,
                         chipBadge: badgeWords(ThreadSettings(app: app, thread: app.selectedThread).modelChipBadge),
                         runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil),
-                        card: cardLines(app, key: key), creating: key == "new" && app.creatingThread)
+                        card: cardLines(app, key: key), cardRuns: cardRunLines(app, key: key), creating: key == "new" && app.creatingThread)
     }
 
     /// LimitBanner's words and button, as it draws them.
@@ -1533,6 +1536,28 @@ struct AppDump: Encodable {
     private static func cardLines(_ app: AppModel, key: String) -> [String]? {
         guard let row = app.sessions[key]?.openCard, case .asks(let card) = row.content else { return nil }
         return cardLines(card, collapsed: app.collapsedCards[key] == row.seq)
+    }
+
+    /// What RowRenderer.appendRun's button says for each of the open card's
+    /// commands (`cardRuns`); the GPUI app's dump says the same.
+    @MainActor
+    private static func cardRunLines(_ app: AppModel, key: String) -> [String]? {
+        guard let row = app.sessions[key]?.openCard, case .asks(let card) = row.content, !card.isDone else { return nil }
+        let lines = card.asks.compactMap { ask -> String? in
+            guard let run = ask.run, let id = run.buttonId else { return nil }
+            let button = ReplyButtons.shared.known(id)?.button
+            let failed = button.map { $0.failed?.error } ?? run.failed
+            let title: String
+            if button?.pressed != nil {
+                title = "✓ Ran"
+            } else if ReplyButtons.shared.isPressing(id) || button?.running != nil || (button == nil && run.running == true) {
+                title = "Running…"
+            } else {
+                title = failed == nil ? "▶ Run" : "▶ Run again"
+            }
+            return "\(title): \(run.command)"
+        }
+        return lines.isEmpty ? nil : lines
     }
 
     static func cardLines(_ card: AsksCard, collapsed: Bool) -> [String] {

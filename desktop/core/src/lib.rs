@@ -4,6 +4,7 @@
 // libraries and take seconds.
 pub mod chips;
 pub mod completion_sound;
+pub mod card_run;
 pub mod composer;
 pub mod connectors;
 pub mod draft_block;

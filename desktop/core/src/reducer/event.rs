@@ -237,7 +237,28 @@ pub struct Ask {
     pub option_notes: Vec<String>,
     pub suggested: Option<usize>,
     pub links: Vec<AskLink>,
+    /// A command the card offers to run (docs/protocol.md, "Run on the card").
+    pub run: Option<AskRun>,
     pub ticked: bool,
+}
+
+/// An ask's command, run once from the card by its button (`AskRun`). The
+/// runner sets `buttonId` as the card is made; `running` and `failed`
+/// mirror the button for clients that don't see it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct AskRun {
+    pub command: String,
+    pub button_id: Option<String>,
+    pub cwd: Option<String>,
+    pub running: Option<bool>,
+    pub failed: Option<String>,
+}
+
+impl AskRun {
+    pub fn decode(v: &Value) -> Option<AskRun> {
+        let c = v.as_object()?;
+        Some(AskRun { command: c.get("command")?.as_str()?.to_owned(), button_id: string(c, "buttonId"), cwd: string(c, "cwd"), running: boolean(c, "running"), failed: string(c, "failed") })
+    }
 }
 
 impl Ask {
@@ -265,6 +286,7 @@ impl Ask {
             option_notes,
             suggested,
             links: lossy(c, "links", AskLink::decode),
+            run: c.get("run").and_then(AskRun::decode),
             ticked: boolean(c, "ticked").unwrap_or(false),
         })
     }

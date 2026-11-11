@@ -1142,6 +1142,9 @@ impl Threadbear {
             if let Some(card) = composer.card_lines(cx) {
                 out["card"] = json!(card);
             }
+            if let Some(runs) = crate::card_run::composer_lines(composer, cx) {
+                out["cardRuns"] = json!(runs);
+            }
         }
         out
     }

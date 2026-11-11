@@ -732,6 +732,40 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: the scenarios for each (`@sidebar.sections`, `@reply-buttons`,
   `@composer.textbox`, `@menu.app`, `@card.needsyou`) on Tinker Desk, as each
   slice landed.
+### 2026-11-11 Run on the card (`cards.run`)
+
+- An ask that carries a command (`end_turn`'s `run`, behind the runner's
+  `runAsks` experiment) shows it whole on the card, in a code box under the
+  ask's words, then "In" and its folder, a failure in red, and Run in the
+  accent, as RowRenderer.appendRun lays them out. Run presses the ask's
+  button through `buttons.press` once: it says "Running…" with a spinner and
+  takes no more clicks straight away, stays so while the runner runs it on
+  the thread's machine, then says "✓ Ran"; a failed press says why and
+  offers "▶ Run again". The runner tells the agent how it went.
+- The same on a project's page, where a thread's decision card is drawn by
+  the same code (`AskHost`): its Run goes through the app's runner, as its
+  answers do.
+- What Run says is `threadbear_core::card_run` (with tests), from the
+  button as last heard of, else the ask's own mirror of it; `Ask` now keeps
+  `run` (`AskRun`). An ask whose command the sync would change has no
+  button, and shows its command with no Run, as the protocol has it.
+- Both dumps give `composer.cardRuns` ("▶ Run: <command>", "Running…: ...",
+  "✓ Ran: ..."); the GPUI card's lines now have the Swift app's `    $
+  <command>` under such an ask; `ask` with `run:<ask>:0` presses it in both.
+  The mock's `mock.terminal` takes `run` for a card carrying one.
+- Files: `desktop/core/src/card_run.rs`, `desktop/core/src/reducer/event.rs`
+  (`AskRun`), `desktop/gpui/src/card_run.rs`, the hooks in
+  `composer_card.rs` (`render_ask`, the `AskHost` method, `card_action`,
+  `card_lines`), `project_decisions.rs`, `reply_buttons.rs`, `app.rs`,
+  `main.rs`, `app/Sources/Threadbear/AppDump.swift`, `features/cards.feature`
+  and its steps.
+- Verification: on Tinker Desk, cards.feature with the new `@cards.run`
+  scenario (the command whole with Run, then Running…, then Ran), GPUI 11 of
+  11 and Swift 11 of 11; terminal.feature on GPUI again; core's tests.
+  Pictures of both apps from `compare.ts` of the card, before and after Run:
+  the box, its folder line and Run sit where the Swift card has them (the
+  whole card sits 4 points lower in this app, as every card does).
+
 ### 2026-11-11 A reply's shell block into the Terminal (`terminal.putcommand`)
 
 - A closed ```sh, ```bash, ```zsh or ```shell block in a reply has the Swift

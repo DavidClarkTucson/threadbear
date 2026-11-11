@@ -85,7 +85,7 @@ pub(crate) fn dump_labels(text: &str) -> Option<Vec<String>> {
     })
 }
 
-fn is_pressing(id: &str) -> bool {
+pub(crate) fn is_pressing(id: &str) -> bool {
     with_store(|store| store.pressing.contains(id))
 }
 

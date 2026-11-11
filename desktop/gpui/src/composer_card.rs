@@ -518,6 +518,11 @@ pub(crate) trait AskHost: Sized + 'static {
     fn ask_answer_box(&mut self, ask: usize, window: &mut Window, cx: &mut Context<Self>) -> Entity<TextareaState>;
     /// Return in an ask's box; `command` is ⌘Return.
     fn ask_box_return(&mut self, ask: usize, command: bool, window: &mut Window, cx: &mut Context<Self>);
+    /// Where an ask's command is run from (card_run.rs): its thread and that
+    /// thread's runner. None shows the command with no Run.
+    fn ask_run_target(&self, _cx: &App) -> Option<crate::card_run::RunTarget> {
+        None
+    }
 
     /// An ask: its paragraph (numbered on a card of several), where, its
     /// links, and its answers as buttons or rows, with Something else's box.
@@ -548,6 +553,11 @@ pub(crate) trait AskHost: Sized + 'static {
         // A quiet line of its own, 2 under the paragraph.
         if let Some(place) = ask.where_.as_deref().filter(|w| !w.is_empty()) {
             block = block.child(div().pl(indent).mt(px(metrics::ASK_AFTER)).text_size(px(style::size::SMALL)).line_height(px(metrics::WHERE_LINE)).text_color(style::faint_text(cx)).child(place.to_owned()));
+        }
+        // A command it carries, whole, with Run (card_run.rs).
+        if let Some(run) = &ask.run {
+            let target = self.ask_run_target(cx);
+            block = block.child(crate::card_run::render_run(index, run, indent, target, cx));
         }
         let this = cx.entity().downgrade();
         let half = (metrics::BUTTON_LINE - metrics::BUTTON_HEIGHT) / 2.;
@@ -741,6 +751,12 @@ impl AskHost for Composer {
     fn ask_box_return(&mut self, ask: usize, command: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.answer_box_return(ask, command, window, cx);
     }
+
+    fn ask_run_target(&self, cx: &App) -> Option<crate::card_run::RunTarget> {
+        let pane = self.pane.upgrade()?;
+        let pane = pane.read(cx);
+        Some(crate::card_run::RunTarget { client: Some(pane.client_handle()), thread: pane.summary.id.clone(), app: self.app.clone() })
+    }
 }
 
 impl Composer {
@@ -832,6 +848,10 @@ impl Composer {
                 let (a, n): (usize, i64) = (a.parse().map_err(|_| "bad ask")?, n.parse().map_err(|_| "bad choice")?);
                 self.pick_answer(a, n, window, cx);
             }
+            ["run", a, _] => {
+                let run = card.asks.get(a.parse::<usize>().map_err(|_| "bad ask")?).and_then(|ask| ask.run.clone()).ok_or("no command on that ask")?;
+                crate::card_run::press_ask(self, &run, cx)?;
+            }
             _ => return Err(format!("unknown card action {action}")),
         }
         Ok(())
@@ -858,6 +878,9 @@ impl Composer {
                 let picked = self.card.picks.get(&(i as i64));
                 let mark = if picked.is_some() { "[x]" } else { "[ ]" };
                 lines.push(format!("{mark} {}. {}", i + 1, ask.action));
+                if let Some(run) = &ask.run {
+                    lines.push(format!("    $ {}", run.command));
+                }
             }
         }
         Some(lines)
@@ -980,7 +1003,7 @@ fn card_title(mark: AnyElement, gap: f32, words: &'static str, cx: &App) -> impl
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum ButtonLook {
+pub(crate) enum ButtonLook {
     Plain,
     Suggested,
     Picked,
@@ -994,7 +1017,7 @@ fn button_shadow() -> Vec<BoxShadow> {
 /// The card's button (AskButtonStyle): a rounded box with a soft shadow, the
 /// picked one in the accent with white words, the agent's pick with an
 /// accent edge, the rest a raised grey.
-fn card_button(id: impl Into<ElementId>, title: &str, look: ButtonLook, tip: &'static str, cx: &App) -> Stateful<Div> {
+pub(crate) fn card_button(id: impl Into<ElementId>, title: &str, look: ButtonLook, tip: &'static str, cx: &App) -> Stateful<Div> {
     let (fill, text, edge) = match look {
         ButtonLook::Picked => (style::control_accent(cx), gpui_kit::white(), gpui_kit::transparent_black()),
         ButtonLook::Suggested => (style::button_fill(cx), style::label_text(cx), style::control_accent(cx).opacity(0.8)),
