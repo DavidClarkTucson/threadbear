@@ -602,6 +602,13 @@ impl Composer {
     /// Paste: pictures and files first, as ComposerTextView.takeImages takes
     /// them. Returns whether it took the paste; words paste as words.
     pub(crate) fn take_clipboard(&mut self, item: &ClipboardItem, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let target = self.input.clone();
+        self.take_clipboard_in(&target, item, window, cx)
+    }
+
+    /// A paste into `target`: the box, or one of the card's Something else
+    /// boxes, which takes pictures as chips just the same (AskAnswerBox).
+    pub(crate) fn take_clipboard_in(&mut self, target: &Entity<TextareaState>, item: &ClipboardItem, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let mut paths = Vec::new();
         let mut images = Vec::new();
         let mut has_text = false;
@@ -613,12 +620,12 @@ impl Composer {
             }
         }
         if !paths.is_empty() {
-            self.take_paths(paths, window, cx);
+            self.take_paths_in(target, paths, window, cx);
             return true;
         }
         // A copy of the box's own chips with its pictures, a thread's id, a
         // card's link: chips (composer_inline.rs). Other words are words.
-        if has_text && self.take_clipboard_chips(item, window, cx) {
+        if has_text && self.take_clipboard_chips(target, item, window, cx) {
             return true;
         }
         // Text with an image flavour (rich text from a browser) stays text.
@@ -629,7 +636,7 @@ impl Composer {
         if saved.is_empty() {
             return false;
         }
-        self.insert_pictures(saved, window, cx);
+        self.insert_pictures_in(target, saved, window, cx);
         true
     }
 
@@ -637,18 +644,23 @@ impl Composer {
     /// anything else goes in as its full path in backticks, for the agent to
     /// open where it is (ComposerTextView.takeImages).
     pub(crate) fn take_paths(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.input.clone();
+        self.take_paths_in(&target, paths, window, cx);
+    }
+
+    pub(crate) fn take_paths_in(&mut self, target: &Entity<TextareaState>, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
         let (images, others): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| is_picture(p));
         if !others.is_empty() {
-            self.insert_paths(others, window, cx);
+            Self::insert_paths(target, others, window, cx);
         }
         if !images.is_empty() {
-            self.insert_pictures(images, window, cx);
+            self.insert_pictures_in(target, images, window, cx);
         }
     }
 
     /// ComposerTextView.insertPaths: the paths with a space either side.
-    fn insert_paths(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
-        let (text, selection) = self.text_and_selection(cx);
+    fn insert_paths(target: &Entity<TextareaState>, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+        let (text, selection) = Self::text_and_selection(target, cx);
         let mut piece = composer::path_text(&paths.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>());
         if text[..selection.start].chars().next_back().is_some_and(|c| !c.is_whitespace()) {
             piece.insert(0, ' ');
@@ -656,27 +668,28 @@ impl Composer {
         if !text[selection.end..].chars().next().is_some_and(char::is_whitespace) {
             piece.push(' ');
         }
-        self.input.update(cx, |s, cx| {
+        target.update(cx, |s, cx| {
             s.replace(piece, window, cx);
             s.focus(window, cx);
         });
     }
 
-    fn text_and_selection(&self, cx: &App) -> (String, Range<usize>) {
-        let state = self.input.read(cx);
+    fn text_and_selection(target: &Entity<TextareaState>, cx: &App) -> (String, Range<usize>) {
+        let state = target.read(cx);
         (state.value().to_string(), state.selected_range())
     }
 
-    /// ComposerTextView.insertPictures: chips where the cursor is, with a
-    /// space either side, each copied in through the runner as it shows,
-    /// dimmed until it's in; one that can't be read goes again.
-    pub(crate) fn insert_pictures(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+    /// ComposerTextView.insertPictures: chips where the cursor is in
+    /// `target` (the box, or a Something else box), with a space either
+    /// side, each copied in through the runner as it shows, dimmed until it's
+    /// in; one that can't be read goes again.
+    pub(crate) fn insert_pictures_in(&mut self, target: &Entity<TextareaState>, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
         let ids: Vec<SharedString> = paths.iter().map(|_| self.fresh_picture_id()).collect();
         let tokens: Vec<InlineToken> = ids.iter().map(picture_token).collect();
-        let (text, selection) = self.text_and_selection(cx);
+        let (text, selection) = Self::text_and_selection(target, cx);
         let prev_is_space = text[..selection.start].chars().next_back().map_or(true, char::is_whitespace);
         let next_is_space = text[selection.end..].chars().next().is_some_and(char::is_whitespace);
-        self.input.update(cx, |s, cx| {
+        target.update(cx, |s, cx| {
             if !selection.is_empty() {
                 s.replace("", window, cx);
             }
@@ -696,12 +709,12 @@ impl Composer {
         });
         for (id, path) in ids.into_iter().zip(paths) {
             self.pictures.insert(id.clone(), PictureChip { source: path.clone(), image: None });
-            self.import_picture(id, path, window, cx);
+            self.import_picture(id, path, target.downgrade(), window, cx);
         }
         cx.notify();
     }
 
-    fn import_picture(&mut self, id: SharedString, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    fn import_picture(&mut self, id: SharedString, path: PathBuf, target: WeakEntity<TextareaState>, window: &mut Window, cx: &mut Context<Self>) {
         let client = self.client.clone();
         let params = json!({ "path": path.to_string_lossy() });
         cx.spawn_in(window, async move |this, cx| {
@@ -709,15 +722,20 @@ impl Composer {
             // The runner keeps its own copy (or said no): a pasted picture's
             // staged file goes now, whatever happens to the chip.
             unstage(&path);
-            this.update_in(cx, |this, window, cx| this.settle_picture(id, result, window, cx)).ok();
+            this.update_in(cx, |this, window, cx| this.settle_picture(id, result, target, window, cx)).ok();
         })
         .detach();
     }
 
     /// ComposerTextView.settle: a chip's picture is in, or couldn't be read.
-    /// Gone from the words by then (undone, deleted), it's dropped.
-    fn settle_picture(&mut self, id: SharedString, result: Result<Value, threadbear_client::runner::RpcError>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(range) = self.chip_range(&id, cx) else {
+    /// Gone from the words by then (undone, deleted, its box gone), it's
+    /// dropped.
+    fn settle_picture(&mut self, id: SharedString, result: Result<Value, threadbear_client::runner::RpcError>, target: WeakEntity<TextareaState>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(target) = target.upgrade() else {
+            self.pictures.remove(&id);
+            return;
+        };
+        let Some(range) = Self::chip_range(&target, &id, cx) else {
             self.pictures.remove(&id);
             return;
         };
@@ -727,10 +745,14 @@ impl Composer {
                 if let (Some(chip), Some(image)) = (self.pictures.get_mut(&id), image) {
                     chip.image = Some(image);
                 }
+                // A Something else box's answer takes it now.
+                if target != self.input {
+                    self.answer_box_changed(&target, cx);
+                }
             }
             Err(e) => {
                 // Taken out, with the space that came with it.
-                self.remove_chip_range(range, window, cx);
+                Self::remove_chip_range(&target, range, window, cx);
                 self.pictures.remove(&id);
                 if let Some(pane) = self.pane() {
                     pane.update(cx, |p, cx| p.show_error(format!("Couldn't add that picture: {}", e.message), cx));
@@ -743,17 +765,21 @@ impl Composer {
     /// The token ranges of the picture chips in the box, in order: a card's
     /// or thread's chip isn't one of them.
     fn chips(&self, cx: &App) -> Vec<(Range<usize>, SharedString)> {
-        self.input.read(cx).tokens().iter().filter(|span| !Self::is_mention_token(span.token().id())).map(|span| (span.range(), span.token().id().clone())).collect()
+        Self::chips_in(&self.input, cx)
     }
 
-    fn chip_range(&self, id: &SharedString, cx: &App) -> Option<Range<usize>> {
-        self.chips(cx).into_iter().find(|(_, chip)| chip == id).map(|(r, _)| r)
+    pub(crate) fn chips_in(target: &Entity<TextareaState>, cx: &App) -> Vec<(Range<usize>, SharedString)> {
+        target.read(cx).tokens().iter().filter(|span| !Self::is_mention_token(span.token().id())).map(|span| (span.range(), span.token().id().clone())).collect()
+    }
+
+    fn chip_range(target: &Entity<TextareaState>, id: &SharedString, cx: &App) -> Option<Range<usize>> {
+        Self::chips_in(target, cx).into_iter().find(|(_, chip)| chip == id).map(|(r, _)| r)
     }
 
     /// Takes a chip out with one space beside it (ComposerTextView.withSpace),
     /// keeping the cursor where it was as far as it can.
-    fn remove_chip_range(&mut self, range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) {
-        let (text, selection) = self.text_and_selection(cx);
+    fn remove_chip_range(target: &Entity<TextareaState>, range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) {
+        let (text, selection) = Self::text_and_selection(target, cx);
         let bytes = text.as_bytes();
         let gone = if bytes.get(range.end) == Some(&b' ') {
             range.start..range.end + 1
@@ -764,7 +790,7 @@ impl Composer {
         };
         let shift = |at: usize| if at <= gone.start { at } else { at.saturating_sub(gone.len()).max(gone.start) };
         let caret = shift(selection.start)..shift(selection.end);
-        self.input.update(cx, |s, cx| {
+        target.update(cx, |s, cx| {
             s.set_selected_range(gone.clone(), cx);
             s.replace("", window, cx);
             s.set_selected_range(caret.clone(), cx);
@@ -774,8 +800,13 @@ impl Composer {
     /// The strip's × (ComposerView.removePicture): the chip goes too, and the
     /// cursor stays where it was.
     fn remove_picture(&mut self, id: SharedString, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(range) = self.chip_range(&id, cx) {
-            self.remove_chip_range(range, window, cx);
+        let target = self.input.clone();
+        self.remove_picture_in(&target, id, window, cx);
+    }
+
+    pub(crate) fn remove_picture_in(&mut self, target: &Entity<TextareaState>, id: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(range) = Self::chip_range(target, &id, cx) {
+            Self::remove_chip_range(target, range, window, cx);
         }
         self.pictures.remove(&id);
         cx.notify();
@@ -783,6 +814,12 @@ impl Composer {
 
     fn renumber_chips(&mut self, cx: &App) {
         self.chip_numbers = self.chips(cx).into_iter().enumerate().map(|(i, (_, id))| (id, i + 1)).collect();
+        // A Something else box's chips count from 1 in each box.
+        for input in self.card.answer_inputs() {
+            for (i, (_, id)) in Self::chips_in(&input, cx).into_iter().enumerate() {
+                self.chip_numbers.insert(id, i + 1);
+            }
+        }
     }
 
     /// The hover card over a chip, after a beat, as ComposerTextView.hoverChip
@@ -838,7 +875,7 @@ impl Composer {
     /// A picture's chip among the words: a small rounded tag with the
     /// thumbnail and "Picture N" (PictureChip.draw), its sizes from the font
     /// of the words around it. Dimmed until the picture's in.
-    fn render_chip(&self, ctx: &InlineTokenContext, cx: &App) -> AnyElement {
+    pub(crate) fn render_chip(&self, ctx: &InlineTokenContext, cx: &App) -> AnyElement {
         let id = ctx.token().id();
         if Self::is_mention_token(id) {
             return self.render_mention_chip(ctx, cx);
@@ -1104,6 +1141,9 @@ impl Render for Composer {
         // An edit is a message of its own: the open card waits for after it.
         let card = if self.editing.is_some() { None } else { self.render_card(window, cx) };
         let editing_banner = self.render_editing_banner(cx);
+        // With the card folded, its picks as chips over the words, so they
+        // don't go with no sign of them (composer_answers.rs).
+        let answer_chips = self.render_answer_chips(cx);
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
         let palette = self.render_palette(window, cx);
         let width = self.card_width.clone();
@@ -1115,7 +1155,7 @@ impl Render for Composer {
             let room = (self.card_width.get() - style::zoomed(style::COMPOSER_RADIUS) * 2.).max(0.);
             crate::viewer::action_chips(&summary, room, &icons, window, cx)
         });
-        let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).children(editing_banner).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(creating, cx)).child(controls);
+        let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).children(editing_banner).children(answer_chips).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(creating, cx)).child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.
         h_flex()

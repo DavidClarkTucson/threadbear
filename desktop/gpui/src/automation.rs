@@ -447,6 +447,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // or ⌘X, and ⌘V; and the chips in it (composer_inline.rs).
         "composer-clip" => crate::composer_inline::clip_command(app, cmd, window, cx),
         "composer-chips" => crate::composer_inline::chips_command(app, cx),
+        // How many times it's beeped (Return with nowhere to go on the card).
+        "beeps" => Ok(json!(format!("ok {}", crate::composer_answers::beeps()))),
         "composer-peek" => {
             let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
             let number = cmd["number"].as_u64().map(|n| n as usize);

@@ -542,6 +542,9 @@ enum Automation {
             default:
                 return "error composer-clip takes copy, cut or paste"
             }
+        case "beeps":
+            // How many times Return on the card had nowhere to go and beeped.
+            return "ok \(TranscriptController.returnBeeps)"
         case "composer-chips":
             // The chips in the box, in order: "picture: Picture 1",
             // "card: Fix the button", "thread: Morning brief".

@@ -245,3 +245,37 @@ fn an_asks_link_opens_a_page_a_file_or_a_review_and_nothing_else() {
     assert_eq!(link("javascript:alert(1)").target(""), None);
     assert_eq!(link("notes.md").target("/Users/m"), None);
 }
+
+/// The turn that answered another lab's findings carries the ledger on its
+/// `turn.completed`, and the card it opens (done or of asks) has it, read
+/// leniently (docs/protocol.md, "Review by another lab").
+#[test]
+fn a_reviewed_turns_card_carries_the_review() {
+    let review = json!({
+        "reviewer": "Codex (codex-1)", "independent": true, "rounds": 2, "threadId": "rev-1", "passed": false,
+        "findings": [
+            {"id": 1, "round": 1, "severity": "high", "claim": "Drops the session on refresh.", "where": "auth.ts:40", "outcome": "fixed"},
+            {"id": 2, "round": 2, "claim": "Keeps the old token after sign-out.", "outcome": "left"},
+            {"id": 3, "claim": ""},
+            "not a finding"
+        ]
+    });
+    let mut fields = json!({"turnId": "t1", "outcome": "completed", "durationMs": 1000, "needs": "nothing"});
+    fields["review"] = review;
+    let model = from_events(vec![event_turn(1, "turn.completed", fields, Some("t1"))]);
+    let done = card(&model, "ak:1").expect("a done card");
+    let review = done.review.as_ref().expect("its review");
+    assert_eq!(review.findings.len(), 2, "a finding with no claim, or no object, isn't one");
+    assert_eq!(review.findings[0].severity, "high");
+    assert_eq!(review.findings[1].severity, "medium", "medium by default");
+    assert_eq!(review.heading(), "Reviewed by Codex (codex-1), 2 rounds: 1 open");
+    let fresh = LabReview { independent: false, rounds: 1, passed: true, findings: vec![], ..review.clone() };
+    assert_eq!(fresh.heading(), "Reviewed by a fresh Codex (codex-1) session: nothing found");
+    assert_eq!(LabReview { unchecked: true, ..review.clone() }.heading(), "Reviewed by Codex (codex-1), 2 rounds: last fixes not re-reviewed");
+    // A card of asks has it too; a turn with none has none.
+    let mut asks = json!({"turnId": "t2", "outcome": "completed", "durationMs": 1000, "needs": "you", "asks": [{"action": "Sign out?"}]});
+    asks["review"] = json!({"reviewer": "Codex", "findings": []});
+    let model = from_events(vec![event_turn(1, "turn.completed", asks, Some("t2"))]);
+    assert_eq!(card(&model, "ak:1").and_then(|c| c.review.as_ref()).map(|r| r.heading()).as_deref(), Some("Reviewed by Codex: all answered"));
+    assert!(card(&from_events(vec![needs_nothing(1, "t3", json!([]))]), "ak:1").is_some_and(|c| c.review.is_none()));
+}

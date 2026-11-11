@@ -151,6 +151,9 @@ struct AppDump: Encodable {
         /// A new thread from this box is on its way: its words stay, greyed
         /// and locked, until the runner has made it (`composer.starting`).
         var creating: Bool = false
+        /// The picks as chips over the box while the card's folded
+        /// (AnswerChips): "1: done".
+        var answers: [String]? = nil
     }
 
     /// The new-thread page, for the behaviour specs (`thread.newpage`),
@@ -1552,7 +1555,8 @@ struct AppDump: Encodable {
                         pool: settings.pool, chip: ThreadSettings(app: app, thread: app.selectedThread).modelChipTitle,
                         chipBadge: badgeWords(ThreadSettings(app: app, thread: app.selectedThread).modelChipBadge),
                         runner: app.selectedThread.flatMap(app.runnerName(of:)) ?? (app.selectedThread == nil ? app.newThreadRunner?.name : nil),
-                        card: cardLines(app, key: key), cardRuns: cardRunLines(app, key: key), creating: key == "new" && app.creatingThread)
+                        card: cardLines(app, key: key), cardRuns: cardRunLines(app, key: key), creating: key == "new" && app.creatingThread,
+                        answers: answerLines(app, key: key))
     }
 
     /// LimitBanner's words and button, as it draws them.
@@ -1609,17 +1613,59 @@ struct AppDump: Encodable {
     }
 
     static func cardLines(_ card: AsksCard, collapsed: Bool) -> [String] {
+        var lines: [String]
         if card.isDone {
-            return ["Done"] + card.next.enumerated().map { i, text in
+            lines = ["Done"] + card.next.enumerated().map { i, text in
                 (card.pickedNext.contains(i) ? "[x] " : "[ ] ") + text + (card.explainNext.contains(i) ? " (?)" : "")
             }
+        } else {
+            lines = [collapsed ? "Needs you (collapsed)" : "Needs you"]
+            for (i, ask) in card.asks.enumerated() {
+                lines.append((card.picks[i] != nil ? "[x] " : "[ ] ") + "\(i + 1). \(ask.action)")
+                if let run = ask.run { lines.append("    $ " + run.command) }
+            }
         }
-        var lines = [collapsed ? "Needs you (collapsed)" : "Needs you"]
-        for (i, ask) in card.asks.enumerated() {
-            lines.append((card.picks[i] != nil ? "[x] " : "[ ] ") + "\(i + 1). \(ask.action)")
-            if let run = ask.run { lines.append("    $ " + run.command) }
+        // Another lab's review (RowRenderer.reviewText): its heading, then
+        // "  Fixed: <claim>" a finding, as the GPUI app's dump says them.
+        if let review = card.review {
+            lines.append(review.heading)
+            lines += review.findings.map { finding in
+                let word = switch finding.outcome {
+                case "fixed": "Fixed"
+                case "disputed": "Disputed"
+                case "left": "Left for you"
+                default: "No answer"
+                }
+                return "  \(word): \(finding.claim)"
+            }
         }
         return lines
+    }
+
+    /// The picks shown as chips over the box while the card's folded
+    /// (AnswerChips), as `composer.answers`: "1: done", "2: Just us". Nil
+    /// while the card's open above (its buttons show them) or a message is
+    /// being edited.
+    @MainActor
+    private static func answerLines(_ app: AppModel, key: String) -> [String]? {
+        guard let thread = app.threads[key], app.editing[key] == nil else { return nil }
+        let picks = app.picks(for: thread)
+        guard !picks.isEmpty, let row = app.sessions[key]?.openCard, case .asks(let card) = row.content, !card.isDone,
+              app.collapsedCards[key] == row.seq else { return nil }
+        let notes = app.notes(for: thread)
+        let lines = picks.keys.sorted().compactMap { index -> String? in
+            guard thread.asks.indices.contains(index), let pick = picks[index] else { return nil }
+            let ask = thread.asks[index]
+            if pick == Decisions.ownAnswer {
+                let note = notes[index] ?? AskNote()
+                let text = InlinePictures.words(note.text).trimmingCharacters(in: .whitespacesAndNewlines)
+                let shown = !text.isEmpty ? text : note.images.isEmpty ? "Your answer above" : note.images.count == 1 ? "1 picture" : "\(note.images.count) pictures"
+                return "\(index + 1): \(shown)"
+            }
+            let options = Decisions.choices(for: ask)
+            return options.indices.contains(pick) ? "\(index + 1): \(options[pick])" : nil
+        }
+        return lines.isEmpty ? nil : lines
     }
 
     /// Rows a click opens: work lines, groups and settled approvals that

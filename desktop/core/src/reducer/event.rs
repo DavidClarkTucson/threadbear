@@ -1144,6 +1144,9 @@ pub struct TurnCompletion {
     pub asks: Vec<Ask>,
     /// With needs "nothing": follow-ups the agent suggested.
     pub next: Vec<String>,
+    /// On the turn that answered another lab's findings: the ledger
+    /// (`review`, docs/protocol.md "Review by another lab").
+    pub review: Option<LabReview>,
 }
 
 impl TurnCompletion {
@@ -1165,7 +1168,96 @@ impl TurnCompletion {
             needs: string(c, "needs"),
             asks: lossy(c, "asks", Ask::decode),
             next: lossy_strings(c, "next"),
+            review: c.get("review").and_then(LabReview::decode),
         }
+    }
+}
+
+/// One finding of another lab's review, and what the agent did about it
+/// (LabReview.Finding, docs/protocol.md "Review by another lab").
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewFinding {
+    pub id: i64,
+    pub round: i64,
+    /// high, medium or low.
+    pub severity: String,
+    pub claim: String,
+    pub where_: Option<String>,
+    pub case: Option<String>,
+    /// fixed, disputed or left; None when the agent didn't answer.
+    pub outcome: Option<String>,
+    pub note: Option<String>,
+}
+
+impl ReviewFinding {
+    fn decode(v: &Value) -> Option<ReviewFinding> {
+        let c = v.as_object()?;
+        Some(ReviewFinding {
+            id: c.get("id").and_then(int_value).unwrap_or(0),
+            round: c.get("round").and_then(int_value).unwrap_or(1),
+            severity: string(c, "severity").unwrap_or_else(|| "medium".to_owned()),
+            claim: string(c, "claim").unwrap_or_default(),
+            where_: string(c, "where"),
+            case: string(c, "case"),
+            outcome: string(c, "outcome"),
+            note: string(c, "note"),
+        })
+    }
+}
+
+/// The review ledger a turn that answered another lab's findings carries
+/// (LabReview, `turn.completed`'s `review`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LabReview {
+    /// "Codex (codex-1)".
+    pub reviewer: String,
+    /// Another lab, not a fresh session of the same one.
+    pub independent: bool,
+    pub rounds: i64,
+    /// The latest round's review thread.
+    pub thread_id: String,
+    /// The latest round found nothing that holds up.
+    pub passed: bool,
+    /// A round's reviewer gave no verdict, so there are no findings to list.
+    pub unstructured: bool,
+    /// Fixes made in the last round there is, which no review looked at.
+    pub unchecked: bool,
+    pub findings: Vec<ReviewFinding>,
+}
+
+impl LabReview {
+    pub fn decode(v: &Value) -> Option<LabReview> {
+        let c = v.as_object()?;
+        Some(LabReview {
+            reviewer: string(c, "reviewer").unwrap_or_else(|| "Another lab".to_owned()),
+            independent: boolean(c, "independent").unwrap_or(true),
+            rounds: c.get("rounds").and_then(int_value).unwrap_or(1),
+            thread_id: string(c, "threadId").unwrap_or_default(),
+            passed: boolean(c, "passed").unwrap_or(false),
+            unstructured: boolean(c, "unstructured").unwrap_or(false),
+            unchecked: boolean(c, "unchecked").unwrap_or(false),
+            findings: lossy(c, "findings", ReviewFinding::decode).into_iter().filter(|f| !f.claim.is_empty()).collect(),
+        })
+    }
+
+    /// The one line over the findings: who, how many rounds, how it came out
+    /// (LabReview.heading).
+    pub fn heading(&self) -> String {
+        let who = if self.independent { format!("Reviewed by {}", self.reviewer) } else { format!("Reviewed by a fresh {} session", self.reviewer) };
+        let rounds = if self.rounds > 1 { format!(", {} rounds", self.rounds) } else { String::new() };
+        let open = self.findings.iter().filter(|f| f.outcome.is_none() || f.outcome.as_deref() == Some("left")).count();
+        let result = if self.unstructured {
+            "see its reply".to_owned()
+        } else if self.unchecked {
+            "last fixes not re-reviewed".to_owned()
+        } else if self.passed {
+            if self.findings.is_empty() { "nothing found".to_owned() } else { "passed".to_owned() }
+        } else if open > 0 {
+            format!("{open} open")
+        } else {
+            "all answered".to_owned()
+        };
+        format!("{who}{rounds}: {result}")
     }
 }
 

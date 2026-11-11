@@ -561,6 +561,9 @@ pub struct AsksCard {
     /// The done card's loose ends, as the runner checked them: None when
     /// it didn't, empty when nothing's left.
     pub loose_ends: Option<Vec<LooseEnd>>,
+    /// Another lab's findings and what was done about each, on the turn
+    /// that answered them.
+    pub review: Option<super::event::LabReview>,
 }
 
 impl AsksCard {
@@ -576,6 +579,7 @@ impl AsksCard {
             explain_next: BTreeSet::new(),
             notes: BTreeMap::new(),
             loose_ends: None,
+            review: None,
         }
     }
 

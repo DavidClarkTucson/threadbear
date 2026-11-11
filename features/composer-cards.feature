@@ -65,12 +65,40 @@ Feature: The open card in the composer
     When I press Return
     Then the transcript shows my message "Turn on the lint rule that sorts imports"
 
-  # The mock has no thread a review by another lab has been through yet,
-  # so neither app is driven through this one (runner/test/unit/lab-review
-  # and NeedsYouTests cover the Swift card).
-  @card.review @gpui-pending @swift-pending
+  @card.review
   Scenario: A done card lists another lab's findings and what was done about each
-    When I open the thread "Fix the session refresh bug"
+    When I open the thread "Tidy the imports in the uploader"
+    And the agent there finishes a turn another lab reviewed
     Then the card in the composer says "Done"
-    And the card shows "Reviewed by Codex"
-    And the card shows "Drops the session on refresh."
+    And the card shows "Reviewed by Codex (codex-1): 1 open"
+    And the card shows "Fixed: Drops the session on refresh."
+    And the card shows "Left for you: Keeps the old token after sign-out."
+
+  @card.collapse
+  Scenario: Folded, the card's picks show as chips over the box, and one can be taken back
+    When I open the thread "Ship the beta to TestFlight"
+    And I pick answer 1 of ask 1 on the card
+    And I press "collapse" on the card
+    Then the box shows the picked answers "1: done"
+    When I take the picked answer back
+    Then the box shows no picked answers
+    And the transcript doesn't show my message "1. Accept the new agreement in App Store Connect"
+
+  @card.somethingelse
+  Scenario: A picture put in a Something else box goes with that answer
+    When I open the thread "Ship the beta to TestFlight"
+    And I write "Like this one" as my own answer to ask 2
+    And I put the picture in my own answer to ask 2
+    Then ask 2 on the card is answered with 1 picture
+    When I send my picks
+    Then the transcript shows my message "2. Check who gets the beta" with the chip "picture: Picture 1"
+
+  # Through the answer's own button, which moves a paged card on to the
+  # next ask, so Return finds the one still open already in front.
+  @card.returnflow
+  Scenario: Return beeps when the ask still open is the one in front
+    When I open the thread "Ship the beta to TestFlight"
+    And I press answer 1 of ask 1 on the card
+    And the card has had a moment to move on
+    And I press Return
+    Then the app beeps

@@ -1205,7 +1205,9 @@ impl Render for ThreadPane {
                 .inset_0()
                 .on_drop(move |paths: &ExternalPaths, window, cx| {
                     let paths = paths.paths().to_vec();
-                    composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
+                    // Over a card's Something else box it's that answer's.
+                    let at = window.mouse_position();
+                    composer.update(cx, |c, cx| c.take_dropped_paths(paths, at, window, cx));
                 })
                 .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
                 // A thread from the sidebar goes into the message as its chip.

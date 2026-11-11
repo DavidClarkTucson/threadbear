@@ -1150,6 +1150,10 @@ impl Threadbear {
             if let Some(card) = composer.card_lines(cx) {
                 out["card"] = json!(card);
             }
+            // The picks shown as chips under a folded card (composer_answers.rs).
+            if let Some(answers) = composer.answer_chip_lines(cx) {
+                out["answers"] = json!(answers);
+            }
             if let Some(runs) = crate::card_run::composer_lines(composer, cx) {
                 out["cardRuns"] = json!(runs);
             }

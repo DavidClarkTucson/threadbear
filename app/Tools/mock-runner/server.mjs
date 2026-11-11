@@ -2106,7 +2106,9 @@ function startStream(threadId, p) {
     if (ticks >= total) {
       clearInterval(timer);
       finishText();
-      persist(threadId, { type: 'turn.completed', turnId, outcome: 'completed', durationMs: Date.now() - started }, turnId);
+      // `completed`: more of what the turn ended with, as end_turn says it
+      // (needs, next, asks, another lab's `review` ledger).
+      persist(threadId, { type: 'turn.completed', turnId, outcome: 'completed', durationMs: Date.now() - started, ...(p.completed ?? {}) }, turnId);
       setStatus(threadId, 'idle');
     }
   }, 1000 / hz);

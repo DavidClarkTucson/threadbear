@@ -374,6 +374,66 @@ built parsers and gates with no launch of the app, which is the trap.)
   panel and Highlights take the room in the same shares, the title in the
   same place after the traffic lights. thread-links.sh's Swift typechecked
   and run on Tinker Desk (it has no Threadbear, so "open nothing").
+### 2026-11-11 The card: another lab's review, the slide between pages, picks as chips while it's folded, pictures in a Something else box, and the beep (`card.review`, `card.paging`, `card.collapse`, `card.somethingelse`, `card.returnflow`)
+
+- A turn that answered another lab's findings carries the ledger on its
+  `turn.completed` (`review`), and the core reducer now keeps it on the card
+  (`LabReview`, `ReviewFinding`, with its heading: "Reviewed by Codex
+  (codex-1): 1 open", "…, 2 rounds", "a fresh … session", "nothing found",
+  "last fixes not re-reviewed"). The done card draws it under Done, before
+  what's still open; a card of asks under them all, on a paged card under
+  the last page's ask (RowRenderer.reviewText): the heading in the link
+  colour, which opens the review's thread, then each finding with its mark
+  (fixed green, disputed orange, left for you blue, no answer faint), the
+  claim, and "Fixed: the note · serious · where" under it. RowDebug says it
+  as the Swift one does.
+- A paged card's asks slide like a deck (CardDeck): the next pushes in from
+  the right as the old goes off left, back the other way, 0.18 s easing out,
+  while the heading stays put and the page number rolls, the old up and out
+  as the new comes up from below. ‹, ›, moving on after a pick and Return
+  all go through it; a click meanwhile goes to the page it's sliding to.
+- Folded, the card's picks show as chips over the box (AnswerChips): the
+  ask's number on a card of several, a pencil on an answer in his own words,
+  the answer, × to take it back (with "Take this answer back" as its tip),
+  the ask as the chip's tip; a row that scrolls sideways.
+- A Something else box takes pictures as the composer does: pasted, dropped
+  on it (the thread's drop layer hands a file over a box to that box), or
+  from its picture button at the right; each a chip among the words, its
+  thumbnail 44 square over them with × on hover, and the answer's pictures
+  going with the message. A paste of the box's own clip, a thread's id or a
+  card's link works there too. The composer's picture code takes the box it
+  works on (`take_paths_in`, `insert_pictures_in` and the rest).
+- Return with nowhere to go on the card (the ask still open is the one in
+  front) beeps: the Mac's NSBeep. Windows and Linux stay quiet for now.
+- Scripts: both apps' dumps have `composer.answers` ("1: done") and the
+  card's lines carry the review ("Reviewed by …", "  Fixed: <claim>"); both
+  take `beeps` (how many times Return beeped) and `decide` with `picture`
+  ("2:<path>"). The mock's `mock.stream` takes `completed`, more for the
+  turn's `turn.completed` (a review, needs, next).
+- Not here: Reduce Motion's crossfade in place of the slide (the app doesn't
+  read Reduce Motion yet), and the motion itself wasn't filmed: a frame at
+  its start (the old ask in place, the new one off to the right) and one
+  after (the new ask alone) were checked.
+- Files: `desktop/core/src/reducer/{event,row,model,row_debug}.rs` (the
+  ledger), `desktop/core/src/composer.rs` (`picked_answer_label`),
+  `desktop/core/tests/needs_you_tests.rs`,
+  `desktop/gpui/src/{composer_review,composer_answers}.rs` (new),
+  `desktop/gpui/src/{composer_card,composer,composer_inline,thread,app,
+  automation,main}.rs`, `app/Sources/Threadbear/{AppDump,Automation}.swift`,
+  `app/Sources/Threadbear/Transcript/TranscriptController.swift` (the beep
+  counted in DEBUG), `app/Tools/mock-runner/server.mjs`,
+  `features/composer-cards.feature` and its steps.
+- Verification: composer-cards.feature's review scenario (pending on both
+  apps until now) and three new ones, on Tinker Desk: GPUI 13 of 13 with the
+  other card scenarios, Swift 8 of 8 (the beep one through the answer's own
+  button, as the Swift app's scripted pick doesn't page on); GPUI 70 of 70
+  across sending, composer-cards, composer-chips, cards, drafts, editing,
+  new-thread and message-chips after the composer's picture code took a box;
+  core's tests (503 and the integration tests). Pictures of both apps in
+  dark: the done card with the review, the folded card's chips and the
+  Something else box with a picture line up with the Swift ones within a
+  point or two.
+
 ### 2026-11-11 The login picker, a pinned thread's Unpin, and Claude's breakdown in the context ring (`composer.account`, `composer.modelpicker`, `composer.contextring`)
 
 - The login chip (with no pools: another Mac's thread, or a runner with

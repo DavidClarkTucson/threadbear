@@ -145,7 +145,7 @@ pub fn unpin_target(pools: &[Pool], account_id: &str, cwd: &str, home: &str, las
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{FixedOffset, TimeZone as _};
+    use chrono::FixedOffset;
     use serde_json::json;
 
     fn account(id: &str, provider: &str, email: &str, note: Option<&str>, usage: serde_json::Value) -> Account {

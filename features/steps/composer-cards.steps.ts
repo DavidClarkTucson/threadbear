@@ -63,3 +63,70 @@ When('I press {string} on the card', async function (this: ThreadbearWorld, acti
 When('I tick follow-up {int} on the card', async function (this: ThreadbearWorld, number: number) {
   await this.app.do({ cmd: 'ask', row: await openCardRow(this), action: `next:${number - 1}` });
 });
+
+// A sample picture the runner can read, as sending.steps.ts has it.
+const samplePicture = new URL('../support/sample.png', import.meta.url).pathname;
+
+// What another lab's review left on the turn that answered it (docs/protocol.md,
+// "Review by another lab"), through the mock's streamed turn.
+When('the agent there finishes a turn another lab reviewed', async function (this: ThreadbearWorld) {
+  const d = await this.app.dump();
+  const review = {
+    reviewer: 'Codex (codex-1)', independent: true, rounds: 1, threadId: d.selection?.id ?? '', passed: false,
+    findings: [
+      { id: 1, round: 1, severity: 'high', claim: 'Drops the session on refresh.', where: 'auth.ts:40', outcome: 'fixed', note: 'Kept it across the refresh' },
+      { id: 2, round: 1, severity: 'medium', claim: 'Keeps the old token after sign-out.', outcome: 'left' },
+    ],
+  };
+  await this.app.do({ cmd: 'mock', method: 'stream', params: { threadId: d.selection?.id, text: 'Fixed the refresh, and left the sign-out one for you.', hz: 60, completed: { needs: 'nothing', review } } });
+  await this.until('the reviewed turn finished', (d) => d.selection?.status === 'idle' && d.transcript.rows.some((r) => r.kind === 'footer' && r.turn === 'turn_stream'), 20_000);
+});
+
+type WithAnswers = Dump & { composer: Dump['composer'] & { answers?: string[] | null } };
+
+Then('the box shows the picked answers {string}', async function (this: ThreadbearWorld, list: string) {
+  const wanted = list.split(' | ');
+  await this.until(`the picked answers ${JSON.stringify(wanted)}`, (d) => JSON.stringify((d as WithAnswers).composer.answers ?? []) === JSON.stringify(wanted));
+});
+
+Then('the box shows no picked answers', async function (this: ThreadbearWorld) {
+  await this.until('no picked answers', (d) => ((d as WithAnswers).composer.answers ?? []).length === 0);
+});
+
+// The chip's ×, by its tooltip (Swift) or its name (GPUI), which are the same.
+When('I take the picked answer back', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'click', title: 'Take this answer back', tip: 'Take this answer back' });
+});
+
+When('I put the picture in my own answer to ask {int}', async function (this: ThreadbearWorld, ask: number) {
+  await this.app.do({ cmd: 'decide', picture: `${ask}:${samplePicture}` });
+});
+
+Then('ask {int} on the card is answered with {int} picture(s)', async function (this: ThreadbearWorld, ask: number, count: number) {
+  const tail = `+${count} picture${count === 1 ? '' : 's'}`;
+  await this.until(`ask ${ask} answered with ${tail}`, (d) => decisions(d).some((l) => l.includes(`${ask}. `) && l.endsWith(tail)));
+});
+
+Then('the transcript shows my message {string} with the chip {string}', async function (this: ThreadbearWorld, words: string, chip: string) {
+  await this.until(`my message "${words}" with the chip "${chip}"`, (d) => d.transcript.rows.some((r) => r.kind === 'user' && r.text.startsWith(words) && (r.chips ?? []).includes(chip)));
+});
+
+// The answer's button on the card, as a click on it (both apps' `ask`).
+When('I press answer {int} of ask {int} on the card', async function (this: ThreadbearWorld, choice: number, ask: number) {
+  await this.app.do({ cmd: 'ask', row: await openCardRow(this), action: `pick:${ask - 1}:${choice - 1}` });
+});
+
+// Long enough for a paged card to move on to the next unanswered ask, which
+// it does a beat after a pick (300 ms) so the tick shows first.
+When('the card has had a moment to move on', async function () {
+  await new Promise((done) => setTimeout(done, 900));
+});
+
+Then('the app beeps', async function (this: ThreadbearWorld) {
+  for (let tries = 0; tries < 30; tries += 1) {
+    const out = await this.app.do({ cmd: 'beeps' });
+    if (Number(/ok (\d+)/.exec(out)?.[1] ?? 0) > 0) return;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  assert.fail('no beep');
+});

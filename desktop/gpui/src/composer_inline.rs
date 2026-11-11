@@ -16,7 +16,7 @@
 // else since leaves no stale note), where the Swift app has a private type.
 use crate::composer::{Composer, PictureChip};
 use crate::style::{self, size};
-use gpui_kit::component::input::{InlineToken, InlineTokenContext};
+use gpui_kit::component::input::{InlineToken, InlineTokenContext, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
@@ -106,7 +106,12 @@ impl Composer {
 
     /// The box's chips by range, as the draft reads them.
     pub(crate) fn box_chips(&self, cx: &App) -> Vec<(std::ops::Range<usize>, BoxChip)> {
-        self.input
+        self.box_chips_in(&self.input, cx)
+    }
+
+    /// The same for `target`: the box, or a Something else box.
+    pub(crate) fn box_chips_in(&self, target: &Entity<TextareaState>, cx: &App) -> Vec<(std::ops::Range<usize>, BoxChip)> {
+        target
             .read(cx)
             .tokens()
             .iter()
@@ -166,6 +171,11 @@ impl Composer {
     /// (ComposerTextView.readSelection): words as words, pictures already
     /// in as their chips, cards and threads as theirs.
     pub(crate) fn insert_pieces(&mut self, pieces: Vec<DraftPiece>, images: &[ImageRef], window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.input.clone();
+        self.insert_pieces_in(&target, pieces, images, window, cx);
+    }
+
+    pub(crate) fn insert_pieces_in(&mut self, target: &Entity<TextareaState>, pieces: Vec<DraftPiece>, images: &[ImageRef], window: &mut Window, cx: &mut Context<Self>) {
         let mut tokens: Vec<Option<InlineToken>> = Vec::new();
         for piece in &pieces {
             tokens.push(match piece {
@@ -179,8 +189,8 @@ impl Composer {
                 DraftPiece::Mention(mention, link) => Some(self.mention_token(mention, link)),
             });
         }
-        let selected = !self.input.read(cx).selected_range().is_empty();
-        self.input.update(cx, |s, cx| {
+        let selected = !target.read(cx).selected_range().is_empty();
+        target.update(cx, |s, cx| {
             if selected {
                 s.replace("", window, cx);
             }
@@ -202,7 +212,7 @@ impl Composer {
     /// words: a clip of the box's own with its pictures, a known thread's id
     /// on its own, or words with a card or thread linked in them. True when
     /// it's taken.
-    pub(crate) fn take_clipboard_chips(&mut self, item: &ClipboardItem, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn take_clipboard_chips(&mut self, target: &Entity<TextareaState>, item: &ClipboardItem, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(words) = item.text() else { return false };
         // The box's own copy, its pictures beside the words.
         let note = item.entries().iter().find_map(|entry| match entry {
@@ -211,16 +221,16 @@ impl Composer {
         });
         if let Some(clip) = note.and_then(|note| Clip::from_clipboard(&words, &note)) {
             let pieces = inline::draft_pieces(&clip.text, clip.images.len());
-            self.insert_pieces(pieces, &clip.images, window, cx);
+            self.insert_pieces_in(target, pieces, &clip.images, window, cx);
             return true;
         }
         // "Copy thread id" pasted back: the thread's chip, with its title.
         if let Some(reference) = self.thread_reference_for(&words, cx) {
-            self.insert_pieces(inline::draft_pieces(&reference, 0), &[], window, cx);
+            self.insert_pieces_in(target, inline::draft_pieces(&reference, 0), &[], window, cx);
             return true;
         }
         if inline::has_mentions(&words) {
-            self.insert_pieces(inline::draft_pieces(&words, 0), &[], window, cx);
+            self.insert_pieces_in(target, inline::draft_pieces(&words, 0), &[], window, cx);
             return true;
         }
         false
