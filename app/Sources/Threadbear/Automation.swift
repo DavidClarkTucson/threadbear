@@ -811,6 +811,23 @@ enum Automation {
             // Blocks the main thread, to try what a freeze does: `seconds`.
             usleep(UInt32((c["seconds"] as? Double ?? 6) * 1_000_000))
             return "ok"
+        case "hangs":
+            // What HangWatch has noted beside the log: each stall, how long
+            // it lasted, and where its sample found the main thread. The
+            // GPUI app's `hangs` says the same.
+            guard let folder = logURL?.deletingLastPathComponent().appendingPathComponent("hangs") else { return "error no automation log" }
+            let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".json") }.map { String($0.dropLast(5)) }.sorted()
+            let stalls: [[String: Any]] = names.compactMap { name in
+                guard let data = try? Data(contentsOf: folder.appendingPathComponent(name + ".json")),
+                      let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+                let sample = (try? String(contentsOf: folder.appendingPathComponent(name + ".sample"), encoding: .utf8)) ?? ""
+                let frames = HangSample.heaviestMainThreadPath(sample)
+                var stall: [String: Any] = ["name": name, "sampled": !frames.isEmpty, "recoveredAfter": record["recoveredAfter"] ?? NSNull(), "frames": frames]
+                stall["stuckIn"] = frames.isEmpty ? NSNull() : (HangSample.deepestAppFrame(frames) ?? frames.last ?? "unknown")
+                return stall
+            }
+            let json = (try? JSONSerialization.data(withJSONObject: ["stalls": stalls])).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+            return "ok \(json)"
         case "convex":
             // Select through the same model as the panel's deployment menu.
             guard let thread = app.selectedThread,

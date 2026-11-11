@@ -50,6 +50,11 @@ image = { version = "=0.25.10", default-features = false, features = ["png", "jp
 # inotify on Linux, ReadDirectoryChangesW on Windows. Already in the build
 # through gpui-kit, at this version and with its default features.
 notify = "=8.2.1"
+# Crash and freeze reports to Sentry from the installed app
+# (crash_reporting.rs): one POST of an envelope over rustls, with no Sentry SDK
+# (core's crash_report.rs builds what's sent). Already in the build through
+# threadbear-web, at this version and with these features.
+ureq = { version = "=3.5.1", default-features = false, features = ["rustls"] }
 # The Terminal panel's emulator (terminal.rs, terminal_element.rs): the
 # screen, its scrollback and selection, the escape codes programs print, and
 # the shell's pty (a Unix pty on macOS and Linux, ConPTY on Windows), with

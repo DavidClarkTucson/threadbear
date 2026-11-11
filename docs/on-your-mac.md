@@ -137,7 +137,16 @@ File references are where to look.
   main thread is stuck for 4 seconds it runs macOS's `sample` on itself, in
   a sandbox, and notes the main thread's priority, the Mac's load average
   and how long since the last keyboard or mouse input (just how long, never
-  what); nothing else ever reads these); and `~/ThreadbearThreads`, the default
+  what); nothing else ever reads these). The installed GPUI app keeps its
+  own the same way in `hangs/desktop` there (`desktop/gpui/src/hang_watch.rs`),
+  and its last 10 panics in `~/Library/Logs/Threadbear/crashes/desktop`
+  (the message with anything in quotes and any paths taken out, the file and
+  line in Threadbear's code, and the names of the functions it was in), with
+  `crash-reports-seen.json`, the names of macOS's own reports of its crashes
+  (`~/Library/Logs/DiagnosticReports/threadbear-gpui-*.ips`) it has looked
+  at: each launch reads the new ones of its own for the exception and the
+  crashed thread's function names, and nothing else of them
+  (`desktop/gpui/src/crash_reporting.rs`); and `~/ThreadbearThreads`, the default
   folder for new threads. A folder you open from a link in the side pane
   is listed, and watched for changes only while it's showing, and macOS may
   ask for permission the first time that's somewhere like Documents. The runner also runs `vm_stat` and `sw_vers` on a Mac, or reads `/proc/meminfo` and `/etc/os-release` on Linux, for the memory and system figures in the website's Runners view and the Mac app's runner details (`runner/src/runner-stats.ts`), every 5 minutes and while either is open. It also runs `ps`, and `sample` (in a
@@ -366,7 +375,7 @@ File references are where to look.
 | Cursor (api2.cursor.sh) | theirs | Only with the `acpAgents` experiment on and a thread on Cursor: the same, on your own login |
 | Mike's push relay | Mike's | Only when a paired iPhone or Android phone gets a notification (an Android phone's goes on to Google's Firebase Cloud Messaging, from the relay). It's sent from your Convex deployment, not the Mac. The text is encrypted for the phone; the relay sees the device token and thread id (`convex/push.ts`, `docs/push-relay.md`). The first time, your deployment registers with it, giving its own address; the relay keeps that address and checks it by posting a one-time code back to your deployment's `/relay/verify` (`convex/http.ts`). |
 | A Connectors gateway | whoever runs it | Only if one is set in `runner.json` or `~/.claude.json`. Its `/health` every few minutes (and once more at the end of a turn where a call to one of its services failed, to see if it needs signing in), and for a project with a Notion page, a Notion read or two every 5 minutes for its task board (`runner/src/notion-tasks.ts`), signed with the header the `headersHelper` command in that `connectors` entry prints, which it runs for each read |
-| Sentry | Mike's | Nothing from your copy. Only a copy whose `origin` is Mike's own repo reports errors or uploads the app's debug symbols (`runner/src/sentry.ts`, `app/Sources/Threadbear/CrashReporting.swift`, `app/build-app.sh`). The App Store iPhone app sends anonymous crash reports. |
+| Sentry | Mike's | Nothing from your copy. Only a copy whose `origin` is Mike's own repo reports errors or uploads the app's debug symbols (`runner/src/sentry.ts`, `app/Sources/Threadbear/CrashReporting.swift`, `app/build-app.sh`). The installed GPUI app of Mike's repo, on the real data folder, sends its panics, crashes and freezes of 15 seconds or more, each as one POST to Sentry's endpoint with the function names and nothing typed or opened (`desktop/core/src/crash_report.rs`, `desktop/gpui/src/crash_reporting.rs`); it uploads no symbols. The App Store iPhone app sends anonymous crash reports. |
 
 An HTML file opened in the side pane (a mockup or report an agent made,
 a page in a project) talks to nothing. It loads through the app's own

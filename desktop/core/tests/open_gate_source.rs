@@ -41,7 +41,12 @@ const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs
 /// threadbear_core::terminal::launch) in a pty in a thread's folder or your
 /// home folder, as Terminal would, and runs nothing a reply, a link or a file
 /// says (a shell block's command is typed at its prompt for you to run).
-const ALLOWED_LINES: &[(&str, &str, usize)] = &[("gpui/src/terminal.rs", "let pty = tty::new(&options, self.size.window_size(), 0)?;", 1)];
+/// The hang watch runs macOS's `sample` on the app itself, inside
+/// `sandbox-exec` with core's fixed profile (hang_sample.rs), and nothing else.
+const ALLOWED_LINES: &[(&str, &str, usize)] = &[
+    ("gpui/src/terminal.rs", "let pty = tty::new(&options, self.size.window_size(), 0)?;", 1),
+    ("gpui/src/hang_watch.rs", "let mut sample = Command::new(\"/usr/bin/sandbox-exec\");", 1),
+];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };

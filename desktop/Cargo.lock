@@ -7404,6 +7404,7 @@ dependencies = [
  "chrono",
  "markdown",
  "qrcodegen",
+ "rustc-demangle",
  "serde",
  "serde_json",
  "sha1",
@@ -7457,6 +7458,7 @@ dependencies = [
  "threadbear-web",
  "tokio",
  "unicode-properties",
+ "ureq",
 ]
 
 [[package]]

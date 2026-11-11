@@ -2,17 +2,21 @@
 // app's ThreadbearCore: the inbox's rules and how a thread's events become
 // rows. Keeping it out of the GPUI crate means its tests need no graphics
 // libraries and take seconds.
+pub mod app_update;
 pub mod chips;
 pub mod completion_sound;
 pub mod card_run;
 pub mod composer;
 pub mod connectors;
+pub mod crash_report;
 pub mod devices;
 pub mod draft_block;
 pub mod explain;
 pub mod file_refs;
 pub mod find;
 pub mod folders;
+pub mod hang_sample;
+pub mod hang_watch;
 pub mod highlights;
 pub mod home;
 pub mod inbox;

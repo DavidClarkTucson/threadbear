@@ -56,52 +56,9 @@ else
 fi
 
 bundle="$work/Threadbear GPUI.app"
-mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-cp "$work/threadbear-gpui" "$bundle/Contents/MacOS/threadbear-gpui"
-# Beside the app, where it looks for it: the web runtime's helper processes
-# are copies of it, made in the data folder when Chromium first starts
-# (desktop/gpui/src/web_runtime.rs). Signed first, so the bundle's own
-# signature takes it in as signed code.
-cp "$work/threadbear-web-helper" "$bundle/Contents/MacOS/threadbear-web-helper"
-codesign --force --sign - "$bundle/Contents/MacOS/threadbear-web-helper" 2>/dev/null
-cat > "$bundle/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key><string>threadbear-gpui</string>
-    <key>CFBundleIdentifier</key><string>com.mikerosoft.threadbear.desktop</string>
-    <key>CFBundleName</key><string>Threadbear GPUI</string>
-    <key>CFBundleDisplayName</key><string>Threadbear GPUI</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1</string>
-    <key>CFBundleVersion</key><string>1</string>
-    <key>LSMinimumSystemVersion</key><string>13.0</string>
-    <key>NSHighResolutionCapable</key><true/>
-    <!-- threadbear://thread/<id> opens a thread (desktop/gpui/src/deep_links.rs),
-         as the Swift app's app/Resources/Info.plist claims it too. -->
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key><string>com.mikerosoft.threadbear.desktop.thread-link</string>
-            <key>CFBundleURLSchemes</key>
-            <array><string>threadbear</string></array>
-        </dict>
-    </array>
-</dict>
-</plist>
-PLIST
-# The same picture as the Swift app's icon (app/build-app.sh).
-iconset="$work/threadbear.iconset"
-mkdir -p "$iconset"
-for size in 16 32 128 256 512; do
-  sips -z "$size" "$size" "$root/app/icons/threadbear.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
-  double=$((size * 2))
-  sips -z "$double" "$double" "$root/app/icons/threadbear.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "$iconset" -o "$bundle/Contents/Resources/threadbear.icns"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string threadbear' "$bundle/Contents/Info.plist"
-codesign --force --sign - "$bundle" 2>/dev/null
+# The bundle, its icon, signature and build.json (make-bundle.sh), from this
+# checkout, which the installed app then follows.
+"$root/desktop/scripts/make-bundle.sh" "$work" "$bundle" "$root"
 
 mkdir -p "$HOME/Applications"
 target="$HOME/Applications/Threadbear GPUI.app"

@@ -336,6 +336,67 @@ built parsers and gates with no launch of the app, which is the trap.)
   card, a thread and a picture chip in the box, laid over each other: the
   chips sit on the same line and edges, the card's a point or two wider for
   its title.
+### 2026-11-11 Crash reports and the hang watch (`system.crash`, `system.hangwatch`)
+
+- The hang watch, as HangWatch.swift: a thread of its own sends the main
+  thread a beat each second through GPUI's foreground executor, and when one
+  hasn't come back in 4 s it runs `sample` on the app, in the Swift app's
+  sandbox, into `hang-<time>.json` and `.sample`, with how long it lasted and
+  how the Mac was (the main thread's priority, the load average, the seconds
+  since the last input). The installed app watches into
+  `~/Library/Logs/Threadbear/hangs/desktop` (each app reads only its own
+  folder, so neither reports the other's), keeps 10, and at its next launch
+  sends those of 15 s or more (or that never came back) whose sample shows
+  the main thread busy, as "Main thread stuck in" its own deepest frame,
+  grouped by it. `sample` leaves Rust's v0 mangling as it is, so core
+  demangles it (rustc-demangle, already in the build) and takes the hashes
+  off, so a frame is the same from one build to the next. Linux and Windows
+  note a stall with no sample.
+- Crash reports: Sentry from the installed release only, built from Mike's
+  repo (build.json's origin), on the real data folder, unless
+  `THREADBEAR_SENTRY=off`; tag `component: desktop`, release
+  `threadbear-desktop@0.1.0+<short>`. No Sentry SDK: core's `crash_report.rs`
+  builds the event and its envelope, and one POST over ureq (already in the
+  build) sends it. A panic is written down by a hook as it happens, in
+  `~/Library/Logs/Threadbear/crashes/desktop` (its message with anything in
+  double quotes and any path taken out, cut at 300 characters; the file and
+  line, without the build machine's folders; the frames' names, std's panic
+  handling off the top), and sent from a thread of its own: straight away
+  when it was another thread's and the app carried on, else at the next
+  launch. A crash that never reached the hook (in AppKit, Metal or Chromium)
+  is read at the next launch from macOS's own report of it
+  (`DiagnosticReports/threadbear-gpui-*.ips`): its exception and the crashed
+  thread's function names, once each, only the installed app's, none from
+  before reporting began and none that a panic made. No breadcrumbs, sessions,
+  machine name, or symbols uploaded.
+- `desktop/scripts/make-bundle.sh` makes install-app.sh's bundle now, with a
+  build.json (the commit, `desktop/`'s tree, the checkout and its origin), and
+  signs it with the Mac's Apple Development identity as the Swift app is, so
+  macOS's permissions stick from one build to the next (ad hoc with the
+  requirement pinned to the bundle id when there's none).
+- Both apps' `hangs` say what the watch noted; the GPUI app's `stall`, and its
+  `panic` and `crashes` for the hook.
+- Not the same: an Objective-C exception isn't caught as one (Swift's
+  `enableUncaughtNSExceptionReporting`); it ends the app, and macOS's report
+  of it is sent at the next launch, as above.
+- Files: `desktop/core/src/{app_update,crash_report,hang_sample,hang_watch}.rs`
+  (new), core's `open_gate_source.rs` (the one `sandbox-exec` line let through)
+  and `hang_sample_sandbox.rs`, `desktop/gpui/src/{installed,crash_reporting,
+  hang_watch}.rs` (new), `main.rs`, `automation.rs`,
+  `desktop/scripts/{make-bundle,install-app}.sh`,
+  `app/Sources/Threadbear/Automation.swift`, `features/{hang-watch,
+  crash-reports}.feature` and their steps, `app/README.md`, `AGENTS.md`,
+  `docs/{on-your-mac,forking}.md`.
+- Verification: on Tinker Desk, hang-watch.feature on both apps (1 of 1 each:
+  a 10 s stall noted at about 10 s, its sample naming the automation's own
+  frame), crash-reports.feature on the GPUI app (1 of 1), core's tests (493,
+  and the integration ones, the sandboxed `sample` among them) and the GPUI
+  crate's test of an envelope reaching a local listener with its key. The
+  release build run as the installed app, in a throwaway home on Tinker Desk,
+  against a stand-in Sentry on 127.0.0.1, with a past freeze and a macOS
+  crash report planted for it: it said reporting was on, sent both (the
+  envelopes read: component desktop, frames demangled, no paths), and marked
+  both as sent.
 
 ### 2026-11-11 A reply's links, and words selected in it (`rich.filemenu`, `rich.webmenu`, `rich.linkpeek`, `rich.cmdclick`, `rich.filerefs`, `rich.selectionbar`, `rich.explain`, `rich.copy`, `highlights.rowmenus`)
 

@@ -126,7 +126,7 @@ you go.
 
 - [ ] The app updating itself, and a seamless restart onto a new build
   (`system.selfupdate`, `system.handover`)
-- [ ] Crash reports to Sentry, and the hang watch (`system.crash`,
+- [x] Crash reports to Sentry, and the hang watch (`system.crash`,
   `system.hangwatch`)
 - [ ] The activity log (`system.activitylog`, `foundation.tooltips`)
 - [ ] Bringing the Swift app's settings and drafts across on first launch

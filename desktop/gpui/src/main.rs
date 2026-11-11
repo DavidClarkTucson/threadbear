@@ -17,6 +17,7 @@ mod composer_chips;
 mod composer_inline;
 mod composer_send;
 mod connectors_panel;
+mod crash_reporting;
 mod deep_links;
 mod ding;
 mod draft_boxes;
@@ -30,12 +31,14 @@ mod files_store;
 mod folders;
 #[cfg(feature = "frame-stats")]
 mod frame_stats;
+mod hang_watch;
 mod header;
 mod highlights;
 mod highlights_project;
 mod highlights_store;
 mod home_page;
 mod icons;
+mod installed;
 mod librarian;
 mod mac_switch;
 mod move_sheet;
@@ -140,6 +143,9 @@ fn initial_bounds(settings: &Settings, cx: &App) -> Bounds<Pixels> {
 }
 
 fn main() {
+    // Before anything else, to catch a panic at launch. Only the installed
+    // release, and a scripted app into its own folder (crash_reporting.rs).
+    crash_reporting::start();
     // All of Lucide (about 1 MB), so `icons.rs` can name any icon; the default
     // `Assets` has only gpui-kit's own hundred.
     let application = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
@@ -148,6 +154,8 @@ fn main() {
     let links = deep_links::receive(&application);
     application.run(|cx| {
         gpui_kit::init(cx);
+        // The main thread watched for freezes from here on (hang_watch.rs).
+        hang_watch::start(cx);
         // Whether the web runtime is installed; nothing starts until a page needs it.
         web_runtime::init(cx);
         // The diagrams and pages in replies, drawn through it.

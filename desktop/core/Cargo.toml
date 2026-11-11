@@ -27,6 +27,11 @@ tar = { version = "=0.4.46", default-features = false }
 # `pairing_qr`). Exactly this version: Project Nayuki's encoder, pure Rust with
 # no dependencies of its own, and the code a phone scans has to stay right.
 qrcodegen = "=1.8.0"
+# The app's own frames in a hang watch sample or a crash report, which
+# macOS's `sample` and ReportCrash leave in Rust's v0 mangling
+# (hang_sample.rs, `tidy`). Already in the build through std's backtrace
+# crate, at this version.
+rustc-demangle = "=0.1.28"
 # Selected words in a reply as HTML for the clipboard (selection_copy.rs):
 # the kit hands the selection over as Markdown. The version gpui-kit parses
 # with, already in the build.

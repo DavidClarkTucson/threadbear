@@ -431,6 +431,22 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             }
             Ok(json!("ok"))
         }
+        // Blocks the main thread for `seconds`, to try what a freeze does
+        // (hang_watch.rs), as the Swift app's `stall`; `hangs` says what the
+        // hang watch noted.
+        "stall" => {
+            std::thread::sleep(std::time::Duration::from_secs_f64(cmd["seconds"].as_f64().unwrap_or(6.).clamp(0., 60.)));
+            Ok(json!("ok"))
+        }
+        "hangs" => crate::hang_watch::automation(),
+        // A panic on a thread of its own, so the app carries on, for what the
+        // panic hook keeps (crash_reporting.rs); `crashes` says what it kept.
+        "panic" => {
+            let message = cmd["message"].as_str().unwrap_or("a scripted panic").to_owned();
+            let _ = std::thread::Builder::new().name("scripted panic".into()).spawn(move || panic!("{message}"));
+            Ok(json!("ok"))
+        }
+        "crashes" => crate::crash_reporting::automation(),
         // How smoothly it's been drawing (frame_stats.rs), in a build with
         // `frame-stats`; `reset` starts the count again from now.
         "frame-stats" => {

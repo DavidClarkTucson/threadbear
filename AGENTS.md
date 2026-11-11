@@ -165,9 +165,10 @@ and ask the user what they use instead, rather than trying to reach them.
   `.help` and `toolTip` never show in this app; TipsTests fails on them.
 - Transcript files and fixtures made from real sessions are private: keep them
   out of git (`.fixtures/` is ignored).
-- Errors go to Sentry (project `threadbear`, tag `component` mac, runner or
-  ios) only from what Mike really runs: the installed release app
-  (`app/Sources/Threadbear/CrashReporting.swift`), the installed runner's
+- Errors go to Sentry (project `threadbear`, tag `component` mac, runner,
+  ios or desktop) only from what Mike really runs: the installed release app
+  (`app/Sources/Threadbear/CrashReporting.swift`), the installed GPUI app
+  (`desktop/gpui/src/crash_reporting.rs`), the installed runner's
   release on the real data dir (`runner/src/sentry.ts`) and App Store
   iPhone builds. Debug builds, dev runners, tests, sandboxes and scripted
   runs never report; keep it that way. `THREADBEAR_SENTRY=off` turns it off.
@@ -177,6 +178,9 @@ and ask the user what they use instead, rather than trying to reach them.
   (`HangWatch.swift`). Each stall of 4 seconds or more has a `sample` of the
   stuck main thread, and one of 15 or more reaches Sentry as "Main thread
   stuck in ...". Fix the frame it names rather than guessing from logs.
+  The GPUI app keeps its own in `hangs/desktop` there
+  (`desktop/gpui/src/hang_watch.rs`), and its panics in
+  `~/Library/Logs/Threadbear/crashes/desktop`.
 - Mike's own repo: work goes to main once tests pass. A thread started in
   this repo has a worktree of its own and lands with `tb land` (below).
   Anywhere several threads share a checkout (the main one, a worktree made
