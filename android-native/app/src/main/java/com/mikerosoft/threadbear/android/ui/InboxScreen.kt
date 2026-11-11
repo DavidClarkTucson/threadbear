@@ -63,7 +63,9 @@ import com.mikerosoft.threadbear.kit.PhoneProject
 import com.mikerosoft.threadbear.kit.PhoneSection
 import com.mikerosoft.threadbear.kit.PhoneThread
 import com.mikerosoft.threadbear.kit.ProjectMark
+import com.mikerosoft.threadbear.kit.RelativeTime
 import com.mikerosoft.threadbear.kit.RowStatus
+import com.mikerosoft.threadbear.kit.ScheduleWake
 import com.mikerosoft.threadbear.kit.ThreadChange
 import java.time.Instant
 import kotlinx.coroutines.delay
@@ -156,7 +158,7 @@ fun InboxScreen(open: (String) -> Unit) {
                 if (folded) return
                 if (rows.isEmpty() && empty != null) item(key = "e:${section.name}") { empty() }
                 items(rows, key = { "${section.name}:${it.threadId}" }) { t ->
-                    SwipeRow(t, section, now, projectById, open)
+                    SwipeRow(t, section, now, projectById, wakeMap, open)
                 }
             }
             if (sections.starred.isNotEmpty()) section(PhoneSection.STARRED, sections.starred, null)
@@ -211,7 +213,7 @@ private fun EmptyInbox() {
 /** A row that archives with a swipe, or brings a put-away one back. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeRow(t: PhoneThread, section: PhoneSection, now: Instant, projects: Map<String, PhoneProject>, open: (String) -> Unit) {
+private fun SwipeRow(t: PhoneThread, section: PhoneSection, now: Instant, projects: Map<String, PhoneProject>, wakes: Map<String, ScheduleWake>, open: (String) -> Unit) {
     val model = LocalModel.current
     val change: ThreadChange = when (section) {
         PhoneSection.ARCHIVED -> ThreadChange.Unarchive
@@ -240,12 +242,21 @@ private fun SwipeRow(t: PhoneThread, section: PhoneSection, now: Instant, projec
             ) { Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurface) }
         },
     ) {
-        ThreadRow(t, now, projects, Modifier.background(MaterialTheme.colorScheme.background).clickable { open(t.threadId) })
+        ThreadRow(
+            t, now, projects, Modifier.background(MaterialTheme.colorScheme.background).clickable { open(t.threadId) },
+            underRunning = section == PhoneSection.RUNNING, wake = wakes[t.threadId],
+        )
     }
 }
 
 @Composable
-fun ThreadRow(t: PhoneThread, now: Instant, projects: Map<String, PhoneProject>, modifier: Modifier = Modifier) {
+fun ThreadRow(
+    t: PhoneThread, now: Instant, projects: Map<String, PhoneProject>, modifier: Modifier = Modifier,
+    /** Under the Running heading the time alone; elsewhere "Working 38s", as the iPhone. */
+    underRunning: Boolean = false,
+    /** The schedule that messages it next: the row says when, where the time would be. */
+    wake: ScheduleWake? = null,
+) {
     val signals = LocalSignals.current
     val kind = RowStatus.kind(t)
     Row(
@@ -289,23 +300,34 @@ fun ThreadRow(t: PhoneThread, now: Instant, projects: Map<String, PhoneProject>,
                 val runner = if (runners.size > 1) runners.firstOrNull { it.runnerId == t.runnerId }?.name else null
                 val doing = t.working?.takeIf { t.isBusy || (t.pendingApproval == null && !t.waitingOnMike) }
                 val line = listOfNotNull(InboxSections.wakeLine(t, now), t.placeText, runner, doing).joinToString(" · ")
-                Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                // The trailing word on the second line, as the iPhone's row has it
+                // (InboxView's trailing), so long titles get the whole width.
+                val faint = signals.faint
+                val (text, color) = when (kind) {
+                    // The gutter dot says it, as on the Mac; the time stays.
+                    RowStatus.Kind.NEEDS_YOU -> RelativeTime.short(t.lastActivityAt, now) to faint
+                    RowStatus.Kind.WORKING -> RowStatus.workingLabel(t.lastActivityAt, now).let { if (underRunning) it else "Working $it" } to signals.accent
+                    RowStatus.Kind.FAILED -> "Failed" to signals.failed
+                    // Its turn lost the internet; it carries on by itself.
+                    RowStatus.Kind.WAITING_FOR_CONNECTION -> RowStatus.text(t, now) to faint
+                    RowStatus.Kind.STOPPED -> "Stopped" to MaterialTheme.colorScheme.onSurfaceVariant
+                    // Back from hibernating by itself: "Woke up" until it's opened.
+                    RowStatus.Kind.TIME -> when {
+                        t.woke != null -> RowStatus.text(t, now) to signals.accent
+                        wake?.nextRunAt != null -> RelativeTime.clock(wake.nextRunAt!!, now) to faint
+                        else -> RowStatus.text(t, now) to faint
+                    }
+                }
+                if (kind == RowStatus.Kind.WORKING) {
+                    WorkingDot()
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1)
             }
         }
-        Spacer(Modifier.width(10.dp))
-        val (text, color) = when (kind) {
-            RowStatus.Kind.NEEDS_YOU -> "Needs you" to signals.needsYou
-            RowStatus.Kind.WORKING -> RowStatus.workingLabel(t.lastActivityAt, now) to signals.accent
-            RowStatus.Kind.FAILED -> "Failed" to signals.failed
-            RowStatus.Kind.WAITING_FOR_CONNECTION -> "Offline" to MaterialTheme.colorScheme.onSurfaceVariant
-            RowStatus.Kind.STOPPED -> "Stopped" to MaterialTheme.colorScheme.onSurfaceVariant
-            RowStatus.Kind.TIME -> RowStatus.text(t, now) to MaterialTheme.colorScheme.onSurfaceVariant
-        }
-        if (kind == RowStatus.Kind.WORKING) {
-            WorkingDot()
-            Spacer(Modifier.width(6.dp))
-        }
-        Text(text, style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
 
