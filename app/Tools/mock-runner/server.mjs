@@ -1098,14 +1098,22 @@ async function dispatch(client, method, p) {
       return { trusted: (p.files ?? []).map((f) => f.file) };
     }
     case 'mock.convexPanel': {
+      // `key` says how panels.convexKey answers: "none" (the default, the
+      // CLI's own error), "ok" (a made-up key), "signedOut" (-32040, until a
+      // sign-in through panels.convexLogin) or "noAccess" (-32041).
       const t = need(p.threadId);
       const deployment = 'happy-otter-123';
       t.summary.panels = [{ id: 'convex.dashboard', title: 'Convex', kind: 'url', patch: 'convex',
         url: `https://dashboard.convex.dev/d/${deployment}`,
         convex: { deployment, deploymentUrl: `https://${deployment}.convex.cloud`, team: 'mike', project: 'walkies' } }];
       t.convexKeyRequests ??= [];
+      t.convexKeyMode = p.key ?? 'none';
       broadcastSummary(t.summary.id);
       return { keyRequests: t.convexKeyRequests };
+    }
+    case 'mock.convexKeyRequests': {
+      // What the app has asked panels.convexKey for so far.
+      return { keyRequests: need(p.threadId).convexKeyRequests ?? [] };
     }
     case 'mock.urlPanel': {
       // A patch's url panel showing any page (a local server playing media,
@@ -1125,7 +1133,26 @@ async function dispatch(client, method, p) {
     case 'panels.convexKey': {
       const t = need(p.threadId);
       (t.convexKeyRequests ??= []).push({ deployment: p.deployment, renew: p.renew === true });
+      const deployment = p.deployment ?? 'happy-otter-123';
+      if (t.convexKeyMode === 'ok') {
+        const deploymentUrl = deployment === 'busy-bear-456' ? 'https://busy-bear-456.ap-southeast-2.convex.cloud' : `https://${deployment}.convex.cloud`;
+        return { deployment, deploymentUrl, adminKey: `mock-admin-key|${deployment}` };
+      }
+      if (t.convexKeyMode === 'signedOut') throw rpcError(-32040, "The runner's Convex CLI isn't signed in.");
+      if (t.convexKeyMode === 'noAccess') throw rpcError(-32041, "The runner's Convex login can't reach this deployment.");
       throw rpcError(-32000, 'The demo runner has no Convex deploy keys.');
+    }
+    case 'panels.convexLogin': {
+      // A sign-in that's approved by the second look: waiting with Convex's
+      // device page and a code, then done, and the keys come after it.
+      const t = need(p.threadId);
+      if (!p.check) t.convexLoginChecks = 0;
+      else t.convexLoginChecks = (t.convexLoginChecks ?? 0) + 1;
+      if (p.check && t.convexLoginChecks >= 2) {
+        t.convexKeyMode = 'ok';
+        return { state: 'done' };
+      }
+      return { state: 'waiting', url: 'https://auth.convex.dev/device', code: 'MOCK-1234' };
     }
     case 'panels.render': {
       // The Simulator panel's picture: a fixture image, as if simctl took it.

@@ -10,7 +10,7 @@
 // shows where it's got to.
 use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -343,9 +343,9 @@ pub fn receive(body: &mut dyn Read, part: &Path, pin: &Pin, progress: &mut dyn F
     result
 }
 
-/// Hashes a whole file, for the check just before it's unpacked.
-fn file_hashes(path: &Path) -> io::Result<(u64, String, String)> {
-    let mut file = std::fs::File::open(path)?;
+/// Hashes a whole open file from where it is, for the check just before
+/// it's unpacked from that same handle.
+fn file_hashes(file: &mut std::fs::File) -> io::Result<(u64, String, String)> {
     let (mut sha1, mut sha256) = (Sha1::new(), Sha256::new());
     let mut buffer = vec![0u8; 256 * 1024];
     let mut len = 0u64;
@@ -371,16 +371,28 @@ fn hex(bytes: &[u8]) -> String {
 /// alone comes out into a `.partial` folder, the marker goes in last, and the
 /// folder is renamed into place whole. Other builds' folders go after that.
 pub fn install_from_file(archive: &Path, pin: &Pin, layout: &Layout) -> Result<(), InstallError> {
-    let (len, sha1, sha256) = file_hashes(archive).map_err(|e| failed(format!("couldn't read the download: {e}")))?;
+    install_checked(archive, pin, layout, || {})
+}
+
+/// `install_from_file`, with `between` run after the hash is checked and
+/// before anything's unpacked, for the test that swaps the file there.
+fn install_checked(archive: &Path, pin: &Pin, layout: &Layout, between: impl FnOnce()) -> Result<(), InstallError> {
+    // One handle, hashed and then unpacked from its start again: opened a
+    // second time by name, a file swapped in between would be unpacked
+    // under the pinned hash's name (Codex review, 11 Nov).
+    let mut file = std::fs::File::open(archive).map_err(|e| failed(format!("couldn't open the download: {e}")))?;
+    let (len, sha1, sha256) = file_hashes(&mut file).map_err(|e| failed(format!("couldn't read the download: {e}")))?;
     if len != pin.bytes || sha1 != pin.sha1.to_ascii_lowercase() || sha256 != pin.sha256.to_ascii_lowercase() {
         return Err(failed("the archive didn't match the pinned build's hash, so it wasn't unpacked"));
     }
+    between();
+    file.seek(SeekFrom::Start(0)).map_err(|e| failed(format!("couldn't read the download: {e}")))?;
     let partial = layout.partial_dir();
     if partial.exists() {
         std::fs::remove_dir_all(&partial).map_err(|e| disk("couldn't clear an earlier try", e))?;
     }
     std::fs::create_dir_all(&partial).map_err(|e| disk("couldn't make the runtime's folder", e))?;
-    let result = unpack_framework(archive, pin, &Layout::frameworks_in(&partial)).and_then(|()| {
+    let result = unpack_framework(file, pin, &Layout::frameworks_in(&partial)).and_then(|()| {
         let marker = serde_json::json!({ "version": CEF_VERSION, "sha256": pin.sha256.to_ascii_lowercase() });
         std::fs::write(partial.join("installed.json"), marker.to_string()).map_err(|e| disk("couldn't finish the install", e))
     });
@@ -439,33 +451,17 @@ fn framework_path(entry: &Path, top: &str) -> Result<Option<PathBuf>, InstallErr
     Ok(Some(rest.iter().collect()))
 }
 
-/// Whether a link at `at` (relative to the framework) pointing at `target`
-/// stays inside the framework: relative, and never climbing past its top.
-fn link_stays_inside(at: &Path, target: &Path) -> bool {
-    if target.is_absolute() || target.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir)) {
-        return false;
-    }
-    let mut depth: i64 = at.parent().map(|p| p.components().filter(|c| matches!(c, Component::Normal(_))).count() as i64).unwrap_or(0);
-    for component in target.components() {
-        match component {
-            Component::ParentDir => {
-                depth -= 1;
-                if depth < 0 {
-                    return false;
-                }
-            }
-            Component::Normal(_) => depth += 1,
-            _ => {}
-        }
-    }
-    true
-}
-
-/// The framework out of a checked archive into `dest`: files with their
-/// executable bit but no set-id bits or owners, folders, and links that stay
-/// inside. Anything else in the framework (a hard link, a device) stops it.
-fn unpack_framework(archive: &Path, pin: &Pin, dest: &Path) -> Result<(), InstallError> {
-    let file = std::fs::File::open(archive).map_err(|e| failed(format!("couldn't open the download: {e}")))?;
+/// The framework out of a checked archive (`file`, at its start) into
+/// `dest`: its files, with their executable bit but no set-id bits or
+/// owners, and its folders. Nothing else. CEF's framework has no links
+/// (156.0.15's two archives have none, of either kind), and a link is how an
+/// archive gets a later entry written somewhere else: checks of where links
+/// point were got round twice in review (Codex, 11 Nov: `a -> .`, then
+/// `escape -> a/..`, then a file written to `escape/planted-file`; then two
+/// spellings of one name, which the Mac's disk takes as the same, written
+/// through a link made a moment before). With none made, every entry lands
+/// where its own checked path says, inside the framework.
+fn unpack_framework(file: std::fs::File, pin: &Pin, dest: &Path) -> Result<(), InstallError> {
     let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(io::BufReader::new(file)));
     let root = dest.join(FRAMEWORK);
     let mut files = 0usize;
@@ -486,17 +482,10 @@ fn unpack_framework(archive: &Path, pin: &Pin, dest: &Path) -> Result<(), Instal
             io::copy(&mut entry, &mut target).map_err(|e| disk("couldn't unpack it", e))?;
             set_mode(&out, entry.header().mode().unwrap_or(0o644));
             files += 1;
-        } else if kind.is_symlink() {
-            let target = entry.link_name().map_err(|e| failed(format!("couldn't read a link in the archive: {e}")))?.ok_or_else(|| failed("the archive has a link to nowhere"))?.into_owned();
-            if !link_stays_inside(&inside, &target) {
-                return Err(failed(format!("the archive has a link that leaves the framework ({} to {})", inside.display(), target.display())));
-            }
-            if let Some(dir) = out.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| disk("couldn't unpack it", e))?;
-            }
-            symlink(&target, &out).map_err(|e| disk("couldn't unpack a link", e))?;
+        } else if kind.is_symlink() || kind.is_hard_link() {
+            return Err(failed(format!("the archive has a link in the framework ({}), which CEF's own build doesn't, so it wasn't used", inside.display())));
         } else {
-            return Err(failed(format!("the archive has something that isn't a file, folder or link ({})", path.display())));
+            return Err(failed(format!("the archive has something that isn't a file or folder ({})", path.display())));
         }
     }
     if files == 0 {
@@ -516,16 +505,6 @@ fn set_mode(path: &Path, mode: u32) {
 
 #[cfg(not(unix))]
 fn set_mode(_path: &Path, _mode: u32) {}
-
-#[cfg(unix)]
-fn symlink(target: &Path, at: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(target, at)
-}
-
-#[cfg(not(unix))]
-fn symlink(_target: &Path, _at: &Path) -> io::Result<()> {
-    Err(io::Error::other("links aren't unpacked on this system"))
-}
 
 /// The Mac's helper apps beside the framework, each a copy of the app's own
 /// `threadbear-web-helper` with an Info.plist saying it's a background app
@@ -635,8 +614,9 @@ mod tests {
 
     const TOP: &str = "cef_binary_test_macosarm64_minimal";
 
-    /// A small archive shaped like CEF's: the framework under Release, with
-    /// the headers and a static library beside it that aren't wanted.
+    /// A small archive shaped like CEF's: the framework under Release (files
+    /// and folders, no links, as the real one), with the headers and a
+    /// static library beside it that aren't wanted.
     fn archive(extra: impl FnOnce(&mut tar::Builder<bzip2::write::BzEncoder<Vec<u8>>>)) -> Vec<u8> {
         let mut builder = tar::Builder::new(bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::fast()));
         let mut add = |path: &str, data: &[u8], mode: u32| {
@@ -652,10 +632,6 @@ mod tests {
         add(&format!("{fw}/Libraries/libcef_sandbox.dylib"), b"sandbox", 0o755);
         add(&format!("{TOP}/Release/cef_sandbox.a"), b"not wanted", 0o644);
         add(&format!("{TOP}/include/cef_app.h"), b"not wanted", 0o644);
-        let mut link = tar::Header::new_gnu();
-        link.set_entry_type(tar::EntryType::Symlink);
-        link.set_size(0);
-        builder.append_link(&mut link, format!("{fw}/Versions/Current"), "A").unwrap();
         extra(&mut builder);
         builder.into_inner().unwrap().finish().unwrap()
     }
@@ -723,7 +699,6 @@ mod tests {
             use std::os::unix::fs::PermissionsExt as _;
             let mode = std::fs::metadata(fw.join("Chromium Embedded Framework")).unwrap().permissions().mode() & 0o7777;
             assert_eq!(mode, 0o755, "executable, and the set-user bit dropped");
-            assert_eq!(std::fs::read_link(fw.join("Versions/Current")).unwrap(), Path::new("A"));
         }
         assert!(!layout.root.join(format!("{CEF_VERSION}.partial")).exists());
         // Another pin (a newer Threadbear's) doesn't count this one installed.
@@ -768,12 +743,128 @@ mod tests {
         }
     }
 
+    /// Whether anything at all is at `path`, a link included (`exists`
+    /// follows a link, and calls one to nowhere missing).
+    fn anything_at(path: &Path) -> bool {
+        std::fs::symlink_metadata(path).is_ok()
+    }
+
+    /// Unpacks `data` straight into a folder of its own, as an install
+    /// would into `.partial`, so what lands beside the framework can be seen
+    /// (an install deletes `.partial` when it fails).
+    fn unpack_into(name: &str, data: &[u8]) -> (PathBuf, Result<(), InstallError>) {
+        let dir = temp(name);
+        let file = dir.join("a.tar.bz2");
+        std::fs::write(&file, data).unwrap();
+        let dest = dir.join("Frameworks");
+        std::fs::create_dir_all(&dest).unwrap();
+        let result = unpack_framework(std::fs::File::open(&file).unwrap(), &pin_for(data, TOP), &dest);
+        (dir, result)
+    }
+
     #[test]
-    fn links_inside_the_framework_are_fine() {
-        assert!(link_stays_inside(Path::new("Versions/Current"), Path::new("A")));
-        assert!(link_stays_inside(Path::new("Resources/x"), Path::new("../Libraries/y")));
-        assert!(!link_stays_inside(Path::new("x"), Path::new("../y")));
-        assert!(!link_stays_inside(Path::new("Resources/x"), Path::new("/etc")));
+    fn a_link_through_a_link_cannot_plant_a_file_outside() {
+        // Codex's three entries (11 Nov): each link looked as if it stayed
+        // inside, and made as they came, the file's create followed `escape`
+        // to `a/..`, `a` to `.`, and so up past the framework's top.
+        let fw = format!("{TOP}/Release/{FRAMEWORK}");
+        let data = archive(|b| {
+            raw_entry(b, &format!("{fw}/a"), tar::EntryType::Symlink, ".");
+            raw_entry(b, &format!("{fw}/escape"), tar::EntryType::Symlink, "a/..");
+            raw_entry(b, &format!("{fw}/escape/planted-file"), tar::EntryType::Regular, "");
+        });
+        let (dir, result) = unpack_into("through-links", &data);
+        assert!(result.is_err(), "it was unpacked");
+        assert!(!anything_at(&dir.join("Frameworks/planted-file")) && !anything_at(&dir.join("planted-file")), "a file landed outside the framework");
+        let root = dir.join(format!("Frameworks/{FRAMEWORK}"));
+        assert!(!anything_at(&root.join("a")) && !anything_at(&root.join("escape")), "a link was made");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_link_of_any_kind_is_made() {
+        let fw = format!("{TOP}/Release/{FRAMEWORK}");
+        // A link with nothing wrong with its target, alone or with things
+        // written through it, either way round; a link under another link;
+        // and, from Codex's second look (11 Nov), names the Mac's disk takes
+        // as one: Lib and lib, and é written precomposed and as e and an
+        // accent.
+        let cases: Vec<(&str, Box<dyn Fn(&mut tar::Builder<bzip2::write::BzEncoder<Vec<u8>>>)>)> = vec![
+            ("a plain link", Box::new(|b| raw_entry(b, &format!("{fw}/Versions/Current"), tar::EntryType::Symlink, "A"))),
+            ("a hard link", Box::new(|b| raw_entry(b, &format!("{fw}/hard"), tar::EntryType::Link, "Chromium Embedded Framework"))),
+            ("link then file", Box::new(|b| {
+                raw_entry(b, &format!("{fw}/lib"), tar::EntryType::Symlink, "Libraries");
+                raw_entry(b, &format!("{fw}/lib/planted-file"), tar::EntryType::Regular, "");
+            })),
+            ("file then link", Box::new(|b| {
+                raw_entry(b, &format!("{fw}/lib/planted-file"), tar::EntryType::Regular, "");
+                raw_entry(b, &format!("{fw}/lib"), tar::EntryType::Symlink, "Libraries");
+            })),
+            ("link under a link", Box::new(|b| {
+                raw_entry(b, &format!("{fw}/lib"), tar::EntryType::Symlink, "Libraries");
+                raw_entry(b, &format!("{fw}/lib/planted-link"), tar::EntryType::Symlink, "Resources");
+            })),
+            ("link and file in another case", Box::new(|b| {
+                raw_entry(b, &format!("{fw}/Lib"), tar::EntryType::Symlink, "Libraries");
+                raw_entry(b, &format!("{fw}/lib/planted-file"), tar::EntryType::Regular, "");
+            })),
+            ("two spellings of one name", Box::new(|b| {
+                raw_entry(b, &format!("{fw}/\u{e9}"), tar::EntryType::Symlink, ".");
+                // (Short, to fit an old header's hundred bytes.)
+                raw_entry(b, &format!("{fw}/e\u{301}/new/link"), tar::EntryType::Symlink, ".");
+            })),
+        ];
+        for (what, extra) in cases {
+            let data = archive(|b| extra(b));
+            let (dir, result) = unpack_into("links", &data);
+            assert!(result.as_ref().is_err_and(|e| e.message().contains("link")), "{what} was unpacked: {result:?}");
+            assert_eq!(links_under(&dir), Vec::<PathBuf>::new(), "{what}: a link was made");
+            let beside: Vec<_> = std::fs::read_dir(dir.join("Frameworks")).unwrap().flatten().map(|e| e.file_name()).collect();
+            assert!(beside.iter().all(|name| name == FRAMEWORK), "{what}: {beside:?} beside the framework");
+            assert!(!anything_at(&dir.join(format!("Frameworks/{FRAMEWORK}/Libraries/planted-file"))), "{what}: a file was written through a link");
+            assert!(!anything_at(&dir.join(format!("Frameworks/{FRAMEWORK}/hard"))), "{what}: a hard link was made");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// Every link under `dir`, found without following any.
+    fn links_under(dir: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let kind = entry.file_type().unwrap();
+            if kind.is_symlink() {
+                found.push(entry.path());
+            } else if kind.is_dir() {
+                found.extend(links_under(&entry.path()));
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn unpacks_the_file_it_hashed_even_if_its_name_is_swapped_after() {
+        let dir = temp("swap");
+        let good = archive(|_| {});
+        let file = dir.join("a.tar.bz2");
+        std::fs::write(&file, &good).unwrap();
+        // The same shape, with another library over the first.
+        let other = archive(|b| {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(10);
+            header.set_mode(0o755);
+            header.set_entry_type(tar::EntryType::Regular);
+            b.append_data(&mut header, format!("{TOP}/Release/{FRAMEWORK}/Chromium Embedded Framework"), &b"swapped in"[..]).unwrap();
+        });
+        let layout = Layout::new(dir.join("runtime"));
+        install_checked(&file, &pin_for(&good, TOP), &layout, || {
+            // Between the hash and the unpacking, another file takes its name.
+            let swapped = dir.join("swapped.tar.bz2");
+            std::fs::write(&swapped, &other).unwrap();
+            std::fs::rename(&swapped, &file).unwrap();
+        })
+        .unwrap();
+        assert_eq!(std::fs::read(layout.framework().join("Chromium Embedded Framework")).unwrap(), b"the library", "what was hashed is what was unpacked");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

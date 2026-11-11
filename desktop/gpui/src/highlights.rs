@@ -1629,7 +1629,11 @@ impl SidePane {
             HIGHLIGHTS => self.fill_highlights_dump(&mut pane, thread, cx),
             PATCHES => self.fill_patches_dump(&mut pane, thread),
             FILES => {}
-            id => self.fill_panel_dump(&mut pane, thread, id),
+            id => {
+                self.fill_panel_dump(&mut pane, thread, id);
+                // A page panel's page, drawn by web_panels.rs.
+                crate::web_panels::fill_pane_dump(&mut pane, thread, id, cx);
+            }
         }
         Value::Object(pane)
     }

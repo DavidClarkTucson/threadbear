@@ -5,5 +5,6 @@ mod loader;
 mod loader_support;
 pub mod offscreen;
 pub mod page;
+pub mod panel;
 pub mod rich;
 pub mod sealed;

@@ -13,7 +13,9 @@ export const webRuntime = (d: unknown) => (d as { webRuntime?: WebRuntimeInfo | 
 /** Unpacking 330 MB takes a while on a busy Tinker Desk. */
 const INSTALL_SECONDS = 600;
 
-When('I install the web runtime', async function (this: ThreadbearWorld) {
+// The step's own time, as the default 90 seconds is less than unpacking
+// takes on a loaded Tinker Desk (it ran out there on 11 Nov).
+When('I install the web runtime', { timeout: (INSTALL_SECONDS + 60) * 1000 }, async function (this: ThreadbearWorld) {
   // The pinned build downloaded once (support/world.ts skips this scenario
   // without one), handed over as a download would be, and checked the same.
   await this.app.do({ cmd: 'webRuntime', do: 'install', archive: process.env.TB_WEB_RUNTIME_ARCHIVE, wait: INSTALL_SECONDS }, INSTALL_SECONDS + 30);

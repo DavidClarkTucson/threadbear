@@ -1509,7 +1509,11 @@ back to where it started. Closing a panel, or picking another thread,
 pauses anything it's playing. A panel's address can carry the thread
 it's beside, as `{threadId}` (docs/protocol.md, "Patches"), and an agent
 that has changed a panel's page can have it load afresh as it shows you
-(`show_panel` with `reload`).
+(`show_panel` with `reload`). The new desktop app (the `gpuiApp`
+experiment) shows a panel's page, and the Convex dashboard, with the same
+Chromium it draws diagrams with: until that's installed the panel asks for
+it (Install web runtime, or Not now) and has Open in browser, and there a
+link to another site always opens in your browser.
 
 Buttons sit on shelves along the top edge of the message box, one shelf
 for each place they came from, starting with the same badge the panels

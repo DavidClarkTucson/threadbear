@@ -9,6 +9,7 @@ pub mod card_run;
 pub mod composer;
 pub mod connectors;
 pub mod context_breakdown;
+pub mod convex_panel;
 pub mod crash_report;
 pub mod devices;
 pub mod draft_block;

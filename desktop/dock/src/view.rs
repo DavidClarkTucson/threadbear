@@ -742,7 +742,11 @@ impl DockView {
             .gap(px(6.))
             .rounded(px(6.))
             .when(single, |d| d.min_w(px(0.)).flex_shrink_1())
-            .when(!single, |d| d.flex_none())
+            // A crowded bar squeezes its tabs, their titles cut short, as
+            // SwiftUI's do, rather than pushing the panel's own buttons past
+            // its end: a web panel's Reload went under the right-hand rail
+            // in a narrow pane with two tabs (11 Nov).
+            .when(!single, |d| d.min_w(px(0.)).flex_shrink_1())
             .when(selected && !single, |d| d.bg(theme.tab_selected))
             .when(!(selected && !single), |d| d.hover(|s| s.bg(theme.tab_hover)));
 
@@ -754,8 +758,8 @@ impl DockView {
                 .text_size(px(title_size))
                 .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .text_color(if selected { theme.header_text } else { theme.secondary })
-                .when(single, |d| d.truncate())
-                .when(!single, |d| d.whitespace_nowrap())
+                .min_w(px(0.))
+                .truncate()
                 .child(title),
         );
         if closable {

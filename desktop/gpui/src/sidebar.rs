@@ -997,6 +997,12 @@ impl Threadbear {
 
     /// The open row or heading menu, drawn over the whole window rather than
     /// inside the sidebar panel (the dock clips what a panel draws).
+    /// Where the open menu is, so a web panel's page (a native view, which
+    /// it can't draw over) gets out of its way (web_panels.rs).
+    pub(crate) fn open_menu_at(&self) -> Option<Point<Pixels>> {
+        self.sidebar.menu.as_ref().map(|m| m.position)
+    }
+
     pub(crate) fn render_open_menu(&self) -> Option<AnyElement> {
         self.sidebar.menu.as_ref().map(|m| deferred(anchored().position(m.position).snap_to_window_with_margin(px(8.)).child(div().occlude().child(m.view.clone()))).with_priority(1).into_any_element())
     }

@@ -139,6 +139,11 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     if cmd["cmd"] == "webRuntime" {
         return crate::web_runtime::automation(cmd, cx).await;
     }
+    // A web panel's page (web_panels.rs): run a script in it, click in it as
+    // a person would, or wait for it to load.
+    if cmd["cmd"] == "webPanel" {
+        return crate::web_panels::automation(cmd, cx).await;
+    }
     let weak = app.clone();
     // A design review's window (review_window.rs), as the Swift command.
     if cmd["cmd"] == "review" {

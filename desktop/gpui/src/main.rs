@@ -84,6 +84,7 @@ mod thread_panels;
 mod updates_panel;
 mod usage;
 mod viewer;
+mod web_panels;
 mod web_runtime;
 
 use app::Threadbear;
@@ -162,6 +163,8 @@ fn main() {
         web_runtime::init(cx);
         // The diagrams and pages in replies, drawn through it.
         rich_boxes::init(cx);
+        // And the panels' pages, the Convex dashboard's among them.
+        web_panels::init(cx);
         let settings = Settings::load();
         let bounds = initial_bounds(&settings, cx);
         let (window, app) = gpui_kit::open_window(

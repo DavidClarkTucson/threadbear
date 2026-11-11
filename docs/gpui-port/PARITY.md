@@ -222,6 +222,113 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Web panels and the Convex panel, through the web runtime (`panel.web`, `panel.bar`, `panel.convex`)
+
+- A patch's url panel shows its page in the pane: a Chromium page in a
+  native view over the panel's slot, kept loaded between visits (four at a
+  time, the one used longest ago closing first) in Chromium's own profile,
+  so its sign-ins last. Out of sight its videos and sounds pause, and it's
+  muted until it's back, as the Swift panel's are.
+- As in the Swift app, a link, form or new window to another site opens in
+  the browser through the open gate and the panel keeps its page; a new
+  window on its own site loads in the panel; a redirect or a script's own
+  navigation stays, so a sign-in through another site still works; nothing
+  downloads, and Chromium's menu has no View Source. A file or any other
+  kind of address isn't loaded in a panel: it says so, with Open in browser.
+- The bar (`panel.bar`): Back once the page has moved on, Reload (back to
+  the panel's own page, a spinner while it loads) and Open in browser, each
+  with its tip. A crowded bar now squeezes its tabs, their titles cut short,
+  rather than pushing a panel's buttons past its end (the dock's tabs: Reload
+  went under the right-hand rail in a narrow pane with two tabs).
+- The Convex panel (`panel.convex`): the project, the deployment menu
+  (Development, Production and the configured one, ticked, then Refresh
+  deployments; a native menu, as the Swift app's, so it comes up over the
+  page), the deployment's name and the runner's note; under them the
+  embedded dashboard, given its deploy key by a script that answers only on
+  the dashboard's origin, in a request context kept in memory, and loaded
+  only once that script is in; or the runner's reason, with Try again, Sign
+  in to Convex (Convex's device page, and only that page, opened through
+  the gate, the code shown, polled until it's done, then the dashboard) or
+  Sign in as someone else. New deploy key and Reload in the bar. The choice
+  of deployment is kept per configured deployment (`desktop-web-panels.json`).
+- Without the runtime a panel asks for it as diagrams do ("Show this panel's
+  page? It needs the web runtime, a 135 MB download, once."), with Open in
+  browser beside the question; after Not now, or where there's no runtime,
+  it says why and offers the browser. A panel moved into a window of its own
+  says its page shows in the main window.
+- ⌘C, ⌘X, ⌘V, ⌘A, ⌘Z and ⇧⌘Z go to a page that has the keyboard, as the
+  page's own Edit commands: GPUI's view takes key equivalents first, and
+  the app has no Edit menu yet (a scenario checks ⌘A selects the page).
+- Dumps and commands (GPUI): the pane's `web` (what it shows, the bar's
+  buttons, the page's title, address, loads, Back, hidden and muted, the
+  Convex panel's header and state) and `webPanels` (every page kept, the
+  links that left one); `webPanel` runs a script in a page, clicks in it as
+  a person would (DevTools' Input domain, so the page sees a gesture),
+  waits for it, or picks a deployment, the native menu being out of a
+  script's reach; `THREADBEAR_CONVEX_EMBEDDED` points the dashboard at a
+  stand-in on 127.0.0.1 (scripted builds only), and the scenarios read
+  where links went with the app's `opened`.
+  The mock runner answers `panels.convexKey` with a key, signed out or no
+  access as asked, and `panels.convexLogin` with a sign-in approved on its
+  second look.
+- Folded in from Codex's review of the runtime (b3b74a66, e1ffb37c), which
+  found no way for a reply's html or mermaid to run a script, make a
+  request or reach the app: the unpacker takes no links at all, as CEF's
+  framework has none (156.0.15's two archives checked), so nothing can be
+  written through one, and it unpacks from the same open file it hashed.
+  Its three-entry archive (`a -> .`, `escape -> a/..`,
+  `escape/planted-file`) put a file outside the framework with the landed
+  code (the test was run against it) and is refused now. A first version
+  of the fix made links last and checked them; Codex, asked to break it,
+  found two spellings of one name the Mac's disk takes as the same could
+  still make a link through another (inside the framework), so links went
+  altogether, and on a second look it found no way to make a link, write
+  outside the framework or unpack other bytes than were hashed. The probe
+  now also draws a diagram whose labels, links, click handlers, style and
+  init directive try to reach its listener, and nothing does. Left as
+  they are: a
+  framework, helper or cached picture replaced on disk after install is
+  loaded or shown without being hashed again, as only something already
+  running as Mike could do that (SECURITY.md: other processes running as
+  you are trusted), and hashing about 250 MB at every launch costs time;
+  the probe doesn't watch DNS for its tb-probe.invalid name or click in a
+  full-size window.
+- Not here yet: the Swift app's dump doesn't read a panel's page or the
+  Convex panel's state, and its web views can't be clicked into from a
+  script, so the new scenarios are `@swift-pending`. A tooltip from the
+  panel's bar that falls over the page is hidden behind it; the app's own
+  menus hide the page while they're open instead. Opening a link over the
+  panel with Back, as the Swift app's Default can, waits for an in-app
+  browser: here it's always the browser. Windows and Linux: no runtime yet,
+  so a panel says so and offers the browser, untested beyond the build.
+- Files: `desktop/gpui/src/web_panels.rs`, `desktop/web/src/mac/panel.rs`,
+  `desktop/web/src/panel_rules.rs`, `desktop/core/src/convex_panel.rs`
+  (new); the lines in `shell.rs` (the section and the bar), `app.rs` (the
+  sweep and the dump), `main.rs`, `automation.rs`, `highlights.rs` (the
+  pane's dump), `sidebar.rs` (where the open menu is), `icons.rs`, `patches.rs`, the core `Panel`'s `convex`, the
+  web crate's `lib.rs`, `host.rs` and `appkit_hooks.m` (a view's parent,
+  keyboard and removal, the native menu); the dock's tabs; the runtime's
+  unpacker and probe; the mock runner; `features/web-panels.feature`, its
+  steps and `support/web-pages.ts`, the runtime's support file (the sites) and its install steps' own time; docs: guide.md,
+  on-your-mac.md, SECURITY.md, forking.md, gpui-port.md, whats-left.md.
+- Verification: on Tinker Desk's desktop against the GPUI app,
+  web-panels.feature's 9 scenarios, web-runtime.feature's 3 (a fresh
+  install from the real archive through the new unpacker among them) and
+  rich-blocks.feature's 7 (the probe and its diagram: nothing reached the
+  listener), with patches, window, rails, reply-links, highlights and
+  file-previews alongside, on main as it is now: 70 of 70 (and before the
+  rebase, drafts, reading-a-thread and panel-requests too). Core's tests
+  (503), the web crate's and the dock's, and `cargo check --workspace
+  --all-targets`. The three-entry archive's test, run against
+  the landed unpacker, unpacked `Ok` and planted the file outside; it's
+  refused now. Codex was asked twice to break the unpacker fix (above).
+  Six pictures of the real window, captured from the screen, all looked
+  at: a page, the page moved on with Back in the bar, the Convex
+  dashboard (the stand-in), signed out, waiting for the sign-in with its
+  code, and the question without the runtime. The Swift app wasn't run:
+  nothing of it changed but the mock runner's new answers, which only
+  these scenarios ask for.
+
 ### 2026-11-11 View > Collapse Threads, and threadbear:// links from outside (`menu.view`, `nav.deeplink`)
 
 - View > Collapse Threads (⌘/) folds the Threads panel away and Expand
@@ -577,7 +684,6 @@ built parsers and gates with no launch of the app, which is the trap.)
   passing on the GPUI app and file-previews and folders on the Swift app. The
   conflict bar and the editor side by side with the Swift app's in dark: the
   bar's buttons land on the same points, the yellow the same.
-
 ### 2026-11-11 The Terminal after three Codex reviews, in both apps (`terminal.panel`, `terminal.putcommand`, `terminal.lifecycle`)
 
 - A paste that would run lines by itself asks first. When the program in the

@@ -1115,6 +1115,8 @@ impl Threadbear {
             "webRuntime": crate::web_runtime::dump(cx),
             // Diagrams and pages open full size, by block id (rich_window.rs).
             "richWindows": crate::rich_boxes::windows_dump(cx),
+            // The web panels' pages, and the links that left them (web_panels.rs).
+            "webPanels": crate::web_panels::dump(cx),
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
             "terminal": crate::terminal::dump(self, cx),
         })
@@ -1264,6 +1266,9 @@ impl Render for Threadbear {
         let open_menu = self.render_open_menu();
         #[cfg(feature = "frame-stats")]
         let open_menu = open_menu.into_iter().map(IntoElement::into_any_element).chain(self.frame_rate.clone().map(|f| f.into_any_element()));
-        self.render_shell(window, cx).children(open_menu)
+        // The web panels' pages are native views: shown and placed once the
+        // window's laid out, where their panels were drawn (web_panels.rs).
+        let pages = crate::web_panels::sweeper(self.open_menu_at(), self.share_popover.is_some());
+        self.render_shell(window, cx).children(open_menu).child(pages)
     }
 }

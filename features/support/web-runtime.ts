@@ -9,13 +9,18 @@
 // Only the Mac has a runtime so far: @web-prompt and @web-runtime scenarios
 // are skipped elsewhere, and @web-runtime ones on a Mac without the archive
 // (CI), rather than downloading it on every run.
+//
+// The web panel scenarios also get the little sites they show
+// (support/web-pages.ts).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { startSites, stopSites, type Sites } from './web-pages.ts';
 
 const made: string[] = [];
+let shown: Sites | undefined;
 
-export function webRuntimeSetup(tags: string[]): 'skipped' | undefined {
+export async function webRuntimeSetup(tags: string[]): Promise<'skipped' | undefined> {
   const mac = process.platform === 'darwin';
   // The GPUI app's pictures of diagrams and pages, kept on disk under the
   // same names as the Swift app's: a folder of its own each time, or one
@@ -26,6 +31,12 @@ export function webRuntimeSetup(tags: string[]): 'skipped' | undefined {
   // The Swift app draws pages with WebKit: it has no runtime to need.
   const gpui = (process.env.TB_APP ?? 'gpui') === 'gpui';
   if (gpui && tags.includes('@web-prompt') && !mac) return 'skipped';
+  if (tags.some((t) => t.startsWith('@panel.web') || t.startsWith('@panel.bar') || t.startsWith('@panel.convex'))) {
+    shown = await startSites();
+    process.env.THREADBEAR_CONVEX_EMBEDDED = shown.dashboard;
+  } else {
+    delete process.env.THREADBEAR_CONVEX_EMBEDDED;
+  }
   if (gpui && tags.includes('@web-runtime')) {
     if (!mac || !process.env.TB_WEB_RUNTIME_ARCHIVE) return 'skipped';
     if (!tags.includes('@web-runtime-fresh')) {
@@ -41,7 +52,15 @@ export function webRuntimeSetup(tags: string[]): 'skipped' | undefined {
   return undefined;
 }
 
+/** The sites this scenario's panels show. */
+export function sites(): Sites {
+  if (!shown) throw new Error('this scenario has no sites: tag it @panel.web, @panel.bar or @panel.convex');
+  return shown;
+}
+
 /** After the app's stopped: the scenario's own folder goes. */
 export function webRuntimeCleanup() {
   for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  stopSites();
+  shown = undefined;
 }

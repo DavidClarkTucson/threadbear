@@ -47,7 +47,8 @@ File references are where to look.
   does (its menu's Default) in `desktop-links.json` there, the side pane's
   folded headings in `desktop-highlights.json`, and how it shows files and
   folders (Preview or Markdown, list or icons, the sort, hidden files) in
-  `desktop-files.json`. Both apps claim `threadbear://` links (BrowserBear's
+  `desktop-files.json`, and the deployment each Convex panel shows in
+  `desktop-web-panels.json`. Both apps claim `threadbear://` links (BrowserBear's
   Open thread pill), so install-app.sh makes the GPUI app the one macOS opens
   them with (`--keep-links` leaves them where they are), and
   `desktop/scripts/thread-links.sh swift` gives them back to the Swift app.

@@ -181,10 +181,11 @@ impl DockContent for Panels {
     }
 
     fn accessory(&self, panel: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        if panel != MAIN {
-            return None;
-        }
         let app = self.app.upgrade()?;
+        if panel != MAIN {
+            // A web panel's Back, Reload and Open in browser (web_panels.rs).
+            return app.update(cx, |t, cx| crate::web_panels::bar_buttons(t, panel, cx));
+        }
         Some(app.update(cx, |t, cx| t.render_header_buttons(window, cx)))
     }
 
@@ -1254,7 +1255,7 @@ impl Threadbear {
             // Highlights, Files, Patches and a patch's own panels are sections of
             // the one pane beside the thread (highlights.rs), each its own panel
             // in the dock, as in the Swift app.
-            _ if !ghost && self.is_side_section(panel) => self.render_side_section(panel, cx),
+            _ if !ghost && self.is_side_section(panel) => self.render_side_section(panel, window, cx),
             _ => self.render_pane_placeholder(panel, cx).into_any_element(),
         }
     }
@@ -1311,13 +1312,22 @@ impl Threadbear {
     /// at a time, so two of them shown side by side would show the same one
     /// (the Swift app draws each separately): for later, it needs a split of
     /// `SidePane` into sections.
-    fn render_side_section(&mut self, section: &str, cx: &mut Context<Self>) -> AnyElement {
+    fn render_side_section(&mut self, section: &str, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if let Some(thread) = self.pane_thread() {
             if self.side.read(cx).section_for(&thread) != section {
                 // Afterwards, as this runs while the app's own state is held and
                 // the pane reads that.
                 let (side, section) = (self.side.clone(), section.to_owned());
+                let thread = thread.clone();
                 cx.defer(move |cx| side.update(cx, |side, cx| side.choose_section(&thread.id, &section, cx)));
+            }
+            // A page panel draws its page itself, every frame, so the page
+            // follows its slot (web_panels.rs); a preview over it is the pane's.
+            let previewing = self.side.read(cx).previews.get(&thread.id).is_some_and(|pv| pv.from == section);
+            if !previewing {
+                if let Some(page) = crate::web_panels::section(self, &thread, section, window, cx) {
+                    return page;
+                }
             }
         }
         // Cached, like the Threads panel, so scrolling the transcript doesn't

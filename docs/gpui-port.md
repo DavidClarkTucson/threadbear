@@ -447,6 +447,20 @@ for real browsing. I'd skip it: two engines means two sandboxes to prove.
   navigation), and the panels show sites a patch or Convex names. Turning
   the sandbox on means the framework inside the app bundle, which is
   option B. **Mike's call.**
+- **Pages beside a thread.** A web panel's page is a native view over its
+  panel's layout slot (`desktop/gpui/src/web_panels.rs`). The side pane is
+  a cached view, redrawn only when it changes, so a page panel is drawn by
+  the dock directly, and the main window places and shows its pages once a
+  frame after everything's laid out: where their panels were drawn that
+  frame, hidden everywhere else, and while a dialog, a sheet or one of the
+  app's menus could be over them. GPUI's tooltips and menus can't draw
+  over a page, so the Convex panel's deployment menu is a native one, as
+  the Swift app's is; a tooltip from the panel's bar that falls over its
+  page is hidden behind it, which Ghostex's small borderless windows (the
+  spike) would fix. ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z go to a page that has the
+  keyboard (GPUI's view answers key equivalents for the whole window, and
+  the app has no Edit menu yet). A panel moved into a window of its own
+  says its page shows in the main window, for now.
 
 ## Risks
 

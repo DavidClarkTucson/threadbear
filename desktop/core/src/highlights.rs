@@ -1000,6 +1000,9 @@ pub struct Panel {
     pub summary: Option<String>,
     pub badge: Option<i64>,
     pub project_id: Option<String>,
+    /// The built-in Convex panel's deployment: shown as Convex's embedded
+    /// dashboard rather than `url` (docs/protocol.md, "The Convex panel").
+    pub convex: Option<crate::convex_panel::Deployment>,
 }
 
 impl Panel {

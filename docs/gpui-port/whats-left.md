@@ -24,10 +24,12 @@ you go.
 ## You'd notice these in a day of use
 
 ### Web pages in the app
-- [ ] Mermaid diagrams and ```html blocks in replies show as code: there's no
-  web runtime yet (`rich.mermaid`, `rich.html`, `rich.chrome`, `rich.fullsize`)
-- [ ] Web panels (the Convex dashboard and the like) show a placeholder with
-  Open in browser (`panel.web`, `panel.convex`, `panel.bar`)
+- [x] Mermaid diagrams and ```html blocks in replies show as code: there's no
+  web runtime yet (`rich.mermaid`, `rich.html`, `rich.chrome`, `rich.fullsize`;
+  drawn through the web runtime on a Mac since 11 Nov)
+- [x] Web panels (the Convex dashboard and the like) show a placeholder with
+  Open in browser (`panel.web`, `panel.convex`, `panel.bar`; pages through the
+  web runtime on a Mac since 11 Nov, with Open in browser until it's installed)
 - [ ] No Browser pane, so BrowserBear's handoffs don't show in the app
   (`browser.*`, `rich.browserbear`, `rail.right`)
 - [x] A reply's links all go to the system browser: no "in a panel", Chrome

@@ -1,9 +1,9 @@
 // The Patches list and the panels a patch gives a thread, a port of the Swift
 // app's PatchesList, ListPanel and ImagePanel (PanelsView.swift), with action
 // chips (ActionChips). A panel's rows or picture come from the runner
-// (`panels.render`), asked for when it's shown and every so often while it is;
-// a web panel stays a placeholder with Open in Browser until the embedded web
-// view lands (`panel.web`).
+// (`panels.render`), asked for when it's shown and every so often while it is.
+// A web panel's page is web_panels.rs's (`panel.web`): the side pane only
+// draws one if it's asked to anyway, as a placeholder with Open in browser.
 use crate::call;
 use crate::highlights::{icon, palette, tipped, PaneRow, Palette, SidePane, OUTER_INSET};
 use crate::style;
@@ -191,7 +191,8 @@ impl SidePane {
                     }
                 }
             }
-            // A web panel: the embedded web view is later work.
+            // A web panel: web_panels.rs draws its page (shell.rs hands the
+            // section to it), so this is only a fallback.
             _ => self.render_web_placeholder(&panel, p, cx),
         }
     }

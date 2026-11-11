@@ -99,7 +99,7 @@ Before(async function (this: ThreadbearWorld, { pickle }) {
   if (pickle.tags.some((t) => t.name === '@project-parts')) process.env.TB_MOCK_PARTS = '1';
   else delete process.env.TB_MOCK_PARTS;
   // The web runtime's folder for this scenario (support/web-runtime.ts).
-  if (webRuntimeSetup(pickle.tags.map((t) => t.name)) === 'skipped') return 'skipped';
+  if ((await webRuntimeSetup(pickle.tags.map((t) => t.name))) === 'skipped') return 'skipped';
   await this.app.start();
 });
 

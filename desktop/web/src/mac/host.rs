@@ -22,7 +22,41 @@ unsafe extern "C" {
     // Placing a page's own view in a GPUI layout slot (page.rs).
     pub(crate) fn tb_view_set_frame(view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
     pub(crate) fn tb_view_set_hidden(view: *mut c_void, hidden: bool);
+    // A panel's page moving between windows, and whether it has the keyboard (panel.rs).
+    pub(crate) fn tb_view_set_parent(view: *mut c_void, parent: *mut c_void);
+    pub(crate) fn tb_view_remove(view: *mut c_void);
+    pub(crate) fn tb_view_has_keyboard(view: *mut c_void) -> bool;
+    fn tb_popup_menu(view: *mut c_void, x: f64, y: f64, titles: *const *const c_char, symbols: *const *const c_char, tips: *const *const c_char, checked: *const bool, count: i32) -> i32;
     fn tb_main_bundle_identifier() -> *const c_char;
+}
+
+/// One item of a native menu: an empty title is a separator.
+#[derive(Clone, Debug, Default)]
+pub struct MenuItem {
+    pub title: String,
+    /// An SF Symbol's name, beside the title.
+    pub symbol: String,
+    pub tip: String,
+    pub checked: bool,
+}
+
+/// A native menu at (x, y) in a window's view (GPUI's coordinates), for a
+/// menu over a web page's view, which GPUI's own would draw under. Blocks
+/// while it's open, so call it from a task, outside any update (as the app's
+/// alerts are); returns the index of the item chosen.
+pub fn popup_menu(view: *mut c_void, x: f32, y: f32, items: &[MenuItem]) -> Option<usize> {
+    if view.is_null() || items.is_empty() {
+        return None;
+    }
+    let text = |s: &str| CString::new(s.replace('\0', "")).unwrap_or_default();
+    let titles: Vec<CString> = items.iter().map(|i| text(&i.title)).collect();
+    let symbols: Vec<CString> = items.iter().map(|i| text(&i.symbol)).collect();
+    let tips: Vec<CString> = items.iter().map(|i| text(&i.tip)).collect();
+    let pointers = |v: &[CString]| v.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
+    let (t, s, p) = (pointers(&titles), pointers(&symbols), pointers(&tips));
+    let checked: Vec<bool> = items.iter().map(|i| i.checked).collect();
+    let chosen = unsafe { tb_popup_menu(view, f64::from(x), f64::from(y), t.as_ptr(), s.as_ptr(), p.as_ptr(), checked.as_ptr(), items.len() as i32) };
+    usize::try_from(chosen).ok().filter(|i| *i < items.len())
 }
 
 /// Where Chromium has got to in this process.

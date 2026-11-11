@@ -151,6 +151,84 @@ void tb_view_set_hidden(void *nativeView, bool hidden) {
   view.hidden = hidden;
 }
 
+// Moves a page's view into another window's view: its panel was dragged into
+// a window of its own, or back. The local keeps the view alive between the
+// two: its old superview held the only reference to it.
+void tb_view_set_parent(void *nativeView, void *nativeParent) {
+  NSView *view = (__bridge NSView *)nativeView;
+  NSView *parent = (__bridge NSView *)nativeParent;
+  if (!view || !parent || view.superview == parent) {
+    return;
+  }
+  [view removeFromSuperview];
+  [parent addSubview:view];
+}
+
+// Takes a page's view out of its window for good. Its parent held the only
+// reference to it, so it goes, and with it the page: Chromium ends a child
+// view's browser when the view goes (CefBrowserHostView's dealloc), without
+// asking the window it was in to close, as CloseBrowser does.
+void tb_view_remove(void *nativeView) {
+  NSView *view = (__bridge NSView *)nativeView;
+  [view removeFromSuperview];
+}
+
+// Whether the page's view, or one inside it, has its window's keyboard.
+bool tb_view_has_keyboard(void *nativeView) {
+  NSView *view = (__bridge NSView *)nativeView;
+  NSResponder *responder = view.window.firstResponder;
+  return view && [responder isKindOfClass:[NSView class]] && [(NSView *)responder isDescendantOf:view];
+}
+
+@interface TBMenuTarget : NSObject
+@property(nonatomic) NSInteger chosen;
+- (void)pick:(NSMenuItem *)item;
+@end
+
+@implementation TBMenuTarget
+- (void)pick:(NSMenuItem *)item {
+  self.chosen = item.tag;
+}
+@end
+
+// A native menu at (x, y) in a window's view, in GPUI's coordinates (from the
+// top left), for a menu that has to come up over a web page's view: GPUI draws
+// its own menus inside the window, under the page. Blocks while it's open, as
+// an NSMenu does, and returns the item chosen, or -1. An empty title is a
+// separator; a symbol is an SF Symbol's name, shown beside the title as the
+// Swift app's menus show theirs.
+int tb_popup_menu(void *nativeView, double x, double y, const char *const *titles, const char *const *symbols, const char *const *tips, const bool *checked, int count) {
+  NSView *view = (__bridge NSView *)nativeView;
+  if (!view) {
+    return -1;
+  }
+  NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
+  menu.autoenablesItems = NO;
+  TBMenuTarget *target = [TBMenuTarget new];
+  target.chosen = -1;
+  for (int i = 0; i < count; i++) {
+    const char *title = titles[i];
+    if (!title || !title[0]) {
+      [menu addItem:[NSMenuItem separatorItem]];
+      continue;
+    }
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:title] action:@selector(pick:) keyEquivalent:@""];
+    item.target = target;
+    item.tag = i;
+    item.state = checked[i] ? NSControlStateValueOn : NSControlStateValueOff;
+    if (symbols[i] && symbols[i][0]) {
+      item.image = [NSImage imageWithSystemSymbolName:[NSString stringWithUTF8String:symbols[i]] accessibilityDescription:nil];
+    }
+    if (tips[i] && tips[i][0]) {
+      item.toolTip = [NSString stringWithUTF8String:tips[i]];
+    }
+    [menu addItem:item];
+  }
+  CGFloat nativeY = view.isFlipped ? y : NSHeight(view.bounds) - y;
+  [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(x, nativeY) inView:view];
+  return (int)target.chosen;
+}
+
 // The app's bundle id, for the helpers' ids, or NULL when it isn't running
 // from a bundle (a cargo build the specs start). The string is the bundle's
 // and lives as long as it.

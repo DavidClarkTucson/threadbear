@@ -431,7 +431,24 @@ async fn probe(cx: &mut AsyncApp) -> Result<Value, String> {
     while listener.accept().is_ok() {
         reached += 1;
     }
-    Ok(json!({ "height": drawn.height, "reached": reached }))
+    // And a diagram whose labels, links, click handlers, styles and an init
+    // directive try the same from the diagram's own world, where Pele runs
+    // (Codex review, 11 Nov). It may not draw at all; nothing should arrive.
+    let source = format!(
+        r#"%%{{init: {{"securityLevel": "loose", "startOnLoad": true}}}}%%
+graph TD
+  A["<img src='{at}/label.png' onerror='fetch(`{at}/onerror`)'>"] --> B["<a href='{at}/link'>link</a>"]
+  click A "{at}/click"
+  click B call fetch("{at}/call")
+  style A fill:url({at}/style.png)"#
+    );
+    let diagram = threadbear_web::draw_diagram(&source, 100, 2.).await;
+    cx.background_executor().timer(Duration::from_millis(1500)).await;
+    let mut diagram_reached = 0;
+    while listener.accept().is_ok() {
+        diagram_reached += 1;
+    }
+    Ok(json!({ "height": drawn.height, "reached": reached, "diagramDrawn": diagram.is_ok(), "diagramReached": diagram_reached }))
 }
 
 #[cfg(all(feature = "automation", not(target_os = "macos")))]

@@ -10,6 +10,7 @@
 pub mod download;
 #[cfg(target_os = "macos")]
 mod mac;
+pub mod panel_rules;
 
 pub use download::Progress;
 
@@ -23,6 +24,13 @@ pub use mac::rich::{data_url, draw_diagram, draw_page, reset as reset_rich, Draw
 /// A page in a native view, placed from a GPUI layout slot (mac/page.rs).
 #[cfg(target_os = "macos")]
 pub use mac::page::Page;
+/// A web panel's page: a patch's site or the Convex dashboard (mac/panel.rs),
+/// and the native menu for controls over one.
+#[cfg(target_os = "macos")]
+pub use mac::host::{popup_menu, MenuItem};
+#[cfg(target_os = "macos")]
+pub use mac::panel::PanelPage;
+pub use panel_rules::{site, Event as PanelEvent, Kind as PanelKind};
 
 /// The helper processes' main (the threadbear-web-helper binary).
 pub fn helper_main() -> i32 {
@@ -86,6 +94,69 @@ mod elsewhere {
     }
 
     pub fn reset_rich() {}
+
+    /// One item of a native menu (mac/host.rs has the real one).
+    #[derive(Clone, Debug, Default)]
+    pub struct MenuItem {
+        pub title: String,
+        pub symbol: String,
+        pub tip: String,
+        pub checked: bool,
+    }
+
+    pub fn popup_menu(_view: *mut std::ffi::c_void, _x: f32, _y: f32, _items: &[MenuItem]) -> Option<usize> {
+        None
+    }
+
+    /// A web panel's page (mac/panel.rs has the real one). There's no
+    /// runtime here to make one, so none is ever made.
+    pub struct PanelPage(());
+
+    impl PanelPage {
+        pub fn open(_parent: *mut std::ffi::c_void, _url: &str, _kind: crate::PanelKind) -> Result<(PanelPage, futures::channel::mpsc::UnboundedReceiver<crate::PanelEvent>), String> {
+            Err("there's no web runtime for this system yet".into())
+        }
+        pub fn devtools(&self, _method: &str, _params: serde_json::Value) -> futures::channel::oneshot::Receiver<Result<serde_json::Value, String>> {
+            let (tx, rx) = futures::channel::oneshot::channel();
+            let _ = tx.send(Err("there's no web runtime for this system yet".into()));
+            rx
+        }
+        pub fn load(&self, _url: &str) {}
+        pub fn reload(&self) {}
+        pub fn can_go_back(&self) -> bool {
+            false
+        }
+        pub fn loading(&self) -> bool {
+            false
+        }
+        pub fn loads(&self) -> u32 {
+            0
+        }
+        pub fn title(&self) -> String {
+            String::new()
+        }
+        pub fn address(&self) -> String {
+            String::new()
+        }
+        pub fn go_back(&self) {}
+        pub fn move_to(&self, _parent: *mut std::ffi::c_void) {}
+        pub fn set_bounds(&self, _x: f32, _y: f32, _width: f32, _height: f32, _parent_height: f32) {}
+        pub fn bounds(&self) -> (f32, f32, f32, f32) {
+            (0., 0., 0., 0.)
+        }
+        pub fn set_hidden(&self, _hidden: bool) {}
+        pub fn hidden(&self) -> bool {
+            true
+        }
+        pub fn muted(&self) -> bool {
+            false
+        }
+        pub fn edit(&self, _command: &str) {}
+        pub fn has_keyboard(&self) -> bool {
+            false
+        }
+        pub fn focus(&self) {}
+    }
 }
 #[cfg(not(target_os = "macos"))]
 pub use elsewhere::*;

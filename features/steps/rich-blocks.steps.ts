@@ -30,7 +30,9 @@ const box = (d: Dump, kind: string) => streamed(d)?.rich?.find((r) => r.kind ===
 /** Drawing a block the first time starts Chromium as well. */
 const DRAWN_MS = 60_000;
 
-Given('the web runtime is installed', async function (this: ThreadbearWorld) {
+// The first scenario to need it installs it, which takes longer than the
+// default 90 seconds on a loaded Tinker Desk.
+Given('the web runtime is installed', { timeout: 660_000 }, async function (this: ThreadbearWorld) {
   // The Swift app has WebKit, and no runtime to install.
   const d = await this.app.dump();
   if (!webRuntime(d) || webRuntime(d)?.state === 'ready') return;
@@ -103,10 +105,10 @@ Then('the diagram is open in a window of its own', async function (this: Threadb
   await this.until('a full-size window', (d) => ((d as unknown as { richWindows?: string[] | null }).richWindows?.length ?? 0) === 1, 20_000);
 });
 
-let probed: { height: number; reached: number } | undefined;
+let probed: { height: number; reached: number; diagramReached?: number } | undefined;
 
 When('a page that tries to run scripts and reach the network is drawn', async function (this: ThreadbearWorld) {
-  probed = JSON.parse(await this.app.do({ cmd: 'webRuntime', do: 'probe', wait: 90 }, 120)) as { height: number; reached: number };
+  probed = JSON.parse(await this.app.do({ cmd: 'webRuntime', do: 'probe', wait: 90 }, 120)) as { height: number; reached: number; diagramReached?: number };
 });
 
 Then("its scripts didn't run and nothing was reached", function () {
@@ -114,4 +116,6 @@ Then("its scripts didn't run and nothing was reached", function () {
   // Its scripts would have made it 3000 points tall.
   assert.ok(probed.height < 1000, `the page came out ${probed.height} points tall, so a script ran`);
   assert.equal(probed.reached, 0, `${probed.reached} connections reached the listener`);
+  // Nor did a diagram trying the same from Pele's world.
+  assert.equal(probed.diagramReached, 0, `${probed.diagramReached} connections reached the listener from the diagram`);
 });
