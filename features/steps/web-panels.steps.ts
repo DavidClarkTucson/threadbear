@@ -69,7 +69,7 @@ Then('the panel shows the page {string} without loading it again', async functio
   assert.equal(web(d)?.page?.loads, loadsBefore, 'the page kept between visits loads once');
 });
 
-When("I click the panel page's link {string}", async function (this: ThreadbearWorld, selector: string) {
+When("I click the panel page's link/button {string}", async function (this: ThreadbearWorld, selector: string) {
   // With a person's gesture behind it (DevTools' userGesture), which is
   // what decides whether a link leaves the panel.
   const out = await this.app.do({ cmd: 'webPanel', do: 'click', selector }, 30);
@@ -143,11 +143,11 @@ When("I drop a file from the Finder on the panel's page", async function (this: 
   assert.ok(!out.startsWith('error'), out);
 });
 
-/** Everything the app would have opened over the next two seconds, on top
- * of what it already had: long enough for a page's own timers and a drop to
- * have done whatever they'd do. */
-async function openedAfterAMoment(world: ThreadbearWorld): Promise<string[]> {
-  const until = Date.now() + 2000;
+/** Everything the app would have opened over the next two seconds (or
+ * `ms`), on top of what it already had: long enough for a page's own timers
+ * and a drop to have done whatever they'd do. */
+async function openedAfterAMoment(world: ThreadbearWorld, ms = 2000): Promise<string[]> {
+  const until = Date.now() + ms;
   let seen: string[] = [];
   while (Date.now() < until) {
     seen = await openedSoFar(world);
@@ -161,11 +161,19 @@ Then('nothing was opened in the browser', async function (this: ThreadbearWorld)
   assert.deepEqual(seen, [], `it opened ${JSON.stringify(seen)}`);
 });
 
-Then('the link to the other site opened in the browser once', async function (this: ThreadbearWorld) {
-  const seen = await openedAfterAMoment(this);
-  const want = `${sites().other}/video`;
-  assert.equal(seen.filter((u) => u === want).length, 1, `it opened ${JSON.stringify(seen)}`);
+Then('only the first of them went to the browser', async function (this: ThreadbearWorld) {
+  // The page's last try is a timer's, a few seconds after the click.
+  const seen = await openedAfterAMoment(this, 4000);
+  assert.deepEqual(seen, [`${sites().other}/video?0`], `it opened ${JSON.stringify(seen)}`);
 });
+
+for (const [times, count] of [['once', 1], ['twice', 2]] as const) {
+  Then(`the link to the other site opened in the browser ${times}`, async function (this: ThreadbearWorld) {
+    const seen = await openedAfterAMoment(this);
+    const want = `${sites().other}/video`;
+    assert.equal(seen.filter((u) => u === want).length, count, `it opened ${JSON.stringify(seen)}`);
+  });
+}
 
 Then('{string} opened in the browser', async function (this: ThreadbearWorld, url: string) {
   await waitOpened(this, url);

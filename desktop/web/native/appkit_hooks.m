@@ -173,6 +173,72 @@ void tb_view_remove(void *nativeView) {
   [view removeFromSuperview];
 }
 
+// A person's clicks and keys in each watched page view, counted as AppKit
+// hands them over. After a page sends something to the browser, the next
+// needs a new one (panel_rules.rs's LeaveGate): Chromium leaves a click's
+// activation with the page when the app makes no window for it, so the page
+// could otherwise use one click for a page a second (Codex review, 12 Nov). Keys
+// go to the view with the keyboard, clicks to the view under them, and a key
+// held down counts once. A press from VoiceOver isn't counted, as AppKit
+// never sees it. Weak keys: a page's view going takes its count with it.
+static NSMapTable<NSView *, NSNumber *> *g_inputs;
+
+static void tb_note_input(NSView *view) {
+  if (!view) {
+    return;
+  }
+  // Found first, counted after: the table can't change while it's walked.
+  NSMutableArray<NSView *> *under = [NSMutableArray array];
+  for (NSView *watched in g_inputs) {
+    if ([view isDescendantOf:watched]) {
+      [under addObject:watched];
+    }
+  }
+  for (NSView *watched in under) {
+    [g_inputs setObject:@([[g_inputs objectForKey:watched] unsignedLongLongValue] + 1) forKey:watched];
+  }
+}
+
+void tb_view_watch_input(void *nativeView) {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    g_inputs = [NSMapTable weakToStrongObjectsMapTable];
+    NSEventMask mask = NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown | NSEventMaskKeyDown;
+    [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+      NSWindow *window = event.window;
+      if (event.type == NSEventTypeKeyDown) {
+        if (event.isARepeat) {
+          return event;
+        }
+        NSResponder *responder = window.firstResponder;
+        tb_note_input([responder isKindOfClass:[NSView class]] ? (NSView *)responder : nil);
+      } else if (window.contentView) {
+        // hitTest takes a point in the view's superview's coordinates.
+        NSView *content = window.contentView;
+        NSView *frame = content.superview ?: content;
+        NSPoint point = [frame convertPoint:event.locationInWindow fromView:nil];
+        tb_note_input([content hitTest:point]);
+      }
+      return event;
+    }];
+  });
+  NSView *view = (__bridge NSView *)nativeView;
+  if (view && ![g_inputs objectForKey:view]) {
+    [g_inputs setObject:@0 forKey:view];
+  }
+}
+
+uint64_t tb_view_input_count(void *nativeView) {
+  NSView *view = (__bridge NSView *)nativeView;
+  return view ? [[g_inputs objectForKey:view] unsignedLongLongValue] : 0;
+}
+
+// A scripted app's stand-in for a person's click in the page (the specs'
+// clicks come through DevTools, which AppKit never sees).
+void tb_view_note_input(void *nativeView) {
+  tb_note_input((__bridge NSView *)nativeView);
+}
+
 // Whether the page's view, or one inside it, has its window's keyboard.
 bool tb_view_has_keyboard(void *nativeView) {
   NSView *view = (__bridge NSView *)nativeView;

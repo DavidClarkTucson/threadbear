@@ -70,8 +70,10 @@ Feature: Web pages in a thread's panels
     Then nothing was opened in the browser
     And the panel shows the page "Panel home"
 
+  # A click a few seconds later is a new one, so it opens the page again,
+  # well before the first click's activation would have run out.
   @panel.web @web-runtime @swift-pending
-  Scenario: Two clicks in a moment on a link to another site open it once
+  Scenario: Two clicks in a moment on a link to another site open it once, and another click opens it again
     Given the web runtime is installed
     When I open the thread "Add dark mode to the dashboard"
     And the thread's url panel shows the page server
@@ -79,6 +81,54 @@ Feature: Web pages in a thread's panels
     Then the panel shows the page "Panel home"
     When I click the panel page's link "#other-window" twice in a moment
     Then the link to the other site opened in the browser once
+    When I click the panel page's link "#other-window"
+    Then the link to the other site opened in the browser twice
+
+  # A click's gesture lasts a few seconds, so a click handler that keeps
+  # going, or the timers it sets, could send a page out every second, past
+  # the one-a-second gate. Codex found that in the Swift app (PanelLinksTests
+  # has its test). In the GPUI app a link uses the click up in Chromium, and
+  # after any page goes out the next needs a new click or key anyway.
+  @panel.web @web-runtime @swift-pending
+  Scenario: One click sends one page out, however long its handler keeps going
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When I click the panel page's button "#many"
+    Then only the first of them went to the browser
+    # Its last try, a timer's change of location, did run: with no click
+    # behind it, it loads in a patch's panel, as a sign-in's would.
+    And the panel shows the page "Video"
+
+  # A new window first is another matter: Chromium uses up a click's
+  # activation for a window only when it makes one, and a panel makes
+  # none, so the page could still have it for the next tries.
+  @panel.web @web-runtime @swift-pending
+  Scenario: One click sends one page out when a new window comes first
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When I click the panel page's button "#many-windows"
+    Then only the first of them went to the browser
+    And the panel shows the page "Tried them all"
+
+  # Waiting the click's activation out isn't a new click either: a page can
+  # hold a navigation back, still carrying the click, for as long as it
+  # likes.
+  @panel.web @web-runtime @swift-pending
+  Scenario: One click sends one page out when the page holds a link back
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When I click the panel page's button "#late-link"
+    Then only the first of them went to the browser
+    And the panel shows the page "Panel home"
 
   # Only web addresses load in a panel: a file from this Mac or a page made
   # of data doesn't, by a link in a new window or dropped from the Finder.

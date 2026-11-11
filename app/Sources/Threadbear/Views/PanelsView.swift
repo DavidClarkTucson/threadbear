@@ -1117,6 +1117,23 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         return (action.value(forKey: "_isUserInitiated") as? Bool) ?? false
     }
 
+    /// Uses up the click behind a navigation that's about to open a page, so
+    /// it opens only that one: a click handler that keeps running (a busy
+    /// loop between `a.click()`s) still has its gesture a second later, past
+    /// `allowOut` (Codex review, 11 Nov). WebKit's `_userInitiatedAction`,
+    /// which it doesn't publish either, can be used up; false if it already
+    /// was. Without it, only `userInitiated` and `allowOut` hold.
+    static func takeClick(_ action: WKNavigationAction) -> Bool {
+        guard userInitiated(action) else { return false }
+        guard action.responds(to: NSSelectorFromString("_userInitiatedAction")),
+              let gesture = action.value(forKey: "_userInitiatedAction") as? NSObject,
+              gesture.responds(to: NSSelectorFromString("isConsumed")), gesture.responds(to: NSSelectorFromString("consume"))
+        else { return true }
+        if (gesture.value(forKey: "consumed") as? Bool) == true { return false }
+        gesture.perform(NSSelectorFromString("consume"))
+        return true
+    }
+
     /// When each view last sent a page out, for `allowOut`.
     private var lastOut: [ObjectIdentifier: Date] = [:]
 
@@ -1144,7 +1161,7 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         guard let leaver = leavers[ObjectIdentifier(webView)], let url = action.request.url,
               Self.leavesPanel(url, home: leaver.home, linkClick: Self.isClick(action),
                                mainFrame: action.targetFrame?.isMainFrame ?? true) else { return false }
-        if allowOut(webView) { leaver.open(url) }
+        if Self.takeClick(action), allowOut(webView) { leaver.open(url) }
         return true
     }
 
@@ -1186,7 +1203,7 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         if isConvexView(webView), navigationAction.targetFrame?.isMainFrame ?? true,
            let url = navigationAction.request.url, url.host != Self.convexEmbedded.host,
            LinkPolicy.web(url) != nil {
-            if Self.convexSendsOut(navigationAction.navigationType), Self.userInitiated(navigationAction), allowOut(webView) {
+            if Self.convexSendsOut(navigationAction.navigationType), Self.takeClick(navigationAction), allowOut(webView) {
                 OpenGate.openWeb(url)
             }
             decisionHandler(.cancel)
@@ -1247,7 +1264,7 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         // already ask about it above.
         if sendOut(webView, navigationAction) { return nil }
         if isConvexView(webView) {
-            if allowOut(webView) { OpenGate.openWeb(url) }
+            if Self.takeClick(navigationAction), allowOut(webView) { OpenGate.openWeb(url) }
         } else {
             webView.load(URLRequest(url: url))
         }

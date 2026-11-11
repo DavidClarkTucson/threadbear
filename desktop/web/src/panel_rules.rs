@@ -130,19 +130,33 @@ pub fn popup(url: &str, home: &str, convex: bool, gesture: bool) -> Popup {
 /// turn every one into a new window).
 pub const LEAVE_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Lets a panel send a page to the browser at most once every `LEAVE_EVERY`.
+/// Lets a panel send a page to the browser at most once every
+/// `LEAVE_EVERY`, and one for each click or key: after one goes out, the
+/// next needs a new click or key in the page (Codex review, 12 Nov).
+/// Chromium leaves a click with the page after a new window goes out, as it
+/// uses a click up for a window only when it makes one and a panel makes
+/// none, so one click could otherwise send a window, another and a link a
+/// second apart. Waiting for the click's activation to run out proves
+/// nothing either: a page can hold a link back, still carrying the click,
+/// for as long as it likes. A press from VoiceOver isn't counted (AppKit
+/// never sees it), so after one page goes out, the next needs a click or a
+/// key in the page.
 #[derive(Debug, Default)]
 pub struct LeaveGate {
     last: Option<std::time::Instant>,
+    /// The person's clicks and keys in the page when the last went out.
+    inputs_then: u64,
 }
 
 impl LeaveGate {
-    /// Whether one may go now; if so, the next has to wait.
-    pub fn allow(&mut self, now: std::time::Instant) -> bool {
-        if self.last.is_some_and(|last| now.saturating_duration_since(last) < LEAVE_EVERY) {
+    /// Whether one may go now, `inputs` being the person's clicks and keys
+    /// in the page so far; if so, the next has to wait.
+    pub fn allow(&mut self, now: std::time::Instant, inputs: u64) -> bool {
+        if self.last.is_some_and(|last| now.saturating_duration_since(last) < LEAVE_EVERY || inputs <= self.inputs_then) {
             return false;
         }
         self.last = Some(now);
+        self.inputs_then = inputs;
         true
     }
 }
@@ -220,12 +234,32 @@ mod tests {
 
     #[test]
     fn a_panel_sends_at_most_one_page_a_second() {
+        let ms = std::time::Duration::from_millis;
         let start = std::time::Instant::now();
         let mut gate = LeaveGate::default();
-        assert!(gate.allow(start));
-        assert!(!gate.allow(start + std::time::Duration::from_millis(300)));
-        assert!(!gate.allow(start + std::time::Duration::from_millis(999)));
-        assert!(gate.allow(start + LEAVE_EVERY));
-        assert!(!gate.allow(start + LEAVE_EVERY + std::time::Duration::from_millis(10)));
+        // A click each time, so only the second's wait holds them back.
+        assert!(gate.allow(start, 1));
+        assert!(!gate.allow(start + ms(300), 2));
+        assert!(!gate.allow(start + ms(999), 3));
+        assert!(gate.allow(start + LEAVE_EVERY, 4));
+        assert!(!gate.allow(start + LEAVE_EVERY + ms(10), 5));
+    }
+
+    #[test]
+    fn one_click_sends_one_page() {
+        let ms = std::time::Duration::from_millis;
+        let start = std::time::Instant::now();
+        // With no new click or key, nothing more goes out on the same one,
+        // however long the page waits.
+        let mut gate = LeaveGate::default();
+        assert!(gate.allow(start, 1));
+        assert!(!gate.allow(start + ms(1200), 1));
+        assert!(!gate.allow(start + ms(2400), 1));
+        assert!(!gate.allow(start + ms(60_000), 1));
+        // A new click or key a second later sends another.
+        let mut gate = LeaveGate::default();
+        assert!(gate.allow(start, 1));
+        assert!(gate.allow(start + ms(1200), 2));
+        assert!(!gate.allow(start + ms(2400), 2));
     }
 }

@@ -224,6 +224,103 @@ final class PanelLinksTests: XCTestCase {
         try await waitFor("a second later, another") { opened.count == 2 }
     }
 
+    /// Codex's second look (11 Nov): one click whose handler keeps going, a
+    /// busy loop between its `a.click()`s, still had its gesture a second
+    /// later, past the one-a-second gate. Each page that opens uses the
+    /// click up, so one click opens one page.
+    func testOneClickOpensOnePageHoweverLongItsHandlerRuns() async throws {
+        XCTAssertTrue(WKNavigationAction.instancesRespond(to: NSSelectorFromString("_userInitiatedAction")),
+                      "WebKit's click that can be used up is gone, so one click could open a page a second")
+        let site = try Site()
+        try await site.start()
+        let home = URL(string: "http://127.0.0.1:\(site.port)/")!
+        let other = "http://localhost:\(site.port)"
+        site.page = "<!doctype html><title>patch</title><p>The patch's page.</p>"
+        let pool = WebPanelPool(defaults: UserDefaults(suiteName: "PanelLinksTests.\(UUID().uuidString)")!)
+        let view = pool.webView(for: home)
+        var opened: [String] = []
+        pool.setLeaving((home, { opened.append($0.absoluteString) }), for: view)
+        try await waitFor("the page loads") { !view.isLoading && view.url == home }
+        // One click (this runs with a gesture), three links out, in a new
+        // tab and not, each more than a second after the last.
+        _ = try await js("""
+        for (let i = 0; i < 3; i++) {
+          const a = document.createElement('a');
+          a.href = '\(other)/watch?' + i;
+          if (i % 2 === 0) a.target = '_blank';
+          document.body.append(a);
+          a.click();
+          const until = performance.now() + 1200;
+          while (performance.now() < until) {}
+        }
+        """, in: view)
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertEqual(opened, ["\(other)/watch?0"], "one click opened more than one page")
+        XCTAssertEqual(view.url, home, "and the page stayed")
+    }
+
+    /// The Convex dashboard's own view, which opens through the open gate
+    /// rather than a patch's leaver, so the tests above don't reach it
+    /// (Codex's second look, 11 Nov). Its own scripts open nothing, a click
+    /// opens its link, a second click within a second doesn't, a clicked
+    /// window.open does, and one click opens one page however long its
+    /// handler runs. The page stands in for the dashboard on its origin, and
+    /// its links go to the test's own site, which would load in the view if
+    /// they weren't cancelled. (Not a closed port: WebKit stops a link to
+    /// port 1 itself, before asking about it.)
+    func testTheDashboardOpensOnlyWhatsClickedAndOnePageAClick() async throws {
+        let saved = OpenGate.workspaceOpen
+        defer { OpenGate.workspaceOpen = saved }
+        var opened: [String] = []
+        OpenGate.workspaceOpen = { opened.append($0.absoluteString) }
+        let site = try Site()
+        try await site.start()
+        let docs = "http://localhost:\(site.port)/watch"
+        let pool = WebPanelPool(defaults: UserDefaults(suiteName: "PanelLinksTests.\(UUID().uuidString)")!)
+        let view = pool.convexView(for: ConvexPanelKey(deployment: "quick-fox-77", deploymentUrl: "https://quick-fox-77.convex.cloud", adminKey: "dev:quick-fox-77|key"))
+        // The page's own script tries each way out with no click behind it,
+        // a moment apart, so none takes another's place before it's been
+        // asked about.
+        view.loadHTMLString("""
+        <!doctype html><title>dashboard</title>
+        <a id="docs" href="\(docs)">docs</a>
+        <a id="blank" target="_blank" href="\(docs)?blank">docs in a new tab</a>
+        <form id="form" method="get" action="\(docs)"><input name="q" value="x"></form>
+        <script>
+        const steps = [() => document.getElementById('docs').click(), () => document.getElementById('form').submit(),
+                       () => { location.href = '\(docs)?script'; }, () => document.getElementById('blank').click(),
+                       () => open('\(docs)?open')];
+        steps.forEach((step, i) => setTimeout(step, 100 + 300 * i));
+        </script>
+        """, baseURL: WebPanelPool.convexEmbedded)
+        try await waitFor("the page loads") { !view.isLoading && view.url?.host == WebPanelPool.convexEmbedded.host }
+        try await Task.sleep(for: .milliseconds(1900))
+        XCTAssertEqual(opened, [], "the dashboard's own script opened something")
+
+        _ = try await js("document.getElementById('docs').click()", in: view)
+        try await waitFor("a click opens its link") { opened.count == 1 }
+        _ = try await js("document.getElementById('blank').click()", in: view)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(opened, [docs], "a second click within a second opened too")
+
+        try await Task.sleep(for: .milliseconds(1000))
+        _ = try await js("window.open('\(docs)?window')", in: view)
+        try await waitFor("a clicked window.open opens") { opened.count == 2 }
+
+        try await Task.sleep(for: .milliseconds(1100))
+        _ = try await js("""
+        const ways = [() => document.getElementById('docs').click(), () => open('\(docs)?long'), () => document.getElementById('blank').click()];
+        for (const go of ways) {
+          go();
+          const until = performance.now() + 1200;
+          while (performance.now() < until) {}
+        }
+        """, in: view)
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertEqual(opened, [docs, "\(docs)?window", docs], "one click opened more than one page")
+        XCTAssertEqual(view.url?.host, WebPanelPool.convexEmbedded.host, "and the dashboard stayed")
+    }
+
     /// And only a web page loads as a panel's page: a script's blob: or
     /// data: page doesn't (Codex review, 11 Nov).
     func testOnlyAWebPageLoadsAsAPanelsPage() async throws {

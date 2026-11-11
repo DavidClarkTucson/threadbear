@@ -252,6 +252,70 @@ built parsers and gates with no launch of the app, which is the trap.)
   (sidebar-actions.feature:29), fails on main without it too, 3 runs of 3.
   Pictures of the Running section beside the Swift app's: the same
   three-quarter rings, where the kit's spinner was a different glyph.
+### 2026-11-12 Web panels: one click sends one page out (`panel.web`, `panel.convex`)
+
+- Codex had another go at the fix below and found one more way through in
+  the Swift app: a click's gesture lasts as long as its handler runs, so
+  one that keeps going (a busy loop between its `a.click()`s) could send a
+  page out every second, past the one-a-second gate. Each page a Swift
+  panel sends out now uses up the gesture behind it (WebKit's
+  `_userInitiatedAction`, another name it doesn't publish; a test says if
+  it's gone, and without it the gate still holds).
+- Codex also said nothing tested the Swift Convex view's own ways out,
+  which open through the open gate rather than a patch's: a test now
+  drives the pool's own Convex view. Its page's own scripts open nothing,
+  a click opens its link, a second within a second doesn't, a clicked
+  `window.open` does, and one click opens one page.
+- A third look found the GPUI app's hole, from Chromium's source: a link
+  going out uses the click up (Chromium does that as the navigation
+  starts, before the app cancels it), but a new window doesn't, as
+  Chromium uses a click up for a window only when it makes one and a panel
+  makes none. A scenario then saw one click send three pages, a new
+  window, another and a link, a little over a second apart. After a page
+  goes out, the next now needs a new click or key in the page, which
+  AppKit counts as it hands them over (`LeaveGate`), a key held down
+  counting once. That's after a link too, though Chromium uses the click
+  up there, as what else might leave it with the page isn't the app's to
+  know. A link first was right already: another scenario has one click
+  try a link, a link in a new window, and from timers a `window.open` and
+  a change of location, and only the first goes out.
+- The first try at that also let a page go out once the click's five
+  seconds were up, for a press from VoiceOver, which AppKit never sees. A
+  fourth look found that wasn't safe: a page can hold a link back in its
+  navigation's own event, still carrying the click, and a scenario saw it
+  go out six seconds later; and a held key's repeats counted as presses.
+  So there's no wait now: VoiceOver's press opens the first page, and the
+  next needs a click or key in the page. The specs' clicks, which come
+  through DevTools, are counted as a person's.
+- Not done, for Mike to decide: the third look also found, from WebKit's
+  source (not run here), that WebKit makes a click's press and its release
+  a gesture each, so a page could still make one click send two pages
+  from the Swift app, a second or more apart, by keeping the press's
+  gesture in a timer. Counting real clicks, as the GPUI app now does,
+  would close it, but WebKit's gestures don't run out while a page keeps
+  one busy, so there'd be no safe wait to fall back on: a press from
+  VoiceOver or Voice Control, which AppKit never sees, couldn't open a
+  second page.
+- A scenario's click that takes the page somewhere before DevTools answers
+  counts as done (DevTools says the page "navigated or closed").
+- Files: `PanelsView.swift` (`takeClick`), `PanelLinksTests.swift` (2
+  new); `desktop/web/src/panel_rules.rs` (`LeaveGate`, with its tests),
+  `mac/panel.rs`, `native/appkit_hooks.m` (the count),
+  `web_panels.rs` (the click counted, and its answer);
+  `web-panels.feature` (3 new, and the two-clicks one clicks again), its
+  steps and pages; SECURITY.md.
+- Verification: on Tinker Desk, the Swift app's PanelLinksTests,
+  ConvexPanelTests and LocalPreviewTests, 17 of 17. The two new Swift
+  tests, run against the pool before this change, failed as they should:
+  one click opened three pages, in a patch's panel and in the Convex
+  view; the Convex one, against the pool as 7c4bd75a had it, also caught
+  the dashboard's own `a.click()` and `form.submit()` opening pages and a
+  second click within a second opening another. The GPUI app's
+  web-panels.feature, 16 of 16, twice in a row on Tinker Desk's desktop;
+  its new-window-first scenario, run against the app before the gate's
+  change, failed (one click opened three pages), and its held-back link
+  scenario, against the gate with its five-second wait, failed (two). The
+  web crate's tests, 7 of 7.
 
 ### 2026-11-11 Web panels: what Codex found trying to break the fix (`panel.web`, `panel.convex`)
 

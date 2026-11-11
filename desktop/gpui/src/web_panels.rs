@@ -1113,9 +1113,17 @@ pub(crate) async fn automation(cmd: &Value, cx: &mut AsyncApp) -> Result<Value, 
             // `times`: clicks one straight after another, each a gesture of
             // its own, as fast as DevTools takes them.
             for _ in 0..cmd["times"].as_u64().unwrap_or(1).clamp(1, 10) {
-                let done = page.devtools("Runtime.evaluate", json!({ "expression": click, "returnByValue": true, "userGesture": true })).await.map_err(|_| "the page went away".to_owned())??;
-                if done["result"]["value"] != json!(true) {
-                    return Err(format!("nothing in the page matches {selector}"));
+                // Counted as a person's click in the page, as AppKit counts
+                // a real one (LeaveGate).
+                page.note_input();
+                let done = page.devtools("Runtime.evaluate", json!({ "expression": click, "returnByValue": true, "userGesture": true })).await.map_err(|_| "the page went away".to_owned())?;
+                match done {
+                    Ok(done) if done["result"]["value"] != json!(true) => return Err(format!("nothing in the page matches {selector}")),
+                    Ok(_) => {}
+                    // The click took the page somewhere before DevTools could
+                    // answer: it worked.
+                    Err(why) if why.contains("navigated or closed") => {}
+                    Err(why) => return Err(why),
                 }
             }
         }

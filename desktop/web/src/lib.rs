@@ -156,6 +156,7 @@ mod elsewhere {
             false
         }
         pub fn focus(&self) {}
+        pub fn note_input(&self) {}
     }
 }
 #[cfg(not(target_os = "macos"))]

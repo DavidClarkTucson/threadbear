@@ -25,6 +25,10 @@ unsafe extern "C" {
     // A panel's page moving between windows, and whether it has the keyboard (panel.rs).
     pub(crate) fn tb_view_set_parent(view: *mut c_void, parent: *mut c_void);
     pub(crate) fn tb_view_remove(view: *mut c_void);
+    // A person's clicks and keys in a page's view, counted (panel.rs).
+    pub(crate) fn tb_view_watch_input(view: *mut c_void);
+    pub(crate) fn tb_view_input_count(view: *mut c_void) -> u64;
+    pub(crate) fn tb_view_note_input(view: *mut c_void);
     pub(crate) fn tb_view_has_keyboard(view: *mut c_void) -> bool;
     fn tb_popup_menu(view: *mut c_void, x: f64, y: f64, titles: *const *const c_char, symbols: *const *const c_char, tips: *const *const c_char, checked: *const bool, count: i32) -> i32;
     fn tb_main_bundle_identifier() -> *const c_char;

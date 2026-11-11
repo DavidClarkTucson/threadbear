@@ -12,9 +12,9 @@
 //   YouTube in the panel with no way back). A redirect or a script's own
 //   navigation stays in a patch's panel, so a sign-in that goes through
 //   another site and back still works; in the Convex dashboard it's
-//   cancelled. Nothing goes out without a person's click, and at most one
-//   page a second (panel_rules: Codex review, 11 Nov, a script could
-//   otherwise open a browser tab a second).
+//   cancelled. Nothing goes out without a person's click, one page for each
+//   click and at most one a second (panel_rules: Codex review, 11 Nov, a
+//   script could otherwise open a browser tab a second).
 // - A same-site new window, clicked, loads in the same view: there's no
 //   other window to give it. The Convex dashboard's links out all leave.
 // - Only web addresses load as the panel's page: a file dropped on the page,
@@ -23,7 +23,7 @@
 // - Nothing downloads; Chromium's View Source isn't offered; what a page
 //   logs to its console stays out of Chromium's log.
 // - The app hears when it can go back, and when it's loading.
-use super::host::{tb_view_has_keyboard, tb_view_remove, tb_view_set_frame, tb_view_set_hidden, tb_view_set_parent};
+use super::host::{tb_view_has_keyboard, tb_view_input_count, tb_view_note_input, tb_view_remove, tb_view_set_frame, tb_view_set_hidden, tb_view_set_parent, tb_view_watch_input};
 use crate::panel_rules::{browse, popup, site, Browse, Event, Kind, LeaveGate, Popup};
 use cef::*;
 use futures::channel::{mpsc, oneshot};
@@ -32,7 +32,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::os::raw::c_int;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// What the page's handlers share with it. They run on Chromium's UI
@@ -45,6 +45,9 @@ struct Shared {
     own: Mutex<String>,
     /// How often a page may go from this panel to the browser.
     gate: Mutex<LeaveGate>,
+    /// The page's own view (its address), whose clicks and keys AppKit
+    /// counts for the gate.
+    view: AtomicUsize,
     convex: bool,
     can_go_back: AtomicBool,
     loading: AtomicBool,
@@ -76,10 +79,11 @@ impl Shared {
         self.own.lock().map(|o| o.clone()).unwrap_or_default()
     }
 
-    /// A page for the browser, at most one a second from this panel; any
-    /// more are dropped without a word (`LeaveGate`).
+    /// A page for the browser, one for each click and at most one a second
+    /// from this panel; any more are dropped without a word (`LeaveGate`).
     fn leave(&self, url: String) {
-        let allowed = self.gate.lock().is_ok_and(|mut gate| gate.allow(std::time::Instant::now()));
+        let inputs = unsafe { tb_view_input_count(self.view.load(Ordering::Acquire) as *mut c_void) };
+        let allowed = self.gate.lock().is_ok_and(|mut gate| gate.allow(std::time::Instant::now(), inputs));
         if allowed {
             self.send(Event::Leave(url));
         }
@@ -141,6 +145,7 @@ impl PanelPage {
             home: Mutex::new(site(url).unwrap_or_default()),
             own: Mutex::new(url.to_owned()),
             gate: Mutex::new(LeaveGate::default()),
+            view: AtomicUsize::new(0),
             convex: matches!(kind, Kind::Convex { .. }),
             can_go_back: AtomicBool::new(false),
             loading: AtomicBool::new(true),
@@ -178,6 +183,9 @@ impl PanelPage {
             .ok_or("Chromium didn't make the page")?;
         let host = browser.host().ok_or("the page has no host")?;
         let view = host.window_handle();
+        // A person's clicks and keys in it, counted for the gate.
+        shared.view.store(view as usize, Ordering::Release);
+        unsafe { tb_view_watch_input(view) };
         let mut observer = Answers::new(shared.clone());
         let registration = host.add_dev_tools_message_observer(Some(&mut observer));
         // Out of sight until the app puts it somewhere.
@@ -373,6 +381,12 @@ impl PanelPage {
     /// Whether the page's view, or one inside it, has the keyboard.
     pub fn has_keyboard(&self) -> bool {
         unsafe { tb_view_has_keyboard(self.view) }
+    }
+
+    /// A scripted app's stand-in for a person's click in the page: the
+    /// specs click through DevTools, which AppKit never sees (`LeaveGate`).
+    pub fn note_input(&self) {
+        unsafe { tb_view_note_input(self.view) };
     }
 
     /// Gives the page the keyboard, as a click in it does.
