@@ -14,6 +14,12 @@
 # Everything lives under ~/.cache/threadbear-check, as scripts/check-remote.sh
 # has it, so the host still looks like one with no Threadbear on it. Tinker
 # Desk is also where clean installs get tried.
+#
+# Runs from one checkout to one host take turns: each copies over the folder
+# the last one is building from, so an overlap tested whichever copy landed
+# last, or files deleted mid-build. A script run there that edits the copy and
+# puts a file back must touch it afterwards: put back, it's older than the build
+# of the edit, and cargo calls that build fresh.
 set -euo pipefail
 host="${1:?usage: remote.sh <ssh host> [--desk] -- <command>}"; shift
 desk=0
@@ -26,12 +32,32 @@ key="$(printf '%s' "$root" | shasum | cut -c1-10)"
 src="$base/src-$key"
 target="$base/target-$key"
 
+# The turn is held here, for the copy and the run, and goes when this script
+# does, however it ends. lockf is macOS's, flock Linux's.
+if [ -z "${THREADBEAR_REMOTE_TURN:-}" ]; then
+  export THREADBEAR_REMOTE_TURN=1
+  lock="${TMPDIR:-/tmp}/threadbear-remote-$key-$(printf '%s' "$host" | tr -c 'A-Za-z0-9.-' _).lock"
+  if [ -x /usr/bin/lockf ]; then
+    # -k keeps the file, or a run waiting on it would lock a file already gone.
+    /usr/bin/lockf -k -s -t 0 "$lock" true 2>/dev/null || echo "Waiting for another remote.sh run from this checkout on $host to finish..." >&2
+    exec /usr/bin/lockf -k "$lock" "$0" "$host" $([ "$desk" = 1 ] && echo --desk) -- "$@"
+  elif command -v flock >/dev/null 2>&1; then
+    flock -n "$lock" true 2>/dev/null || echo "Waiting for another remote.sh run from this checkout on $host to finish..." >&2
+    exec flock "$lock" "$0" "$host" $([ "$desk" = 1 ] && echo --desk) -- "$@"
+  fi
+fi
+
 # A checkout that hasn't been run for a few days gives its folders back: a
 # target is many GB and the machines are short of disk. The bare src and target
 # are from before each checkout had its own. The target is touched as well as
 # the src because cargo working inside it doesn't change its time, and a folder
 # in daily use would otherwise look a few days old.
-ssh "$host" "mkdir -p $src $target; touch $src $target; find $base -mindepth 1 -maxdepth 1 \\( -name 'src-*' -o -name 'target-*' -o -name src -o -name target \\) -mtime +3 ! -name 'src-$key' ! -name 'target-$key' -exec rm -rf {} + 2>/dev/null; true"
+#
+# A target with no .synced-by-content was built from copies made with rsync -a
+# (below), and may hold a build cargo wrongly calls fresh that a copy by content
+# would never fix, as nothing in it changes. Its sources are touched once, so
+# its own crates build again.
+ssh "$host" "mkdir -p $src $target; touch $src $target; [ -e $target/.synced-by-content ] || { find $src -type f -exec touch -c {} + && touch $target/.synced-by-content; }; find $base -mindepth 1 -maxdepth 1 \\( -name 'src-*' -o -name 'target-*' -o -name src -o -name target \\) -mtime +3 ! -name 'src-$key' ! -name 'target-$key' -exec rm -rf {} + 2>/dev/null; true"
 # And a host short of disk gets room back sooner, or refuses the run.
 ssh "$host" "cd $base && bash -s -- $key" <"$root/desktop/scripts/trim-remote-cache.sh"
 # Named by hand, not read from .gitignore: rsync takes those rules from the
@@ -41,11 +67,11 @@ ssh "$host" "cd $base && bash -s -- $key" <"$root/desktop/scripts/trim-remote-ca
 # Files are compared by content (-c) and written with the host's own time, not
 # this Mac's (no -t, so not -a). Cargo calls a crate fresh when its files are
 # older than its last build, and a Mac time can be: a file changed here before a
-# build there that compiled the old copy (another run still going, or a script
-# that edits the copy and puts it back) arrived looking older than that build,
-# and the next run passed on stale code (11 Nov, thread 699f31d2). Unchanged
-# files keep their time, so they don't rebuild.
-# desktop/scripts/test-remote-freshness.sh <host> plays that case.
+# build there that compiled the old copy (an overlapping run, a script that
+# edited the copy) arrived looking older than that build, and the next run
+# passed on stale code (11 Nov, thread 699f31d2). Unchanged files keep their
+# time, so they don't rebuild. desktop/scripts/test-remote-freshness.sh <host>
+# plays that case.
 rsync -rlpDcz --delete --exclude .git --exclude node_modules --exclude .build --exclude target --exclude reports \
   --exclude .fixtures --exclude .swiftpm --exclude dist --exclude DerivedData --exclude .DS_Store \
   "$root/" "$host:$src/"
