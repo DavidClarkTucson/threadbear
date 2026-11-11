@@ -60,6 +60,9 @@ export const SCENARIOS: Scenario[] = [
       p.looseEnds({ title: 'Look at how the experiment went', at: '2026-11-15T01:30:00.000Z' });
       p.say('Checked it in.');
       p.endTurn({ needs: 'nothing' });
+    },
+  },
+  {
     // Review by another lab (runner/lab-review.ts): the turn that answered
     // the reviewer's findings carries the ledger to its done card.
     name: "a done card with another lab's review findings and what was done about each",
