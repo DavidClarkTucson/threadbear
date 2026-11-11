@@ -1368,6 +1368,145 @@ impl StageZoom {
     }
 }
 
+// ---------------------------------------------------------------- an agent's notes
+
+/// One run of an agent's note as SwiftUI draws it (`AttributedString`'s
+/// inline-only markdown, which the Swift rail uses): bold, italic, code and
+/// links, the rest as written, blank lines kept.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InlineRun {
+    pub text: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub code: bool,
+    pub link: Option<String>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct InlineStyle {
+    bold: bool,
+    italic: bool,
+}
+
+/// The runs a note draws as, next to each other with the same look merged.
+pub fn inline_markdown(source: &str) -> Vec<InlineRun> {
+    let chars: Vec<char> = source.chars().collect();
+    let mut out: Vec<InlineRun> = Vec::new();
+    inline_runs(&chars, 0, chars.len(), InlineStyle::default(), None, &mut out);
+    let mut merged: Vec<InlineRun> = Vec::new();
+    for run in out.into_iter().filter(|r| !r.text.is_empty()) {
+        match merged.last_mut() {
+            Some(last) if (last.bold, last.italic, last.code, &last.link) == (run.bold, run.italic, run.code, &run.link) => last.text.push_str(&run.text),
+            _ => merged.push(run),
+        }
+    }
+    merged
+}
+
+fn inline_push(out: &mut Vec<InlineRun>, text: &mut String, style: InlineStyle, code: bool, link: Option<&str>) {
+    if !text.is_empty() {
+        out.push(InlineRun { text: std::mem::take(text), bold: style.bold, italic: style.italic, code, link: link.map(str::to_owned) });
+    }
+}
+
+fn run_length(c: &[char], at: usize, end: usize, ch: char) -> usize {
+    c[at..end].iter().take_while(|&&x| x == ch).count()
+}
+
+/// A delimiter run can open emphasis when what follows it isn't a space, and
+/// `_` only at the start of a word, so snake_case stays as it is.
+fn can_open(c: &[char], at: usize, len: usize, end: usize) -> bool {
+    let next = c.get(at + len).filter(|_| at + len < end);
+    let before = at.checked_sub(1).map(|i| c[i]);
+    next.is_some_and(|n| !n.is_whitespace()) && (c[at] == '*' || before.is_none_or(|b| !b.is_alphanumeric()))
+}
+
+fn can_close(c: &[char], at: usize, len: usize, end: usize) -> bool {
+    let before = at.checked_sub(1).map(|i| c[i]);
+    let after = c.get(at + len).filter(|_| at + len < end);
+    before.is_some_and(|b| !b.is_whitespace()) && (c[at] == '*' || after.is_none_or(|a| !a.is_alphanumeric()))
+}
+
+fn inline_runs(c: &[char], mut i: usize, end: usize, style: InlineStyle, link: Option<&str>, out: &mut Vec<InlineRun>) {
+    let mut plain = String::new();
+    while i < end {
+        let ch = c[i];
+        // A backslash keeps the punctuation after it as it is.
+        if ch == '\\' && i + 1 < end && c[i + 1].is_ascii_punctuation() {
+            plain.push(c[i + 1]);
+            i += 2;
+            continue;
+        }
+        if ch == '`' {
+            let ticks = run_length(c, i, end, '`');
+            let close = (i + ticks..end).find(|&j| c[j] == '`' && run_length(c, j, end, '`') == ticks && (j == 0 || c[j - 1] != '`'));
+            if let Some(close) = close {
+                inline_push(out, &mut plain, style, false, link);
+                let mut code: String = c[i + ticks..close].iter().collect();
+                // One space either side is how a code span holds a backtick.
+                if code.len() > 2 && code.starts_with(' ') && code.ends_with(' ') {
+                    code = code[1..code.len() - 1].to_owned();
+                }
+                inline_push(out, &mut code, style, true, link);
+                i = close + ticks;
+                continue;
+            }
+            plain.extend(&c[i..i + ticks]);
+            i += ticks;
+            continue;
+        }
+        if ch == '[' && link.is_none() {
+            if let Some((text_end, url, after)) = inline_link(c, i, end) {
+                inline_push(out, &mut plain, style, false, link);
+                inline_runs(c, i + 1, text_end, style, Some(&url), out);
+                i = after;
+                continue;
+            }
+        }
+        if (ch == '*' || ch == '_') && can_open(c, i, run_length(c, i, end, ch).min(3), end) {
+            let len = run_length(c, i, end, ch).min(3);
+            let close = (i + len..end).find(|&j| c[j] == ch && (j == 0 || c[j - 1] != ch) && run_length(c, j, end, ch) >= len && can_close(c, j, len, end));
+            if let Some(close) = close {
+                inline_push(out, &mut plain, style, false, link);
+                let inner = InlineStyle { bold: style.bold || len >= 2, italic: style.italic || len != 2 };
+                inline_runs(c, i + len, close, inner, link, out);
+                i = close + len;
+                continue;
+            }
+        }
+        plain.push(ch);
+        i += 1;
+    }
+    inline_push(out, &mut plain, style, false, link);
+}
+
+/// `[words](address)`: where its words end, the address, and where it ends.
+fn inline_link(c: &[char], at: usize, end: usize) -> Option<(usize, String, usize)> {
+    let mut depth = 0;
+    let mut close = None;
+    for j in at..end {
+        match c[j] {
+            '\\' => continue,
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(j);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    if close + 1 >= end || c[close + 1] != '(' {
+        return None;
+    }
+    let stop = (close + 2..end).find(|&j| c[j] == ')')?;
+    let url: String = c[close + 2..stop].iter().collect::<String>().trim().to_owned();
+    (!url.is_empty() && !url.contains(char::is_whitespace)).then_some((close, url, stop + 1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2098,5 +2237,28 @@ mod tests {
         assert!(z.magnification > fit);
         z.pinch(-0.9, None);
         assert!((z.magnification - fit).abs() < 1e-9, "no further out than the whole image");
+    }
+
+    // An agent's notes.
+
+    fn plain(text: &str) -> InlineRun {
+        InlineRun { text: text.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn a_note_draws_its_bold_code_and_links_and_leaves_the_rest_as_written() {
+        let runs = inline_markdown("Three ways to pick **which login a thread uses**. D shows it");
+        assert_eq!(runs, vec![plain("Three ways to pick "), InlineRun { text: "which login a thread uses".into(), bold: true, ..Default::default() }, plain(". D shows it")]);
+        let runs = inline_markdown("inside the `model` picker");
+        assert_eq!(runs[1], InlineRun { text: "model".into(), code: true, ..Default::default() });
+        let runs = inline_markdown("see [the *audit*](https://x.y/a) now");
+        assert_eq!(runs[1], InlineRun { text: "the ".into(), link: Some("https://x.y/a".into()), ..Default::default() });
+        assert_eq!(runs[2], InlineRun { text: "audit".into(), italic: true, link: Some("https://x.y/a".into()), ..Default::default() });
+        assert_eq!(inline_markdown("a * b, snake_case_name"), vec![plain("a * b, snake_case_name")], "nothing that isn't emphasis");
+        assert_eq!(inline_markdown("**bold** and _it_"), vec![InlineRun { text: "bold".into(), bold: true, ..Default::default() }, plain(" and "), InlineRun { text: "it".into(), italic: true, ..Default::default() }]);
+        assert_eq!(inline_markdown("\\*not\\* `a*b`")[0], plain("*not* "));
+        assert_eq!(inline_markdown("an [unfinished](link"), vec![plain("an [unfinished](link")]);
+        assert_eq!(inline_markdown("***both***")[0], InlineRun { text: "both".into(), bold: true, italic: true, ..Default::default() });
+        assert_eq!(inline_markdown("line one\n\nline two"), vec![plain("line one\n\nline two")]);
     }
 }

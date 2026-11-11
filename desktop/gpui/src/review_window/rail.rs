@@ -9,6 +9,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
+use std::ops::Range;
 use threadbear_core::open_policy::Origin;
 use threadbear_core::reducer::ReviewOption;
 use threadbear_core::review::{self as rules, ReviewMode};
@@ -35,7 +36,7 @@ impl ReviewWindow {
                     .border_color(hairline)
                     .text_size(px(style::size::WORK))
                     .line_height(px(style::natural_line(style::size::WORK) + 2.))
-                    .child(crate::open_gate::markdown_view("review-note", note, Origin::ThisMac, &self.cwd)),
+                    .child(inline_note("review-note", &note, style::label_text(cx), &self.cwd, cx)),
             );
         }
         let options = self.session.review().options.clone();
@@ -127,8 +128,7 @@ impl ReviewWindow {
                     .mb(px(-0.75))
                     .text_size(px(style::size::DETAIL))
                     .line_height(px(style::natural_line(style::size::DETAIL) + 1.5))
-                    .text_color(style::secondary_text(cx))
-                    .child(crate::open_gate::markdown_view(("review-reason", index), reason, Origin::ThisMac, &self.cwd)),
+                    .child(inline_note(("review-reason", index), &reason, style::secondary_text(cx), &self.cwd, cx)),
             );
         }
         words.into_any_element()
@@ -258,6 +258,40 @@ impl ReviewWindow {
             )
             .into_any_element()
     }
+}
+
+/// An agent's note as SwiftUI draws inline markdown: bold, italic, code in
+/// the mono face and links in the link colour, on the lines of what it's
+/// in, so it takes the rail's line heights as the Swift rail's text does.
+/// (The kit's markdown view keeps line heights of its own and boxes inline
+/// code.) A link opens through the open gate.
+fn inline_note(id: impl Into<ElementId>, source: &str, color: Hsla, cwd: &str, cx: &App) -> AnyElement {
+    let (base, mono, link_color) = (cx.theme().font_family.clone(), cx.theme().mono_font_family.clone(), style::link_text(cx));
+    let mut text = String::new();
+    let mut runs: Vec<TextRun> = vec![];
+    let mut links: Vec<(Range<usize>, String)> = vec![];
+    for run in rules::inline_markdown(source) {
+        let start = text.len();
+        text.push_str(&run.text);
+        let mut face = font(if run.code { mono.clone() } else { base.clone() });
+        if run.bold {
+            face.weight = FontWeight::BOLD;
+        }
+        if run.italic {
+            face.style = FontStyle::Italic;
+        }
+        runs.push(TextRun { len: run.text.len(), font: face, color: if run.link.is_some() { link_color } else { color }, background_color: None, underline: None, strikethrough: None });
+        if let Some(url) = run.link {
+            links.push((start..text.len(), url));
+        }
+    }
+    let styled = StyledText::new(text).with_runs(runs);
+    if links.is_empty() {
+        return styled.into_any_element();
+    }
+    let (ranges, urls): (Vec<Range<usize>>, Vec<String>) = links.into_iter().unzip();
+    let cwd = cwd.to_owned();
+    InteractiveText::new(id, styled).on_click(ranges, move |ix, _, cx| crate::open_gate::open_link(&urls[ix], Origin::ThisMac, &cwd, cx)).into_any_element()
 }
 
 /// A tick box: an outline, or filled with the accent and a white tick.

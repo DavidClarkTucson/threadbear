@@ -815,10 +815,15 @@ built parsers and gates with no launch of the app, which is the trap.)
   the walkthrough, the grid's columns, the zoom and minimap), with the Swift
   tests ported. The Swift minimap is bottom right, whatever its comment says,
   so this one is too.
-- Left: the rail's notes are the kit's markdown, whose lines don't take the
-  rail's height, so a reason's lines are 16 apart where SwiftUI's are 16.5
-  (1 or 2 points a row), and its inline code has a box. An unknown review in
-  a `review:` link says so in the error bar rather than beeping.
+- The rail draws the agent's notes as SwiftUI's inline markdown does (bold,
+  italic, code in the mono face with no box, links through the open gate),
+  on the rail's own line heights (`review::inline_markdown`). GPUI snaps a
+  line height to whole device pixels, rounding a half down, so on a 1x
+  screen a reason's 16.5 lines are 16 apart (a point or two a row); on a
+  Retina screen they're SwiftUI's. Bold text is a little wider than
+  SwiftUI's here, so a note can wrap a word sooner.
+- Left: an unknown review in a `review:` link says so in the error bar
+  rather than beeping.
 - Both apps' automation: `review` answers `focused`, `sendLabel`, `editable`
   and `minimap` too, takes `browse` and `open: false`; `click` takes
   `"review": id` for a control in that window, and the header dump has
