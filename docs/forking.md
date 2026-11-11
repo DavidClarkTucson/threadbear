@@ -81,6 +81,12 @@ gone from your fork, not just quiet.
   to run). The folder the host reports for its copies must be a plain
   absolute path (letters, digits, `.`, `_`, `/`, `-`), or that host is
   passed over.
+- The builds and tests Threadbear starts itself (`tb land`'s check, a
+  worktree's setup, turn hooks, the runner's update builds) run `nice`d,
+  or as runner.json's `"jobPriority"` says: `"normal"`, or `"background"`
+  for macOS's `taskpolicy -b`, which Mike's runners use. Background keeps
+  a Mac quiet but makes a check several times slower, and timing tests
+  can fail under it (`runner/src/background.ts`).
 
 ### Optional, with a switch
 

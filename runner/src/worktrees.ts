@@ -284,12 +284,15 @@ async function reuse(where: string, branch: string, base: string, keep: string[]
   return true;
 }
 
-// What the agent is told in its appended system prompt.
+// What the agent is told in its appended system prompt. The timeout: time
+// queued behind another landing counts against the agent's own limit for a
+// command (Claude Code's background default is 30 minutes), and on 11 Nov
+// one cut a land off partway through its check that way.
 export function worktreeInstructions(w: WorktreeRecord): string {
   return [
     `This thread has its own git worktree of ${w.repo} at ${w.path}, on the branch ${w.branch}, made from ${MAIN}.`,
     `Commit your work there, on that branch. Other threads work in worktrees of their own, and the main checkout at ${w.mainCheckout} isn't yours to edit.`,
-    `When the work is done and checked, run \`tb land\` in the worktree: it rebases the branch on ${MAIN}, runs the repo's check and fast-forwards ${MAIN} to it. It never pushes. After landing you can carry on, and the next \`tb land\` lands only what's new.`,
+    `When the work is done and checked, run \`tb land\` in the worktree: it rebases the branch on ${MAIN}, runs the repo's check and fast-forwards ${MAIN} to it. It never pushes. It may first wait for another thread's landing, so run it in the background with the longest timeout allowed. After landing you can carry on, and the next \`tb land\` lands only what's new.`,
   ].join(' ');
 }
 

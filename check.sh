@@ -99,11 +99,11 @@ fi
 
 # The check host: THREADBEAR_CHECK_HOST (set and empty means none), or
 # runner.json's checkHost. Read before the THREADBEAR_* names go below.
+RUNNER_JSON="${THREADBEAR_HOME:-$HOME/Library/Application Support/Threadbear}/runner.json"
 if [ "$LOCAL" = 0 ] && [ "$E2E" = 0 ]; then
   if [ -n "${THREADBEAR_CHECK_HOST+set}" ]; then
     CHECK_HOST="$THREADBEAR_CHECK_HOST"
   else
-    RUNNER_JSON="${THREADBEAR_HOME:-$HOME/Library/Application Support/Threadbear}/runner.json"
     CHECK_HOST="$( [ -x "$NODE" ] && [ -f "$RUNNER_JSON" ] && "$NODE" -e '
       try { const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const h = Array.isArray(j.checkHosts) ? j.checkHosts : j.checkHost; const l = (Array.isArray(h) ? h : [h]).filter((x) => typeof x === "string" && /^[A-Za-z0-9][A-Za-z0-9._@-]*$/.test(x)); if (l.length) console.log(l.join(",")) } catch {}' "$RUNNER_JSON")"
   fi
@@ -112,11 +112,22 @@ if [ "$LOCAL" = 0 ] && [ "$E2E" = 0 ]; then
     code=$?
     [ "$code" = 255 ] || exit "$code"
     echo "So the checks run on this Mac instead, at low priority."
-    # taskpolicy is macOS's; a Linux runner's self-update (deploy.mjs) gets
-    # here too, and there nice does the same job (Codex, 9 Nov).
-    # THREADBEAR_CHECK_FALLBACK tells it this is the Mac someone's working on.
+    # How low is runner.json's jobPriority (runner/src/background.ts), or
+    # THREADBEAR_JOB_PRIORITY: background is taskpolicy -b (Mike's, for his
+    # M5), low (the default) nice. taskpolicy is macOS's; a Linux runner's
+    # self-update (deploy.mjs) gets here too, and there nice does the job
+    # (Codex, 9 Nov). THREADBEAR_CHECK_FALLBACK tells it this is the Mac
+    # someone's working on.
     export THREADBEAR_CHECK_FALLBACK=1
-    if command -v taskpolicy >/dev/null 2>&1; then exec taskpolicy -b "$0" --local ${ARGS[@]+"${ARGS[@]}"}; fi
+    PRIORITY="${THREADBEAR_JOB_PRIORITY:-}"
+    case "$PRIORITY" in background|low|normal) ;; *)
+      PRIORITY="$( [ -x "$NODE" ] && [ -f "$RUNNER_JSON" ] && "$NODE" -e '
+        try { const p = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).jobPriority; if (["background", "low", "normal"].includes(p)) console.log(p) } catch {}' "$RUNNER_JSON")" ;;
+    esac
+    case "$PRIORITY" in
+      normal) exec "$0" --local ${ARGS[@]+"${ARGS[@]}"} ;;
+      background) if command -v taskpolicy >/dev/null 2>&1; then exec taskpolicy -b "$0" --local ${ARGS[@]+"${ARGS[@]}"}; fi ;;
+    esac
     exec nice -n 10 "$0" --local ${ARGS[@]+"${ARGS[@]}"}
   fi
 elif [ "$E2E" = 1 ] && [ "$LOCAL" = 0 ]; then
@@ -134,6 +145,9 @@ unset THREADBEAR_HOME THREADBEAR_DATA_DIR THREADBEAR_PORT THREADBEAR_URL THREADB
   THREADBEAR_THREAD_ID THREADBEAR_RUNNER_VERSION THREADBEAR_RUNNER_HOME THREADBEAR_CHECK_BUSY_EXIT THREADBEAR_CHECK_FALLBACK
 # And their old names, which the runner and tb would otherwise take for these.
 for v in $(compgen -e | grep '^THREADBARE_' || true); do unset "$v"; done
+# The jobs the tests' runners start get no lower than the check itself
+# already is, and no test reads the real runner.json for it.
+export THREADBEAR_JOB_PRIORITY=normal
 # No runner a check starts may install or update a CLI.
 export THREADBEAR_CLI_UPDATES=off
 # Nor write to the real Convex project (the sync e2e points its own runner
