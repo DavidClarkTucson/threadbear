@@ -60,13 +60,16 @@ cat > "$bundle/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-# The same picture as the Swift app's icon (app/build-app.sh).
+# The Swift app's bear, green and with a GPUI badge, so the two apps can be
+# told apart in the Dock and the app switcher while both are installed (Mike
+# picked it, 12 Nov). Made from app/icons/threadbear.png.
+icon="$root/desktop/gpui/icons/threadbear-gpui.png"
 iconset="$(mktemp -d "${TMPDIR:-/tmp}/threadbear-icon-XXXX")/threadbear.iconset"
 mkdir -p "$iconset"
 for size in 16 32 128 256 512; do
-  sips -z "$size" "$size" "$root/app/icons/threadbear.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+  sips -z "$size" "$size" "$icon" --out "$iconset/icon_${size}x${size}.png" >/dev/null
   double=$((size * 2))
-  sips -z "$double" "$double" "$root/app/icons/threadbear.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+  sips -z "$double" "$double" "$icon" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$bundle/Contents/Resources/threadbear.icns"
 rm -rf "$(dirname "$iconset")"
