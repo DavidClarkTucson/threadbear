@@ -155,7 +155,7 @@ import { contextUsagePart, type ContextUsageAnswer, type ContextUsagePart } from
 import type { SlashCommand } from './slash-commands.ts';
 import { hibernationPart, type HibernationPart } from './runner/hibernation.ts';
 import { newThreadsPart, type NewThreadsPart } from './runner/new-threads.ts';
-import { LAB_REVIEW_ROUNDS, applyAnswers, fixedSinceLastRound, labReviewPart, ledgerCard, parseVerdict, type LabReviewPart } from './runner/lab-review.ts';
+import { LAB_REVIEW_ROUNDS, applyAnswers, fixedSinceLastRound, labReviewPart, ledgerCard, openFindings, parseVerdict, type LabReviewPart } from './runner/lab-review.ts';
 import { looseEndsPart, type LooseEndsPart } from './runner/loose-ends.ts';
 import { CONFINED_NO_SANDBOX, sandboxFor } from './sandbox.ts';
 
@@ -1422,9 +1422,14 @@ export class Runner {
     if (opts.origin !== 'runner') {
       rt.hookTurns = undefined;
       delete rec.stoppedWorkWakes;
-      // A new ask from Mike: its change can be reviewed afresh.
-      delete rec.labReviews;
-      delete rec.labReview;
+      // A new ask: its change can be reviewed afresh. Not while a review's
+      // findings wait for their answers, unless it's Mike who wrote: another
+      // thread's note or a schedule's run would let the turn end without
+      // them (Codex's review of the ledger, 11 Nov 2026).
+      if (fromMike(text, opts) || !openFindings(rec.labReview).length) {
+        delete rec.labReviews;
+        delete rec.labReview;
+      }
     }
     // Copy images into the thread's own media folder now, so a queued
     // message still works if inbox/ is cleaned before it's sent.
@@ -2290,9 +2295,12 @@ export class Runner {
     // verdict is kept for the thread it reviewed (deliverReview), and the
     // turn that answers a round's findings takes the ledger to its card.
     if (outcome === 'completed' && !turn.local) {
-      const verdict = rec.reviewOf ? parseVerdict(turn.endTurn) : undefined;
-      if (verdict) {
-        rec.reviewVerdict = verdict;
+      // The latest turn's say: one that ended without a verdict (a later
+      // report on tests it left running) doesn't stand on an earlier pass.
+      if (rec.reviewOf && turn.endTurn) {
+        const verdict = parseVerdict(turn.endTurn);
+        if (verdict) rec.reviewVerdict = verdict;
+        else delete rec.reviewVerdict;
         this.markDirty(st);
       }
       const ledger = rec.labReview;

@@ -3060,13 +3060,19 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   claim, case }` per finding that holds up, or `[]` for a pass, and its
   `end_turn` is refused without one (`reviewVerdict` on its record; an
   entry with no `claim` isn't a finding, severity defaults to medium).
+  The verdict is the latest turn's: a later turn of the reviewer's that
+  calls `end_turn` without one (a report on tests it left running)
+  leaves none, and the round counts as given no verdict. It's asked for
+  only while the reviewed thread still waits on that review, so a review
+  thread from before, or one reopened later, isn't.
   The verdict's findings go into the reviewed thread's ledger
   (`labReview` in thread.json, cleared with `labReviews`), numbered on
   from earlier rounds' (`ReviewFinding.id`, stable), and its wake
   message lists them by number and asks for an answer to each in its
   own `end_turn`: `{ id, outcome: "fixed" | "disputed" | "left", note? }`.
   Until it gives one for every finding of the round, with a note on each
-  disputed one and `needs: "you"` for any left, its `end_turn` is
+  disputed one and `needs: "you"` with an ask for any left (with no
+  ask, no card would show it), its `end_turn` is
   refused (`Not ended: the review`, at most twice a turn, then taken as
   it is, as a session holding the older form of the tool can't send
   them). The turn that answers carries the ledger on its
@@ -3082,8 +3088,11 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
     findings: ReviewFinding[] }
   ```
 
-  A finding it fixed gets another round on that turn's change whatever
-  its size (the 5-line minimum doesn't apply), with the earlier
+  A message that isn't Mike's (another thread's, a schedule's) doesn't
+  clear a ledger whose findings wait for answers; his does. A finding it
+  fixed gets another round on that turn's change whatever its size and
+  whatever it touched (the 5-line minimum and the docs exception don't
+  apply), with the earlier
   findings and answers in the brief, so the reviewer checks the fixes
   and the disputes; a round that finds nothing passes and the agent
   finishes. Disputed or left alone start no round. The ledger is drawn

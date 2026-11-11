@@ -688,7 +688,8 @@ test('labReview: findingsProblem and the parsers', () => {
   assert.match(findingsProblem({ open }, { needs: 'nothing' }, 'nothing')!, /#1, #2 have no answer/);
   assert.match(findingsProblem({ open }, { findings: [{ id: 1, outcome: 'fixed' }, { id: 2, outcome: 'disputed' }] }, 'nothing')!, /#2 are disputed with no note/);
   assert.match(findingsProblem({ open }, { findings: [{ id: 1, outcome: 'fixed' }, { id: 2, outcome: 'left', note: 'n' }] }, 'nothing')!, /needs "you"/);
-  assert.equal(findingsProblem({ open }, { findings: [{ id: 1, outcome: 'fixed' }, { id: 2, outcome: 'left', note: 'n' }] }, 'you'), undefined);
+  assert.match(findingsProblem({ open }, { findings: [{ id: 1, outcome: 'fixed' }, { id: 2, outcome: 'left', note: 'n' }] }, 'you')!, /an ask for each/, 'needs you with no ask draws no card');
+  assert.equal(findingsProblem({ open }, { asks: [{ question: 'Keep it?' }], findings: [{ id: 1, outcome: 'fixed' }, { id: 2, outcome: 'left', note: 'n' }] }, 'you'), undefined);
   assert.match(findingsProblem({ verdict: true }, { needs: 'nothing' }, 'nothing')!, /needs your verdict/);
   assert.equal(findingsProblem({ verdict: true }, { findings: [] }, 'nothing'), undefined);
   for (const p of [findingsProblem({ open }, {}, 'nothing'), findingsProblem({ verdict: true }, {}, 'nothing')]) assert.ok(p!.startsWith(FINDINGS_REFUSED));
@@ -731,4 +732,50 @@ test('labReview: end_turn is refused while findings have no answer, twice at mos
   // Twice is the most: a session holding the older end_turn can't comply.
   r = await agent({ headline: 'Fixed', needs: 'nothing' }, 'a-e3');
   assert.equal(r.error, false, r.text);
+});
+
+// Codex's review of the ledger (11 Nov 2026): each of these broke it.
+test("labReview: another thread's message doesn't clear findings still waiting for answers; Mike's does", () => {
+  const h = setup();
+  const id = start(h);
+  turn(h, id, { diffs: [codeDiff()] });
+  finishReview(h, id, { needs: 'nothing', findings: FINDINGS });
+  h.runner.send(id, 'FYI the nightly finished.', [], { origin: 'agent' as never });
+  assert.deepEqual(h.runner.reviewOwes(id)?.open?.map((f) => f.id), [1, 2], 'still owed');
+  h.runner.send(id, 'Leave those, do something else.');
+  assert.equal(h.runner.reviewOwes(id), undefined);
+});
+
+test("labReview: a reviewer's later turn without a verdict doesn't stand on its earlier pass", () => {
+  const h = setup();
+  const id = start(h);
+  turn(h, id, { diffs: [codeDiff()] });
+  const reviewId = h.runner.get(id).waitingOn![0].threadId;
+  const rec = h.runner.threads.get(reviewId)!.rec;
+  rec.reviewVerdict = { findings: [] };
+  const rs = h.codex.sessions.find((s) => s.opts.threadId === reviewId)!;
+  rs.init();
+  turn(h, reviewId, { session: rs, reply: 'The tests I left running failed: src/app.ts:3 throws.', input: { needs: 'nothing' } });
+  const msg = h.events(id).filter((e) => e.type === 'user.message').at(-1).text as string;
+  assert.doesNotMatch(msg, /found nothing that holds up/);
+  assert.match(msg, /throws/);
+});
+
+test('labReview: a fix that only touches a doc still gets its round', () => {
+  const h = setup();
+  const id = start(h);
+  turn(h, id, { diffs: [codeDiff()] });
+  finishReview(h, id, { needs: 'nothing', findings: [{ claim: 'The README example is wrong.', where: 'README.md:3' }] });
+  turn(h, id, { diffs: [codeDiff('README.md', 2)], input: { needs: 'nothing', findings: [{ id: 1, outcome: 'fixed' }] } });
+  assert.ok(h.runner.threads.get(id)!.rec.waitingOn?.some((w) => w.review && !w.done), 'round 2 started');
+});
+
+test('labReview: a review thread is only asked for a verdict while the reviewed thread waits on it', () => {
+  const h = setup();
+  const id = start(h);
+  turn(h, id, { diffs: [codeDiff()] });
+  const reviewId = h.runner.get(id).waitingOn![0].threadId;
+  assert.deepEqual(h.runner.reviewOwes(reviewId), { verdict: true });
+  finishReview(h, id, { needs: 'nothing', findings: [] });
+  assert.equal(h.runner.reviewOwes(reviewId), undefined, 'done with: reopened later, it is asked nothing');
 });

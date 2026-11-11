@@ -78,7 +78,9 @@ export const labReviewPart = {
     if ((rec.labReviews ?? 0) >= LAB_REVIEW_ROUNDS) return undefined;
     const change = this.turnChange(st, turnId, upTo);
     const fixing = Boolean(rec.labReview && fixedSinceLastRound(rec.labReview));
-    if (!change || change.codeLines < (fixing ? 1 : LAB_REVIEW_MIN_LINES)) return undefined;
+    // A fix counts whatever it touched: a finding can be about a doc.
+    const lines = fixing ? change?.files.reduce((n, f) => n + f.added + f.removed, 0) ?? 0 : change?.codeLines ?? 0;
+    if (!change || lines < (fixing ? 1 : LAB_REVIEW_MIN_LINES)) return undefined;
     // A runner handing over to a new release, restarting or stopping
     // makes no threads (new-threads.ts), and the turn that just ended is
     // often the one that landed the release (THREADBEAR-14, 6 Nov 2026).
@@ -162,7 +164,12 @@ export const labReviewPart = {
   reviewOwes(this: Runner, threadId: string): { verdict?: boolean; open?: ReviewFinding[] } | undefined {
     const rec = this.threads.get(threadId)?.rec;
     if (!rec) return undefined;
-    if (rec.reviewOf) return rec.reviewVerdict ? undefined : { verdict: true };
+    // Only while the thread it reviews still waits on it: not a review from
+    // before the ledger, nor one reopened later to explain itself.
+    if (rec.reviewOf) {
+      const waiting = this.threads.get(rec.reviewOf)?.rec.waitingOn?.some((w) => w.threadId === rec.id && w.review && !w.done);
+      return waiting ? { verdict: true } : undefined;
+    }
     const open = openFindings(rec.labReview);
     return open.length ? { open } : undefined;
   },
@@ -450,7 +457,10 @@ export function findingsProblem(review: { verdict?: boolean; open?: ReviewFindin
   }
   const bare = open.filter((f) => answers.get(f.id)?.outcome === 'disputed' && !answers.get(f.id)?.note);
   if (bare.length) return `${FINDINGS_REFUSED}'s findings ${bare.map((f) => `#${f.id}`).join(', ')} are disputed with no note. Say in each one's note why it doesn't hold up, and call end_turn again.`;
-  if (needs !== 'you' && open.some((f) => answers.get(f.id)?.outcome === 'left')) {
+  // With an ask, or no card would show it (a needs "you" with no asks
+  // draws none).
+  const asks = Array.isArray(input.asks) ? input.asks.length : 0;
+  if ((needs !== 'you' || !asks) && open.some((f) => answers.get(f.id)?.outcome === 'left')) {
     return `${FINDINGS_REFUSED}'s findings you left are for the user to decide, so end_turn needs needs "you" and an ask for each. Call it again with them, or fix them.`;
   }
   return undefined;

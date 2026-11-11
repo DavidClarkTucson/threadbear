@@ -1609,8 +1609,9 @@ enum RowRenderer {
             }
         }
         // The review's ledger under the asks (one it left for Mike is
-        // usually what they're about), when the card shows them all.
-        if let review = card.review, card.isOpen, page == nil {
+        // usually what they're about): under them all, or on the last page
+        // when the composer pages a tall card.
+        if let review = card.review, card.isOpen, page == nil || page == card.asks.count - 1 {
             let (labelStyle, labelOffset) = Theme.lines(TypeScale.scaled(19), font: small, before: zoomed(10))
             output.append(reviewText(review, inset: 0, labelStyle: labelStyle, labelOffset: labelOffset))
         }
