@@ -149,6 +149,20 @@ fun SettingsScreen(back: () -> Unit, runnerOrder: () -> Unit) {
                     }
                 }
             }
+            // The app's own version, and a newer release when there is one (Updates).
+            val update by com.mikerosoft.threadbear.android.Updates.available.collectAsStateWithLifecycle()
+            val context = androidx.compose.ui.platform.LocalContext.current
+            Group("App") {
+                Field("Version", com.mikerosoft.threadbear.android.Updates.installed?.let { com.mikerosoft.threadbear.android.Updates.label(it) } ?: "Development build")
+                update?.let { u ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { com.mikerosoft.threadbear.android.Updates.open(context, u) }.heightIn(min = 48.dp).padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Update to ${com.mikerosoft.threadbear.android.Updates.label(u.date)}", style = MaterialTheme.typography.bodyLarge, color = LocalSignals.current.accent)
+                    }
+                }
+            }
             Group(null, footer = "Forgets the token on this phone. Revoke it on the Mac too if the phone's lost.") {
                 Row(
                     Modifier.fillMaxWidth().clickable { confirmUnpair = true }.heightIn(min = 48.dp).padding(horizontal = 16.dp),

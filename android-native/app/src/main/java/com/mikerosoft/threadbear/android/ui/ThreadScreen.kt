@@ -158,8 +158,8 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
 }
 
 /**
- * Over the reply box: the recap of a thread that's sat a while, the slash
- * palette while what's typed is a command being typed, and the thread's
+ * Over the reply box: the slash palette while what's typed is a command
+ * being typed, and the thread's
  * patch link buttons, as the iPhone stacks them over its composer.
  */
 @Composable
@@ -167,7 +167,6 @@ private fun OverTheBox(thread: PhoneThread, draft: String, gate: LinkGate, fill:
     val model = LocalModel.current
     val extras = ThreadExtras.of(model, LocalContext.current)
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        RecapBox(thread)
         val query = SlashPalette.query(draft)
         if (query != null && extras.canUseSlashCommands) {
             SlashPaletteList(thread.threadId, thread.provider, query) { command ->

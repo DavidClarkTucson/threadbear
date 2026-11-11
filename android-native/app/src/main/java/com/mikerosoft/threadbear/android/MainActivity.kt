@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -59,6 +60,8 @@ class MainActivity : ComponentActivity() {
         // Notifications allowed in Settings since the prompt was turned down:
         // register now rather than on the next launch.
         model.registerPush()
+        // A newer release on GitHub (at most every six hours, release builds only).
+        Updates.check(lifecycleScope)
     }
 
     override fun onNewIntent(intent: Intent) {

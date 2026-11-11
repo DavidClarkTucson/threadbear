@@ -55,7 +55,7 @@ what the iPhone has.
 | PictureDownload.swift, PictureMemory.swift, PictureFraming.swift | `PictureDownload.kt`, `PictureMemory.kt`, `PictureFraming.kt` | 4 |
 | ReplyButtons.swift, ThreadLinks.swift, LinkPolicy.swift | `ReplyButtons.kt`, `ThreadLinks.kt`, `LinkPolicy.kt` | 4 |
 | SlashCommands.swift (the palette's logic) | `SlashCommands.kt` | 4 |
-| Recap.swift, AgentHeader.swift, CardMentions.swift, ReviewAnswer.swift | same names, `.kt` | 4 |
+| AgentHeader.swift, CardMentions.swift, ReviewAnswer.swift | same names, `.kt` | 4 |
 | PageSwipes.swift, Plans.swift | `PageSwipes.kt`, `Plans.kt` | 4 |
 | PhotoUpload | | 4 |
 | Pocket.swift, PocketIcon.swift | `Pocket.kt` | 5 |
@@ -90,8 +90,8 @@ between headings (RowFlight), the demo's sample data beyond what tests need.
    scripts never run), and pictures (capped download with one deadline,
    50 MP header check, downsampled, one 96 MB cache, tap for full screen).
    Reply buttons, thread chips and links (anything but a web page asks
-   first), work: links opening the turn's working, the slash palette, the
-   recap box, plan cards and the plan sheet, older history in chunks, and
+   first), work: links opening the turn's working, the slash palette,
+   plan cards and the plan sheet, older history in chunks, and
    swipe left for Forward / right for Back.
 4. New thread (the bar's pencil): text with photos and dictation, runner,
    model and effort as the iPhone offers; it closes once the backend has it,
@@ -125,3 +125,33 @@ Archive and hibernate hide the row at once and wait for the runner
 Each slice: kit tests for what it ports, screenshots from Mike's Pixel in
 dark mode, pushed to `cloud/android-native`, landed from the M5. All four
 plus the inbox shell (5) landed on 11 Nov, after cross-lab reviews.
+
+## Releases
+
+Mike chose GitHub releases over Google Play (11 Nov 2026): no Play account
+or review, and how Keith ships his. For each `release/YYYY-MM-DD` tag Mike's
+runner pushes, `.github/workflows/android.yml` builds a signed APK on a
+standard (free) GitHub runner and attaches it to that tag's GitHub release
+as `threadbear-android.apk`, so the newest is always at
+https://github.com/mikecann/threadbear/releases/latest/download/threadbear-android.apk.
+A release from before `android-native/` existed is skipped, and in a fork
+the job doesn't run (no secrets there).
+
+- The version is the tag's date (`versionName` 2026-11-12, `versionCode`
+  20261112), so each release installs over the last. A local build is
+  `dev`, version code 1, and never offers itself an update.
+- The release key (`threadbear`, RSA 4096, made 11 Nov 2026) is in the
+  repo's Actions secrets (`ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`), with `ANDROID_GOOGLE_SERVICES_JSON` for push;
+  Mike's choice over keeping it on his Mac. The backup is
+  `~/.config/threadbear-android/release.jks` and `release-password` on the
+  M5, which a local `:app:assembleRelease` signs with. Android installs an
+  update only if it's signed like the installed app, so losing the key
+  means everyone uninstalling and reinstalling.
+- The app asks GitHub for the latest release at most every six hours as
+  it comes forward (`Updates.kt`, `AppUpdate` in the kit), release builds
+  only. A newer one puts a dot on the inbox's menu, an "Update to 12 Nov"
+  item in it, and the same in Settings, App; tapping it opens the APK in the
+  browser, and Android asks to install.
+- A debug build is signed with the build machine's debug key, so going from
+  one to a release build means uninstalling (and pairing again) once.

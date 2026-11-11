@@ -1,0 +1,140 @@
+# The Android app's release (docs/android-native.md, "Releases"): for each
+# release/YYYY-MM-DD tag Mike's runner pushes, a signed APK goes on that
+# tag's GitHub release, as threadbear-android.apk, so
+# https://github.com/mikecann/threadbear/releases/latest/download/threadbear-android.apk
+# is always the newest and the app's update check can find it.
+#
+# Mike chose GitHub releases over Google Play, and the signing key living in
+# this repo's Actions secrets over his Mac (11 Nov 2026): GitHub builds it, so
+# nothing runs on his laptop, and it goes on while the Mac's asleep. Only this
+# repo has the secrets; in a fork the job is skipped (a fork builds its own,
+# with its own key).
+#
+# The check job builds and tests the app on every change to android-native/
+# on main or in a PR (no secrets): on 11 Nov 2026 a commit elsewhere took a
+# field out of the kit and main didn't build for Android for hours, as
+# nothing built it. The daily tag waits for main's checks (runner/src/
+# upstream.ts ciVerdict), so a broken Android build now holds the release
+# rather than shipping one.
+#
+# Costs nothing: standard ubuntu runners, free for a public repo; a newer
+# push cancels the check before it.
+name: Android
+
+on:
+  push:
+    tags: ['release/*']
+    branches: [main]
+    paths:
+      - 'android-native/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android-native/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "A release/YYYY-MM-DD tag to build and attach to (blank: just build main, as a test, and keep the APK as an artifact)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  # A newer push to main or a PR replaces its check; a release build always finishes.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK platform and build tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" >/dev/null
+      - name: Kit tests and a debug build
+        run: cd android-native && ./gradlew --no-daemon :kit:test :app:assembleDebug
+
+  apk:
+    if: github.repository == 'mikecann/threadbear' && (startsWith(github.ref, 'refs/tags/release/') || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG || github.sha }}
+
+      - name: Skip a release from before the Android app
+        id: has
+        run: |
+          if [ -d android-native ]; then echo "yes=1" >> "$GITHUB_OUTPUT"; else echo "No android-native/ at this tag."; fi
+
+      - uses: actions/setup-java@v4
+        if: steps.has.outputs.yes
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK platform and build tools
+        if: steps.has.outputs.yes
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" >/dev/null
+
+      - name: Key and Firebase config from the secrets
+        if: steps.has.outputs.yes
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android-native/app/google-services.json
+
+      - name: Build the release APK
+        if: steps.has.outputs.yes
+        env:
+          THREADBEAR_KEYSTORE: ${{ runner.temp }}/release.jks
+          THREADBEAR_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          case "$TAG" in release/*) export THREADBEAR_RELEASE="${TAG#release/}";; esac
+          cd android-native
+          ./gradlew --no-daemon :kit:test :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/threadbear-android.apk"
+          # Signed with the release key, not left unsigned or debug-signed.
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/threadbear-android.apk" | grep -q 'CN=Threadbear Android'
+
+      - name: Attach it to the tag's release
+        if: steps.has.outputs.yes && env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="The Android app for this release. Install threadbear-android.apk on an Android phone (allow installs from your browser when it asks); the app offers each newer release itself."
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes "$notes" --latest
+          fi
+          gh release upload "$TAG" "$RUNNER_TEMP/threadbear-android.apk" --clobber
+
+      - name: Keep a test build
+        if: steps.has.outputs.yes && env.TAG == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadbear-android-test
+          path: ${{ runner.temp }}/threadbear-android.apk
+          retention-days: 7
+
+      - name: Never leave the key on the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" android-native/app/google-services.json

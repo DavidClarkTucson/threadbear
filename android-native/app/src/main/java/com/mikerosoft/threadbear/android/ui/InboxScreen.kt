@@ -171,9 +171,22 @@ fun InboxScreen(
                 TopAppBar(
                     navigationIcon = {
                         Box {
-                            IconButton(onClick = { menu = true }) { Icon(Line.Menu, "Menu", Modifier.size(22.dp)) }
+                            val update by com.mikerosoft.threadbear.android.Updates.available.collectAsStateWithLifecycle()
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            IconButton(onClick = { menu = true }) {
+                                // A small accent dot when a newer release is out: the menu says what.
+                                Box {
+                                    Icon(Line.Menu, if (update != null) "Menu, update available" else "Menu", Modifier.size(22.dp))
+                                    if (update != null) Box(Modifier.align(Alignment.TopEnd).size(7.dp).clip(CircleShape).background(LocalSignals.current.accent))
+                                }
+                            }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 ActionItem("Settings", Line.Settings) { menu = false; settings() }
+                                update?.let { u ->
+                                    ActionItem("Update to ${com.mikerosoft.threadbear.android.Updates.label(u.date)}", Line.Download) {
+                                        menu = false; com.mikerosoft.threadbear.android.Updates.open(context, u)
+                                    }
+                                }
                             }
                         }
                     },

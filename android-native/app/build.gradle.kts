@@ -31,6 +31,29 @@ val firebase: Map<String, String> = run {
 }
 fun quoted(s: String?) = "\"" + (s ?: "") + "\""
 
+/**
+ * Releases (docs/android-native.md, "Releases"): each release/YYYY-MM-DD tag
+ * gets a signed APK on its GitHub release, built by .github/workflows/android.yml.
+ * THREADBEAR_RELEASE is that tag's date; its digits make the versionCode, so
+ * every release installs over the last. Without it (a local build) the
+ * version is 0, and the app never offers itself an update.
+ */
+val releaseDate: String? = System.getenv("THREADBEAR_RELEASE")?.takeIf { Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(it) }
+
+/**
+ * The release key: the workflow writes it from the repo's secrets and says
+ * where; on Mike's M5 it's the backup in ~/.config/threadbear-android/.
+ * One key for good: Android only installs an update signed like the app
+ * already there, so a lost key means everyone reinstalling.
+ */
+val releaseKeystore: File? = (System.getenv("THREADBEAR_KEYSTORE")?.let(::File)
+    ?: File(System.getProperty("user.home"), ".config/threadbear-android/release.jks")).takeIf { it.isFile }
+val releaseKeyPassword: String? = System.getenv("THREADBEAR_KEYSTORE_PASSWORD")
+    ?: File(System.getProperty("user.home"), ".config/threadbear-android/release-password").takeIf { it.isFile }?.readText()?.trim()
+
+/** Where the app looks for a newer release: this repo, or a fork's own (GITHUB_REPOSITORY in Actions). */
+val updateRepo: String = System.getenv("GITHUB_REPOSITORY") ?: "mikecann/threadbear"
+
 android {
     namespace = "com.mikerosoft.threadbear.android"
     compileSdk = 37
@@ -40,8 +63,11 @@ android {
         applicationId = "com.mikerosoft.threadbear.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        // 20261112 for release/2026-11-12; 1 for a local build.
+        versionCode = releaseDate?.replace("-", "")?.toInt() ?: 1
+        versionName = releaseDate ?: "dev"
+        buildConfigField("String", "RELEASE_DATE", quoted(releaseDate))
+        buildConfigField("String", "UPDATE_REPO", quoted(updateRepo))
         // Phones only: keeps the APK (and this box's disk) small.
         ndk { abiFilters += "arm64-v8a" }
         // Empty when there's no google-services.json: push is off (Push.kt).
@@ -51,12 +77,25 @@ android {
         buildConfigField("String", "FIREBASE_API_KEY", quoted(firebase["apiKey"]))
     }
 
+    signingConfigs {
+        if (releaseKeystore != null && releaseKeyPassword != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = releaseKeyPassword
+                keyAlias = "threadbear"
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("boolean", "ALLOW_LOCAL", "true")
         }
         release {
             isMinifyEnabled = false
+            // Unsigned (and so not installable) where there's no key, as in a fork.
+            signingConfig = signingConfigs.findByName("release")
             buildConfigField("boolean", "ALLOW_LOCAL", "false")
         }
     }
