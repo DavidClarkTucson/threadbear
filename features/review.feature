@@ -19,6 +19,16 @@ Feature: Design reviews
     When I follow the link "review:review_account" in the agent's last reply
     Then the review window is open on option "A", one at a time
 
+  # An ask's link is followed from inside the composer's own update, and the
+  # transcript read the composer back to reach the app, which crashed the
+  # GPUI app ("Open the design options" on a card, 12 Nov).
+  @review.window @card.needsyou
+  Scenario: A review: link on an ask in the composer opens that review
+    When I send "Which one? Pick a design"
+    Then the card in the composer asks "Pick one of the account picker designs"
+    When I press link 1 of ask 1 on the card
+    Then the review window is open on option "A", one at a time
+
   @header.pendingreviews
   Scenario: The bar over the thread says how many reviews are waiting
     Then the bar over the thread says "Review design options (1)"

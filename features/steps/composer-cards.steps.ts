@@ -60,6 +60,11 @@ When('I press {string} on the card', async function (this: ThreadbearWorld, acti
   await this.app.do({ cmd: 'ask', row: await openCardRow(this), action });
 });
 
+// The link button over an ask's answers, as a click on it goes.
+When('I press link {int} of ask {int} on the card', async function (this: ThreadbearWorld, link: number, ask: number) {
+  await this.app.do({ cmd: 'ask', row: await openCardRow(this), action: `link:${ask - 1}:${link - 1}` });
+});
+
 When('I tick follow-up {int} on the card', async function (this: ThreadbearWorld, number: number) {
   await this.app.do({ cmd: 'ask', row: await openCardRow(this), action: `next:${number - 1}` });
 });

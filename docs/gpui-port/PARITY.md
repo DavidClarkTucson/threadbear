@@ -222,6 +222,27 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 An ask's link on the card, and answering a decision with the runner away, crashed the app (`card.needsyou`, `projects.decisions`)
+
+- A link button on a card of asks in the composer ("Open the design
+  options", or a file link that opens in the pane) crashed the GPUI app:
+  the click is the composer's own update, and the transcript following the
+  link read the composer back to reach the app (a double lease). The link
+  is followed once that update is over.
+- Answering a decision on a project's page while the runner couldn't be
+  reached crashed it the same way: the card's own update sends the answer,
+  and its picks were put back by updating the card again from inside it.
+  They're put back once that update is over.
+- The mock runner's "pick a design" turn ends with an ask linking the demo
+  review, for the spec.
+- Files: `desktop/gpui/src/composer_card.rs`,
+  `desktop/gpui/src/project_decisions.rs`, `app/Tools/mock-runner/server.mjs`,
+  `features/review.feature`, `features/projects.feature`,
+  `features/steps/composer-cards.steps.ts`.
+- Verification: on Tinker Desk, both new scenarios fail on the code before
+  the fix (entity_map.rs:156 for the link, :164 for the decision), and pass
+  with it.
+
 ### 2026-11-12 Move to while the runner was away crashed the app (`sidebar.move`)
 
 - Move to ▸ a runner while this Mac's runner couldn't be reached crashed

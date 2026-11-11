@@ -607,7 +607,11 @@ impl Composer {
     fn open_ask_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
         let url = if target.starts_with('/') { threadbear_core::open_policy::file_url(target) } else { target.to_owned() };
         if let Some(pane) = self.pane.upgrade() {
-            pane.update(cx, |p, cx| p.link_clicked(&url, "", window, cx));
+            // Once this update is over: the pane reads this composer to reach
+            // the app (a review's window, a file into the side pane), which
+            // GPUI refuses while the composer is the one being updated.
+            // "Open the design options" on a card crashed the app (12 Nov).
+            window.defer(cx, move |window, cx| pane.update(cx, |p, cx| p.link_clicked(&url, "", window, cx)));
         }
     }
 

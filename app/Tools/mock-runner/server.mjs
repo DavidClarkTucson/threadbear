@@ -1923,9 +1923,11 @@ async function fakeTurn(threadId, text, images, turnId = 'turn_' + crypto.random
   // through (docs/protocol.md, "Needs you", Answering).
   // "one decision" gives a single ask with no options, like a thread
   // started before end_turn had them. "follow-ups" ends done, with
-  // end_turn's next under "Or carry on".
+  // end_turn's next under "Or carry on". "pick a design" asks with a link
+  // to the demo review (review: links on a card, as show_options' are).
   const said = interrupted ? undefined
     : /follow-ups/i.test(text) ? { needs: 'nothing', next: ['Have the librarian tidy project notes when they get long', 'Add a size warning to the Notes panel'] }
+    : /pick a design/i.test(text) ? { needs: 'you', asks: [{ action: 'Pick one of the account picker designs', links: [{ title: 'See the designs', url: 'review:review_account_picker' }] }] }
     : /decisions/i.test(text) ? { needs: 'you', asks: DEMO_ASKS }
     : /one decision/i.test(text) ? { needs: 'you', asks: [{ action: 'Say go for Short 2 (Thomas on AI being dumb), or name another' }] }
     : undefined;

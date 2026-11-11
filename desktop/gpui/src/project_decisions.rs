@@ -278,7 +278,13 @@ impl Threadbear {
     pub(crate) fn send_decision(&mut self, thread: String, seq: u64, text: String, images: Vec<ImageRef>, answers: Value, words: Vec<String>, card: WeakEntity<DecisionCard>, picks: Picks, cx: &mut Context<Self>) {
         if !matches!(self.status, Status::Connected { .. }) {
             self.show_error("Not connected to the runner, so that wasn't sent.".to_owned(), cx);
-            card.update(cx, |card, cx| card.restore(seq, picks, cx)).ok();
+            // Once this update is over: the card's own update is what sent
+            // it (a pick, Return in its box), and GPUI refuses to update the
+            // card again from inside that. Answering while the runner was
+            // away crashed the app (12 Nov).
+            cx.defer(move |cx| {
+                card.update(cx, |card, cx| card.restore(seq, picks, cx)).ok();
+            });
             return;
         }
         self.projects.decision_sends.insert(thread.clone(), DecisionSend { asks_seq: seq, answers: words });

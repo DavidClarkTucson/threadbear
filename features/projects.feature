@@ -25,6 +25,18 @@ Feature: Decisions on the Projects page
     When I open the thread "Compare SQLite and plain files for the runner"
     Then the transcript shows my message "Keep plain files for now?"
 
+  # The answer goes from inside the card's own update, and with the runner
+  # away its picks were put back by updating the card again, which crashed
+  # the GPUI app (a double lease, 12 Nov).
+  @projects.decisions @project-decisions
+  Scenario: Answering while the runner's away says so and keeps the question
+    When I open the project "Threadbear"
+    And the runner goes away without a word for 8 seconds
+    And the app has lost the runner
+    And I pick answer 1 of ask 1 on the decision from "Compare SQLite and plain files for the runner"
+    Then the error bar says "Not connected to the runner, so that wasn't sent."
+    And the project's decisions include "Compare SQLite and plain files for the runner" asking "Keep plain files for now?"
+
   @projects.decisions @project-decisions
   Scenario: A card of several questions waits until each has an answer
     When I open the project "Threadbear"
