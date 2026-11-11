@@ -704,7 +704,11 @@ impl Threadbear {
         // After the thread: opening one takes a page away.
         self.shows_home = place.home;
         self.restoring_place = false;
-        self.note_navigation();
+        // What's showing is that entry now, even if it couldn't be shown just
+        // as it was (the thread behind a page has gone): put in its place,
+        // keeping Forward, rather than recorded as somewhere new.
+        let now = self.place();
+        self.history.settle_current(now);
         cx.notify();
     }
 

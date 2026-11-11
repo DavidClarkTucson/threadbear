@@ -247,7 +247,9 @@ built parsers and gates with no launch of the app, which is the trap.)
   off Forward (a scenario now covers it, on both apps); Save's answer could
   close Delete's question instead of the editor (Delete is off while
   saving, and only the editor that saved closes); and a page's place in
-  the history needed the thread behind it to still exist.
+  the history needed the thread behind it to still exist. Its second look
+  found Back to such a page then recorded it as a new place, trapping Back
+  there; a place put back now settles into its own entry, keeping Forward.
 - Remaining: Schedule… from Send's right-click menu
   (`composer.schedulefromsend`), the header's schedule chip, the picture's
   wobble, Return in the message box saving.
