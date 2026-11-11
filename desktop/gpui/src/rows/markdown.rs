@@ -157,13 +157,62 @@ pub(crate) fn picture_path(url: &str) -> Option<std::path::PathBuf> {
 /// whole into memory.
 const PICTURE_MAX_BYTES: u64 = 50 * 1024 * 1024;
 
-/// A picture the app can draw, there now: a regular file (not a device
-/// like /dev/zero, a pipe or a folder; a link is followed to what it
-/// names) with a picture's extension and at most PICTURE_MAX_BYTES.
+/// A picture the app can draw, there now: a raster picture file
+/// (`raster_file`) with a picture's extension.
 fn is_picture_file(path: &std::path::Path) -> bool {
     let kind = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
-    matches!(kind.as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff"))
-        && std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() <= PICTURE_MAX_BYTES)
+    matches!(kind.as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff")) && raster_file(path)
+}
+
+/// A regular file (not a device like /dev/zero, a pipe or a folder; a link
+/// is followed to what it names) of at most PICTURE_MAX_BYTES that starts
+/// as a PNG, JPEG, GIF, WebP, BMP or TIFF does. gpui's loader reads a path
+/// whole, and what it can't place as one of those it reads as an SVG, whose
+/// `<image href>` it then reads from the disk too, /dev/zero included
+/// (Codex's second look at Daybreak 95). Remembered by the file's size and
+/// time, as rows ask on every frame.
+fn raster_file(path: &std::path::Path) -> bool {
+    use std::io::Read as _;
+    use std::sync::{LazyLock, Mutex};
+    static SEEN: LazyLock<Mutex<std::collections::HashMap<(std::path::PathBuf, u64, Option<std::time::SystemTime>), bool>>> = LazyLock::new(Default::default);
+    let Ok(meta) = std::fs::metadata(path) else { return false };
+    if !meta.is_file() || meta.len() > PICTURE_MAX_BYTES {
+        return false;
+    }
+    let key = (path.to_owned(), meta.len(), meta.modified().ok());
+    if let Some(known) = SEEN.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return *known;
+    }
+    let mut head = [0u8; 12];
+    let read = std::fs::File::open(path).and_then(|mut f| {
+        let mut n = 0;
+        while n < head.len() {
+            match f.read(&mut head[n..])? {
+                0 => break,
+                got => n += got,
+            }
+        }
+        Ok(n)
+    });
+    let raster = read.is_ok_and(|n| raster_signature(&head[..n]));
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if seen.len() > 2000 {
+        seen.clear();
+    }
+    seen.insert(key, raster);
+    raster
+}
+
+/// The first bytes of the raster formats the app draws.
+fn raster_signature(head: &[u8]) -> bool {
+    head.starts_with(b"\x89PNG\r\n\x1a\n")
+        || head.starts_with(&[0xFF, 0xD8, 0xFF])
+        || head.starts_with(b"GIF87a")
+        || head.starts_with(b"GIF89a")
+        || (head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WEBP")
+        || head.starts_with(b"BM")
+        || head.starts_with(b"II*\0")
+        || head.starts_with(b"MM\0*")
 }
 
 /// The text view's pictures (`linked_text` gives every row's text view
@@ -174,14 +223,13 @@ fn is_picture_file(path: &std::path::Path) -> bool {
 /// `pictures` (an agent's message, a plan, a chip's link) reaches it too
 /// (Daybreak 95 and 102, 11 Nov 2026). Anything else draws nothing.
 /// A picture a transcript names, as the image loader may be handed it: the
-/// path when it's a regular file of at most PICTURE_MAX_BYTES, and an empty
+/// path when it's a raster picture file (`raster_file`), and an empty
 /// path (which draws nothing) for anything else. gpui's loader reads a path
 /// whole, and a review's shots, a tool's pictures or a message's can be
 /// another runner's word in a moved thread, naming /dev/zero (Codex's review
 /// of Daybreak 95). For every `img` of a path from a thread.
 pub(crate) fn picture_file(path: &str) -> std::path::PathBuf {
-    let regular = std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() <= PICTURE_MAX_BYTES);
-    if regular { path.into() } else { std::path::PathBuf::new() }
+    if raster_file(std::path::Path::new(path)) { path.into() } else { std::path::PathBuf::new() }
 }
 
 pub(crate) fn picture_source(uri: &gpui_kit::SharedUri, local: bool) -> gpui_kit::ImageSource {
@@ -465,7 +513,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tb-pictures-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let shot = dir.join("shot.png");
-        std::fs::write(&shot, b"not really a png, but there").unwrap();
+        std::fs::write(&shot, b"\x89PNG\r\n\x1a\n, a png's first bytes").unwrap();
         let reply = format!("![shot]({})", shot.display());
         assert_eq!(pictures(&reply, true), reply, "a picture on this Mac is drawn");
         assert!(pictures(&reply, false).starts_with("[\\[shot\\]]"), "another Mac's thread draws none from here");
@@ -488,7 +536,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tb-picture-source-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let shot = dir.join("shot.png");
-        std::fs::write(&shot, b"a png's bytes").unwrap();
+        std::fs::write(&shot, b"\x89PNG\r\n\x1a\n and the rest").unwrap();
         let shown = shot.to_string_lossy().into_owned();
         assert_eq!(source_path(&shown, true), shown, "a picture on this Mac's thread");
         assert_eq!(source_path(&["file://", shown.as_str()].concat(), true), shown);
@@ -516,6 +564,19 @@ mod tests {
         }
         for path in [&device, &folder, &big] {
             assert_eq!(super::picture_file(&path.to_string_lossy()), std::path::PathBuf::new(), "{path:?}");
+        }
+        // An SVG named as a picture, whose <image> would have the loader
+        // read /dev/zero, and text: neither starts as a picture does.
+        let svg = dir.join("payload.png");
+        std::fs::write(&svg, br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1" height="1"><image width="1" height="1" xlink:href="/dev/zero"/></svg>"#).unwrap();
+        let text = dir.join("notes.jpg");
+        std::fs::write(&text, b"hello").unwrap();
+        for path in [&svg, &text] {
+            assert_eq!(super::picture_file(&path.to_string_lossy()), std::path::PathBuf::new(), "{path:?}");
+            assert_eq!(source_path(&path.to_string_lossy(), true), "", "{path:?}");
+        }
+        for head in [&b"\xFF\xD8\xFF\xE0"[..], b"GIF89a..", b"RIFF\0\0\0\0WEBPVP8 ", b"BM....", b"II*\0", b"MM\0*"] {
+            assert!(super::raster_signature(head), "{head:?}");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -327,6 +327,48 @@ impl<V: Clone> PictureBudget<V> {
     }
 }
 
+/// The pictures handed to boxes in the frame being drawn. A reply's boxes
+/// are all laid out at once, so one reply with more than the budget's worth
+/// gets pictures in its first boxes and its source in the rest, and nothing
+/// handed out is let go until the frame's over: an image element still
+/// holding one would load it again, outside the budget (Codex's second look
+/// at Daybreak 92).
+#[derive(Default)]
+pub struct FrameBudget {
+    ids: std::collections::HashSet<u64>,
+    cost: usize,
+}
+
+impl FrameBudget {
+    /// Whether pictures `ids` costing `cost` may be drawn this frame: always
+    /// the first, and those already handed out.
+    pub fn hand_out(&mut self, ids: [u64; 2], cost: usize, budget: usize) -> bool {
+        if ids.iter().all(|id| self.ids.contains(id)) {
+            return true;
+        }
+        if self.cost > 0 && self.cost.saturating_add(cost) > budget {
+            return false;
+        }
+        self.cost = self.cost.saturating_add(cost);
+        self.ids.extend(ids);
+        true
+    }
+
+    pub fn holds(&self, id: u64) -> bool {
+        self.ids.contains(&id)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    /// The frame's over.
+    pub fn end(&mut self) {
+        self.ids.clear();
+        self.cost = 0;
+    }
+}
+
 /// What a PNG takes up in memory once drawn: its bytes, which the image
 /// keeps, and its pixels decoded at four bytes each, read from its header.
 /// Bytes that aren't a PNG count as four times their length.
@@ -431,6 +473,20 @@ mod tests {
         bytes.extend(height.to_be_bytes());
         bytes.resize(bytes.len() + extra, 0);
         bytes
+    }
+
+    #[test]
+    fn a_frame_hands_out_no_more_than_the_budget() {
+        let mut frame = FrameBudget::default();
+        assert!(frame.hand_out([1, 2], 500, 100), "the first always");
+        assert!(!frame.hand_out([3, 4], 1, 100), "nothing more past it");
+        assert!(frame.hand_out([1, 2], 500, 100), "the same again");
+        assert!(frame.holds(1) && !frame.holds(3));
+        frame.end();
+        assert!(frame.is_empty());
+        assert!(frame.hand_out([3, 4], 60, 100));
+        assert!(frame.hand_out([5, 6], 40, 100));
+        assert!(!frame.hand_out([7, 8], 1, 100));
     }
 
     #[test]

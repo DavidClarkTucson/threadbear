@@ -1379,7 +1379,10 @@ pub struct InlineRun {
     pub bold: bool,
     pub italic: bool,
     pub code: bool,
-    pub link: Option<String>,
+    /// Shared by every run of the link: a link's words in many styles would
+    /// otherwise copy its address once a run (Codex's second look at
+    /// Daybreak 93).
+    pub link: Option<std::sync::Arc<str>>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1464,9 +1467,9 @@ impl Marks {
     }
 }
 
-fn inline_push(out: &mut Vec<InlineRun>, text: &mut String, style: InlineStyle, code: bool, link: Option<&str>) {
+fn inline_push(out: &mut Vec<InlineRun>, text: &mut String, style: InlineStyle, code: bool, link: Option<&std::sync::Arc<str>>) {
     if !text.is_empty() {
-        out.push(InlineRun { text: std::mem::take(text), bold: style.bold, italic: style.italic, code, link: link.map(str::to_owned) });
+        out.push(InlineRun { text: std::mem::take(text), bold: style.bold, italic: style.italic, code, link: link.cloned() });
     }
 }
 
@@ -1513,7 +1516,7 @@ fn closing_ticks(c: &[char], from: usize, end: usize, ticks: usize) -> Option<us
 }
 
 #[allow(clippy::too_many_arguments)]
-fn inline_runs(c: &[char], marks: &Marks, mut i: usize, end: usize, style: InlineStyle, link: Option<&str>, depth: usize, out: &mut Vec<InlineRun>) {
+fn inline_runs(c: &[char], marks: &Marks, mut i: usize, end: usize, style: InlineStyle, link: Option<&std::sync::Arc<str>>, depth: usize, out: &mut Vec<InlineRun>) {
     let mut plain = String::new();
     // Delimiters whose closer wasn't found from somewhere in this range:
     // none is found from further on either.
@@ -1550,6 +1553,7 @@ fn inline_runs(c: &[char], marks: &Marks, mut i: usize, end: usize, style: Inlin
         if ch == '[' && link.is_none() && nests {
             if let Some((text_end, url, after)) = inline_link(c, marks, i, end) {
                 inline_push(out, &mut plain, style, false, link);
+                let url: std::sync::Arc<str> = url.into();
                 inline_runs(c, marks, i + 1, text_end, style, Some(&url), depth + 1, out);
                 i = after;
                 continue;
@@ -2374,7 +2378,7 @@ mod tests {
 
     fn old_inline_push(out: &mut Vec<InlineRun>, text: &mut String, style: InlineStyle, code: bool, link: Option<&str>) {
         if !text.is_empty() {
-            out.push(InlineRun { text: std::mem::take(text), bold: style.bold, italic: style.italic, code, link: link.map(str::to_owned) });
+            out.push(InlineRun { text: std::mem::take(text), bold: style.bold, italic: style.italic, code, link: link.map(Into::into) });
         }
     }
 
@@ -2536,6 +2540,7 @@ mod tests {
             "[a](x ".repeat(3400) + ")",
             "[a](".to_owned() + &" ".repeat(20_000) + ")",
             "[a](x".repeat(2000) + &" ".repeat(10_000) + ")",
+            format!("[{}]({})", "a *b* ".repeat(3000), "u".repeat(2000)),
         ];
         for note in &notes {
             let took = cpu_time_of(note);
@@ -2543,6 +2548,15 @@ mod tests {
         }
         // Words come back as written.
         assert_eq!(inline_markdown(&"[".repeat(20_000)), vec![plain(&"[".repeat(20_000))]);
+    }
+
+    /// A link's runs share its address rather than copying it each.
+    #[test]
+    fn a_links_runs_share_its_address() {
+        let runs = inline_markdown(&format!("[{}]({})", "a *b* ".repeat(50), "u".repeat(2000)));
+        let links: Vec<_> = runs.iter().filter_map(|r| r.link.clone()).collect();
+        assert!(links.len() > 50);
+        assert!(links.iter().all(|l| std::sync::Arc::ptr_eq(l, &links[0])));
     }
 
     /// Every short note over the delimiters reads as it did before.

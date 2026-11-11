@@ -516,17 +516,24 @@ built parsers and gates with no launch of the app, which is the trap.)
 - `picture_source`, the image loader's source for every row's text, checks
   the thread is this Mac's and the file a picture file of at most 50 MB
   (never a device or a folder), and an agent's message goes through
-  `pictures` as a reply does (95). The Swift app already drew no pictures
-  for another Mac's thread in any row.
+  `pictures` as a reply does (95). Every other picture a thread names (a
+  review's shots, a tool's pictures, a message's, a link's hover card)
+  goes through `picture_file`: a regular file of at most 50 MB that starts
+  as a PNG, JPEG, GIF, WebP, BMP or TIFF does, as gpui reads anything else
+  as an SVG, whose `<image>` it reads from the disk too. The Swift app
+  already drew no pictures for another Mac's thread in any row.
 - Rich blocks' pictures are kept by what they take up (160 MiB, the Swift
   app's `pictureBytes`; core's `PictureBudget`), not 120 by count, and the
-  ones that leave go from gpui's caches too: decoded pixels and textures
-  (92).
+  ones that leave go from gpui's caches too, at once: decoded pixels and
+  textures (92). A frame draws no more than the budget's worth
+  (`FrameBudget`): one reply with more shows the rest of its boxes as their
+  source, where the Swift app's cache would let them go and draw them again.
 - The review rail's inline markdown no longer searches to the end for each
   unmatched delimiter (93): 20,000 characters of backtick runs took 7.5 s
   and now take under 100 ms of CPU, with the same runs as before for every
   short note (a test checks 200,000 against the old parser). A review's
-  words are cut to what show_options takes as it's decoded, and the runner
+  words, shots and drafts are cut to what show_options takes as it's
+  decoded (from the record or a moved thread's events), and the runner
   cuts a moved thread's reviews as they arrive.
 - Files: `desktop/core/src/{thread_link,remote,chips,review,rich_block}.rs`,
   `desktop/core/src/reducer/{row_debug,event}.rs`, `desktop/core/tests/remote_ids_tests.rs`,
@@ -534,7 +541,12 @@ built parsers and gates with no launch of the app, which is the trap.)
   `app/Sources/ThreadbearCore/{ThreadLink,Protocol/RemoteThreads,Transcript/RowDebug}.swift`,
   `convex/{runnerAccess,sync,relay}.ts`, `runner/src/{thread-id,thread-index,reviews}.ts`,
   `runner/src/runner/moves.ts`.
-- Verification: VERIFICATION_PENDING
+- Verification: on `cloud` (Linux, Xvfb), `thread-chips.feature`,
+  `review.feature` and `message-chips.feature` on the GPUI app, 19 of 19;
+  core's tests (510) and the GPUI crate's (22), each new one checked to
+  fail with its fix taken out; the Swift app's build and tests on Tinker
+  Desk. The rich boxes' frame budget and release weren't run against CEF
+  (no web runtime on Linux, and this Mac is Mike's), only built and read.
 
 ### 2026-11-11 View > Collapse Threads, and threadbear:// links from outside (`menu.view`, `nav.deeplink`)
 

@@ -282,7 +282,7 @@ fn inline_note(id: impl Into<ElementId>, source: &str, color: Hsla, cwd: &str, c
         }
         runs.push(TextRun { len: run.text.len(), font: face, color: if run.link.is_some() { link_color } else { color }, background_color: None, underline: None, strikethrough: None });
         if let Some(url) = run.link {
-            links.push((start..text.len(), url));
+            links.push((start..text.len(), url.to_string()));
         }
     }
     let styled = StyledText::new(text).with_runs(runs);

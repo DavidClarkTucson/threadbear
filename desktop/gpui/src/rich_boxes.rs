@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use threadbear_core::rich_block::{self as rich, png_cost, PictureBudget, RichBlock, RichKind};
+use threadbear_core::rich_block::{self as rich, png_cost, FrameBudget, PictureBudget, RichBlock, RichKind};
 use threadbear_core::web_runtime::State;
 
 /// What the kit calls the box's nodes.
@@ -152,6 +152,10 @@ pub(crate) struct RichStore {
     /// The decoded pictures boxes have drawn, by image id, for `release` to
     /// drop their textures.
     textures: HashMap<u64, Arc<RenderImage>>,
+    /// The pictures handed to boxes in the frame being drawn (`FrameBudget`),
+    /// and whether the frame's end is waited for.
+    in_frame: FrameBudget,
+    frame_hooked: bool,
     queue: VecDeque<(String, RichBlock, u32)>,
     /// Asked for while the runtime couldn't draw them: asked again once it can.
     asked: HashSet<String>,
@@ -195,6 +199,8 @@ pub(crate) fn init(cx: &mut App) {
             pictures: PictureBudget::new(PictureBudget::<(Arc<Image>, Arc<Image>)>::BYTES),
             let_go: Vec::new(),
             textures: HashMap::new(),
+            in_frame: FrameBudget::default(),
+            frame_hooked: false,
             queue: VecDeque::new(),
             asked: HashSet::new(),
             busy: false,
@@ -346,11 +352,30 @@ impl RichStore {
             if self.pictures.values().any(|(dark, light)| dark.id() == picture.id() || light.id() == picture.id()) {
                 continue;
             }
+            // Drawn in this frame: let go once it's over (`end_frame`).
+            if self.in_frame.holds(picture.id()) {
+                self.let_go.push(picture);
+                continue;
+            }
             if let Some(texture) = self.textures.remove(&picture.id()) {
                 cx.defer(move |cx| cx.drop_image(texture, None));
             }
             picture.remove_asset(cx);
         }
+    }
+
+    /// A box's pictures for this frame, if they fit in what the frame's
+    /// boxes may take up together (the first always does).
+    fn hand_out(&mut self, pictures: &(Arc<Image>, Arc<Image>)) -> bool {
+        let cost = png_cost(&pictures.0.bytes).saturating_add(png_cost(&pictures.1.bytes));
+        self.in_frame.hand_out([pictures.0.id(), pictures.1.id()], cost, PictureBudget::<(Arc<Image>, Arc<Image>)>::BYTES)
+    }
+
+    /// The frame's drawn: what was let go during it goes now.
+    fn end_frame(&mut self, cx: &mut App) {
+        self.frame_hooked = false;
+        self.in_frame.end();
+        self.release(cx);
     }
 
     fn copy(&mut self, block: &RichBlock, cx: &mut Context<Self>) {
@@ -550,6 +575,15 @@ fn rich_box(block: &RichBlock, window: &mut Window, cx: &mut App) -> AnyElement 
         (Some(Drawing::Drawn { .. }), false) => store.update(cx, |s, cx| s.pictures(&key, cx)),
         _ => None,
     };
+    // Only as many as the frame's budget holds (`hand_out`); the rest show
+    // their source this frame.
+    let pictures = pictures.filter(|pair| store.update(cx, |s, _| s.hand_out(pair)));
+    // The frame's end, once a frame has handed any out.
+    let hook = store.update(cx, |s, _| !s.in_frame.is_empty() && !std::mem::replace(&mut s.frame_hooked, true));
+    if hook {
+        let store = store.clone();
+        window.on_next_frame(move |_, cx| store.update(cx, |s, cx| s.end_frame(cx)));
+    }
     let (fill, edge, hairline, secondary) = (style::code_background(cx), style::card_border(cx), style::hairline(cx), style::secondary_label(cx));
     let id = block.id.clone();
     let header = h_flex()
