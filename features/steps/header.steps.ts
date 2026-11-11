@@ -121,6 +121,10 @@ Then('the limit line starts {string}', async function (this: ThreadbearWorld, wo
   await this.until(`a limit line starting "${words}"`, (d) => d.limit?.text?.startsWith(words));
 });
 
+Then('the limit box carries on by itself', async function (this: ThreadbearWorld) {
+  await this.until('the limit box offering to carry on by itself, set to Yes', (d) => d.limit?.carryOn === 'Yes');
+});
+
 Then("the limit line's button says {string}", async function (this: ThreadbearWorld, title: string) {
   await this.until(`the limit line's button "${title}"`, (d) => d.limit?.button === title);
 });

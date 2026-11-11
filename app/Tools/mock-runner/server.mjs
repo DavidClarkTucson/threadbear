@@ -365,16 +365,6 @@ const BRUCE_FILES = {
 };
 const bruceModifiedAt = new Date(Date.now() - 3600_000).toISOString();
 if (!process.env.TB_MOCK_NO_REMOTE) addRemoteDemo();
-// One demo thread that has sat for three days with a librarian's recap, for
-// the recap box. Only when asked: it would move the thread down every list.
-if (process.env.TB_MOCK_QUIET) {
-  for (const s of threads.values()) {
-    const summary = s.summary ?? s;
-    if (summary.title !== 'Ship the beta to TestFlight') continue;
-    summary.lastActivityAt = new Date(Date.now() - 72 * 3_600_000).toISOString();
-    summary.recap = "Gets the first beta out to testers.\n- The build is uploaded and processing\n- Waiting on you to accept the agreement";
-  }
-}
 /** The schedules (docs/protocol.md, "Schedules"), soonest first. */
 let schedules = [];
 addDemoSchedules();
@@ -2701,23 +2691,23 @@ function membersOf(projectId) {
 /**
  * TB_MOCK_DECISIONS: cards of asks on three of the Threadbear project's idle
  * threads, as one-reply cards (options with what each does, the agent's pick),
- * each with the librarian's recap, for the projectDecisions experiment's
+ * each with a headline, for the projectDecisions experiment's
  * Decisions section (features/projects.feature, its screenshots).
  */
 function addDemoDecisions() {
   const cards = {
     demo_settings_tabs: {
-      minutesAgo: 35, recap: 'Renames the Settings tabs in the Mac app so each says what it holds.\n- General, Accounts and Advanced renamed',
+      minutesAgo: 35, line: 'Renames the Settings tabs in the Mac app so each says what it holds.',
       asks: [{ action: 'Call the Advanced tab "Machine" or "Runner"?', why: 'It holds the runner\'s folder, the check hosts and the logs.',
         options: ['Runner', 'Machine'], optionNotes: ['Matches the runner menu', ''], suggested: 0 }],
     },
     demo_sqlite_vs_files: {
-      minutesAgo: 60, recap: 'Weighs SQLite against plain files for the runner\'s thread store.\n- Benchmarks done: files win under 10k threads',
+      minutesAgo: 60, line: 'Weighs SQLite against plain files for the runner\'s thread store.',
       asks: [{ action: 'Keep plain files for now?', why: 'Files were faster for every size we have. SQLite only wins past about 10,000 threads.',
         options: ['Keep files', 'Move to SQLite'], optionNotes: ['Revisit at 5,000 threads', 'About two days of work'], suggested: 0 }],
     },
     demo_release_notes: {
-      minutesAgo: 180, recap: 'Drafts the release notes for 0.4 from this week\'s commits.\n- Draft written',
+      minutesAgo: 180, line: 'Drafts the release notes for 0.4 from this week\'s commits.',
       asks: [
         { action: 'Lead with projects or with the librarian?', options: ['Projects', 'The librarian'], suggested: 0 },
         { action: 'Mention the Windows build?', why: 'It runs, but nobody outside has tried it yet.', options: ['Not yet', 'As a preview'], suggested: 0 },
@@ -2730,7 +2720,7 @@ function addDemoDecisions() {
     const done = t.events.findLast((e) => e.type === 'turn.completed');
     if (done) Object.assign(done, { needs: 'you', asks: card.asks });
     Object.assign(t.summary, {
-      status: 'idle', needs: 'you', needsYou: true, asks: card.asks, asksSeq: done?.seq ?? t.summary.lastSeq, recap: card.recap,
+      status: 'idle', needs: 'you', needsYou: true, asks: card.asks, asksSeq: done?.seq ?? t.summary.lastSeq, preview: card.line,
       lastActivityAt: new Date(Date.now() - card.minutesAgo * 60_000).toISOString(),
     });
     // Waiting on Mike, not on a login with room.

@@ -141,7 +141,7 @@ impl Threadbear {
         if self.schedules_supported {
             let mut button = RailButton::new("rail-scheduled", "clock", "Scheduled", mode == SidebarMode::Scheduled);
             button.tip = self.shortcut_tip("Scheduled", ShortcutCommand::ShowScheduled);
-            button.badge = Some(self.active_schedule_count);
+            button.badge = Some(self.scheduled.active_count());
             views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Scheduled, cx), cx));
         }
         if self.projects_supported {
@@ -150,6 +150,8 @@ impl Threadbear {
             views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Projects, cx), cx));
             let mut button = RailButton::new("rail-librarian", "books.vertical", "Librarian", mode == SidebarMode::Librarian);
             button.tip = self.shortcut_tip("Librarian", ShortcutCommand::ShowLibrarian);
+            // The look under way and the ones waiting (`pendingCount`).
+            button.badge = self.librarian.status.as_ref().map(|s| s.pending_count());
             views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Librarian, cx), cx));
         }
         let usage_shown = self.dock.read(cx).controller.is_showing(shell::USAGE);
@@ -231,11 +233,11 @@ impl Threadbear {
         let mode = self.mode;
         let mut activity = vec![json!({ "title": "Threads", "badge": self.inbox_count(cx), "active": mode == SidebarMode::Inbox })];
         if self.schedules_supported {
-            activity.push(json!({ "title": "Scheduled", "badge": self.active_schedule_count, "active": mode == SidebarMode::Scheduled }));
+            activity.push(json!({ "title": "Scheduled", "badge": self.scheduled.active_count(), "active": mode == SidebarMode::Scheduled }));
         }
         if self.projects_supported {
             activity.push(json!({ "title": "Projects", "active": mode == SidebarMode::Projects }));
-            activity.push(json!({ "title": "Librarian", "active": mode == SidebarMode::Librarian }));
+            activity.push(json!({ "title": "Librarian", "badge": self.librarian.status.as_ref().map(|s| s.pending_count()), "active": mode == SidebarMode::Librarian }));
         }
         let mut right = vec![];
         if let Some(thread) = self.open_thread() {

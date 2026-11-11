@@ -1066,6 +1066,25 @@ while weekly limits come out about the same in most of their tests. Some apps
 change the label the SDK sends to get around it. Threadbear leaves the label
 as it is for now.
 
+## Standing instructions
+<!-- slug: instructions -->
+
+Settings > General > Instructions is for what every agent should always
+keep in mind: who you are, how you like things written, what you build
+with. Every new session gets it, on every login, Claude and Codex alike,
+and a chat that's already going hears a change before your next message,
+with a line in the thread saying so. It saves as you type; empty is none.
+A login's own `CLAUDE.md` or `AGENTS.md` still applies, and is the place
+for what's particular to that login or provider: this box is for what goes
+for all of them, without keeping several files in step.
+
+Only what you save in Settings counts. If anything else changes the file
+(an agent, say), no agent is given it, Threadbear warns you, and the box
+shows what the file holds so you can keep it or clear it. Agents can't
+change it for you, so ask one to draft some and paste them in yourself. On
+Full access an agent that goes after the runner's own key could still get
+past this, as it could with anything on your Mac.
+
 ## Keyboard shortcuts
 <!-- slug: keyboard -->
 

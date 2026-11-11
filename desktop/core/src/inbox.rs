@@ -39,6 +39,11 @@ pub struct ThreadSummary {
     pub starred_at: Option<String>,
     pub archived_at: Option<String>,
     pub waiting_for_room: Option<Value>,
+    /// Whether a turn that hits its login's limit waits for room and carries
+    /// on by itself: on unless Mike turned it off on the limit box, when the
+    /// runner sends `false` (and nothing otherwise).
+    #[serde(default = "carry_on_by_default")]
+    pub carry_on_at_reset: bool,
     pub waiting_for_network: Option<Value>,
     /// Kept as it came: the reducer reads its own `BackgroundTask` from these.
     pub background: Option<Vec<Value>>,
@@ -91,6 +96,10 @@ impl OpenAsk {
     pub fn where_text(&self) -> Option<String> {
         self.place.as_deref().filter(|w| !w.is_empty()).map(crate::sidebar::preview_plain)
     }
+}
+
+fn carry_on_by_default() -> bool {
+    true
 }
 
 /// One of a thread's projects (`ThreadProject`): who put it there, and the

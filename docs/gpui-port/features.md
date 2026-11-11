@@ -248,7 +248,6 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | ID | Feature | What it does | How in GPUI | Route | Size | Swift |
 |---|---|---|---|---|---|---|
 | `card.done` | Done card | Archive, Or carry on list, tick and ? | Drawn card with `TextView`. | build | M | `ComposerCard`, `RowRenderer` (`asksText`) |
-| `composer.recap` | Recap box | Above the message box on a thread quiet for 12 hours: what it's for, where it stands, × to put away | Drawn box from `recap`, same rule as `Recap.swift`. | build | S | `RecapBox` |
 | `card.needsyou` | Needs you card | Outlined asks, button rows | Drawn card with blocks for each ask, holding its thread identity (a security fix). | build | L | `ComposerCard`, `RowRenderer` |
 | `card.paging` | Paging | ‹ 1 of 3 ›, moves on after a pick | Drawn, with a slide from `Animation`. | build | S | `ComposerCard` (`CardDeck`) |
 | `card.collapse` | Collapse | Chevron to heading | Drawn. | build | S | `ComposerCard` (`CardCollapseButton`) |
@@ -460,7 +459,7 @@ Size is `none` throughout: the planning docs don't size these, and work the app 
 | `planned.exp.schedulechecks` | Schedule checks (`scheduleChecks`) | A shell check gates a schedule run | Agents write the `check` field, and `schedule.editor` must keep it on save (unverified how saves treat a missing field). | build | none | none |
 | `planned.exp.looseends` | Loose ends (`looseEnds`) | "Still open" and "Coming back" on the done card | Added sections in `card.done`. | build | none | none |
 | `planned.exp.replybuttons` | Reply buttons (`replyButtons`) | Pills in replies that agents create and update | `rich.replybuttons`, gated on the experiment. | build | none | none |
-| `planned.exp.instructions` | Standing instructions (`standingInstructions`) | A Settings box applied to every session | `settings.instructions`, gated on the experiment. | kit | none | none |
+| `planned.exp.instructions` | Standing instructions | A Settings box applied to every session (standard since 11 Nov) | `settings.instructions`. | kit | none | none |
 | `planned.exp.movetorunner` | Move to runner (`moveToRunner`) | Move a thread to another machine | `sidebar.move` plus the row menu and moving row, started only from the first Mac today. | build | none | none |
 | `planned.exp.acpagents` | ACP agents (`acpAgents`) | OpenCode and Cursor threads | Drive every provider choice from `ProviderInfo` rather than hardcoding two, and don't copy the web's `modelLabel`. | build | none | none |
 | `planned.exp.cardreviewer` | Card reviewer (`cardReviewer`) | Opus pre-reviews Auto cards | No new UI: a transcript note says "Allowed by the reviewer". | build | none | none |

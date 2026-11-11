@@ -193,7 +193,6 @@ data class PhoneThread(
     val woke: Woke? = null,
     val startedBy: StartedBy? = null,
     val asked: String? = null,
-    val recap: String? = null,
     val archivedAt: Instant? = null,
     val starredAt: Instant? = null,
     val costUsd: Double? = null,
@@ -262,7 +261,6 @@ data class PhoneThread(
                 StartedBy(kind, s.str("label") ?: "", s.str("icon"), s.str("why"))
             },
             asked = o.str("asked"),
-            recap = o.str("recap"),
             archivedAt = o.date("archivedAt"),
             starredAt = o.date("starredAt"),
             costUsd = o.num("costUsd"),

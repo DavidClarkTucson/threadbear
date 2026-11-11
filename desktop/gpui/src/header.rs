@@ -46,13 +46,22 @@ struct Banner {
     retry: bool,
 }
 
-/// The first of what `limit_advice` and `sign_in` say about the open thread.
+/// What `limit_advice` says about a thread at its limit (`LimitAdvice`), for
+/// the limit box at the top of its composer (composer.rs).
 pub(crate) struct LimitAdvice {
-    text: String,
-    target: Option<(String, String)>,
-    /// A pool thread waiting for room: it carries on by itself, so a quiet
-    /// clock rather than the red gauge, and the button pins it outside the pool.
-    waiting: bool,
+    pub(crate) text: String,
+    /// The login with the most room to switch to, and the button's words.
+    pub(crate) target: Option<(String, String)>,
+    /// A turn stopped at the limit (or the thread is waiting for room), so
+    /// there's something to carry on: the box offers to do it by itself.
+    /// Not for another Mac's thread, whose runner the setting can't reach
+    /// through the backend yet.
+    pub(crate) stopped: bool,
+    /// It's waiting, and carries on by itself at this time.
+    pub(crate) carries_on_at: Option<i64>,
+    /// Its pool will move it rather than wait for this login, so the switch
+    /// button pins it outside the pool.
+    pub(crate) pool: bool,
 }
 
 impl Threadbear {
@@ -60,7 +69,7 @@ impl Threadbear {
 
     /// The thread's title in the panel's bar, or a field while it's renamed.
     pub(crate) fn render_header_title(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let Some(thread) = self.open_thread().cloned().filter(|_| self.mode == SidebarMode::Inbox) else { return div().into_any_element() };
+        let Some(thread) = self.open_thread().cloned().filter(|_| self.home_page().is_none()) else { return div().into_any_element() };
         let faint = style::faint_text(cx);
         let secondary = style::secondary_text(cx);
         let hover = style::primary_opacity(cx, 0.06);
@@ -275,7 +284,7 @@ impl Threadbear {
     // The bar's buttons: back, forward, share, the ... menu.
 
     pub(crate) fn render_header_buttons(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let thread = self.open_thread().cloned().filter(|_| self.mode == SidebarMode::Inbox);
+        let thread = self.open_thread().cloned().filter(|_| self.home_page().is_none());
         let back = self.render_history_button(true, cx);
         let forward = self.render_history_button(false, cx);
         let share = thread.as_ref().filter(|_| self.website_url.is_some()).map(|t| self.render_share_button(t, cx));
@@ -471,9 +480,9 @@ impl Threadbear {
             column = column.child(self.render_error_banner(error, cx));
         }
         if let Some(thread) = &thread {
-            if let Some(advice) = self.limit_advice(thread, cx) {
-                column = column.child(self.render_limit_banner(thread, advice, cx));
-            }
+            // A thread at its limit says so in a box on its composer
+            // (composer.rs, `LimitBox`), not across the top: Mike's call on
+            // 10 Nov, as the bar read as an error and offered only the switch.
             if let Some(account) = self.sign_in_account(thread, cx) {
                 column = column.child(self.render_signin_banner(thread, account, cx));
             }
@@ -607,20 +616,20 @@ impl Threadbear {
         self.failed_on_account.retain(|id, _| known.contains(id));
     }
 
-    /// `limitAdvice`: when the open thread can't go on where it is, says so,
-    /// and where it could go instead.
-    fn limit_advice(&self, thread: &ThreadSummary, cx: &App) -> Option<LimitAdvice> {
+    /// `limitAdvice`: when a thread can't go on where it is, says so, and
+    /// where it could go instead.
+    pub(crate) fn limit_advice(&self, thread: &ThreadSummary, cx: &App) -> Option<LimitAdvice> {
         use threadbear_core::new_thread::{has_room, pool_logins, switch_target, switch_title, usage_of};
         let accounts = &self.logins.accounts;
         let target = switch_target(accounts, &thread.account_id).map(|a| (a.id.clone(), switch_title(a, accounts)));
+        let local = thread.runner_id.is_none();
         // A pool thread is the runner's to move: nothing while its pool has a
         // login with room, and when it carries on once it's waiting. The
         // button still offers a login outside the pool, which pins it there.
         if self.logins.uses_pools() {
             if let Some(pool) = thread.pool_id.as_deref().and_then(|id| self.logins.pool(id)) {
                 if let Some(until) = thread.waiting_for_room_until_ms() {
-                    let now = threadbear_core::sidebar::local_now();
-                    return Some(LimitAdvice { text: threadbear_core::sidebar::waiting_sentence(&pool.title, until, &now), target, waiting: true });
+                    return Some(LimitAdvice { text: format!("Every login in {} is out of room.", pool.title), target, stopped: local, carries_on_at: Some(until), pool: true });
                 }
                 if pool_logins(pool, accounts, None).into_iter().any(has_room) {
                     return None;
@@ -635,7 +644,9 @@ impl Threadbear {
         let failed_on_limit = thread.status == "error"
             && self.failed_on_account.get(&thread.id) == Some(&thread.account_id)
             && self.latest_completion(cx).is_some_and(|c| c.error_kind == Some(TurnErrorKind::UsageLimit));
-        if !blocked && !failed_on_limit {
+        // A pinned thread at its limit waits for its own login too.
+        let waiting = thread.waiting_for_room_until_ms();
+        if !blocked && !failed_on_limit && waiting.is_none() {
             return None;
         }
         let mut text = format!("{} has reached its limit", threadbear_core::logins::short_account_name(&thread.account_id, accounts));
@@ -649,42 +660,23 @@ impl Threadbear {
             }
         }
         text.push('.');
-        Some(LimitAdvice { text, target, waiting: false })
+        Some(LimitAdvice { text, target, stopped: local && (failed_on_limit || waiting.is_some()), carries_on_at: waiting, pool: thread.pool_id.is_some() && self.logins.uses_pools() })
+    }
+
+    /// The limit box's Carry on by itself (`setCarryOnAtReset`): shown at
+    /// once; the runner's answer says when it'll carry on.
+    pub(crate) fn set_carry_on_at_reset(&mut self, thread: &str, on: bool, cx: &mut Context<Self>) {
+        self.update_thread(thread, |t| t.carry_on_at_reset = on, json!({ "carryOnAtReset": on }), cx);
     }
 
     /// `limit` in the dump (`AppDump.LimitInfo`): the line's words and its button.
     #[cfg(feature = "automation")]
     pub(crate) fn limit_dump(&self, cx: &App) -> Value {
-        let Some(advice) = self.open_thread().and_then(|t| self.limit_advice(t, cx)) else { return Value::Null };
-        json!({ "text": advice.text, "button": advice.target.map(|(_, title)| limit_button_title(title, advice.waiting)) })
-    }
-
-    fn render_limit_banner(&mut self, thread: &ThreadSummary, advice: LimitAdvice, cx: &mut Context<Self>) -> AnyElement {
-        let red = cx.theme().danger;
-        let hairline = style::hairline(cx);
-        let id = thread.id.clone();
-        h_flex()
-            .flex_none()
-            .px(px(14.))
-            .py(px(7.))
-            .gap(px(8.))
-            .items_center()
-            .border_b_1()
-            .border_color(hairline)
-            .text_size(px(style::size::LABEL))
-            .child(if advice.waiting { icon("clock", 13., style::secondary_text(cx)) } else { icon("gauge.with.dots.needle.100percent", 13., red) })
-            .child({
-                let tip = advice.text.clone();
-                tipped!(div().id("limit-text").flex_1().min_w_0().truncate(), tip).child(advice.text)
-            })
-            .when_some(advice.target.map(|(account, title)| (account, limit_button_title(title, advice.waiting))), |s, (account, title)| {
-                s.child(
-                    tipped!(div().id("limit-switch").px(px(8.)).py(px(3.)).rounded(px(5.)).bg(style::primary_opacity(cx, 0.08)), "Carry on this thread on that account, from where it is")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.switch_account(&id, account.clone(), cx)))
-                        .child(title),
-                )
-            })
-            .into_any_element()
+        let Some(thread) = self.open_thread() else { return Value::Null };
+        let Some(advice) = self.limit_advice(thread, cx) else { return Value::Null };
+        // "Yes" or "No" when the box offers to carry on by itself.
+        let carry_on = advice.stopped.then(|| if thread.carry_on_at_reset { "Yes" } else { "No" });
+        json!({ "text": advice.text, "button": advice.target.map(|(_, title)| limit_button_title(title, advice.pool)), "carryOn": carry_on })
     }
 
     pub(crate) fn switch_account(&mut self, thread: &str, account: String, cx: &mut Context<Self>) {
@@ -981,7 +973,7 @@ impl Threadbear {
     /// The header as `dump` reports it (`ThreadHeader`).
     #[cfg(feature = "automation")]
     pub(crate) fn header_dump(&self) -> Option<Value> {
-        let t = self.open_thread().filter(|_| self.mode == SidebarMode::Inbox)?;
+        let t = self.open_thread().filter(|_| self.home_page().is_none())?;
         let back_to = self.can_go_back().then(|| self.destination(true)).flatten();
         let forward_to = self.can_go_forward().then(|| self.destination(false)).flatten();
         let back_key = self.shortcuts.key(ShortcutCommand::Back).map(|k| k.display());
@@ -1081,10 +1073,10 @@ fn project_face(icon: Option<crate::sidebar::ProjectIcon>, letter: SharedString,
     }
 }
 
-/// The limit line's button: "Switch to mike (78% left)", or "Pin to ..." on a
-/// pool thread waiting for room, as a login outside the pool pins it there.
-fn limit_button_title(title: String, waiting: bool) -> String {
-    if waiting {
+/// The limit box's button: "Switch to mike (78% left)", or "Pin to ..." on a
+/// pool thread, as a login outside the pool pins it there.
+pub(crate) fn limit_button_title(title: String, pool: bool) -> String {
+    if pool {
         title.replacen("Switch to", "Pin to", 1)
     } else {
         title

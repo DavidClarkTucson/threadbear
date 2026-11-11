@@ -2897,7 +2897,7 @@ test('runners.stats marks the figures wanted at most every 20 s, and is empty wh
 // four runners, 6 Nov), and a poll costs the same whatever they write.
 test("other runners' usage readings are read now, then every five minutes, without this runner's own, until sync stops", async () => {
   const got: unknown[][] = [];
-  const reading = (runnerId: string) => ({ runnerId, provider: 'claude', email: 'mike.cann@gmail.com', usage: { windows: [], readAt: '2026-11-06T00:00:00.000Z', source: 'live' } });
+  const reading = (runnerId: string) => ({ runnerId, provider: 'claude', email: 'mike@example.net', usage: { windows: [], readAt: '2026-11-06T00:00:00.000Z', source: 'live' } });
   const { h, sync, calls } = setup({
     answer: (fn) => (fn === 'sync:heartbeat' ? { apiVersion: BACKEND_API_VERSION } : fn === 'sync:sharedUsage' ? [reading('r1'), reading('bruce')] : null),
     extra: { sharedUsage: { setShared: (rows) => got.push(rows) } },

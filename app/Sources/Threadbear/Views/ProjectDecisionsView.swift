@@ -72,7 +72,7 @@ private struct DecisionCard: View {
                     Spacer(minLength: zoomed(8))
                     openButton
                 }
-                if let line = ProjectDecisions.recapLine(thread) {
+                if let line = ProjectDecisions.statusLine(thread) {
                     Text(line)
                         .font(.system(size: TypeScale.detail))
                         .foregroundStyle(.secondary)

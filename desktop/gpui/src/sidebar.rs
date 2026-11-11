@@ -189,6 +189,11 @@ pub(crate) enum MenuAction {
     /// Move to ▸ a runner, and Cancel Move once it's going (move_sheet.rs).
     MoveTo(String, String),
     CancelMove,
+    /// A schedule's row menu, by its id (scheduled.rs).
+    EditSchedule(String),
+    RunSchedule(String),
+    PauseSchedule(String, bool),
+    DeleteSchedule(String),
 }
 
 /// The sidebar's own state; the app holds one of these (`Threadbear::sidebar`).
@@ -257,28 +262,28 @@ impl SidebarState {
 /// The colours a frame of the sidebar uses, picked once (`cx.theme()` borrows
 /// the whole app, which the row listeners also need).
 #[derive(Clone, Copy)]
-struct Palette {
-    fg: Hsla,
-    secondary: Hsla,
-    faint: Hsla,
-    accent: Hsla,
-    failed: Hsla,
-    hover: Hsla,
-    selected: Hsla,
-    tile: Hsla,
-    tile_empty: Hsla,
-    tile_ring: Hsla,
-    hairline: Hsla,
-    field_fill: Hsla,
-    separator: Hsla,
-    icon_hover: Hsla,
-    icon_pressed: Hsla,
-    guide: Hsla,
-    skeleton: Hsla,
-    side: Hsla,
+pub(crate) struct Palette {
+    pub(crate) fg: Hsla,
+    pub(crate) secondary: Hsla,
+    pub(crate) faint: Hsla,
+    pub(crate) accent: Hsla,
+    pub(crate) failed: Hsla,
+    pub(crate) hover: Hsla,
+    pub(crate) selected: Hsla,
+    pub(crate) tile: Hsla,
+    pub(crate) tile_empty: Hsla,
+    pub(crate) tile_ring: Hsla,
+    pub(crate) hairline: Hsla,
+    pub(crate) field_fill: Hsla,
+    pub(crate) separator: Hsla,
+    pub(crate) icon_hover: Hsla,
+    pub(crate) icon_pressed: Hsla,
+    pub(crate) guide: Hsla,
+    pub(crate) skeleton: Hsla,
+    pub(crate) side: Hsla,
 }
 
-fn palette(cx: &App) -> Palette {
+pub(crate) fn palette(cx: &App) -> Palette {
     let theme = cx.theme();
     Palette {
         fg: theme.sidebar_foreground,
@@ -303,7 +308,7 @@ fn palette(cx: &App) -> Palette {
 }
 
 /// `SectionMetrics` etc: the sidebar's measurements at 100%.
-mod metrics {
+pub(crate) mod metrics {
     /// From the sidebar's edges to a row's highlight.
     pub const OUTER_INSET: f32 = 8.;
     /// Inside a row's highlight, left of its text: wider than the right side
@@ -316,16 +321,16 @@ mod metrics {
     pub const TRUNK: f32 = LEADING + 15.;
     pub const INDENT: f32 = 18.;
 }
-use metrics::*;
+pub(crate) use metrics::*;
 
 /// Under where a button was clicked, where a dropdown opens (`MenuAnchor`'s
 /// `below`), so the first item isn't under the pointer as the mouse lifts.
-fn below(position: Point<Pixels>) -> Point<Pixels> {
+pub(crate) fn below(position: Point<Pixels>) -> Point<Pixels> {
     point(position.x, position.y + px(12.))
 }
 
 /// An SF Symbol's icon, at a point size and in a colour.
-fn icon(name: &str, size: f32, color: Hsla) -> Icon {
+pub(crate) fn icon(name: &str, size: f32, color: Hsla) -> Icon {
     icons::symbol(name).with_size(px(size)).text_color(color)
 }
 
@@ -338,10 +343,11 @@ macro_rules! tipped {
         $el.id($id).test_support().aria_label(tip_text).tooltip(move |window, cx| Tooltip::new(shown.clone()).build(window, cx))
     }};
 }
+pub(crate) use tipped;
 
 /// `RowIconButtonStyle`: a 22 pt borderless icon button with its own faint
 /// hover square.
-fn icon_button(id: impl Into<ElementId>, symbol: Icon, tip: impl Into<SharedString>, p: &Palette, on_press: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> impl IntoElement {
+pub(crate) fn icon_button(id: impl Into<ElementId>, symbol: Icon, tip: impl Into<SharedString>, p: &Palette, on_press: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> impl IntoElement {
     let (hover, pressed, secondary, fg) = (p.icon_hover, p.icon_pressed, p.secondary, p.fg);
     tipped!(div().flex_none().size(px(22.)).rounded(px(5.)).flex().items_center().justify_center().hover(move |s| s.bg(hover).text_color(fg)).text_color(secondary), id, tip)
         .active(move |s| s.bg(pressed))
@@ -610,6 +616,10 @@ impl Threadbear {
             MenuAction::Runner(runner) => return self.choose_new_thread_runner(runner, true, cx),
             MenuAction::DefaultRunner(runner) => return self.set_default_runner(runner, cx),
             MenuAction::DraftFolder(folder) => return self.change_new_draft(&json!({ "cwd": folder }), cx),
+            MenuAction::EditSchedule(id) => return self.edit_schedule(&id, window, cx),
+            MenuAction::RunSchedule(id) => return self.run_schedule(id, cx),
+            MenuAction::PauseSchedule(id, paused) => return self.set_schedule_paused(id, paused, cx),
+            MenuAction::DeleteSchedule(id) => return self.delete_schedule(id, window, cx),
             _ => {}
         }
         let Some(id) = thread else { return };
@@ -657,7 +667,14 @@ impl Threadbear {
             MenuAction::ThreadProject { thread, add, remove } => self.set_thread_projects(thread, add, remove, cx),
             MenuAction::MoveTo(runner_id, runner_name) => self.open_move(crate::move_sheet::MoveRequest { thread_id: id, runner_id, runner_name }, window, cx),
             MenuAction::CancelMove => self.cancel_move(id, cx),
-            MenuAction::Sort(_) | MenuAction::Runner(_) | MenuAction::DefaultRunner(_) | MenuAction::DraftFolder(_) => {}
+            MenuAction::Sort(_)
+            | MenuAction::Runner(_)
+            | MenuAction::DefaultRunner(_)
+            | MenuAction::DraftFolder(_)
+            | MenuAction::EditSchedule(_)
+            | MenuAction::RunSchedule(_)
+            | MenuAction::PauseSchedule(..)
+            | MenuAction::DeleteSchedule(_) => {}
         }
         cx.notify();
     }
@@ -829,6 +846,9 @@ impl Threadbear {
                 this.update(cx, |this, cx| {
                     this.sidebar.project_icons = project_icons(&v["projects"]);
                     this.projects_supported = true;
+                    this.librarian.projects_made = crate::librarian::projects_made(&v["projects"]);
+                    // The librarian is part of projects, so it's asked after them.
+                    this.load_librarian(cx);
                     this.all_projects = crate::app::project_list(&v["projects"]);
                     this.sidebar.projects = project_briefs(&v["projects"]);
                     cx.notify();
@@ -959,14 +979,15 @@ impl Threadbear {
             old.read(cx).unsubscribe();
         }
         self.selected = None;
+        self.shows_home = false;
         self.note_navigation();
         self.new_thread.picks.project = None;
         self.new_thread.focus_pending = true;
         cx.notify();
     }
 
-    /// `SectionHeading`: a quiet divider with room above each group, folding
-    /// its rows away when clicked. Folded, it says how many.
+    /// An inbox heading: its symbol, folding the section, and the Inbox's
+    /// sort button at its end.
     fn render_heading(&mut self, key: &'static str, title: &'static str, count: usize, folded: bool, searching: bool, p: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let symbol = match key {
             "starred" => "star",
@@ -975,10 +996,37 @@ impl Threadbear {
             "hibernating" => "moon.zzz",
             _ => "archivebox",
         };
+        let trailing = (key == "inbox").then(|| self.render_sort_button(p, cx).into_any_element());
+        self.section_heading(
+            key,
+            title,
+            symbol,
+            count,
+            folded,
+            !searching,
+            trailing,
+            p,
+            move |this, cx| {
+                if !this.folded.remove(key) {
+                    this.folded.insert(key);
+                }
+                this.sidebar_settings_changed(cx);
+            },
+            cx,
+        )
+    }
+
+    /// `SectionHeading`: a quiet divider with room above each group, folding
+    /// its rows away when clicked (unless `foldable` is false, as while
+    /// searching). Folded, it says how many. The Scheduled list's headings
+    /// are these too (scheduled.rs).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn section_heading(&mut self, key: &str, title: &str, symbol: &'static str, count: usize, folded: bool, foldable: bool, trailing: Option<AnyElement>, p: &Palette, on_toggle: impl Fn(&mut Threadbear, &mut Context<Threadbear>) + 'static, cx: &mut Context<Self>) -> AnyElement {
         let group = SharedString::from(format!("heading-{key}"));
         let (fg, secondary, faint, hairline) = (p.fg, p.secondary, p.faint, p.hairline);
         let chevron_group = group.clone();
         let hover_group = group.clone();
+        let title = SharedString::from(title.to_owned());
         let label = h_flex()
             .group(group.clone())
             .flex_1()
@@ -989,16 +1037,16 @@ impl Threadbear {
             .pb(px(6.))
             .items_center()
             .child(icon(symbol, 11., secondary).flex_none())
-            .child(div().flex_none().text_size(px(style::size::SIDEBAR_HEADING)).line_height(px(16.)).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(title))
+            .child(div().flex_none().text_size(px(style::size::SIDEBAR_HEADING)).line_height(px(16.)).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(title.clone()))
             .child(div().flex_1().min_w_0().h(px(1.)).mx(px(4.)).bg(hairline))
             .when(folded && count > 0, |s| s.child(div().flex_none().text_size(px(style::size::SIDEBAR_META)).text_color(faint).child(count.to_string())))
-            .when(!searching, |s| {
+            .when(foldable, |s| {
                 s.child(div().flex_none().when(!folded, |d| d.invisible()).group_hover(chevron_group, |d| d.visible()).child(icon(if folded { "chevron.right" } else { "chevron.down" }, 9., faint)))
             });
         h_flex()
             .pr(px(TRAILING))
             .items_center()
-            .child(if searching {
+            .child(if !foldable {
                 label.into_any_element()
             } else {
                 // The padding is inside the fold button, so the whole band
@@ -1006,16 +1054,14 @@ impl Threadbear {
                 let tip = if folded { format!("Show {title}") } else { format!("Hide {title}") };
                 tipped!(div().flex_1().min_w_0(), SharedString::from(format!("fold-{key}")), tip)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if !this.folded.remove(key) {
-                            this.folded.insert(key);
-                        }
-                        this.sidebar_settings_changed(cx);
+                        on_toggle(this, cx);
                         cx.notify();
                     }))
                     .child(label)
                     .into_any_element()
             })
-            .when(key == "inbox", |s| s.child(self.render_sort_button(p, cx)))
+            .children(trailing)
+            .into_any_element()
     }
 
     /// `InboxOrderMenu`: the sort button at the end of the Inbox heading.
@@ -1581,7 +1627,12 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
     };
     match name {
         "hover" => {
-            let id = cmd["id"].as_str().map(|id| app.read(cx).thread_id_from(id)).transpose()?;
+            // A schedule's row in the Scheduled view, by its id; else a thread.
+            let id = match cmd["id"].as_str() {
+                Some(id) if app.read(cx).schedule(id).is_some() => Some(id.to_owned()),
+                Some(id) => Some(app.read(cx).thread_id_from(id)?),
+                None => None,
+            };
             app.update(cx, |t, cx| {
                 t.sidebar.hover_override = id.clone();
                 cx.notify();

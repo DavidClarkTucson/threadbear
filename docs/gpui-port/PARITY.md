@@ -11,9 +11,9 @@ The full list of features is [features.md](features.md).
 
 <!-- parity:start -->
 
-114 of 329 features have a spec so far, across 202 scenarios.
+119 of 329 features have a spec so far, across 217 scenarios.
 
-Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linux: 193 of 202.
+Scenarios passing: Swift: 206 of 217, Mac: 205 of 217, Windows: 192 of 217, Linux: 205 of 217.
 
 
 ### 0. Foundations everything else needs
@@ -128,7 +128,6 @@ Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linu
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `card.done` Done card | pass | pass | pass | pass |
-| `composer.recap` Recap box | pass | pending | pending | pending |
 | `card.needsyou` Needs you card | pass | pass | pass | pass |
 | `card.collapse` Collapse | pass | pass | pass | pass |
 | `card.somethingelse` Something else box | pass | pass | pass | pass |
@@ -180,11 +179,22 @@ Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linu
 | `cards.run` Run on the card | pending | pending | pending | pending |
 | `terminal.putcommand` Put a command in the Terminal | pending | pending | pending | pending |
 
+### 14. Projects, Librarian, Schedules, Usage, Runners, Connectors, Updates
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `projects.decisions` Decisions on the Projects page | pass | pending | pending | pending |
+| `librarian.page` Librarian page | pass | pass | pending | pass |
+| `librarian.log` Librarian log | pass | pass | pending | pass |
+| `schedule.page` Scheduled page | pass | pass | pending | pass |
+| `schedule.list` Scheduled list | pass | pass | pending | pass |
+| `schedule.editor` Schedule editor | pass | pass | pending | pass |
+
 ### 17. Navigation, shortcuts, main menu
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `nav.history` Back/forward history | partly | pass | pass | pass |
+| `nav.history` Back/forward history | partly | pass | partly | pass |
 | `nav.sidebuttons` Mouse side buttons | pass | pass | pass | pass |
 | `nav.nextinbox` Next Inbox Thread | pass | pass | pass | pass |
 | `menu.app` App menu | pass | pass | pass | pass |
@@ -203,6 +213,108 @@ One entry a slice, newest first. Every entry has a `Verification:` line: a spec
 run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
+
+### 2026-11-11 The Librarian view and its page (`librarian.log`, `librarian.page`, `librarian.picture`)
+
+- Librarian in the activity bar (with its count of looks under way and
+  waiting) opens the view in the sidebar and its page beside it, as in the
+  Swift app. The view: what it's doing, with its mark in the rows' gutter (a
+  spinner while it works), the look under way and when it started, today's
+  looks, skips and tokens, Pause or Resume (shown at once, put back if the
+  runner says no) and Look at everything (spins until the looks are
+  queued); then Next, each look's thread (which opens), why and when; and
+  Recent, what each look did, to which thread and projects, coloured by how
+  it went, with why it filed the thread in its tooltip.
+- The page: the bear at its card catalogue, the title with its ⓘ, what
+  it's doing, the six tiles (LibrarianStats, ported to desktop/core with the
+  status model and its words), then its settings: Look at threads, and
+  Runs on, the pool whose Claude logins it uses (the runner's small-jobs
+  setting, `settings.update { models: { pool } }`), and More in Settings.
+  The app now keeps the runner's settings (`settings.get`, then
+  `settings.updated`) for that, and for the Settings window to come.
+- The Scheduled and Librarian pages share one page (desktop/gpui/src/
+  home_page.rs): the picture, what it says when poked, the title and ⓘ, the
+  status line and the tiles.
+- A project's name in a Recent row is plain words for now, as a project's
+  page isn't in this app yet.
+- Both apps' dumps give the page's status and tiles (`homePage`) and the
+  librarian's state in words (`librarian`).
+- Verification: librarian.feature's 3 scenarios with scheduled.feature and
+  header.feature on Linux and on Tinker Desk against both apps (24 of 24
+  each; both apps' tiles agree, Projects it made and Threads it filed
+  included); the view and page side by side in both apps.
+
+### 2026-11-11 The limit box on the composer (`banner.limit`)
+
+- The Swift app moved a thread at its limit from a bar across the top of
+  the thread into a box at the top of its message field (ae80b80b, Mike's
+  call on 10 Nov), after the last full run, so its `banner.limit` scenario
+  failed there while the GPUI app still drew the bar. The GPUI app has the
+  box now: what happened, and when it carries on by itself ("Carries on by
+  itself at 11:06 am."), with a clock while it waits and the red gauge
+  otherwise; Switch to (a pool thread's Pin to) the login with the most
+  room; and Carry on by itself, Yes or No (`threads.update
+  carryOnAtReset`), for a turn that stopped at the limit on this Mac.
+- A pinned thread waiting for its own login (`waitingForRoom` without a
+  pool, also new on 10 Nov) gets the box too.
+- Both dumps say what the box offers (`limit.carryOn`), and the scenario
+  checks it.
+- Verification: header.feature on Linux and on Tinker Desk against both
+  apps (12 of 12 each); the thread side by side in both apps (compare.ts).
+
+### 2026-11-11 The Scheduled view, its page and the editor (`schedule.list`, `schedule.page`, `schedule.editor`)
+
+- Scheduled in the activity bar opens the list in the sidebar and its page in
+  the main panel, as in the Swift app. The list has Active, Paused and Done
+  headings that fold (Done starts folded; saved as
+  `collapsedScheduleSections`). A row says when it runs next (or Paused,
+  Done), when it runs, the other Mac it runs on, and where it sends: a link to
+  that thread, or to the last one it started. Under that, a last run that
+  didn't send, or another Mac's Run now still waiting.
+- On hover: Run now (a spinner until the runner answers), Pause or Resume
+  (shown at once, put back if the runner says no) and Delete (asks first,
+  gone at once, back if refused). The right-click menu has the same, with
+  Edit.
+- The page: the bear winding its alarm clock (built into the app), the title
+  with its ⓘ, what's next and the six tiles (`ScheduledStats`); the picture
+  says something when it's poked. Its wobble isn't here yet.
+- The editor (`ScheduleEditor`): the message, a title, Once (a date and time)
+  or Repeat (presets that are only cron underneath, or a cron of its own),
+  and under it what the runner makes of that as it changes
+  (`schedules.preview`, a quarter of a second after the last change). Then
+  Sends to, Runs on (another Mac's folder is typed as a path there), Folder,
+  and Model and Effort from the login it runs on (`ScheduleModels`, ported
+  to desktop/core). Delete asks over the sheet and closes both.
+- Picking a thread (a schedule's target) puts the thread back in place of
+  the page and leaves the list as it is; Back and Forward remember the page.
+- Both apps' dumps say what a schedule's row shows, the page in place of the
+  thread (`homePage`) and the editor as it was opened (`scheduleEditor`). The
+  GPUI app takes the Swift app's `schedule` and `close-schedule` commands,
+  and its `select` now picks a thread without leaving the view, as Swift's
+  does.
+- Schedule… in a composer's + menu opens the editor on the box's words and
+  its thread (the new-thread box's: a new thread each time on its folder,
+  login and model), and they leave the box once it's saved. Pictures are
+  chips in the GPUI box's text, so a box with any is left as it is, and the
+  editor says so.
+- Codex's review found five things, all fixed: an editor opened before this
+  Mac's runner was known saved another Mac's schedule with this Mac's
+  folder and models (it's now taken to be the other Mac's until known); a
+  Run now or Pause answered after the schedule was deleted brought its row
+  back (fixed in the Swift app too: only a new schedule's reply adds a
+  row); Back to a page recorded the thread behind it as a step, which cut
+  off Forward (a scenario now covers it, on both apps); Save's answer could
+  close Delete's question instead of the editor (Delete is off while
+  saving, and only the editor that saved closes); and a page's place in
+  the history needed the thread behind it to still exist. Its second look
+  found Back to such a page then recorded it as a new place, trapping Back
+  there; a place put back now settles into its own entry, keeping Forward.
+- Remaining: Schedule… from Send's right-click menu
+  (`composer.schedulefromsend`), the header's schedule chip, the picture's
+  wobble, Return in the message box saving.
+- Verification: scheduled.feature's 9 scenarios on Linux, and on Tinker Desk
+  against both apps; pictures of both apps' list, page and editor side by
+  side (the spacing was brought in to match after the first pair).
 
 ### 2026-11-10 One gate for opening links and files (Daybreak 58, 59, 63, 64, 67)
 

@@ -28,7 +28,7 @@ const SHOWN = {
 
 // Things of Mike's that a stranger's copy must never show, whatever SHOWN
 // says, so a careless update to SHOWN still fails.
-const MIKES = [/mikec\.sentry\.io/, /appstoreconnect\.apple\.com/, /~\/dev\/me\//, /\/Users\/m5-mike/, /mikecann@|mike@cannstudios/];
+const MIKES = [/mikec\.sentry\.io/, /appstoreconnect\.apple\.com/, /~\/dev\/me\//, /\/Users\/m5-mike/, /mikecann@|mike@studio/];
 
 test("a fork's own patches show nothing of Mike's", async () => {
   const home = tmpDir();
@@ -105,7 +105,7 @@ test('strings shown or sent in a fork only name Mike where he is meant', () => {
 // a comment, in every folder whose text reaches a person or an agent, not
 // just quoted text. Rust stops at its #[cfg(test)] module; tests and
 // fixtures elsewhere aren't scanned.
-const MIKES_OWN = /\b(bruce|tinker-desk|Tinker Desk|the Pixel)\b|HEAD:cloud\/|[\w.+-]+@(gmail\.com|gangbusters\.io|convex\.dev)\b/i;
+const MIKES_OWN = /\b(bruce|tinker-desk|Tinker Desk|the Pixel)\b|HEAD:cloud\/|[\w.+-]+@(gmail\.com|org\.io|convex\.dev)\b/i;
 
 test("text that runs in a fork names none of Mike's machines or addresses", () => {
   const files = [

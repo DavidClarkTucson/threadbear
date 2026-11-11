@@ -318,16 +318,15 @@ fn waiting_time<Tz: TimeZone>(until_ms: i64, now: &DateTime<Tz>) -> String {
     }
 }
 
-/// The open thread's line while it waits: "Every login in Evenings is out of
-/// room. It carries on by itself at 5:25 pm." (`Pools.waitingSentence`).
-pub fn waiting_sentence<Tz: TimeZone>(pool_title: &str, until_ms: i64, now: &DateTime<Tz>) -> String {
-    let start = format!("Every login in {pool_title} is out of room. ");
-    if until_ms <= now.timestamp_millis() {
-        return start + "It carries on any moment now.";
-    }
-    match waiting_parts(until_ms, now) {
-        (Some(day), clock_text) => format!("{start}It carries on by itself {day} at {clock_text}."),
-        (None, clock_text) => format!("{start}It carries on by itself at {clock_text}."),
+/// When the limit box says a thread carries on by itself: "at 4:41 pm",
+/// "tomorrow 5:00 am" (a day goes without the "at", which read badly), or
+/// "any moment now" once it's passed (`LimitBox.when`).
+pub fn carries_on_when<Tz: TimeZone>(until_ms: i64, now: &DateTime<Tz>) -> String {
+    let time = waiting_time(until_ms, now);
+    if time.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("at {time}")
+    } else {
+        time
     }
 }
 
@@ -951,9 +950,9 @@ mod tests {
         assert_eq!(waiting_line(ms("2026-11-10T05:00:00+11:00"), &now), "Waiting for room · tomorrow 5:00 am");
         assert_eq!(waiting_line(ms("2026-11-12T05:00:00+11:00"), &now), "Waiting for room · Thu 5:00 am");
         assert_eq!(waiting_line(ms("2026-11-09T19:00:00+11:00"), &now), "Waiting for room · any moment now");
-        assert_eq!(waiting_sentence("Evenings", ms("2026-11-09T21:25:00+11:00"), &now), "Every login in Evenings is out of room. It carries on by itself at 9:25 pm.");
-        assert_eq!(waiting_sentence("Evenings", ms("2026-11-10T05:00:00+11:00"), &now), "Every login in Evenings is out of room. It carries on by itself tomorrow at 5:00 am.");
-        assert_eq!(waiting_sentence("Evenings", ms("2026-11-09T19:00:00+11:00"), &now), "Every login in Evenings is out of room. It carries on any moment now.");
+        assert_eq!(carries_on_when(ms("2026-11-09T21:25:00+11:00"), &now), "at 9:25 pm");
+        assert_eq!(carries_on_when(ms("2026-11-10T05:00:00+11:00"), &now), "tomorrow 5:00 am");
+        assert_eq!(carries_on_when(ms("2026-11-09T19:00:00+11:00"), &now), "any moment now");
     }
 
     #[test]

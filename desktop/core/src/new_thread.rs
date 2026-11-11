@@ -812,7 +812,7 @@ mod tests {
         RunnerLogins::from_hello(&json!({
             "accounts": [
                 { "id": "claude-main", "provider": "claude", "email": "mike@gmail.com", "usage": usage(52.0, 67.0) },
-                { "id": "claude-2", "provider": "claude", "email": "mike@convex.dev", "note": "Convex work only", "usage": usage(90.0, 90.0) },
+                { "id": "claude-2", "provider": "claude", "email": "mike@work.example", "note": "Convex work only", "usage": usage(90.0, 90.0) },
                 { "id": "claude-3", "provider": "claude", "email": "mike@bearworks.io", "usage": usage(20.0, 88.0) },
                 { "id": "codex-main", "provider": "codex", "title": "Codex · sam@example.com" }
             ],
@@ -1050,7 +1050,7 @@ mod tests {
         assert_eq!(account_label("claude-main", &l.accounts), "gmail");
         assert_eq!(account_label("claude-3", &l.accounts), "bearworks");
         assert_eq!(account_label("codex-main", &l.accounts), "Codex");
-        assert_eq!(login_name("claude-2", &l.accounts), "convex");
+        assert_eq!(login_name("claude-2", &l.accounts), "work");
     }
 
     #[test]

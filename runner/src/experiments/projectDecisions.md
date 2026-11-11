@@ -13,7 +13,7 @@ Every question your threads are waiting on you for, gathered by project. On the 
 
 ## Lives in
 
-`app/Sources/ThreadbearCore/Threads/ProjectDecisions.swift` (which threads, the counts, the line on what each is doing), `decisions` in `ProjectCardStatus` (`ProjectCards.swift`); the Decisions section and its cards in `app/Sources/Threadbear/Views/ProjectDecisionsView.swift`, shown from `ProjectPage.swift`, the counts in `ProjectsHome.swift` and `ProjectsList.swift`; `pickDecision`, `sendDecision` and `decisionSends` in `AppModel+ThreadActions.swift` and `AppModel.swift`. The app learns it's on from `hello`'s `experiments`. The runner keeps nothing of its own for it: thread summaries already carry their asks, the line comes from the recap (with the recap box experiment on) or the thread's latest headline, and answers are an ordinary `threads.send`.
+`app/Sources/ThreadbearCore/Threads/ProjectDecisions.swift` (which threads, the counts, the line on what each is doing), `decisions` in `ProjectCardStatus` (`ProjectCards.swift`); the Decisions section and its cards in `app/Sources/Threadbear/Views/ProjectDecisionsView.swift`, shown from `ProjectPage.swift`, the counts in `ProjectsHome.swift` and `ProjectsList.swift`; `pickDecision`, `sendDecision` and `decisionSends` in `AppModel+ThreadActions.swift` and `AppModel.swift`. The app learns it's on from `hello`'s `experiments`. The runner keeps nothing of its own for it: thread summaries already carry their asks, the line is the thread's latest headline, and answers are an ordinary `threads.send`.
 
 ## Taking it out
 

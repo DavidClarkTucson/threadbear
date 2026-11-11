@@ -57,6 +57,8 @@ impl SidebarMode {
 pub(crate) struct NavPlace {
     pub(crate) mode: SidebarMode,
     pub(crate) thread: Option<String>,
+    /// The mode's page was in the main panel (`scheduledHome` etc.).
+    pub(crate) home: bool,
 }
 
 /// "Archived" and the thread's name, floating over the main panel with Undo
@@ -324,7 +326,7 @@ impl Threadbear {
 
     /// `WindowDock.title(of: .main)` and the window's own title.
     pub(crate) fn main_panel_title(&self) -> String {
-        match self.mode {
+        match self.home_page().unwrap_or(SidebarMode::Inbox) {
             SidebarMode::Projects => "Projects".into(),
             SidebarMode::Librarian => "Librarian".into(),
             SidebarMode::Scheduled => "Scheduled".into(),
@@ -624,28 +626,45 @@ impl Threadbear {
 
     /// `app.sidebarMode = ...` and the pages' `showProjects()` etc.: the view
     /// on show, recorded for back and forward.
+    /// The Scheduled, Projects and Librarian buttons open their page in the
+    /// main panel too (`showSchedules`); picking a thread puts the thread back.
     pub(crate) fn set_mode(&mut self, mode: SidebarMode, cx: &mut Context<Self>) {
-        if self.mode != mode {
+        let home = mode != SidebarMode::Inbox;
+        if self.mode != mode || self.shows_home != home {
             self.mode = mode;
+            self.shows_home = home;
             self.note_navigation();
         }
         cx.notify();
     }
 
+    /// The page in the main panel in place of the thread, if one is.
+    pub(crate) fn home_page(&self) -> Option<SidebarMode> {
+        (self.shows_home && self.mode != SidebarMode::Inbox).then_some(self.mode)
+    }
+
     // Back and forward (Navigation.swift).
 
     fn place(&self) -> NavPlace {
-        NavPlace { mode: self.mode, thread: self.selected.clone() }
+        NavPlace { mode: self.mode, thread: self.selected.clone(), home: self.home_page().is_some() }
     }
 
-    /// `noteNavigation`: one step per place the window has been.
+    /// `noteNavigation`: one step per place the window has been. Not while
+    /// Back or Forward is putting a place back: the steps on the way (the
+    /// thread opened before its page goes back over it) aren't places, and
+    /// recording one cut off the history ahead.
     pub(crate) fn note_navigation(&mut self) {
+        if self.restoring_place {
+            return;
+        }
         let place = self.place();
         self.history.record(place);
     }
 
+    /// A place can be gone back to while what it showed is still there: its
+    /// thread, unless a page was over it (the thread behind a page can go).
     fn can_show(&self, place: &NavPlace) -> bool {
-        place.thread.as_ref().is_none_or(|id| self.threads.contains_key(id))
+        place.home || place.thread.as_ref().is_none_or(|id| self.threads.contains_key(id))
     }
 
     pub(crate) fn can_go_back(&self) -> bool {
@@ -658,14 +677,14 @@ impl Threadbear {
 
     pub(crate) fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let threads = self.threads.keys().cloned().collect::<std::collections::HashSet<_>>();
-        if let Some(place) = self.history.back(|p| p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
+        if let Some(place) = self.history.back(|p| p.home || p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
             self.show_place(place, window, cx);
         }
     }
 
     pub(crate) fn go_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let threads = self.threads.keys().cloned().collect::<std::collections::HashSet<_>>();
-        if let Some(place) = self.history.forward(|p| p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
+        if let Some(place) = self.history.forward(|p| p.home || p.thread.as_ref().is_none_or(|id| threads.contains(id))) {
             self.show_place(place, window, cx);
         }
     }
@@ -673,29 +692,38 @@ impl Threadbear {
     /// Puts the window back at `place`; the history already moved, so the step
     /// this records is where it is now and adds nothing.
     fn show_place(&mut self, place: NavPlace, window: &mut Window, cx: &mut Context<Self>) {
+        self.restoring_place = true;
         self.mode = place.mode;
-        match place.thread {
+        // A page's thread behind it may have gone since.
+        match place.thread.filter(|id| self.threads.contains_key(id)) {
             Some(id) => self.open(id, window, cx),
             None => {
                 self.select_none(cx);
             }
         }
-        self.note_navigation();
+        // After the thread: opening one takes a page away.
+        self.shows_home = place.home;
+        self.restoring_place = false;
+        // What's showing is that entry now, even if it couldn't be shown just
+        // as it was (the thread behind a page has gone): put in its place,
+        // keeping Forward, rather than recorded as somewhere new.
+        let now = self.place();
+        self.history.settle_current(now);
         cx.notify();
     }
 
     /// Where Back or Forward would go, named for its tooltip (`destination`).
     pub(crate) fn destination(&self, back: bool) -> Option<String> {
         let place = self.history.peek(back, |p| self.can_show(p))?;
-        Some(match place.thread.and_then(|id| self.threads.get(&id).cloned()) {
-            Some(t) if t.title.is_empty() => "Untitled".to_string(),
-            Some(t) => t.title,
-            None => match place.mode {
-                SidebarMode::Inbox => "New thread".to_string(),
-                SidebarMode::Scheduled => "Scheduled".to_string(),
-                SidebarMode::Projects => "Projects".to_string(),
-                SidebarMode::Librarian => "Librarian".to_string(),
-            },
+        // A page is named for itself; otherwise the thread, or the new-thread page.
+        let page = place.home.then_some(place.mode).filter(|m| *m != SidebarMode::Inbox);
+        Some(match (page, place.thread.and_then(|id| self.threads.get(&id).cloned())) {
+            (Some(SidebarMode::Scheduled), _) => "Scheduled".to_string(),
+            (Some(SidebarMode::Projects), _) => "Projects".to_string(),
+            (Some(_), _) => "Librarian".to_string(),
+            (None, Some(t)) if t.title.is_empty() => "Untitled".to_string(),
+            (None, Some(t)) => t.title,
+            (None, None) => "New thread".to_string(),
         })
     }
 
@@ -1075,13 +1103,15 @@ impl Threadbear {
     pub(crate) fn render_threads_panel(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match self.mode {
             SidebarMode::Inbox => self.render_sidebar(cx).into_any_element(),
+            SidebarMode::Scheduled => self.render_scheduled_list(cx),
+            SidebarMode::Librarian => self.render_librarian_list(cx),
             other => self.render_mode_sidebar(other, cx).into_any_element(),
         }
     }
 
-    /// The Scheduled, Projects and Librarian views aren't in this app yet
-    /// (their rows are the next stages of the port): their place in the
-    /// sidebar says so plainly, so the rail and the keys already work.
+    /// The Projects view isn't in this app yet (its rows are the next stage
+    /// of the port): its place in the sidebar says so plainly, so the rail
+    /// and the keys already work.
     fn render_mode_sidebar(&mut self, mode: SidebarMode, cx: &mut Context<Self>) -> impl IntoElement {
         let title = match mode {
             SidebarMode::Scheduled => "Scheduled",
@@ -1095,16 +1125,13 @@ impl Threadbear {
     /// The main panel: banners over the thread, the notes floating over it.
     fn render_main_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
-        let page = match self.mode {
-            SidebarMode::Inbox => None,
-            SidebarMode::Scheduled => Some("Scheduled"),
-            SidebarMode::Projects => Some("Projects"),
-            SidebarMode::Librarian => Some("Librarian"),
-        };
+        let page = self.home_page();
         let banners = self.render_banners(window, cx);
         let main: AnyElement = match (&self.pane, page) {
             (Some(pane), None) => div().size_full().child(pane.clone()).into_any_element(),
-            (_, Some(page)) => div().size_full().flex().items_center().justify_center().text_color(muted).child(format!("The {page} page isn't in this app yet.")).into_any_element(),
+            (_, Some(SidebarMode::Scheduled)) => self.render_scheduled_home(cx),
+            (_, Some(SidebarMode::Librarian)) => self.render_librarian_home(cx),
+            (_, Some(page)) => div().size_full().flex().items_center().justify_center().text_color(muted).child(format!("The {} page isn't in this app yet.", if page == SidebarMode::Projects { "Projects" } else { "Librarian" })).into_any_element(),
             // No thread open is the new-thread page, as in the Swift app.
             (None, None) => self.render_new_page(window, cx),
         };
