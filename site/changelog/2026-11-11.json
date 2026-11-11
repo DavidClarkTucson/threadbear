@@ -3,6 +3,20 @@
   "highlights": [
     {
       "kind": "added",
+      "title": "A Terminal under each thread",
+      "text": "View > Show Terminal (⌘J) opens your own shell in the thread's folder, and each thread keeps its own. A shell command in a reply has a play icon that puts it at the prompt, for you to read before pressing Return.",
+      "credit": "muperdev",
+      "media": {
+        "type": "clip",
+        "src": "terminal.mp4",
+        "poster": "terminal.webp",
+        "width": 540,
+        "height": 820,
+        "alt": "A reply with an npx convex deploy command; the Terminal opens under the thread and the play icon puts the command at its prompt, ready to run"
+      }
+    },
+    {
+      "kind": "added",
       "title": "Answer a project's decisions in one place",
       "text": "A project's page starts with every question its threads are waiting on, and each answer goes to its thread as if you'd answered it there. It's an experiment: turn on Decisions on the Projects page in Settings > General > Experiments.",
       "media": {
@@ -143,7 +157,6 @@
     }
   ],
   "added": [
-    "View > Show Terminal (⌘J) opens your own shell in the thread's folder, and a shell command block in a reply has a play icon that puts the command at the prompt for you to read before pressing Return (thanks to muperdev)",
     "Stop a running thread from the iPhone app or the website: Send turns into Stop while it works, as on the Mac",
     "⌘Q asks before quitting, with a Don't ask again box, and Settings > General > Quitting turns the question back on",
     "Settings > General > Experiments has a switch for each experiment, with what it does behind its ⓘ",
