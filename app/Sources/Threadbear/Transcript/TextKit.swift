@@ -1244,6 +1244,35 @@ final class TranscriptTextView: NSTextView {
         return fileLinkMenu(atCharacter: range.location)
     }
 
+    /// Where each draft's header is (DraftBlockCell), in order.
+    private func debugDraftHeaders() -> [Int] {
+        guard let storage = textStorage else { return [] }
+        var found: [Int] = []
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if (value as? NSTextAttachment)?.attachmentCell is DraftBlockCell { found.append(range.location) }
+        }
+        return found
+    }
+
+    func debugDraftCount() -> Int { debugDraftHeaders().count }
+
+    /// A real press on the `index`-th draft's Copy, through mouseDown: the
+    /// copy, the Copied button and the bubble, as a click gives them.
+    func debugCopyDraft(_ index: Int) -> Bool {
+        let headers = debugDraftHeaders()
+        guard index < headers.count, let layoutManager, let textContainer, let window else { return false }
+        layoutManager.ensureLayout(for: textContainer)
+        let frame = richFrame(glyph: layoutManager.glyphIndexForCharacter(at: headers[index]))
+        guard let cell = (textStorage?.attribute(.attachment, at: headers[index], effectiveRange: nil) as? NSTextAttachment)?.attachmentCell as? DraftBlockCell
+        else { return false }
+        let button = cell.button(in: frame)
+        let spot = convert(NSPoint(x: button.midX, y: button.midY), to: nil)
+        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: spot, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return false }
+        mouseDown(with: down)
+        return cell.wasJustCopied()
+    }
+
     func debugClickChip(_ word: String) {
         guard let chip = debugChip(word) else { return }
         closeChipCard()

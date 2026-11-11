@@ -14,6 +14,7 @@ mod composer_card;
 mod composer_chips;
 mod connectors_panel;
 mod ding;
+mod draft_boxes;
 mod drafts;
 mod files;
 mod folders;

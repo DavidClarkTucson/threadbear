@@ -572,6 +572,27 @@ extension Automation {
         return "ok window \(window)"
     }
 
+    /// A row's ```slack, ```email or ```draft boxes (DraftBlockCell):
+    /// `{"row": id}` says how many; with `"copy": true` presses the
+    /// `index`-th one's Copy (0, the first, by default) through mouseDown,
+    /// as a click does. With no `row`, the newest reply with a draft. The
+    /// copy lands on this instance's pasteboard; read it back with
+    /// `clipboard`.
+    static func draft(_ c: [String: Any], app: AppModel) -> String {
+        let found = (c["row"] as? String).flatMap { displayedRow($0, app) }
+            ?? (c["row"] == nil ? app.transcript.session?.model.rows.last(where: { AppDump.drafts($0) != nil }) : nil)
+        guard let row = found, let index = app.transcript.session?.displayIndex(of: row.id) else { return "error no such row" }
+        app.transcript.scroll(toRow: index, offset: 40)
+        guard let cell = app.transcript.tableView.view(atColumn: 0, row: index, makeIfNecessary: true) as? TextRowCell else {
+            return "error \(row.id) isn't a text row"
+        }
+        let count = cell.textView.debugDraftCount()
+        guard c["copy"] as? Bool == true else { return "ok \(count)" }
+        let n = c["index"] as? Int ?? 0
+        guard cell.textView.debugCopyDraft(n) else { return "error no draft \(n) in \(row.id): it has \(count)" }
+        return "ok copied"
+    }
+
     /// Links with a hover card in a transcript row's text (an asks card's
     /// link buttons too): `{"row": id}` lists them (words, then where they
     /// go); with `"words"` (part of a link's words), shows that link's

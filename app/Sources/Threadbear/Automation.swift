@@ -91,6 +91,8 @@ enum Automation {
             AppLog.write("hang", "would report \(HangSample.deepestAppFrame(frames) ?? frames.last ?? "unknown")")
         }
         app.pasteboard = pasteboard
+        // A draft's Copy too, so a script's copies leave Mike's clipboard be.
+        DraftBlockCell.pasteboard = pasteboard
         if let mode = argument(after: "--appearance") { setAppearance(mode) }
         observer = DistributedNotificationCenter.default().addObserver(forName: Notification.Name(channel(id: instanceId)), object: nil, queue: .main) { note in
             let text = note.object as? String ?? ""
@@ -1282,6 +1284,8 @@ enum Automation {
             return "ok " + waiting.map(\.id).joined(separator: " ")
         case "chip":
             return chip(c, app: app)
+        case "draft":
+            return draft(c, app: app)
         case "link":
             // A work:, thread: or review: link in a row's text, followed as a click
             // on it would be (TranscriptController.openThreadLink).
@@ -1709,8 +1713,9 @@ enum Automation {
             app.copyToPasteboard(id)
             return "ok \(id)"
         case "clipboard":
-            // This instance's pasteboard, where its Copy items went.
-            return "ok " + json(pasteboard.string(forType: .string) ?? "")
+            // This instance's pasteboard, where its Copy items went; `"type":
+            // "html"` the HTML beside the words, as a draft's Copy puts it.
+            return "ok " + json(pasteboard.string(forType: c["type"] as? String == "html" ? .html : .string) ?? "")
         case "mock":
             return await mock(c, app: app)
         case "quit":

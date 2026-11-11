@@ -1976,6 +1976,8 @@ function librarianFiles(threadId) {
  * it. With `tools: true` it behaves more like a real turn: every 1.5 s the
  * text so far is persisted, a tool call and its result are persisted (each
  * persisted event also sends thread.updated), and a new text item starts.
+ * With `text` it streams those words once, however long that takes, for a
+ * spec that wants a reply of its own (a draft box, a thread chip).
  */
 function startStream(threadId, p) {
   const t = threads.get(threadId);
@@ -1985,11 +1987,15 @@ function startStream(threadId, p) {
   const turnId = 'turn_stream';
   const newItem = () => 'm_stream_' + crypto.randomBytes(3).toString('hex');
   let itemId = newItem();
-  const source = streamText();
+  const given = typeof p.text === 'string' && p.text.length > 0 ? p.text : null;
+  const source = given ?? streamText();
   let offset = 0;
   let ticks = 0;
   let toolCount = 0;
-  const total = Math.round(hz * seconds);
+  // Given words end when they're all sent: as many ticks as the chunks take.
+  let needed = 0;
+  for (let sent = 0; given && sent < given.length; needed += 1) sent += 2 + (needed % 11);
+  const total = given ? needed : Math.round(hz * seconds);
   const toolEvery = Math.max(1, Math.round(hz * 1.5));
   t.inProgress.set(itemId, { type: 'assistant.text', text: '' });
   setStatus(threadId, 'running');
@@ -2008,7 +2014,7 @@ function startStream(threadId, p) {
     // to the start instead of coming up short (which dropped letters and
     // started paragraphs mid-word: "re is how...").
     const at = offset % source.length;
-    let chunk = (source + source).slice(at, at + size);
+    let chunk = given ? given.slice(offset, offset + size) : (source + source).slice(at, at + size);
     if (!chunk) chunk = ' ';
     offset += size;
     ticks += 1;

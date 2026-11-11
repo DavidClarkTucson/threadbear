@@ -299,6 +299,7 @@ impl ThreadPane {
     /// text view would send them.
     pub(crate) fn linked_text(&self, doc: &Entity<gpui_kit::base::TextViewState>, row_id: &str, cx: &mut Context<Self>) -> TextView {
         let weak = cx.weak_entity();
+        let drafts = crate::draft_boxes::DraftBoxes { origin: self.origin(), cwd: self.summary.cwd.clone(), row: row_id.to_owned() };
         let row_id = row_id.to_owned();
         crate::open_gate::text_view(doc, self.origin(), &self.summary.cwd)
             .on_link_click(move |url: &SharedString, _event: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -309,6 +310,8 @@ impl ThreadPane {
             .plugin(crate::reply_buttons::Pills)
             // Pictures from files on this Mac (`markdown::pictures`).
             .image_source(markdown::picture_source)
+            // A closed ```slack, ```email or ```draft fence as the draft's box.
+            .plugin(drafts)
     }
 
     /// The reading column's text: markdown, selectable, links going where they

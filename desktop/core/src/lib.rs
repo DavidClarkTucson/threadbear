@@ -5,6 +5,7 @@
 pub mod completion_sound;
 pub mod composer;
 pub mod connectors;
+pub mod draft_block;
 pub mod folders;
 pub mod highlights;
 pub mod home;

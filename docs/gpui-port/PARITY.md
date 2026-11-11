@@ -260,6 +260,55 @@ built parsers and gates with no launch of the app, which is the trap.)
   composer-cards and cards (34 of 34); core's tests. The decisions page and
   a thread's composer card side by side with the Swift app's in dark and
   measured: the rows, the card and the folded rows within a point or two.
+### 2026-11-11 Drafts in a reply, and their Copy (`rich.draft`, `rich.draft.copy`)
+
+- A ```slack, ```email or ```draft fence in a reply is drawn as the draft it
+  is: a rounded box like a code block's with its label ("Slack draft",
+  "Email draft", "Draft") and Copy in a header, a line across the box under
+  it, then every line where the agent put it, blank ones too. A Slack draft
+  shows Slack's own formatting: *bold*, _italic_, ~strike~, `code` (13 pt
+  monospaced in its pill, as the reply's), <url|label> links, mentions in
+  bold, and "> " lines quiet behind a bar. An email or plain draft's bare
+  web addresses are links. Links go through the open gate as the reply's do.
+  A fence still streaming in stays code until its closing line comes, and
+  one in a list or a quote is a box too.
+- Copy puts the plain text (Slack's markers kept, links as "label (url)")
+  and HTML beside it on the clipboard, so a paste into Slack or Mail keeps
+  the bold and the links; it turns green with a tick, "Copied", for a moment
+  and the "Copied to clipboard" bubble rises over it and fades. Its tooltip
+  is the Swift one's.
+- The parsing is `desktop/core/src/draft_block.rs`, a port of DraftBlock with
+  its tests and the website's fence check. The box is the kit's block plugin
+  (`draft_boxes.rs`), so the kit's own parse finds the fence and a streaming
+  reply only reparses its tail, rather than the reply being split around it.
+- Not here: selecting part of a draft's words (a selection across the reply
+  takes the box whole, as its plain text; Copy and Copy message cover the
+  rest), HTML on the clipboard on Windows and Linux (plain text there for
+  now), and a link's hover peek in a draft, which comes with
+  `rich.linkpeek`.
+- Both apps' dumps give each reply's `drafts` (label, lines as drawn, the
+  formatted pieces, what Copy says); both take `draft` (press a box's Copy
+  through a real click) and `clipboard` with `"type": "html"`. The Swift
+  app's Copy goes to the instance's own pasteboard when scripted. The mock
+  runner's `mock.stream` takes `text`, to stream a reply of a spec's own.
+- Files: `desktop/core/src/{draft_block,lib}.rs`,
+  `desktop/gpui/src/{draft_boxes,rows,thread,automation,main}.rs`,
+  `desktop/gpui/Cargo.toml` (NSPasteboard),
+  `app/Sources/Threadbear/{AppDump,Automation,Automation+Commands}.swift`,
+  `app/Sources/Threadbear/Transcript/TextKit.swift`, `app/README.md`,
+  `app/Tools/mock-runner/server.mjs`, `features/drafts.feature` and its
+  steps, `features/support/driver.ts`.
+- Verification: on Tinker Desk, `@rich.draft` and `@rich.draft.copy`, GPUI 4
+  of 4 and Swift 4 of 4; core's tests (with the integration tests) and the
+  plugin's own tests against the kit's parser. Pictures of both apps side by
+  side, dark and light, a Slack draft with every kind of formatting and an
+  email draft at the end of a reply, laid over each other with
+  pixel-overlay: the box, its lines, the header and Copy sit where Swift's
+  do (Copy was 12 points left and the code at body size, both brought in);
+  the Copied state and its bubble just after a press, matched to the Swift
+  bubble's height and place. The line under the header is half a point on a
+  Retina screen and a faint whole pixel on a 1x one, where GPUI drops half
+  a pixel.
 
 ### 2026-11-11 Projects: the sidebar's view, the page of cards and a project's page (`projects.list`, `projects.home`, `projects.page`, `projects.parts`, `projects.newthread`, `header.projectchip`, `highlights.projects`)
 
@@ -687,7 +736,6 @@ built parsers and gates with no launch of the app, which is the trap.)
   whole grid, so the font, the cell size and the colours line up point for
   point; the one difference it showed, bold cyan drawn as plain cyan, was
   fixed to bold-as-bright.
-
 ### 2026-11-11 The Runners, Updates and Connectors panels, with their buttons and dots (`runners.panel`, `updates.panel`, `connectors.panel`, `rail.activity`, `rail.dots`)
 
 - Connectors, Runners and Updates are at the foot of the activity bar, above

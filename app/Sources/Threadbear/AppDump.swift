@@ -305,6 +305,18 @@ struct AppDump: Encodable {
         /// The reply buttons its text links, as each pill reads with its
         /// id ("✓ Fill in the form [b7k2abcd]"), or "unknown <id>".
         var buttons: [String]? = nil
+        /// The ```slack, ```email and ```draft boxes it draws (DraftBlockCell).
+        var drafts: [DraftInfo]? = nil
+    }
+
+    /// A draft's box as it's drawn: its label, each line (a Slack quote's
+    /// with its bar), each formatted piece ("bold: Hi", "link: there
+    /// <https://x.dev>") and what its Copy says.
+    struct DraftInfo: Encodable {
+        var label: String
+        var lines: [String]
+        var styled: [String]
+        var copy: String
     }
 
     struct LimitInfo: Encodable {
@@ -748,7 +760,7 @@ struct AppDump: Encodable {
                 return Row(id: row.id, kind: row.kind.rawValue, height: Int(table.rect(ofRow: index).height.rounded()),
                            expanded: opens(row) ? app.transcript.isExpanded(row) : nil, inGroup: row.inGroup,
                            onScreen: NSLocationInRange(index, visible), seq: row.seq, turn: row.turnId, text: RowDebug.excerpt(row),
-                           buttons: Self.buttons(row))
+                           buttons: Self.buttons(row), drafts: Self.drafts(row))
             }
             let state: String
             switch session.state {
@@ -1660,6 +1672,55 @@ struct AppDump: Encodable {
             let look = ReplyButtons.look(known.button, pressing: ReplyButtons.shared.isPressing(id))
             return "\(ReplyButtons.label(known.button, look: look)) [\(id), \(look.rawValue)]"
         }
+    }
+
+    /// The drafts a reply draws as boxes, read off its rendered text: the
+    /// header's cell, then the box's lines up to where its fill ends.
+    static func drafts(_ row: TranscriptRow) -> [DraftInfo]? {
+        guard case .assistant(let item) = row.content, DraftBlock.mayHold(item.text) else { return nil }
+        let text = MarkdownRenderer.render(item.text).string
+        let string = text.string as NSString
+        let whole = NSRange(location: 0, length: text.length)
+        var found: [DraftInfo] = []
+        text.enumerateAttribute(.attachment, in: whole) { value, range, _ in
+            guard let cell = (value as? NSTextAttachment)?.attachmentCell as? DraftBlockCell else { return }
+            var box = NSRange()
+            _ = text.attribute(.tbBlockBackground, at: range.location, longestEffectiveRange: &box, in: whole)
+            // After the header's own line break; each line ends in one, but
+            // the reply's last.
+            let end = NSMaxRange(box)
+            var at = NSMaxRange(range) + 1
+            var lines: [String] = []
+            var styled: [String] = []
+            while at < end {
+                let next = string.range(of: "\n", options: [], range: NSRange(location: at, length: end - at))
+                let line = NSRange(location: at, length: (next.location == NSNotFound ? end : next.location) - at)
+                lines.append(string.substring(with: line))
+                // Runs that look the same are one piece: the line's first
+                // character carries the rule under the header as well.
+                var pieces: [(looks: String, words: String, link: URL?)] = []
+                text.enumerateAttributes(in: line) { attributes, run, _ in
+                    let traits = (attributes[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+                    let link = attributes[.link] as? URL
+                    var looks: [String] = []
+                    if traits.contains(.bold) { looks.append("bold") }
+                    if traits.contains(.italic) { looks.append("italic") }
+                    if attributes[.strikethroughStyle] != nil { looks.append("strike") }
+                    if attributes[.tbInlineBackground] != nil { looks.append("code") }
+                    if link != nil { looks.append("link") }
+                    let joined = looks.joined(separator: "+")
+                    if let last = pieces.last, last.looks == joined, last.link == link {
+                        pieces[pieces.count - 1].words += string.substring(with: run)
+                    } else {
+                        pieces.append((joined, string.substring(with: run), link))
+                    }
+                }
+                styled += pieces.filter { !$0.looks.isEmpty }.map { "\($0.looks): \($0.words)" + ($0.link.map { " <\($0.absoluteString)>" } ?? "") }
+                at = NSMaxRange(line) + 1
+            }
+            found.append(DraftInfo(label: cell.draft.label, lines: lines, styled: styled, copy: cell.wasJustCopied() ? "Copied" : "Copy"))
+        }
+        return found.isEmpty ? nil : found
     }
 
     private func pad(_ text: String, _ width: Int) -> String {

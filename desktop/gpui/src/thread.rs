@@ -1064,6 +1064,9 @@ impl ThreadPane {
                     if let Some(labels) = crate::reply_buttons::dump_labels(&item.text) {
                         out["buttons"] = json!(labels);
                     }
+                    if let Some(drafts) = crate::draft_boxes::dump(&item.text) {
+                        out["drafts"] = drafts;
+                    }
                 }
                 out
             })

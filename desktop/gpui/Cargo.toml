@@ -56,8 +56,10 @@ libc = "=0.2.191"
 # NSDockTile: the Dock badge (notify.rs). NSSound: the finished ding
 # (ding.rs). NSAlert and its button: Quit's "Don't ask again"
 # (quit_prompt.rs), which gpui's own prompt can't show.
+# NSPasteboard: a draft's Copy puts HTML beside the plain text
+# (draft_boxes.rs), which gpui's clipboard can't.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSColor", "NSColorSpace", "NSAppearance", "objc2-core-foundation", "NSApplication", "NSResponder", "NSDockTile", "NSSound", "NSAlert", "NSButton", "NSControl", "NSCell", "NSView"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSColor", "NSColorSpace", "NSAppearance", "objc2-core-foundation", "NSApplication", "NSResponder", "NSDockTile", "NSSound", "NSAlert", "NSButton", "NSControl", "NSCell", "NSView", "NSPasteboard"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSBundle", "NSData"] }
 
 [features]

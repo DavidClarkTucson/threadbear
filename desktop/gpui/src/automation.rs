@@ -488,9 +488,12 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             Ok(json!("ok"))
         }
         "clipboard" => {
-            let words = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
+            // `"type": "html"`: the HTML beside the words, as a draft's Copy puts it.
+            let words = if cmd["type"] == "html" { crate::draft_boxes::clipboard_html().unwrap_or_default() } else { cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default() };
             Ok(json!(format!("ok {}", serde_json::to_string(&words).unwrap_or_default())))
         }
+        // A draft box's Copy in a reply (draft_boxes.rs), as the Swift app's `draft`.
+        "draft" => crate::draft_boxes::automation(app, cmd, window, cx),
         // As if the window had come to the front: both apps read a thread
         // only while it is, and a scripted one never is.
         "focus" => {
