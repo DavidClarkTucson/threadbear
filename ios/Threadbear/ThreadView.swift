@@ -297,17 +297,14 @@ struct ThreadView: View {
                 if quick.voiceThreadId == threadId, !typing {
                     VoiceBar(threadId: threadId, afterSeq: messages.last?.seq ?? 0, working: thread.isBusy) { typing = true }
                 } else {
-                    VStack(spacing: 0) {
-                        RecapBox(thread: thread)
-                        Composer(text: $draft, placeholder: composerPlaceholder(thread), links: thread.links ?? [], threadId: thread.id, provider: thread.provider,
-                                 running: thread.isBusy, stopping: model.stopping.contains(thread.threadId),
-                                 onStop: model.canStop ? { model.stop(threadId: thread.threadId) } : nil) { text, photos in
-                            await send(text, photos: photos, to: thread)
-                        }
-                        // The turn is over (stopped, or finished first): Stop's spinner goes.
-                        .onChange(of: thread.isBusy) { _, busy in
-                            if !busy { model.stopped(thread.threadId) }
-                        }
+                    Composer(text: $draft, placeholder: composerPlaceholder(thread), links: thread.links ?? [], threadId: thread.id, provider: thread.provider,
+                             running: thread.isBusy, stopping: model.stopping.contains(thread.threadId),
+                             onStop: model.canStop ? { model.stop(threadId: thread.threadId) } : nil) { text, photos in
+                        await send(text, photos: photos, to: thread)
+                    }
+                    // The turn is over (stopped, or finished first): Stop's spinner goes.
+                    .onChange(of: thread.isBusy) { _, busy in
+                        if !busy { model.stopped(thread.threadId) }
                     }
                 }
             }

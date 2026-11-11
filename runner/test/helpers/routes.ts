@@ -33,7 +33,6 @@ export type View = {
   needs?: string;
   asks: Ask[];
   next: string[];
-  recap?: string;
   messages: { role: 'user' | 'assistant'; text: string; pictures: number }[];
 };
 
@@ -44,8 +43,6 @@ export type Play = {
   endTurn(input: Record<string, unknown>): void;
   /** Mike sends a message, with pictures (paths of real files) if any. */
   send(text: string, images?: ImageRef[]): void;
-  /** The librarian writes its note on the thread (with the recap box on). */
-  librarianWrites(text: string, purpose: string): void;
   /** Turns on Run on the card, for the next end_turn. */
   runAsks(): void;
   /** The agent puts a Plan first plan to Mike (plan.proposed). */
@@ -90,7 +87,7 @@ export async function threeWays(play: (p: Play) => void | Promise<void>) {
   const here = (): View => {
     const t = h.runner.get(id);
     const events = h.runner.events(id, {}).events as Record<string, any>[];
-    return { needs: t.needs, asks: (t.asks ?? []) as Ask[], next: lastNext(events), recap: t.recap, messages: messagesOf(events) };
+    return { needs: t.needs, asks: (t.asks ?? []) as Ask[], next: lastNext(events), messages: messagesOf(events) };
   };
   const viaRelay = async (): Promise<View> => {
     // A turn's end is held back until that runner's row has said so for 4 s.
@@ -98,13 +95,11 @@ export async function threeWays(play: (p: Play) => void | Promise<void>) {
     h.clock.advance(5000);
     const { events } = (await relay.call(id, 'threads.events', { threadId: id })) as { events: Record<string, any>[] };
     const end = events.filter((e) => e.type === 'turn.completed').at(-1);
-    // The sidebar's row, as the Mac reads another runner's thread from it.
-    const rows = (await b.ctx.db.query('threadIndex').collect()) as unknown as { threadId: string; recap?: string }[];
-    return { needs: end?.needs, asks: (end?.asks ?? []) as Ask[], next: (end?.next ?? []) as string[], recap: rows.find((r) => r.threadId === id)?.recap, messages: messagesOf(events) };
+    return { needs: end?.needs, asks: (end?.asks ?? []) as Ask[], next: (end?.next ?? []) as string[], messages: messagesOf(events) };
   };
   const viaPhone = async (): Promise<View> => {
     const r = (await call(b.ctx, mods.phone.thread!, { token: TOKEN, threadId: id })) as { thread: Record<string, any>; messages: { role: 'user' | 'assistant'; text: string }[] };
-    return { needs: r.thread.needs, asks: (r.thread.asks ?? []) as Ask[], next: (r.thread.next ?? []) as string[], recap: r.thread.recap, messages: r.messages.map((m) => ({ role: m.role, text: m.text, pictures: 0 })) };
+    return { needs: r.thread.needs, asks: (r.thread.asks ?? []) as Ask[], next: (r.thread.next ?? []) as string[], messages: r.messages.map((m) => ({ role: m.role, text: m.text, pictures: 0 })) };
   };
   const views = { here: here(), relay: await viaRelay(), phone: await viaPhone() };
   await sync.stop();
@@ -151,13 +146,6 @@ export async function playInto(post: Post, runner: { key: string; runnerId: stri
         const file = path.join(h.cfg.home, 'runner.json');
         const json = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
         fs.writeFileSync(file, JSON.stringify({ ...json, experiments: { ...json.experiments, runAsks: true } }));
-      },
-      librarianWrites: (text, purpose) => {
-        const file = path.join(h.cfg.home, 'runner.json');
-        const json = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
-        fs.writeFileSync(file, JSON.stringify({ ...json, experiments: { ...json.experiments, recapBox: true } }));
-        h.clock.advance(6000); // past the runner's short memory of the switch
-        h.runner.setBrief(thread.id, text, purpose);
       },
     });
   }

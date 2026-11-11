@@ -128,7 +128,6 @@ Scenarios passing: Swift: 191 of 202, Mac: 193 of 202, Windows: 192 of 202, Linu
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
 | `card.done` Done card | pass | pass | pass | pass |
-| `composer.recap` Recap box | pass | pending | pending | pending |
 | `card.needsyou` Needs you card | pass | pass | pass | pass |
 | `card.collapse` Collapse | pass | pass | pass | pass |
 | `card.somethingelse` Something else box | pass | pass | pass | pass |

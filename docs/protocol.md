@@ -305,7 +305,6 @@ type ThreadSummary = {
                         // started it when Mike didn't (Who started a thread)
   asked?: string        // Mike's last message to it, one line, <= 140 chars
                         // (What Mike last asked)
-  recap?: string        // the librarian's recap (The recap box)
   woke?: { at: string, since?: string } // came back from hibernating by
                         // itself (its time, a restart, a topic) at `at`,
                         // put away at `since` when known; only until Mike
@@ -1015,7 +1014,7 @@ Persisted event types (stored in `events.ndjson`, returned by `threads.events`):
 
 | type | fields |
 |---|---|
-| `user.message` | `text`, `images: ImageRef[]`, `answers?: AskAnswer[]` (the open card's asks it answers, as `threads.send` gave them: for showing, the agent only gets `text`), `origin?: "runner" \| "schedule" \| "phone"` (`runner` when the runner sent the message by itself, such as the resume after a restart; `schedule` when a schedule sent it, with `scheduleId`; `phone` when it came from the phone through the Convex mirror (Sync), and the agent then gets it after a line saying so and whether the user is at the Mac, though `text` keeps what was typed; absent for anything a person or client sent; a message typed by the user that starts a turn 12 hours or more after the thread's last turn ended, and doesn't answer a card or a review, also reaches the agent after a line asking it to open with what the thread is for and where it stands, and `text` keeps what was typed), `scheduleId?`, `editOf?: number` (the seq of the message this one replaced, see Editing a message) |
+| `user.message` | `text`, `images: ImageRef[]`, `answers?: AskAnswer[]` (the open card's asks it answers, as `threads.send` gave them: for showing, the agent only gets `text`), `origin?: "runner" \| "schedule" \| "phone"` (`runner` when the runner sent the message by itself, such as the resume after a restart; `schedule` when a schedule sent it, with `scheduleId`; `phone` when it came from the phone through the Convex mirror (Sync), and the agent then gets it after a line saying so and whether the user is at the Mac, though `text` keeps what was typed; absent for anything a person or client sent), `scheduleId?`, `editOf?: number` (the seq of the message this one replaced, see Editing a message) |
 | `assistant.text` | `itemId`, `text` (complete markdown for that block), `summary?: true` (the turn's summary, written by the runner from `end_turn`; see "Needs you"), `givesWay?: true` (on a summary, with bullet replies off: see "The summary"), `narration?: true` (Claude sent this as a narration block, whose text reaches the runner only as a short summary of what the agent wrote, not its words: see Transient events), `final?: true` (with one reply, the agent's message after `end_turn`, the turn's reply: see "Needs you", One reply). A later `assistant.text` with the same `itemId` replaces the earlier one where it stands |
 | `reasoning` | `itemId`, `text` (summary) |
 | `tool.call` | `itemId`, `name` (raw tool name), `kind` (`command` \| `read` \| `edit` \| `write` \| `search` \| `web` \| `mcp` \| `task` \| `todo` \| `image` \| `other`; `image` is image generation), `title` (one line, e.g. "npm test" or "Edit src/a.ts"), `input` (object, large strings truncated to 16 KB) |
@@ -2501,33 +2500,6 @@ from anyone but Mike is dropped. Both fields are set afresh by each archive and 
 `archivedAt` is set, so bringing a thread back needn't clear them; threads
 archived before 5 Nov have neither. `read_thread` and `list_threads` say
 them ("archived by the user: it worked").
-
-## The recap box
-
-Coming back to a thread after a while, you often can't remember what it was
-for. The librarian writes a recap ahead of time, as part of the look it
-already takes after a turn: `ThreadSummary.recap`, a sentence on what the
-thread is for and then the bullets from its note on where it stands
-(`brief` in the thread's record), one per line starting `- `. A note from
-before this has only the bullets. It's in the summary only with the
-`recapBox` experiment on, and goes to the phone, the website and other
-runners with the rest of the row (backend API 70).
-
-Each app shows it in a box above the message box when all of these hold,
-and they all use the same rule:
-
-- there is a `recap`
-- `status` is `idle` and the thread isn't archived
-- `lastActivityAt` is 12 hours ago or more
-- it wasn't dismissed for this `lastActivityAt`
-
-Dismissing is the app's own (× on the box), remembered per thread on that
-device. Sending a message ends it, as `lastActivityAt` moves.
-
-A message the user types at a thread that hasn't had a turn for 12 hours
-reaches the agent after a line asking it to open with what the thread is for
-(`user.message`, above). When the box was up and said what the thread is
-for, the runner leaves that line off, so the recap isn't said twice.
 
 ## What Mike last asked
 

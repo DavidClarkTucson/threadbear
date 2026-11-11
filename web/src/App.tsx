@@ -13,7 +13,6 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { go, threadPath, useRoute } from './route';
 import { useToken } from './token';
 import { RunCommand } from './run-command';
-import { lastWorkedOn, recapDue, recapParts } from './view-logic';
 import { MessageText, Pictures, picturesByRow, ToolRun, Worked, type PageMessage } from './messages';
 import { ReplyButton } from './reply-button';
 import { CommandState } from './command-state';
@@ -291,7 +290,6 @@ function ThreadView({ token, threadId }: { token: string; threadId: string }) {
 
       <div className="dock">
         {pending ? <CommandState token={token} commandId={pending} onDone={() => setPending(null)} /> : null}
-        <RecapBox thread={t} />
         <Dock token={token} thread={t} lastSeq={lastSeq} onSent={setPending} onArchive={() => void act({ archive: true })} />
       </div>
     </article>
@@ -325,38 +323,7 @@ function MoreMenu({ items }: { items: ({ label: string; icon: ReactNode; run: ()
 
 // What sits at the bottom, in one rounded box as on the Mac: an approval or
 // question the CLI is waiting on, else the end_turn card of asks, else the
-// done card's follow-ups, then the composer under it (Dock, below).
-
-// What a thread that has sat for a while is for and where it stands, above
-// the message box (docs/protocol.md, "The recap box"). × is remembered in
-// this browser, for this quiet spell.
-function RecapBox({ thread: t }: { thread: Row }) {
-  const key = `recap-away:${t.threadId}`;
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem(key));
-  useEffect(() => setDismissed(localStorage.getItem(key)), [key]);
-  if (!recapDue(t, dismissed, Date.now()) || !t.recap) return null;
-  const { purpose, points } = recapParts(t.recap);
-  return (
-    <section className="recap">
-      <button
-        type="button"
-        className="recap-close"
-        title="Put this away"
-        aria-label="Put this away"
-        onClick={() => {
-          localStorage.setItem(key, t.lastActivityAt);
-          setDismissed(t.lastActivityAt);
-        }}
-      >
-        <Icon.Close />
-      </button>
-      {purpose ? <p>{purpose}</p> : null}
-      <ul>{points.map((p, i) => <li key={i}>{p}</li>)}</ul>
-      <p className="recap-when">{lastWorkedOn(t.lastActivityAt, Date.now())}</p>
-    </section>
-  );
-}
-
+// done card's follow-ups, then the composer under it.
 function Dock({ token, thread: t, lastSeq, onSent, onArchive }: { token: string; thread: Row; lastSeq?: number; onSent: (id: Id<'commands'>) => void; onArchive: () => void }) {
   const send = useMutation(api.phone.send);
   const interrupt = useMutation(api.phone.interrupt);
