@@ -13,7 +13,7 @@ use crate::composer_chips::ModelPickerView;
 use crate::style;
 use crate::thread::ThreadPane;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::input::{Enter, Escape, IndentInline, InlineToken, InlineTokenContext, InlineTokenHoverEvent, InputContent, InputEvent, MoveDown, MoveUp, Textarea, TextareaState};
+use gpui_kit::component::input::{Copy, Cut, Enter, Escape, IndentInline, InlineToken, InlineTokenContext, InlineTokenHoverEvent, InputEvent, MoveDown, MoveUp, Textarea, TextareaState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
@@ -35,11 +35,11 @@ use std::rc::Rc;
 
 /// A picture in the box: the token that draws its chip, what it came from,
 /// and what the runner made of it (`media.import`).
-struct PictureChip {
+pub(crate) struct PictureChip {
     /// The file it came from, for the thumbnail meanwhile.
-    source: PathBuf,
+    pub(crate) source: PathBuf,
     /// None while the runner is still copying it in.
-    image: Option<ImageRef>,
+    pub(crate) image: Option<ImageRef>,
 }
 
 pub struct Composer {
@@ -54,8 +54,10 @@ pub struct Composer {
     pub(crate) input: Entity<TextareaState>,
     /// The chips in the box, by token id, in no particular order: the box's
     /// tokens say the order (`chips`).
-    pictures: HashMap<SharedString, PictureChip>,
-    next_picture: u64,
+    pub(crate) pictures: HashMap<SharedString, PictureChip>,
+    /// Its card and thread chips, by token id (composer_inline.rs).
+    pub(crate) mentions: HashMap<SharedString, crate::composer_inline::MentionChip>,
+    pub(crate) next_picture: u64,
     /// Each chip's place among the box's pictures, worked out each render so
     /// the renderer (which can't edit the input) can read it.
     chip_numbers: HashMap<SharedString, usize>,
@@ -141,6 +143,7 @@ impl Composer {
             pane: WeakEntity::new_invalid(),
             input,
             pictures: HashMap::new(),
+            mentions: HashMap::new(),
             next_picture: 0,
             chip_numbers: HashMap::new(),
             hovered_chip: None,
@@ -177,6 +180,7 @@ impl Composer {
         if self.input.read(cx).value().as_ref() == stored {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
             self.pictures.clear();
+            self.mentions.clear();
         }
         cx.notify();
     }
@@ -194,6 +198,7 @@ impl Composer {
         if self.draft(cx).1.is_empty() {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
             self.pictures.clear();
+            self.mentions.clear();
             cx.notify();
         }
     }
@@ -289,23 +294,11 @@ impl Composer {
         self.draft(cx)
     }
 
+    /// A card's or thread's chip is its link in the draft (composer_inline.rs).
     fn draft(&self, cx: &App) -> (String, Vec<ImageRef>) {
-        let content = self.input.read(cx).content();
-        let text = content.text().to_string();
-        let mut out = String::new();
-        let mut images = Vec::new();
-        let mut last = 0;
-        for span in content.tokens() {
-            let range = span.range();
-            out.push_str(&composer::draft_words(&text[last..range.start]));
-            if let Some(PictureChip { image: Some(image), .. }) = self.pictures.get(span.token().id()) {
-                out.push(PICTURE_MARK);
-                images.push(image.clone());
-            }
-            last = range.end;
-        }
-        out.push_str(&composer::draft_words(&text[last..]));
-        (out, images)
+        let text = self.input.read(cx).value().to_string();
+        let end = text.len();
+        threadbear_core::inline_chips::draft_in(&text, &self.box_chips(cx), 0..end)
     }
 
     /// The box's text as the Swift dump gives it: chips as the markers they'll
@@ -402,6 +395,7 @@ impl Composer {
         let picks = self.saved_picks();
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.pictures.clear();
+        self.mentions.clear();
         self.clear_picks(cx);
         let composer = cx.entity().downgrade();
         let restore = RestoreDraft { text: draft_text, images, card: picks };
@@ -471,6 +465,7 @@ impl Composer {
     fn set_box(&mut self, text: String, images: Vec<ImageRef>, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.pictures.clear();
+        self.mentions.clear();
         self.apply_restore(RestoreDraft { text, images, card: None }, window, cx);
     }
 
@@ -591,23 +586,13 @@ impl Composer {
         if !self.input.read(cx).value().is_empty() {
             return;
         }
-        // Chips again where the marks are, each picture back in place.
-        let mut content = InputContent::new(draft.clone());
-        let mut images = images.into_iter();
-        for (start, _) in draft.match_indices(PICTURE_MARK) {
-            let Some(image) = images.next() else { break };
-            let id = self.fresh_picture_id();
-            let token = picture_token(&id);
-            content = match content.clone().with_token(start..start + PICTURE_MARK.len_utf8(), token) {
-                Ok(content) => content,
-                Err(_) => content,
-            };
-            self.pictures.insert(id, PictureChip { source: PathBuf::from(&image.path), image: Some(image) });
-        }
+        // Chips again where the marks are, each picture back in place, and
+        // the cards and threads linked in the words as theirs.
+        let content = self.content_for(&draft, &images);
         self.input.update(cx, |s, cx| s.set_value(content, window, cx));
     }
 
-    fn fresh_picture_id(&mut self) -> SharedString {
+    pub(crate) fn fresh_picture_id(&mut self) -> SharedString {
         self.next_picture += 1;
         format!("picture-{}", self.next_picture).into()
     }
@@ -629,6 +614,11 @@ impl Composer {
         }
         if !paths.is_empty() {
             self.take_paths(paths, window, cx);
+            return true;
+        }
+        // A copy of the box's own chips with its pictures, a thread's id, a
+        // card's link: chips (composer_inline.rs). Other words are words.
+        if has_text && self.take_clipboard_chips(item, window, cx) {
             return true;
         }
         // Text with an image flavour (rich text from a browser) stays text.
@@ -750,9 +740,10 @@ impl Composer {
         cx.notify();
     }
 
-    /// The token ranges of the chips in the box, in order.
+    /// The token ranges of the picture chips in the box, in order: a card's
+    /// or thread's chip isn't one of them.
     fn chips(&self, cx: &App) -> Vec<(Range<usize>, SharedString)> {
-        self.input.read(cx).tokens().iter().map(|span| (span.range(), span.token().id().clone())).collect()
+        self.input.read(cx).tokens().iter().filter(|span| !Self::is_mention_token(span.token().id())).map(|span| (span.range(), span.token().id().clone())).collect()
     }
 
     fn chip_range(&self, id: &SharedString, cx: &App) -> Option<Range<usize>> {
@@ -797,6 +788,10 @@ impl Composer {
     /// The hover card over a chip, after a beat, as ComposerTextView.hoverChip
     /// does (0.35 s).
     fn hover_chip(&mut self, event: &InlineTokenHoverEvent, cx: &mut Context<Self>) {
+        // A card's or thread's chip has no picture to show.
+        if Self::is_mention_token(event.token().id()) {
+            return;
+        }
         self.hover_serial += 1;
         let serial = self.hover_serial;
         self.peek_shown = None;
@@ -845,6 +840,9 @@ impl Composer {
     /// of the words around it. Dimmed until the picture's in.
     fn render_chip(&self, ctx: &InlineTokenContext, cx: &App) -> AnyElement {
         let id = ctx.token().id();
+        if Self::is_mention_token(id) {
+            return self.render_mention_chip(ctx, cx);
+        }
         let chip = self.pictures.get(id);
         let number = self.chip_numbers.get(id).copied().unwrap_or(1);
         let dimmed = chip.is_none_or(|c| c.image.is_none());
@@ -859,12 +857,14 @@ impl Composer {
             .child(
                 h_flex()
                     .h(px(style::size::CHIP_HEIGHT))
-                    .pl(px(3.))
-                    .pr(px(7.))
+                    // PictureChip.draw strokes half a point inside its 3 and
+                    // 7; here the edge takes room, so the padding gives it back.
+                    .pl(px(2.5))
+                    .pr(px(6.5))
                     .gap(px(5.))
                     .rounded(px(6.))
                     .bg(fill)
-                    .border_1()
+                    .border(gpui_kit::px(0.5))
                     .border_color(edge)
                     .when_some(path, |s, path| s.child(img(path).size(px(14.)).rounded(px(3.)).object_fit(ObjectFit::Cover).when(dimmed, |s| s.opacity(0.5))))
                     .child(div().text_size(px(13.)).text_color(label_color).child(format!("Picture {number}"))),
@@ -965,6 +965,7 @@ impl Composer {
         let paste_target = this.clone();
         let hover_target = this.clone();
         let token_owner = this.clone();
+        let thread_drop = this.clone();
         let drop_target = this;
         div()
             .w_full()
@@ -994,6 +995,18 @@ impl Composer {
                     cx.stop_propagation();
                 }
             }))
+            // Copying or cutting chips keeps what they stand for
+            // (composer_inline.rs); words alone are the box's to copy.
+            .capture_action(cx.listener(|this, _: &Copy, window, cx| {
+                if this.copy_chips(false, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &Cut, window, cx| {
+                if this.copy_chips(true, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .capture_action(cx.listener(|this, _: &Escape, window, cx| {
                 if this.palette_key(PaletteKey::Escape, window, cx) {
                     cx.stop_propagation();
@@ -1006,6 +1019,11 @@ impl Composer {
             .on_drop(move |paths: &ExternalPaths, window, cx| {
                 if let Some(this) = drop_target.upgrade() {
                     this.update(cx, |this, cx| this.take_paths(paths.paths().to_vec(), window, cx));
+                }
+            })
+            .on_drop(move |drag: &crate::composer_inline::DraggedThread, window, cx| {
+                if let Some(this) = thread_drop.upgrade() {
+                    this.update(cx, |this, cx| this.take_thread_drop(drag, window, cx));
                 }
             })
             .child(
@@ -1139,7 +1157,7 @@ pub(crate) fn bare_textarea(textarea: Textarea) -> Textarea {
 
 /// The token a chip draws from. The token's text is the mark the draft holds
 /// (InlinePictures.mark); its label is only for accessibility and measuring.
-fn picture_token(id: &SharedString) -> InlineToken {
+pub(crate) fn picture_token(id: &SharedString) -> InlineToken {
     InlineToken::new(id.clone(), PICTURE_MARK_STR).with_label("Picture")
 }
 

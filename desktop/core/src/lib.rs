@@ -16,6 +16,7 @@ pub mod folders;
 pub mod highlights;
 pub mod home;
 pub mod inbox;
+pub mod inline_chips;
 pub mod investigate;
 pub mod keyboard;
 pub mod librarian;

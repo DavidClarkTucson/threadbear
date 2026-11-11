@@ -58,9 +58,11 @@ you go.
   "…" isn't a menu (`folder.*`)
 
 ### The composer and the card
-- [ ] Copying or cutting picture chips loses the pictures; a pasted thread id
+- [x] Copying or cutting picture chips loses the pictures; a pasted thread id
   stays plain text; no card mentions (`composer.chipcopy`, `composer.threadid`,
-  `composer.cardmention`)
+  `composer.cardmention`). In since 11 Nov, but for a click on a card on the
+  Highlights' board, which waits for the board, and a thread dragged from the
+  sidebar, whose drop the box takes once the rows start one (`drag.threadout`)
 - [ ] The login picker is one flat list: no room left per login, no provider
   groups (`composer.account`)
 - [ ] No "Pinned to … · Unpin" line in the model picker, and no Claude

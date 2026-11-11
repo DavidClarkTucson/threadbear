@@ -401,6 +401,10 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
             composer.update(cx, |c, cx| c.card_action(text(cmd, "action"), window, cx)).map(|_| json!("ok"))
         }
+        // The box copied or cut whole, or the clipboard pasted, as ⌘A then ⌘C
+        // or ⌘X, and ⌘V; and the chips in it (composer_inline.rs).
+        "composer-clip" => crate::composer_inline::clip_command(app, cmd, window, cx),
+        "composer-chips" => crate::composer_inline::chips_command(app, cx),
         "composer-peek" => {
             let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
             let number = cmd["number"].as_u64().map(|n| n as usize);

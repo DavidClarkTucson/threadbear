@@ -521,6 +521,37 @@ enum Automation {
             // The type-less call, as ⌘V makes it: it picks the type itself,
             // which isn't `.string` (ComposerTextView.isPlainText).
             return composer.readSelection(from: board) ? "ok" : "error paste refused"
+        case "composer-clip":
+            // {"action": "copy" | "cut"}: the whole box copied or cut, as ⌘A
+            // then ⌘C or ⌘X; {"action": "paste"}: what was copied pasted back,
+            // as ⌘V. Through this instance's own pasteboard, so Mike's is
+            // left alone, and through the same writeSelection and
+            // readSelection the menu items use.
+            guard let composer = findComposer(in: window?.contentView) else { return "error no composer" }
+            window?.makeFirstResponder(composer)
+            let board = pasteboard
+            switch c["action"] as? String {
+            case let action? where action == "copy" || action == "cut":
+                composer.setSelectedRange(NSRange(location: 0, length: (composer.string as NSString).length))
+                board.clearContents()
+                guard composer.writeSelection(to: board, types: composer.writablePasteboardTypes) else { return "error nothing copied" }
+                if action == "cut" { composer.delete(nil) }
+                return "ok"
+            case "paste"?:
+                return composer.readSelection(from: board) ? "ok" : "error paste refused"
+            default:
+                return "error composer-clip takes copy, cut or paste"
+            }
+        case "composer-chips":
+            // The chips in the box, in order: "picture: Picture 1",
+            // "card: Fix the button", "thread: Morning brief".
+            guard let composer = findComposer(in: window?.contentView), let storage = composer.textStorage else { return "error no composer" }
+            var chips: [String] = []
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                if let picture = value as? PictureAttachment { chips.append("picture: Picture \(picture.number)") }
+                if let card = value as? CardAttachment { chips.append((card.kind == .thread ? "thread: " : "card: ") + card.title) }
+            }
+            return "ok " + json(chips)
         case "return":
             // `"shift": true` for Shift-Return (a new line, carrying a list on).
             // `"focused": true` presses it where the cursor is, as `type` does,

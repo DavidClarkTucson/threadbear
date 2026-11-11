@@ -90,3 +90,55 @@ Given('the runner holds each message {int} seconds before its turn starts', asyn
 Then("the transcript's last row reads {string}", async function (this: ThreadbearWorld, text: string) {
   await this.until(`the last row reading "${text}"`, (d) => d.transcript.rows.at(-1)?.text === text);
 });
+
+// The whole box copied or cut, and pasted back, as ⌘A then ⌘C or ⌘X, and ⌘V
+// (both apps' `composer-clip`).
+When('I cut everything in the composer', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'composer-clip', action: 'cut' });
+});
+
+When('I copy everything in the composer', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'composer-clip', action: 'copy' });
+});
+
+When(/^I paste back what I (?:cut|copied)$/, async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'composer-clip', action: 'paste' });
+});
+
+When('I clear the composer', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'type', text: '', replace: true });
+  await this.until('an empty composer', (d) => d.composer.text === '');
+});
+
+// What "Copy thread id" gives: the bare id.
+When('I paste the id of the thread {string} into the composer', async function (this: ThreadbearWorld, title: string) {
+  const t = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
+  await this.app.do({ cmd: 'paste', text: t.id });
+});
+
+// The chips in the box, in order (`composer-chips` on both apps).
+async function composerChips(world: ThreadbearWorld): Promise<string[]> {
+  const out = await world.app.do({ cmd: 'composer-chips' });
+  return JSON.parse(out.slice(out.indexOf('['))) as string[];
+}
+
+Then("the composer's chips are {string}", async function (this: ThreadbearWorld, list: string) {
+  const wanted = list.split(' | ');
+  let chips: string[] = [];
+  for (let tries = 0; tries < 40; tries += 1) {
+    chips = await composerChips(this);
+    if (JSON.stringify(chips) === JSON.stringify(wanted)) return;
+    await new Promise((done) => setTimeout(done, 150));
+  }
+  assert.deepEqual(chips, wanted);
+});
+
+Then('the composer has no chips', async function (this: ThreadbearWorld) {
+  assert.deepEqual(await composerChips(this), []);
+});
+
+// The draft holds the link the chip stands for, which is what's sent.
+Then('the composer holds the link to the thread {string}', async function (this: ThreadbearWorld, title: string) {
+  const t = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
+  await this.until(`the link to "${title}" in the composer`, (d) => d.composer.text === `[${title}](thread:${t.id})`);
+});

@@ -1198,6 +1198,7 @@ impl Render for ThreadPane {
         // file's being dragged, because selectable text under the pointer takes
         // the hover for itself, and a drop on a reply then went nowhere.
         let dragging_file = cx.has_active_drag();
+        let thread_drop = composer.clone();
         let drop_layer = dragging_file.then(|| {
             div()
                 .absolute()
@@ -1207,6 +1208,9 @@ impl Render for ThreadPane {
                     composer.update(cx, |c, cx| c.take_paths(paths, window, cx));
                 })
                 .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
+                // A thread from the sidebar goes into the message as its chip.
+                .on_drop(move |drag: &crate::composer_inline::DraggedThread, window, cx| thread_drop.update(cx, |c, cx| c.take_thread_drop(drag, window, cx)))
+                .drag_over::<crate::composer_inline::DraggedThread>(|s, _, _, cx| s.bg(crate::style::accent(cx).opacity(0.06)).border_2().border_color(crate::style::accent(cx)))
         });
         v_flex()
             .relative()

@@ -267,6 +267,52 @@ built parsers and gates with no launch of the app, which is the trap.)
   panel and Highlights take the room in the same shares, the title in the
   same place after the traffic lights. thread-links.sh's Swift typechecked
   and run on Tinker Desk (it has no Threadbear, so "open nothing").
+### 2026-11-11 Chips in the composer: copying pictures, thread ids and card links (`composer.chipcopy`, `composer.threadid`, `composer.cardmention`)
+
+- ⌘C or ⌘X over chips puts the words on the clipboard as the agent would
+  get them ("look at [Picture 1]"), with the draft and its pictures beside
+  them, so a paste in any thread's composer brings the pictures back as
+  chips, not their markers (ComposerTextView's Clip). Beside them is GPUI's
+  own clipboard note (on the Mac `zed-metadata`, kept with a hash of the
+  words, so a copy from anywhere since leaves nothing stale; Windows and X11
+  keep theirs too), where the Swift app has a private pasteboard type: it
+  outlives a quit, as the Swift one does, which app memory wouldn't. Marked
+  as this app's, so another GPUI app's note is never read as a clip. Cards
+  and threads alone copy as their links; words alone are the box's own copy.
+- A thread's id pasted on its own (bare, `thread:<id>` or
+  `threadbear://thread/<id>`), when it's a thread this app knows, goes in as
+  that thread's chip with its title; any other id stays words
+  (CardMentions.pastedThreadId). A Notion card's link, or a thread's, pasted
+  in words becomes its chip, and so does one in a draft put back (a refused
+  send, an edit, a draft kept over a quit). A card's or thread's chip is a
+  token whose text is the link itself, so the draft, the dump and what's sent
+  hold the link, as the Swift draft does.
+- A thread dragged in the app (`DraggedThread` in composer_inline.rs, drawn
+  as the chip it'll be) dropped on the box or anywhere on the thread goes in
+  as its chip. Nothing starts that drag yet: the sidebar's rows do once
+  `drag.threadout` is built (they hand `on_drag` a `DraggedThread`).
+- The chips' edge is half a point inside the chip, as PictureChip.draw and
+  CardChip.draw stroke it: the composer's picture chip had a full point
+  that took room, and was 2 wider than Swift's.
+- Not here: a card on the Highlights' Notion board adding its chip on a
+  click (`composer.cardmention`'s other half), which waits for the board
+  (`highlights.board`). The card symbol is Lucide's nearest, and a card's
+  title measures a point or two wider than AppKit's (GPUI lays text out
+  without SF's tracking).
+- Scripts: both apps take `composer-clip` (`copy` or `cut` the whole box, or
+  `paste`; the Swift app through its own pasteboard) and `composer-chips`
+  (the box's chips in order, "picture: Picture 1", "thread: Morning brief").
+- Files: `desktop/core/src/inline_chips.rs` (new, with its tests),
+  `desktop/gpui/src/composer_inline.rs` (new), the hooks in
+  `desktop/gpui/src/{composer,thread,automation,main}.rs`,
+  `app/Sources/Threadbear/Automation.swift`, `features/sending.feature` and
+  its steps.
+- Verification: on Tinker Desk, sending.feature's five new scenarios and the
+  picture-chip, hover and text-box ones: GPUI 11 of 11, Swift 7 of 7; core's
+  tests (465 and the integration tests). Pictures of both apps in dark with a
+  card, a thread and a picture chip in the box, laid over each other: the
+  chips sit on the same line and edges, the card's a point or two wider for
+  its title.
 
 ### 2026-11-11 A reply's links, and words selected in it (`rich.filemenu`, `rich.webmenu`, `rich.linkpeek`, `rich.cmdclick`, `rich.filerefs`, `rich.selectionbar`, `rich.explain`, `rich.copy`, `highlights.rowmenus`)
 
