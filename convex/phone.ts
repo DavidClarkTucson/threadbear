@@ -12,7 +12,7 @@ import { API_VERSION } from './version';
 import { pushOff } from './pushHealth';
 import { imagesFrom, phoneImage, replyImagesFrom } from './share';
 import { deleteIfUnused, endCommandFiles, eventBodyAnswer, finishedArgs, readEventBody, runnerName } from './sync';
-import { docBytes, holdThreadTimes, isIsoTime } from './runnerAccess';
+import { docBytes, holdThreadTimes, isReadableTime } from './runnerAccess';
 import { HEADS_MARK } from './projectHeads';
 import { notesOf } from './projectNotes';
 
@@ -72,7 +72,7 @@ function stripThread(doc: Doc<'threads'>): PhoneThread {
   // Out of its list for a runner key's cap (sync.ts upsertThreads): shown where it belongs.
   if (doc.view === 'overflow') out.view = doc.wantView ?? 'inbox';
   // Times a phone can read, whoever wrote them and whenever.
-  holdThreadTimes(out);
+  holdThreadTimes(out, isReadableTime);
   return out as PhoneThread;
 }
 
@@ -617,7 +617,7 @@ export const wakes = query({
     await checkPhoneToken(ctx, token);
     const out = [];
     // A wake saved before syncWake checked its time is held to the same check.
-    for await (const w of ctx.db.query('scheduleWakes')) out.push({ scheduleId: w.scheduleId, ...(w.threadId ? { threadId: w.threadId } : {}), ...(isIsoTime(w.nextRunAt) ? { nextRunAt: w.nextRunAt } : {}) });
+    for await (const w of ctx.db.query('scheduleWakes')) out.push({ scheduleId: w.scheduleId, ...(w.threadId ? { threadId: w.threadId } : {}), ...(isReadableTime(w.nextRunAt) ? { nextRunAt: w.nextRunAt } : {}) });
     return out;
   },
 });

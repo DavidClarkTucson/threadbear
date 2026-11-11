@@ -618,7 +618,7 @@ function serve(ts, tailnetPort, localPort) {
 // The decisions are offTailnetStep's (scripts/self-hosted-plan.mjs).
 function unserve(ts, tailnetPort, localPort, moving) {
   const step = offTailnetStep({ cli: Boolean(ts), handlers: ts ? served(ts, tailnetPort) : undefined, tailnetPort, localPort, moving });
-  if (step.do === 'fail') throw new Fail(ts ? step.message : `${step.message} If you've taken Tailscale off this Mac for good, nothing of it is serving: delete ${path.join(home, TAILNET_PENDING_FILE)} and run setup again.`);
+  if (step.do === 'fail') throw new Fail(step.message);
   if (step.do === 'note') return note(step.message);
   if (step.do === 'nothing') return;
   if (dry) return todo(`tailscale serve --https=${tailnetPort} off`);
@@ -679,12 +679,16 @@ async function selfHostedBackend() {
   const b = backendContainer(plan.mode, tailnet);
   ensureContainer(BACKEND_CONTAINER, BACKEND_IMAGE, b.env, b.runArgs, b.cmd);
   ensureContainer(DASHBOARD_CONTAINER, DASHBOARD_IMAGE, { NEXT_PUBLIC_DEPLOYMENT_URL: url }, ['-p', `127.0.0.1:${PORTS.dashboard[1]}:6791`]);
-  const pendingFile = path.join(home, TAILNET_PENDING_FILE);
+  // In the default data folder whatever --home says: the containers, their
+  // volume and the ports served are this Mac's, one set for every data
+  // folder, so a run for one has to see what a run for another served
+  // (cross-lab review, 11 Nov 2026).
+  const pendingFile = path.join(DEFAULT_HOME, TAILNET_PENDING_FILE);
   if (tailnet) {
     // Said before anything is served, so a run that stops after serving
     // but before saving its URL still has a local run check every port.
     if (!dry && !fs.existsSync(pendingFile)) {
-      fs.mkdirSync(home, { recursive: true });
+      fs.mkdirSync(DEFAULT_HOME, { recursive: true });
       fs.writeFileSync(pendingFile, 'This Mac\'s self-hosted Convex backend has been served on the tailnet (tailscale serve). Setup with --local removes this once it has seen every port taken off.\n');
     }
     for (const [tailnetPort, localPort] of Object.values(PORTS)) serve(tailnet.ts, tailnetPort, localPort);

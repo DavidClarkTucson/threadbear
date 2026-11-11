@@ -323,15 +323,24 @@ export function isIsoTime(value: unknown): value is string {
 // "+999999999-12-31T23:59:59Z" and threw drawing the row (Daybreak, 11 Nov
 // 2026). On what a runner key writes, and on what phones read, for rows
 // stored before and for apps from before their own check.
-export function holdThreadTimes(t: Record<string, any>): void {
-  if (!isIsoTime(t.lastActivityAt)) {
+// What a phone reads is held more loosely than what a runner key writes:
+// any time inside JavaScript's own range, in toISOString's form, so the
+// owner's runner's snooze past the year 9999 ("+010000-01-01T00:00:00.000Z",
+// which it takes) still shows. Android before its own check only threw past
+// about 292 million years.
+const WIDE_ISO_TIME = /^[+-]\d{6}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{3})?Z$/;
+export function isReadableTime(value: unknown): value is string {
+  return isIsoTime(value) || (typeof value === 'string' && WIDE_ISO_TIME.test(value) && Number.isFinite(Date.parse(value)));
+}
+export function holdThreadTimes(t: Record<string, any>, ok: (value: unknown) => boolean = isIsoTime): void {
+  if (!ok(t.lastActivityAt)) {
     const ms = t.lastActivityMs;
     t.lastActivityAt = new Date(Number.isFinite(ms) && ms >= 0 && ms <= 8.64e15 ? ms : Date.now()).toISOString();
   }
-  if (!isIsoTime(t.createdAt)) t.createdAt = t.lastActivityAt;
-  for (const f of ['snoozedUntil', 'archivedAt', 'starredAt']) if (t[f] !== undefined && !isIsoTime(t[f])) delete t[f];
-  if (t.woke && !isIsoTime(t.woke.at)) delete t.woke;
-  else if (t.woke?.since !== undefined && !isIsoTime(t.woke.since)) t.woke = { at: t.woke.at };
+  if (!ok(t.createdAt)) t.createdAt = t.lastActivityAt;
+  for (const f of ['snoozedUntil', 'archivedAt', 'starredAt']) if (t[f] !== undefined && !ok(t[f])) delete t[f];
+  if (t.woke && !ok(t.woke.at)) delete t.woke;
+  else if (t.woke?.since !== undefined && !ok(t.woke.since)) t.woke = { at: t.woke.at };
 }
 // A whole number from 0 to `most`.
 export function wholeIn(value: unknown, most: number): value is number {

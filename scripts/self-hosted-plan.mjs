@@ -157,7 +157,9 @@ export function servedOn(status, tailnetPort) {
 export function offTailnetStep({ cli, handlers, tailnetPort, localPort, moving }) {
   const target = `http://127.0.0.1:${localPort}`;
   if (!cli) {
-    if (moving) return { do: 'fail', message: `Setup can't find Tailscale (no tailscale command, and no /Applications/Tailscale.app), so it can't take this backend off your tailnet, where it's still served on port ${tailnetPort}. Put the tailscale command on your PATH (or reinstall Tailscale), then run setup again.` };
+    // Tailscale keeps what it serves until it's told otherwise, so there's
+    // no telling it's gone without it: setup has to see the ports off once.
+    if (moving) return { do: 'fail', message: `Setup can't find Tailscale (no tailscale command, and no /Applications/Tailscale.app), so it can't check that this backend is off your tailnet, where an earlier setup served it on port ${tailnetPort}. If it's installed, put the tailscale command on your PATH; if you removed it, install it again (https://tailscale.com/download) and open it. Then run setup again: it takes the backend's ports off, and you can remove Tailscale after.` };
     return { do: 'nothing' };
   }
   if (!handlers) {
@@ -174,7 +176,7 @@ export function offTailnetStep({ cli, handlers, tailnetPort, localPort, moving }
 // on: a move off the tailnet (the saved URL is a tailnet one), or any run
 // after one that put the backend on the tailnet without the local one since
 // seeing it off. That's the note setup leaves before it first serves
-// (TAILNET_PENDING_FILE in the data folder), as a tailnet run that stopped
+// (TAILNET_PENDING_FILE in the default data folder, as the backend is the Mac's), as a tailnet run that stopped
 // before saving its URL left a local URL behind, which alone said nothing
 // was served (cross-lab review of the Daybreak fix, 11 Nov 2026).
 export const TAILNET_PENDING_FILE = 'self-hosted-on-tailnet';

@@ -38,7 +38,7 @@ File references are where to look.
   `tailscale serve` at all: the three stay on 127.0.0.1, the API and the
   website on 13210 and 13211 inside the container as well as out, and
   only this Mac can reach them. Once setup has put them on the tailnet it
-  leaves a note, `self-hosted-on-tailnet` in the data folder, so a later
+  leaves a note, `self-hosted-on-tailnet` in the data folder (the default one, whatever `--home` says, as the containers are the Mac's), so a later
   `--local` run won't finish until it has seen every one of those ports
   taken off again; it deletes the note then.
 - **Apps:** `~/Applications/Threadbear.app` and

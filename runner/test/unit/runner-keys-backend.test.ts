@@ -1186,6 +1186,12 @@ test("a runner key's thread and schedule times are ones the apps can read", asyn
   assert.equal(read.lastActivityAt, new Date(stored.lastActivityMs).toISOString());
   assert.equal(read.starredAt, undefined);
   assert.equal(read.woke, undefined);
+  // A time the owner's runner takes (a snooze past 9999, as toISOString writes
+  // it) still reads as written; one past JavaScript's own range doesn't.
+  await s.ctx.db.patch(stored._id, { snoozedUntil: '+010000-01-01T00:00:00.000Z', archivedAt: '+275761-01-01T00:00:00.000Z' });
+  const wide = ((await call(s.ctx, phone.thread, { token, threadId: 'MINE' })) as { thread: Record<string, any> }).thread;
+  assert.equal(wide.snoozedUntil, '+010000-01-01T00:00:00.000Z');
+  assert.equal(wide.archivedAt, undefined);
   await call(s.ctx, sync.saveSchedule, { key: BRUCE_KEY, schedule: sched(UUID(7), BRUCE, { threadId: 'FAR', nextRunAt: '+1000000000-06-01T00:00:00Z' }) });
   await call(s.ctx, sync.saveSchedule, { key: BRUCE_KEY, schedule: sched(UUID(8), BRUCE, { threadId: 'OK', nextRunAt: '2026-11-12T09:00:00.000Z' }) });
   // A wake stored before the check is held to it when read.
