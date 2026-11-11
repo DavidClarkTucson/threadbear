@@ -1339,6 +1339,17 @@ enum Automation {
             return await pageSwipe(c, app: app)
         case "decide":
             return decide(c, app: app)
+        case "projectTab":
+            // {"cmd":"projectTab","tab":"decisions"|"project"} picks a tab on
+            // the open project's page as a click does; {"step": 1 or -1} is
+            // ⇧⌘] or ⇧⌘[. Says the tab showing after.
+            guard app.projectTabsShowing, let id = app.openProjectId else { return "error no project page in tabs open" }
+            if let raw = c["tab"] as? String {
+                guard let tab = ProjectTab(rawValue: raw) else { return "error tab is decisions or project" }
+                app.pickProjectTab(id, tab)
+            }
+            if let step = c["step"] as? Int { app.stepProjectTab(by: step) }
+            return "ok " + app.projectTab(id).rawValue
         case "projectParent":
             // {"cmd":"projectParent","title":"<project>","parent":"<project>"}
             // makes it a part of that one, as the ... menu's Make a Part of

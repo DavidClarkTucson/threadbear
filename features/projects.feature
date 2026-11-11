@@ -56,3 +56,14 @@ Feature: Decisions on the Projects page
     When I open the project "Photo sync"
     And I make the project "Photo sync" its own project
     Then the project page says it's a part of nothing
+
+  @projects.tabs @project-decisions @gpui-pending
+  Scenario: A project's page opens on its decisions, and remembers the tab picked
+    When I open the project "Threadbear"
+    Then the project page shows its "decisions" tab
+    When I pick the project page's "project" tab
+    Then the project page shows its "project" tab
+    When I open the project "Walkies"
+    Then the project page shows its "project" tab
+    When I open the project "Threadbear"
+    Then the project page shows its "project" tab

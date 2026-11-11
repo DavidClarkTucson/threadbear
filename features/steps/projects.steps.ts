@@ -74,3 +74,13 @@ Then('the project page lists the part {string}', async function (this: Threadbea
 When('I make the project {string} its own project', async function (this: ThreadbearWorld, title: string) {
   await this.app.do({ cmd: 'projectParent', title, parent: '' });
 });
+
+// A project's page tabs (the projectDecisions experiment): `project.tab` in
+// the dump is the one showing.
+Then('the project page shows its {string} tab', async function (this: ThreadbearWorld, tab: string) {
+  await this.until(`the "${tab}" tab`, (d) => ((d as Dump & { project?: { tab?: string | null } | null }).project?.tab ?? null) === tab);
+});
+
+When('I pick the project page\'s {string} tab', async function (this: ThreadbearWorld, tab: string) {
+  await this.app.do({ cmd: 'projectTab', tab });
+});

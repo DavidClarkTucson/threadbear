@@ -113,6 +113,14 @@ struct ThreadbearApp: App {
                     Divider()
                     Button("Next Inbox Thread", systemImage: "chevron.down") { app.nextInboxThread() }
                         .shortcut(.nextInboxThread)
+                    // A project's page tabs (the projectDecisions experiment).
+                    Divider()
+                    Button("Show Previous Tab", systemImage: "chevron.backward.square") { app.stepProjectTab(by: -1) }
+                        .shortcut(.previousTab)
+                        .disabled(!app.projectTabsShowing)
+                    Button("Show Next Tab", systemImage: "chevron.forward.square") { app.stepProjectTab(by: 1) }
+                        .shortcut(.nextTab)
+                        .disabled(!app.projectTabsShowing)
                 }
             }
             // Help has no help book to open: the tour is what there is.

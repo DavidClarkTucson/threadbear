@@ -326,6 +326,10 @@ final class AppModel {
     /// Answers sent from the Projects page's decision cards, by thread id,
     /// until the thread takes them (ProjectDecisions.isSending).
     var decisionSends: [String: DecisionSend] = [:]
+    /// The tab last picked on each project's page (ProjectTabs), while the
+    /// app runs, and the one each opened on this visit when none was.
+    var projectTabsPicked: [String: ProjectTab] = [:]
+    var projectTabsOpenedOn: [String: ProjectTab] = [:]
     /// The seq of the card of asks collapsed on each thread, by thread id.
     /// By card, so the next one, something new to decide, always opens.
     var collapsedCards: [String: Int] = [:]

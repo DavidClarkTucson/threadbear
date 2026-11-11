@@ -39,19 +39,20 @@ struct ProjectPage: View {
                     .controlSize(.large)
                     .tip("Start a thread in this project, in its folder, with its goals from the first message")
                 }
-                // The projectDecisions experiment: its threads' open cards
-                // of asks first, as that's what's waiting on Mike.
+                // The projectDecisions experiment: the page is in two tabs,
+                // its decisions (its parts' too) and everything else (Mike,
+                // 12 Nov). Off, it's the page as it always was.
                 if app.projectDecisionsOn {
-                    DecisionsSection(project: project)
+                    let tab = app.projectTab(project.id)
+                    ProjectTabBar(project: project, tab: tab, decisions: app.projectDecisionCount(project.id))
+                    if tab == .decisions {
+                        DecisionsSection(project: project, tabbed: true)
+                    } else {
+                        info(threads)
+                    }
+                } else {
+                    info(threads)
                 }
-                PartsSection(project: project)
-                TextSection(project: project, field: .goals)
-                TextSection(project: project, field: .state)
-                TasksSection(project: project)
-                TextSection(project: project, field: .notes)
-                FoldersSection(project: project)
-                ThreadsSection(project: project, threads: threads)
-                PatchesSection(project: project, threads: threads)
             }
             .frame(maxWidth: zoomed(720), alignment: .leading)
             .padding(.horizontal, zoomed(32))
@@ -60,6 +61,22 @@ struct ProjectPage: View {
             .frame(maxWidth: .infinity)
         }
         .id(project.id)
+        // A fresh visit opens on Decisions when something's waiting, unless
+        // a tab was picked for it before (ProjectTabs).
+        .onChange(of: project.id, initial: true) { _, id in app.projectPageOpened(id) }
+    }
+
+    /// Everything about the project but its decisions: the Project tab.
+    @ViewBuilder
+    private func info(_ threads: [ThreadSummary]) -> some View {
+        PartsSection(project: project)
+        TextSection(project: project, field: .goals)
+        TextSection(project: project, field: .state)
+        TasksSection(project: project)
+        TextSection(project: project, field: .notes)
+        FoldersSection(project: project)
+        ThreadsSection(project: project, threads: threads)
+        PatchesSection(project: project, threads: threads)
     }
 
     /// "Made by the librarian on 20 Oct · 5 threads".
@@ -146,6 +163,66 @@ private struct TitleField: View {
         let title = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { draft = project.title; return }
         if title != project.title { app.updateProject(project.id, ProjectUpdate(title: title)) }
+    }
+}
+
+/// Decisions and Project, at the top of a project's page under its header
+/// (the projectDecisions experiment). The decisions' count is in the
+/// needs-you orange, as everywhere they're counted; the rest is quiet. A
+/// click shows the tab at once; ⇧⌘[ and ⇧⌘] step between them (Go menu).
+private struct ProjectTabBar: View {
+    @Environment(AppModel.self) private var app
+    let project: Project
+    let tab: ProjectTab
+    let decisions: Int
+
+    var body: some View {
+        HStack(spacing: zoomed(2)) {
+            ForEach(ProjectTab.allCases, id: \.self) { each in
+                TabButton(title: each.title, count: each == .decisions && decisions > 0 ? decisions : nil, selected: each == tab) {
+                    app.pickProjectTab(project.id, each)
+                }
+                .tip(each == .decisions ? "What its threads are waiting on you for (⇧⌘[)" : "Its goals, state, notes and threads (⇧⌘])")
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, zoomed(4))
+        .overlay(alignment: .bottom) { Rectangle().fill(Color(nsColor: Theme.hairline)).frame(height: 0.5) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Project page tabs")
+    }
+}
+
+private struct TabButton: View {
+    let title: String
+    let count: Int?
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: zoomed(6)) {
+                Text(title)
+                    .font(.system(size: TypeScale.label, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? .primary : .secondary)
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: TypeScale.detail, weight: .semibold))
+                        .foregroundStyle(Color(nsColor: Theme.needsYou))
+                        .monospacedDigit()
+                }
+            }
+            .padding(.horizontal, zoomed(10))
+            .padding(.vertical, zoomed(5))
+            .background(selected ? Color.primary.opacity(0.08) : hovering ? SidebarMetrics.hover : .clear,
+                        in: RoundedRectangle(cornerRadius: zoomed(6)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
+        .accessibilityLabel(count.map { "\(title), \($0) waiting" } ?? title)
     }
 }
 

@@ -71,9 +71,42 @@ extension AppModel {
         showsLibrarianHome = true
     }
 
+    // MARK: A project's page tabs (projectDecisions experiment)
+
+    /// The open project's page is in tabs: Decisions and Project.
+    var projectTabsShowing: Bool { projectDecisionsOn && openProject != nil }
+
+    /// Decisions waiting in the project and its parts.
+    func projectDecisionCount(_ id: String) -> Int {
+        let built = projectSections
+        guard let section = built.sections.first(where: { $0.id == id }) else { return 0 }
+        return ProjectDecisions.count(built.threadsWithParts(section))
+    }
+
+    func projectTab(_ id: String) -> ProjectTab {
+        ProjectTabs.current(picked: projectTabsPicked[id], openedOn: projectTabsOpenedOn[id], decisions: projectDecisionCount(id))
+    }
+
+    /// Its page has just opened: the tab it opens on for this visit, unless
+    /// one was picked for it before.
+    func projectPageOpened(_ id: String) {
+        projectTabsOpenedOn[id] = ProjectTabs.opening(decisions: projectDecisionCount(id))
+    }
+
+    func pickProjectTab(_ id: String, _ tab: ProjectTab) {
+        projectTabsPicked[id] = tab
+    }
+
+    /// ⇧⌘[ and ⇧⌘] on a project's page.
+    func stepProjectTab(by delta: Int) {
+        guard projectTabsShowing, let id = openProjectId else { return }
+        pickProjectTab(id, ProjectTabs.step(projectTab(id), by: delta))
+    }
+
     /// The project's page in the detail area. The sidebar stays where it is.
     func openProjectPage(_ id: String) {
         guard project(id) != nil else { return }
+        projectPageOpened(id)
         openProjectId = id
         showsProjectsHome = false
         showsLibrarianHome = false

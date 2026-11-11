@@ -583,6 +583,9 @@ struct AppDump: Encodable {
         /// The project it's a part of, by title, and its own parts' titles.
         var parent: String? = nil
         var parts: [String] = []
+        /// The tab showing ("decisions" or "project") with the
+        /// projectDecisions experiment on; nil without tabs.
+        var tab: String? = nil
         var folders: [String]
         var threads: [String]
         var patches: [String]
@@ -940,6 +943,7 @@ struct AppDump: Encodable {
                 return ProjectInfo(id: project.id, title: project.title,
                                    parent: project.parentId.flatMap { app.project($0)?.title },
                                    parts: (app.projectSections.parts[project.id] ?? []).map(\.project.title),
+                                   tab: app.projectDecisionsOn ? app.projectTab(project.id).rawValue : nil,
                                    folders: project.folders, threads: threads.map(\.id),
                                    patches: PatchGroups.patches(of: project, in: threads).map(\.patch.id), archived: project.archived)
             },
