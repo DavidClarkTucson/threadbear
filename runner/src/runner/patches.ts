@@ -64,6 +64,20 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
   const worktreeReach = new Set<string>();
   // The folder holding its `.threadbear/patches`, as a worktree's commands run from there.
   const patchFolder = path.dirname(path.dirname(path.dirname(file)));
+  // Each file's commands; if any file can't be read that way, none is: a
+  // function it hands on (`export { execSync as run } from ...`) can be
+  // called from another by a name nothing here knows (Codex's review).
+  const reads = new Map<string, ReturnType<typeof patchCommands>>();
+  for (const [module, bytes] of h.code) {
+    const rootPath = canonicalPath(h.root);
+    const own = canonicalPath(module) === rootPath && ![...h.edges.values()].some((to) => [...to.values()].some((f) => canonicalPath(f) === rootPath));
+    try {
+      reads.set(module, patchCommands(bytes.toString('utf8'), module, own));
+    } catch (e) {
+      reads.set(module, { unknown: { line: 1, why: `Threadbear couldn't read it (${e instanceof Error ? e.message : String(e)})` } });
+    }
+  }
+  const oneUnknown = [...reads.entries()].find(([, r]) => 'unknown' in r);
   for (const [module, bytes] of h.code) {
     const text = bytes.toString('utf8');
     for (const n of namedPaths(text)) add(path.resolve(from, n));
@@ -84,13 +98,12 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
     // runs what an agent just wrote until it has got past a step that's asked
     // about.
     // Anything it trips on is read the old way, never skipped.
-    let read: ReturnType<typeof patchCommands>;
-    try {
-      read = patchCommands(text, module, own);
-    } catch (e) {
-      read = { unknown: { line: 1, why: `Threadbear couldn't read it (${e instanceof Error ? e.message : String(e)})` } };
-    }
-    if ('commands' in read) {
+    const mine = reads.get(module)!;
+    // Read exactly where it can be, and the old way as well when any file
+    // of the patch can't be.
+    const old = 'unknown' in mine ? mine.unknown : oneUnknown && 'unknown' in oneUnknown[1] ? { ...oneUnknown[1].unknown, why: `${path.basename(oneUnknown[0])} ${oneUnknown[1].unknown.why}` } : undefined;
+    if ('commands' in mine) {
+      const read = mine;
       for (const c of read.commands) {
         if (c.text.length > 4000) {
           unsure({ file: module, line: c.line, command: c.text, problem: 'the command is too long to follow.' });
@@ -107,14 +120,22 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
         // And every absolute or `~/` path in the command as it was worked
         // out, there yet or not: the follow passes over a missing script
         // outside the repo, which an agent could then write (Codex's review).
+        // A child_process call's runs from its cwd (patchCommands puts it as `cd '<dir>' && `).
+        const cd = /^cd '([^']*)' && /.exec(c.text);
+        const base = cd ? cd[1] : from;
         for (const word of c.text.split(/[\s'"`;&|()<>=]+/)) {
           if (!word || word.includes('__threadbear_value') || word.length > 4096) continue;
           if (word.startsWith('/') && word.length > 1) add(word);
           else if (word.startsWith('~/')) add(path.join(os.homedir(), word.slice(2)));
+          // `../../other/go.mjs`, from where it runs: the follow passes over
+          // one outside the repo that isn't there yet, too.
+          else if (word.includes('/')) add(path.resolve(base, word));
         }
         if (reach.problem) unsure({ file: module, line: c.line, command: c.text, problem: sayValue(reach.problem) });
       }
-    } else {
+    }
+    if (old) {
+      const read = { unknown: old };
       // Read the old way: each string in it as a command run from where its
       // commands run. A problem means there may be more it runs, unless the
       // patch file's own default export has it as something else (scanModule).
@@ -178,7 +199,12 @@ export function editsAskText(patch: string, why: UnsureWhy | undefined): string 
 // The note is kept in the transcript and goes to the phone, and a patch's
 // command can carry a credential (Codex's review).
 export function commandShown(command: string): string {
-  const words = command.replace(/\$\{__threadbear_value\}/g, '${...}').split(/\s+/).filter(Boolean);
+  const words = command
+    .replace(/\$\{__threadbear_value\}/g, '${...}')
+    // A URL's user and password.
+    .replace(/:\/\/[^\s/@]*@/g, '://...@')
+    .split(/\s+/)
+    .filter(Boolean);
   const out: string[] = [];
   for (const [i, w] of words.entries()) {
     if (out.length >= 4) {

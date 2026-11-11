@@ -147,8 +147,8 @@ test('patchCommands: what each sink runs, worked out', () => {
   assert.deepEqual(read(`const q = (s: string) => \`'\${s}'\`; export default { panels: [{ title: 'P', items: async ({ sh }: any) => sh(\`gh pr view \${q('a b')}\`) }] };`), ["gh pr view 'a b'"]);
   assert.deepEqual(read(`import { join } from 'node:path'; export default { actions: [{ title: 'A', prompt: 'p', when: ({ sh }: any) => sh(\`node \${join(import.meta.dirname, 'x.mjs')} \${Date.now()}\`) }] };`), [`node /x/.threadbear/patches/x.mjs ${VALUE}`]);
   assert.deepEqual(read(`export default { actions: [{ title: 'A', run: process.env.CI ? './a.sh' : './b.sh' }] };`), ['./a.sh', './b.sh']);
-  assert.deepEqual(read(`import { execFileSync } from 'node:child_process'; execFileSync('git', ['log', '-1', process.env.X!]);`), [`'git' 'log' '-1' "${VALUE}"`]);
-  assert.deepEqual(read(`import { spawn } from 'node:child_process'; spawn('ls -la | wc', { shell: true });`), ['ls -la | wc']);
+  assert.deepEqual(read(`import { execFileSync } from 'node:child_process'; execFileSync('git', ['log', '-1', process.env.X!]);`), [`cd '${process.cwd()}' && 'git' 'log' '-1' "${VALUE}"`]);
+  assert.deepEqual(read(`import { spawn } from 'node:child_process'; spawn('ls -la | wc', { shell: true });`), [`cd '${process.cwd()}' && ls -la | wc`]);
   assert.deepEqual(read(`export default { worktree: { setup: './setup.sh', teardown: './down.sh' } };`).length, 2);
   const wt = patchCommands(`export default { worktree: { setup: './setup.sh', teardown: './down.sh' } };`, '/x/p.ts', true);
   assert.ok('commands' in wt);
@@ -211,4 +211,34 @@ test('the note leaves out what could be a credential in the command', async () =
   const note = h.events(thread.id).find((e) => e.type === 'system.note' && String(e.text).includes('ask before every file edit'));
   assert.ok(note);
   assert.doesNotMatch(note.text, /SECRET/);
+});
+
+test("what Codex's second review found: each still asks", async () => {
+  const outside = fs.realpathSync(tmpDir());
+  put(path.join(outside, 'go.mjs'), `import './lib.mjs';\n`);
+  put(path.join(outside, 'lib.mjs'), 'console.log(1);\n');
+  const go = path.join(outside, 'go.mjs');
+  const cases: Record<string, { patch: string; file: string; files?: Record<string, string> }> = {
+    'child_process handed on by another file': {
+      patch: `import { run } from '../lib/process.ts'; import { join } from 'node:path'; export default { panels: [{ title: 'P', items: () => run('node ' + join(${JSON.stringify(outside)}, 'go.mjs')) }] };`,
+      files: { '.threadbear/lib/process.ts': `export { execSync as run } from 'node:child_process';\n` },
+      file: path.join(outside, 'lib.mjs'),
+    },
+    'hooks from JSON': { patch: `const hooks = JSON.parse('[{"title":"After","on":"turn.end","run":"node ${go}"}]'); export default { hooks };`, file: path.join(outside, 'lib.mjs') },
+    'a helper written over': { patch: `function script() { return '/opt/linux/' + 'status.mjs'; } if (process.platform === 'darwin') script = () => '${outside}/' + 'mac.mjs'; export default { actions: [{ title: 'Run', run: 'node ' + script() }] };`, file: path.join(outside, 'mac.mjs') },
+    'null in a join': { patch: `export default { panels: [{ title: 'P', items: ({ sh }: any) => sh('node ' + [${JSON.stringify(outside)}, null, 'go.mjs'].join('/')) }] };`, file: path.join(outside, 'lib.mjs') },
+    'a relative script outside, not there yet': { patch: `import { join } from 'node:path'; export default { panels: [{ title: 'P', items: ({ sh }: any) => sh('node ' + join('..', 'later', 'go.mjs')) }] };`, file: '../later/go.mjs' },
+    "child_process from the runner's own folder": { patch: `import { execFileSync } from 'node:child_process'; import { join } from 'node:path'; export default { panels: [{ title: 'P', items: () => execFileSync('node', [join('tools', 'go.mjs')]) }] };`, file: path.join(process.cwd(), 'tools', 'go.mjs') },
+  };
+  for (const [name, c] of Object.entries(cases)) {
+    const { runsAsCode, cwd } = await withHomePatch(c.patch, c.files);
+    assert.ok(runsAsCode(c.file.startsWith('..') ? path.resolve(cwd, c.file) : c.file), name);
+  }
+});
+
+test("the note leaves out a URL's password", async () => {
+  const { h, thread, runsAsCode, cwd } = await withHomePatch(`export default { panels: [{ title: 'P', items: ({ sh }: any) => sh('node ' + process.env.SCRIPT + ' https://alice:p4ss@example.test/') }] };`);
+  assert.equal(runsAsCode(path.join(cwd, 'README.md')), 'unsure');
+  const note = h.events(thread.id).find((e) => e.type === 'system.note' && String(e.text).includes('ask before every file edit'));
+  assert.doesNotMatch(note!.text, /p4ss/);
 });

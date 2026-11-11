@@ -195,6 +195,11 @@ class Reader {
     if (TYPE_ONLY.has(node.type)) return;
     if (parent) this.parents.set(node, parent);
     if (node.type === 'CallExpression') this.calls.push(node);
+    // A name written to after it's declared isn't what it was declared as
+    // (`script = () => ...`; Codex's review): it's never folded.
+    if (node.type === 'AssignmentExpression' && node.left.type === 'Identifier') this.bind(node.left.name, { kind: 'other' });
+    if (node.type === 'UpdateExpression' && node.argument.type === 'Identifier') this.bind(node.argument.name, { kind: 'other' });
+    if (node.type === 'AssignmentExpression' && (node.left.type === 'ObjectPattern' || node.left.type === 'ArrayPattern')) this.bindPattern(node.left);
     switch (node.type) {
       case 'ImportDeclaration': {
         const source = String(node.source.value);
@@ -313,8 +318,54 @@ class Reader {
 
   // The root's `export default { worktree: { ... } }`, whose setup and check
   // are a worktree's (writeRunsAsCode treats those apart).
+  // The root's default export has to be written out where this can see each
+  // action's, hook's and worktree's command: an object, its lists arrays (or
+  // constants holding them) of objects (or constants, or a one-line helper
+  // returning one). Lists from JSON.parse or another file could hold a
+  // `run` no object here has (Codex's review).
+  private checkExport(): void {
+    if (!this.root) return;
+    const seen = new Set<AstNode>();
+    const literal = (n: AstNode, kind: 'ObjectExpression' | 'ArrayExpression', depth = 0): AstNode => {
+      const v = unwrap(n);
+      if (v.type === kind) return v;
+      if (depth < 8 && v.type === 'Identifier') {
+        const b = this.only(v.name);
+        if (b?.kind === 'const') return literal(b.init, kind, depth + 1);
+      }
+      if (depth < 8 && kind === 'ObjectExpression' && v.type === 'CallExpression' && unwrap(v.callee).type === 'Identifier') {
+        const fn = this.localFunction(unwrap(v.callee).name);
+        const body = fn && returned(fn);
+        if (body) return literal(body, kind, depth + 1);
+      }
+      throw new Unknown(v, "its default export's commands aren't written out in it");
+    };
+    const objectOf = (n: AstNode) => {
+      const o = literal(n, 'ObjectExpression');
+      if (seen.has(o)) return o;
+      seen.add(o);
+      for (const p of o.properties) if (p.type === 'SpreadElement') throw new Unknown(p, "its default export's commands aren't written out in it");
+      return o;
+    };
+    for (const st of this.program.body) {
+      if (st.type !== 'ExportDefaultDeclaration') continue;
+      const d = objectOf(st.declaration);
+      for (const p of d.properties) {
+        const name = keyName(p);
+        if (name === 'actions' || name === 'hooks') {
+          for (const e of literal(p.value, 'ArrayExpression').elements) {
+            if (!e) continue;
+            if (e.type === 'SpreadElement') throw new Unknown(e, "its default export's commands aren't written out in it");
+            objectOf(e);
+          }
+        } else if (name === 'worktree') objectOf(p.value);
+      }
+    }
+  }
+
   private findWorktree(): void {
     if (!this.root) return;
+    this.checkExport();
     for (const s of this.program.body) {
       if (s.type !== 'ExportDefaultDeclaration') continue;
       const d = unwrap(s.declaration);
@@ -464,10 +515,13 @@ class Reader {
   // some other way (`env` with NODE_OPTIONS, a shell by path, `execPath`,
   // options not written in place) makes it a command this can't follow.
   private options(opts: AstNode | undefined): { cwd: (string | undefined)[]; shell: boolean } | 'unknown' {
-    if (!opts) return { cwd: [undefined], shell: false };
+    // Run from the runner's own folder unless told otherwise, not the
+    // thread's, where sh runs (Codex's review).
+    const here = process.cwd();
+    if (!opts) return { cwd: [here], shell: false };
     const o = unwrap(opts);
     if (o.type !== 'ObjectExpression') return 'unknown';
-    let cwd: (string | undefined)[] = [undefined];
+    let cwd: (string | undefined)[] = [here];
     let shell = false;
     for (const p of o.properties) {
       if (p.type === 'SpreadElement' || p.computed || p.kind !== 'init') return 'unknown';
@@ -476,7 +530,7 @@ class Reader {
       if (name === 'shell') {
         if (v.type === 'Literal' && (v.value === false || v.value === true)) shell = v.value;
         else return 'unknown';
-      } else if (name === 'cwd') cwd = this.value(v, new Map(), 0);
+      } else if (name === 'cwd') cwd = this.value(v, new Map(), 0).map((c) => (c.includes(VALUE) ? c : path.resolve(here, c)));
       else if (!INERT_OPTIONS.has(name ?? '')) return 'unknown';
     }
     return { cwd, shell };
@@ -675,7 +729,10 @@ class Reader {
       let out: string[] = [''];
       arr.elements.forEach((e: AstNode, i: number) => {
         if (i > 0) out = join(out, sep);
-        out = join(out, this.value(e, env, depth + 1));
+        // join() writes null and undefined as nothing.
+        const u = unwrap(e);
+        const empty = (u.type === 'Literal' && u.value === null && !u.regex) || (u.type === 'Identifier' && u.name === 'undefined' && !this.bindings.has('undefined'));
+        out = join(out, empty ? [''] : this.value(e, env, depth + 1));
       });
       return out;
     }
