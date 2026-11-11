@@ -92,6 +92,7 @@ final class PanelLinksTests: XCTestCase {
         <a id="video" href="\(other)/watch">video</a>
         <a id="blank" target="_blank" href="\(other)/blank">blank</a>
         <a id="own" href="/second">own</a>
+        <form id="form" method="get" action="\(other)/form"><input name="q" value="x"></form>
         </body></html>
         """
         let pool = WebPanelPool(defaults: UserDefaults(suiteName: "PanelLinksTests.\(UUID().uuidString)")!)
@@ -104,9 +105,14 @@ final class PanelLinksTests: XCTestCase {
         try await waitFor("the video opens outside") { opened.contains("\(other)/watch") }
         _ = try await js("document.getElementById('blank').click()", in: view)
         try await waitFor("the new-tab link opens outside") { opened.contains("\(other)/blank") }
+        // A button's window.open and a form to another site (Codex review).
+        _ = try await js("window.open('\(other)/popup')", in: view)
+        try await waitFor("window.open opens outside") { opened.contains("\(other)/popup") }
+        _ = try await js("document.getElementById('form').submit()", in: view)
+        try await waitFor("the form opens outside") { opened.contains { $0.hasPrefix("\(other)/form") } }
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(view.url, home, "the patch's page stayed")
-        XCTAssertEqual(opened.count, 2, "each opened once: \(opened)")
+        XCTAssertEqual(opened.count, 4, "each opened once: \(opened)")
         XCTAssertFalse(pool.canGoBack(home))
 
         // Its own link loads in the panel, and Back comes back.
@@ -143,9 +149,14 @@ final class PanelLinksTests: XCTestCase {
         let moved = try await js("return document.getElementById('a').paused", in: view) as? Bool
         XCTAssertEqual(moved, false)
 
-        // Closing it does.
+        // Closing it does, and the page's own script can't start it again
+        // unseen (Codex review).
+        _ = try await js("const a = document.getElementById('a'); a.addEventListener('pause', () => setTimeout(() => a.play().catch(() => {}), 100))", in: view)
         next.removeFromSuperview()
         try await waitFor("it pauses") { (try? await self.js("return document.getElementById('a').paused", in: view)) as? Bool == true }
+        try await Task.sleep(for: .milliseconds(800))
+        let restarted = try await js("return document.getElementById('a').paused", in: view) as? Bool
+        XCTAssertEqual(restarted, true, "the page started it again")
         window.close()
     }
 }

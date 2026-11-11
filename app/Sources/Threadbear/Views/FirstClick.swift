@@ -32,14 +32,21 @@ class FirstClickWebView: WKWebView {
     /// The pool keeps a page loaded when its panel is closed or another
     /// thread is picked, so a video in it played on with nothing on screen
     /// to stop it (Mike, 11 Nov). Out of the window, its sound and video
-    /// pause. A view moving between panels comes straight back, so it's
-    /// checked a moment later.
+    /// pause, and stay suspended until it's back, so the page's own script
+    /// can't start them again unseen (Codex review). Coming back lifts the
+    /// suspension but leaves them paused. A view moving between panels
+    /// comes straight back, so it's checked a moment later.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window == nil else { return }
+        guard window == nil else {
+            setAllMediaPlaybackSuspended(false, completionHandler: nil)
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self, self.window == nil else { return }
-            self.pauseAllMediaPlayback(completionHandler: nil)
+            self.pauseAllMediaPlayback {
+                self.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+            }
         }
     }
 }

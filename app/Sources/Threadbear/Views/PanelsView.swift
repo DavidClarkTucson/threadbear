@@ -1056,9 +1056,10 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     func goBack(_ url: URL) { views[url]?.goBack() }
 
     /// Whether a click in a patch's panel should open somewhere else rather
-    /// than load over its page: a link (a click, not a script's redirect or
-    /// a sign-in's, so those still work) in the page itself, to a web page
-    /// on another site than the panel's own.
+    /// than load over its page: a link, a form or a window.open (not a
+    /// script's `location` change or a server's redirect, so a sign-in that
+    /// goes through another site and back still works) in the page itself,
+    /// to a web page on another site than the panel's own.
     nonisolated static func leavesPanel(_ target: URL?, home: URL, linkClick: Bool, mainFrame: Bool) -> Bool {
         guard linkClick, mainFrame, let target, PreviewRules.isWebPage(target) else { return false }
         return !sameSite(target, home)
@@ -1076,10 +1077,16 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         backWatches.removeValue(forKey: ObjectIdentifier(view))?.invalidate()
     }
 
+    /// A link or a form, or anything asking for a new window (window.open,
+    /// which WebKit calls `.other`).
+    private static func isClick(_ action: WKNavigationAction) -> Bool {
+        action.navigationType == .linkActivated || action.navigationType == .formSubmitted || action.targetFrame == nil
+    }
+
     /// A link out of a patch's panel, if this is one (leavesPanel).
     private func sendOut(_ webView: WKWebView, _ action: WKNavigationAction) -> Bool {
         guard let leaver = leavers[ObjectIdentifier(webView)], let url = action.request.url,
-              Self.leavesPanel(url, home: leaver.home, linkClick: action.navigationType == .linkActivated,
+              Self.leavesPanel(url, home: leaver.home, linkClick: Self.isClick(action),
                                mainFrame: action.targetFrame?.isMainFrame ?? true) else { return false }
         leaver.open(url)
         return true
