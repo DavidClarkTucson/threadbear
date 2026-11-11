@@ -71,9 +71,15 @@ pub(crate) struct PanePreview {
     /// came through in the browser, last one nearest.
     pub back: Vec<PanePreview>,
     pub memory: FolderMemory,
+    /// A text file with its own text up, raw (the Markdown menu's Markdown).
+    pub editing: bool,
 }
 
 impl PanePreview {
+    pub(crate) fn new(target: Target, title: String, from: String) -> Self {
+        PanePreview { target, title, from, opened: 0, back: vec![], memory: Default::default(), editing: false }
+    }
+
     pub(crate) fn file_path(&self) -> Option<&str> {
         match &self.target {
             Target::File(path) => Some(path),
@@ -257,6 +263,7 @@ impl SidePane {
         }
         pane.load_projects(cx);
         pane.load_schedules(cx);
+        crate::file_find::bind_keys(cx);
         pane
     }
 
@@ -516,12 +523,18 @@ impl SidePane {
         // A folder browsed in place of its picture; the runner says which it is.
         let target = if self.files.is_known_folder(path) { Target::Folder(path.to_owned()) } else { Target::File(path.to_owned()) };
         let title = title.unwrap_or_else(|| core::last_component(path).to_owned());
-        let preview = PanePreview { target, title, from: section, opened: 0, back: vec![], memory: Default::default() };
+        let preview = PanePreview::new(target, title, section);
         self.show_preview(preview, &thread.id.clone(), cx);
     }
 
     pub(crate) fn show_preview(&mut self, mut preview: PanePreview, thread_id: &str, cx: &mut Context<Self>) {
         preview.opened = self.previews.get(thread_id).map_or(0, |p| p.opened) + 1;
+        // A Markdown file opens as its bar's menu last left it, on this
+        // runner's machine (`MarkdownView.opensRaw`).
+        let here = self.thread(cx).is_some_and(|t| t.id == thread_id && !t.is_remote());
+        if let Some(path) = preview.file_path() {
+            preview.editing = here && threadbear_core::text_file::MarkdownView::opens_raw(path, self.files.prefs.markdown_view);
+        }
         self.chosen.entry(thread_id.to_owned()).or_insert_with(|| preview.from.clone());
         self.previews.insert(thread_id.to_owned(), preview);
         self.menu = None;

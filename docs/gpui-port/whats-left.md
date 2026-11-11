@@ -45,8 +45,8 @@ you go.
   (`rich.filerefs`, `file.host`)
 
 ### Files and folders in the pane
-- [ ] No Preview/Markdown switch on a Markdown file (`file.markdown`)
-- [ ] No find bar (`file.find`)
+- [x] No Preview/Markdown switch on a Markdown file (`file.markdown`)
+- [x] No find bar (`file.find`)
 - [ ] Files are read-only: no editing, autosave or ⌘S (`file.editor`,
   `file.conflict`)
 - [ ] PDFs, videos and .html files open in their own app rather than the pane

@@ -679,6 +679,15 @@ struct AppDump: Encodable {
         /// start (a picture's size, the words).
         var previewKind: String?
         var previewText: String?
+        /// A text file's find bar while it's up: its words and where the
+        /// selection is among the matches ("the: 2 of 5", "the: not found").
+        var previewFind: String?
+        /// The line over a text file: the conflict bar's words, or the grey
+        /// note (cut off, can't be edited, gone).
+        var previewNote: String?
+        /// The Markdown file's Preview or Markdown, in the bar's menu, when
+        /// the bar has one.
+        var previewMode: String?
         /// The folder browser's summary (as `dump`'s preview line), when one
         /// is showing, the Files panel's too.
         var folder: String?
@@ -1187,6 +1196,13 @@ struct AppDump: Encodable {
                 pane.previewKind = PreviewRules.isMarkdown(path) ? (preview.editing ? "text" : "markdown") : (PreviewRules.codeLanguage(forPath: path) != nil ? "code" : "text")
                 if let controller = TextFileController.current, controller.url.path == path {
                     pane.previewText = String(controller.textView.string.prefix(4000))
+                    pane.previewFind = controller.debugFindLine
+                    pane.previewNote = controller.conflict != nil ? "Changed on disk while you were editing." : controller.note
+                }
+                // What the bar offers (PreviewButtons): the Markdown menu, or
+                // the pencil and Done, for a file here that can be edited.
+                if preview.away == nil, TextFileView.canEdit(path) {
+                    pane.previewMode = PreviewRules.isMarkdown(path) ? (preview.editing ? "markdown" : "preview") : (preview.editing ? "editing" : "reading")
                 }
             } else {
                 let shows = FilePreviewView.current?.debugShows ?? "quickLook"

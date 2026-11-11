@@ -377,7 +377,8 @@ impl SidePane {
             back
         };
         if entry.is_folder {
-            let next = PanePreview { target: Target::Folder(entry.path.clone()), title: entry.name.clone(), from: preview.from.clone(), opened: 0, back: back_stack, memory: Default::default() };
+            let mut next = PanePreview::new(Target::Folder(entry.path.clone()), entry.name.clone(), preview.from.clone());
+            next.back = back_stack;
             self.show_preview(next, &thread.id, cx);
             return;
         }
@@ -385,7 +386,8 @@ impl SidePane {
             self.open_externally(&entry.path, cx);
             return;
         }
-        let next = PanePreview { target: Target::File(entry.path.clone()), title: entry.name.clone(), from: preview.from.clone(), opened: 0, back: back_stack, memory: Default::default() };
+        let mut next = PanePreview::new(Target::File(entry.path.clone()), entry.name.clone(), preview.from.clone());
+        next.back = back_stack;
         self.show_preview(next, &thread.id, cx);
     }
 

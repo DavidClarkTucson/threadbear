@@ -34,6 +34,40 @@ Then('the pane\'s page has the words {string}', async function (this: Threadbear
   await this.until(`the page to have "${words}"`, (d) => pane(d)?.previewText?.includes(words));
 });
 
+Then('the pane\'s Markdown menu says {string}', async function (this: ThreadbearWorld, mode: string) {
+  await this.until(`the bar's Markdown menu on ${mode}`, (d) => pane(d)?.previewMode === mode);
+});
+
+When('I pick {string} from the pane\'s Markdown menu', async function (this: ThreadbearWorld, view: string) {
+  await this.until('the bar\'s Markdown menu', (d) => pane(d)?.previewMode);
+  await this.app.do({ cmd: 'preview', markdownView: view });
+});
+
+When('I look for {string} in the pane\'s file', async function (this: ThreadbearWorld, words: string) {
+  await this.until('a text file in the pane', (d) => ['markdown', 'code', 'text'].includes(pane(d)?.previewKind ?? '') && pane(d)?.previewText);
+  await this.app.do({ cmd: 'preview', find: words });
+});
+
+Then('the find bar says {string}', async function (this: ThreadbearWorld, line: string) {
+  await this.until(`the find bar to say "${line}"`, (d) => pane(d)?.previewFind === line);
+});
+
+When('I find the next match', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'preview', findNext: true });
+});
+
+When('I find the match before', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'preview', findPrevious: true });
+});
+
+When('I close the find bar', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'preview', findDone: true });
+});
+
+Then('the find bar is gone', async function (this: ThreadbearWorld) {
+  await this.until('no find bar', (d) => pane(d)?.previewKind && !pane(d)?.previewFind);
+});
+
 Then('the pane shows a picture', async function (this: ThreadbearWorld) {
   await this.until('a picture in the pane', (d) => pane(d)?.previewKind === 'picture' && /\d+x\d+/.test(pane(d)?.previewText ?? ''));
 });

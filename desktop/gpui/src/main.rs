@@ -18,7 +18,10 @@ mod connectors_panel;
 mod ding;
 mod draft_boxes;
 mod drafts;
+mod file_edit;
+mod file_find;
 mod files;
+mod files_store;
 mod folders;
 #[cfg(feature = "frame-stats")]
 mod frame_stats;

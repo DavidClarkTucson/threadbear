@@ -797,7 +797,22 @@ enum Automation {
             // types text at the end of the editor (and waits for the
             // save, unless "wait" is false), "save" true is ⌘S, and
             // "resolve" ("file" or "mine") is the conflict bar's button.
+            // Over any text file, "find" is ⌘F with those words typed in
+            // the find bar, "findNext" and "findPrevious" true are ⌘G and
+            // ⇧⌘G, and "findDone" true is the bar's Done; each says what
+            // the bar has found ("the: 2 of 5").
             guard let thread = app.selectedThread else { return "error no thread selected" }
+            if c["find"] != nil || c["findNext"] != nil || c["findPrevious"] != nil || c["findDone"] != nil {
+                guard let controller = TextFileController.current, app.panePreview[thread.id]?.fileURL == controller.url else {
+                    return "error no text file is showing"
+                }
+                if let query = c["find"] as? String { controller.debugFind(query) }
+                if c["findNext"] as? Bool == true { controller.debugFindStep(previous: false) }
+                if c["findPrevious"] as? Bool == true { controller.debugFindStep(previous: true) }
+                if c["findDone"] as? Bool == true { controller.debugFindDone() }
+                try? await Task.sleep(for: .milliseconds(300))
+                return "ok \(controller.debugFindLine ?? "no find bar")"
+            }
             if c["save"] as? Bool == true {
                 guard let controller = TextFileController.current, app.panePreview[thread.id]?.editing == true else {
                     return "error nothing is being edited"
@@ -820,6 +835,13 @@ enum Automation {
             } else if let editing = c["edit"] as? Bool {
                 guard app.panePreview[thread.id]?.fileURL != nil else { return "error no file is open in the pane" }
                 app.setPreviewEditing(editing, in: thread.id)
+            } else if let raw = c["markdownView"] as? String {
+                // A pick from a Markdown file's Preview/Markdown menu, which
+                // is also how the next Markdown file opens (MarkdownViewMenu).
+                guard let view = MarkdownView(rawValue: raw) else { return "error markdownView is preview or markdown" }
+                guard let file = app.panePreview[thread.id]?.fileURL, PreviewRules.isMarkdown(file.path) else { return "error no Markdown file is open in the pane" }
+                MarkdownView.current = view
+                app.setPreviewEditing(view == .markdown, in: thread.id)
             } else if let text = c["insert"] as? String {
                 guard let controller = TextFileController.current, app.panePreview[thread.id]?.editing == true else {
                     return "error nothing is being edited"

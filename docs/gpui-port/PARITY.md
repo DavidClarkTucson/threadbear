@@ -482,6 +482,47 @@ built parsers and gates with no launch of the app, which is the trap.)
   --all-targets`; settings, window and reading-a-thread features on the
   GPUI app (all pass but settings.feature's Keep the Mac awake, which fails
   the same way with main's settings window).
+### 2026-11-11 A Markdown file's Preview/Markdown menu, and the find bar (`file.markdown`, `file.find`)
+
+- A Markdown file on this runner's machine has the Swift bar's menu: Preview
+  (drawn as a page) or Markdown (its own text, with line numbers), and the
+  pick is how the next Markdown file opens, remembered across launches
+  (`desktop-files.json` in the data folder, as the Swift app's
+  `filesMarkdownView`). Another Mac's file, or one too big to work on (2 MB),
+  has no menu, as there. The text is read here, as the Swift app reads it
+  (core's `EditSession`), and doesn't take typing yet (`file.editor`), so the
+  menu's tip doesn't say it's ready to type in.
+- ⌘F over a text file (a drawn page, code, plain text, the Markdown text)
+  puts up the find bar AppKit gives the Swift app's text view: the words,
+  ‹ › (⇧⌘G, ⌘G, Shift-Return, Return) going round at either end, and Done
+  (Escape), with the last words back on the next ⌘F, as the find pasteboard
+  has them. Contains and ignoring case, as NSTextFinder's defaults. The field
+  also says "3 of 8", which AppKit's bar leaves out. The code editor marks
+  its own matches (the kit's search, driven from the bar, its own panel off);
+  the drawn page's are range highlights from core's `find`, scrolled to.
+- The code view reads as the Swift one does: no line numbers, folds or
+  guides until it's being worked on, and 15 point lines, not the kit's 18.
+- Both apps' `preview` command takes `find`, `findNext`, `findPrevious`,
+  `findDone` and `markdownView`, and their dumps say `previewFind` ("the: 2
+  of 8"), `previewMode` (the menu's pick) and `previewNote`; the Swift app
+  drives AppKit's own bar through `performTextFinderAction`.
+- Not the same yet: the Markdown text's gutter is the kit's (numbers a little
+  closer to the text, no hairline, the current line's white, not grey); the
+  bar's clear button is a plain ×, and its field has no menu of recent words.
+- Files: `desktop/core/src/find.rs` and `text_file.rs` (new, with the Swift
+  tests of TextFileDocument ported, and the editing rules the next slice
+  uses), `desktop/core/src/folders.rs` (the folder browser's rules, for the
+  next slice); `desktop/gpui/src/file_find.rs`, `file_edit.rs` and
+  `files_store.rs` (new), `files.rs`; the lines that hook them into
+  `highlights.rs` (`PanePreview.editing`), `folders.rs` and `main.rs`;
+  `app/Sources/Threadbear/Automation.swift`, `AppDump.swift` and
+  `Views/TextFileView.swift`; `features/file-previews.feature` and its steps.
+- Verification: the 3 new scenarios and the rest of file-previews, folders,
+  highlights and picture-viewer on Tinker Desk against the GPUI app (31 of
+  31) and the Swift app (30 of 30); core's tests, the integration ones too.
+  The find bar, the menu and the Markdown text side by side with the Swift
+  app's in dark: the bar 31 points with a 21 point field and the same three
+  controls, the code's lines 15 apart in both.
 
 ### 2026-11-11 Projects: the sidebar's view, the page of cards and a project's page (`projects.list`, `projects.home`, `projects.page`, `projects.parts`, `projects.newthread`, `header.projectchip`, `highlights.projects`)
 
