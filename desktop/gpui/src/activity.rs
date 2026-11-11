@@ -349,11 +349,19 @@ pub(crate) fn window_active(window: u64, active: bool, cx: &mut App) {
         // already in "app active".
         let changed = with(|r| r.last_window.replace(window) != Some(window)) == Some(true);
         if changed && is_on() {
-            let Some((app, main)) = with(|r| (r.app.clone(), r.main)) else { return };
-            let handle = cx.windows().into_iter().find(|w| w.window_id().as_u64() == window);
-            let mut e = event("window");
-            e.window = Some(handle.map_or_else(|| "window".to_owned(), |h| window_name(h, main, &app, cx)));
-            record(e);
+            let e = event("window");
+            // Named once this update is over: a window's coming to the front
+            // is heard inside the app's own update (`looking_changed`), and
+            // naming the window reads the app, which GPUI refuses while it's
+            // being updated. Opening Settings with the log on crashed the app
+            // (Mike, 12 Nov).
+            cx.defer(move |cx| {
+                let Some((app, main)) = with(|r| (r.app.clone(), r.main)) else { return };
+                let handle = cx.windows().into_iter().find(|w| w.window_id().as_u64() == window);
+                let mut e = e;
+                e.window = Some(handle.map_or_else(|| "window".to_owned(), |h| window_name(h, main, &app, cx)));
+                record(e);
+            });
         }
         return;
     }
@@ -488,8 +496,11 @@ impl Threadbear {
 /// sets the Settings switch, `"click": "<tip>"` gives the log a press on the
 /// control with that tip (without pressing it), `"key": "n"` with
 /// `"command": true` presses a key through the app's own dispatch, so a menu
-/// item's key comes back as its item. It says whether it's on, how many lines
-/// today has and the last few (`"last": N`).
+/// item's key comes back as its item, and `"window": "settings"` opens
+/// Settings and has its window come to the front as the window server
+/// says, through the same path (a scripted app's windows never do). It
+/// says whether it's on, how many lines today has and the last few
+/// (`"last": N`).
 #[cfg(feature = "automation")]
 pub(crate) async fn automation(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &serde_json::Value, cx: &mut AsyncApp) -> Result<serde_json::Value, String> {
     let home = app.read_with(cx, |t, _| t.settings.path().parent().map(Path::to_path_buf)).map_err(|e| e.to_string())?.ok_or("no data folder")?;
@@ -514,6 +525,15 @@ pub(crate) async fn automation(app: &WeakEntity<Threadbear>, window: AnyWindowHa
         })
     })
     .map_err(|e| e.to_string())??;
+    if cmd["window"] == "settings" {
+        app.update(cx, |t, cx| t.open_settings(None, cx)).map_err(|e| e.to_string())?;
+        // The window opens once that update is over.
+        cx.background_executor().timer(Duration::from_millis(300)).await;
+        let handle = app.read_with(cx, |t, _| t.settings_window.as_ref().map(|(w, _)| *w)).map_err(|e| e.to_string())?.ok_or("Settings didn't open")?;
+        // As its window's activation observer does (settings_window.rs):
+        // inside the app's own update.
+        app.update(cx, |t, cx| t.looking_changed(handle.window_id().as_u64(), true, cx)).map_err(|e| e.to_string())?;
+    }
     // A key's line waits for its dispatch to finish, as the Swift app's waits a turn.
     cx.background_executor().timer(Duration::from_millis(300)).await;
     flush();

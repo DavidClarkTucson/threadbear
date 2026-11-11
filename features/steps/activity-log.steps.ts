@@ -51,6 +51,14 @@ Then('the activity log has a click on {string} in the {word} panel', async funct
   assert.equal(l.window, 'main');
 });
 
+When('the Settings window comes to the front, for the activity log', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'activity', window: 'settings' });
+});
+
+Then('the activity log has the window {string}', async function (this: ThreadbearWorld, name: string) {
+  await line(this, `the window "${name}" coming to the front`, (x) => x.kind === 'window' && x.window === name);
+});
+
 Then('the activity log has a message sent in {string}', async function (this: ThreadbearWorld, title: string) {
   const d = await this.app.dump();
   const id = this.thread(d, title)?.id;

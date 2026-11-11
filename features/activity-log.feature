@@ -23,6 +23,16 @@ Feature: The activity log
     Then the activity log has a message sent in "Morning brief"
     And the activity log has nothing of "nothing of these words goes in the log"
 
+  # A window coming to the front is heard inside the app's own update, and
+  # naming it there read the app again: opening Settings with the log on
+  # crashed the GPUI app (12 Nov). The Swift app's scripted windows can't be
+  # brought to the front this way.
+  @system.activitylog @swift-pending
+  Scenario: Settings coming to the front is noted by its window
+    Given the activity log is on
+    When the Settings window comes to the front, for the activity log
+    Then the activity log has the window "settings"
+
   @system.activitylog
   Scenario: Off, it notes nothing
     Given the activity log is off

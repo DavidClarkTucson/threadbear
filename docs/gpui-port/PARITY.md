@@ -222,6 +222,23 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 Opening Settings with the activity log on crashed the app (`system.activitylog`)
+
+- Clicking the gear (or ⌘,) crashed the GPUI app once the activity log was
+  on, which the import from the Swift app turns on where it was on there.
+  The Settings window coming to the front is heard inside the app's own
+  update (`looking_changed`), and the log named the window by reading the
+  app again, which GPUI refuses mid-update (a double lease). The window's
+  line is written once that update is over, as a click's already was. Any
+  window but the main one did the same.
+- The `activity` automation takes `"window": "settings"`: it opens Settings
+  and runs its window's coming to the front through the same path.
+- Files: `desktop/gpui/src/activity.rs`, `features/activity-log.feature`
+  and its steps.
+- Verification: on Tinker Desk, `@system.activitylog` on GPUI, 4 of 4; with
+  the old naming put back, the new scenario panics at the same place
+  (entity_map.rs:156) as the crash Mike hit.
+
 ### 2026-11-12 Another Mac's picture chips open nothing here (`rich.picturechips`)
 
 - A picture's chip in a message on another Mac's thread named that Mac's
