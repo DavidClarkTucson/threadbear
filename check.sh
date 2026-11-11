@@ -16,9 +16,12 @@
 #                 one test file, or swift test --filter)
 #
 #   (no options)  runner typecheck, unit tests and deploy tests, then the
-#                 app's swift build and swift test, and BearDock's tests
+#                 app's swift build and swift test, and BearDock's tests,
+#                 and the desktop app's Rust tests and build (desktop/)
 #   --quick       runner typecheck and unit tests (about a minute), plus
-#                 the Mac app's release build when app/ or dock/ changed
+#                 the Mac app's release build when app/ or dock/ changed,
+#                 and the desktop app's core and client tests when
+#                 desktop/ changed
 #   --runner      only the runner's typecheck and unit tests, nothing else
 #                 that --quick adds (Convex, web, app tools, iPhone kit), on
 #                 main too: the runner's self-update runs this (deploy.mjs),
@@ -111,6 +114,8 @@ if [ "$LOCAL" = 0 ] && [ "$E2E" = 0 ]; then
     echo "So the checks run on this Mac instead, at low priority."
     # taskpolicy is macOS's; a Linux runner's self-update (deploy.mjs) gets
     # here too, and there nice does the same job (Codex, 9 Nov).
+    # THREADBEAR_CHECK_FALLBACK tells it this is the Mac someone's working on.
+    export THREADBEAR_CHECK_FALLBACK=1
     if command -v taskpolicy >/dev/null 2>&1; then exec taskpolicy -b "$0" --local ${ARGS[@]+"${ARGS[@]}"}; fi
     exec nice -n 10 "$0" --local ${ARGS[@]+"${ARGS[@]}"}
   fi
@@ -120,12 +125,13 @@ fi
 
 export PATH="$(dirname "$NODE"):$PATH"
 export THREADBEAR_NODE="$NODE"
+FALLBACK="${THREADBEAR_CHECK_FALLBACK:-}"
 # Inside a Threadbear thread these name the live runner and the thread.
 # Every test makes its own temp data dir; none may find the real one.
 # THREADBEAR_CHECK_BUSY_EXIT is only for sending this run to a host: the
 # check-remote tests run under it would otherwise exit with it (Codex, 9 Nov).
 unset THREADBEAR_HOME THREADBEAR_DATA_DIR THREADBEAR_PORT THREADBEAR_URL THREADBEAR_LOG \
-  THREADBEAR_THREAD_ID THREADBEAR_RUNNER_VERSION THREADBEAR_RUNNER_HOME THREADBEAR_CHECK_BUSY_EXIT
+  THREADBEAR_THREAD_ID THREADBEAR_RUNNER_VERSION THREADBEAR_RUNNER_HOME THREADBEAR_CHECK_BUSY_EXIT THREADBEAR_CHECK_FALLBACK
 # And their old names, which the runner and tb would otherwise take for these.
 for v in $(compgen -e | grep '^THREADBARE_' || true); do unset "$v"; done
 # No runner a check starts may install or update a CLI.
@@ -288,6 +294,70 @@ if [ "$APP_ONLY" = 0 ]; then
     fi
   fi
 fi
+# The desktop app's Rust (desktop/, the GPUI port), when something it reads
+# changed: desktop/ itself, the mock runner its client's tests start, and the
+# Mac app's test fixtures the core's tests share. Nothing ran it before, and
+# on 11 Nov a GPUI change that built a file:// URL outside the open gate
+# landed on main, exactly what core's open_gate_source test is there to catch.
+# --quick runs the small crates' tests (the core logic, the golden
+# transcripts, the open-gate source check, the client against the mock),
+# which build without GPUI. The full check also builds everything else
+# (cargo check of the GPUI app, the dock and every test), a few minutes from
+# cold. On a check host cargo's target folder is kept between runs
+# (scripts/check-remote.sh), so --quick stays about a minute.
+DESKTOP_NEEDS='^desktop/|^app/Tools/mock-runner/|^app/Tests/Fixtures/'
+#
+# That kept target is shared by every checkout that sends a run, and cargo
+# calls a crate fresh when none of its files is newer than its last build: a
+# checkout whose edit is older than another checkout's last build would be
+# tested as that build. So there (THREADBEAR_CHECK_SHARED_TARGET) desktop/'s
+# files are hashed before each cargo step, and any that differ from what that
+# step last built (or all of them, with no record) are touched to now. A
+# record per step, as `cargo test` and `cargo check` build different things:
+# a --quick run brings core's tests up to date, not the GPUI app's check.
+cargo_step() {
+  local name="$1" sums="" record=""
+  shift
+  if [ -z "$CARGO" ]; then
+    printf 'skip  %-20s (no cargo here: rustup.rs installs it)\n' "$name"
+    return
+  fi
+  if [ "${THREADBEAR_CHECK_SHARED_TARGET:-}" = 1 ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    mkdir -p "$CARGO_TARGET_DIR"
+    record="$CARGO_TARGET_DIR/.check-sums-$(printf '%s' "$name" | tr -c 'a-zA-Z0-9' '-')"
+    sums="$LOGS/desktop-sums"
+    (cd "$ROOT" && find desktop -type f -not -path 'desktop/target/*' -print0 | xargs -0 shasum -a 256 | LC_ALL=C sort) >"$sums"
+    if [ -f "$record" ]; then LC_ALL=C comm -23 "$sums" "$record"; else cat "$sums"; fi \
+      | sed -E 's/^[0-9a-f]+  //' | (cd "$ROOT" && while IFS= read -r f; do touch "$f"; done)
+  fi
+  step "$name" "$ROOT/desktop" "${LIMITED[@]}" "$CARGO" "$@"
+  # Pass or fail: a crate that didn't build has no fingerprint to trust, so
+  # cargo builds it again whatever the record says.
+  [ -z "$record" ] || mv "$sums" "$record"
+}
+if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
+  if needed "$DESKTOP_NEEDS"; then
+    CARGO="$(command -v cargo || true)"
+    [ -n "$CARGO" ] || [ ! -x "$HOME/.cargo/bin/cargo" ] || CARGO="$HOME/.cargo/bin/cargo"
+    # The client's tests start the mock runner, which needs its packages.
+    if [ -n "$CARGO" ] && [ ! -d "$ROOT/app/Tools/mock-runner/node_modules" ]; then
+      step "mock runner packages" "$ROOT/app/Tools/mock-runner" npm ci --no-audit --no-fund
+    fi
+    cargo_step "desktop core tests" test --locked --no-fail-fast -p threadbear-core -p threadbear-client
+    if [ "$QUICK" = 0 ]; then
+      # A cold GPUI build on Mike's Mac is what AGENTS.md keeps off it: when no
+      # check host could take the run (check.sh's fallback, below), only this
+      # one step waits for a host.
+      if [ "$FALLBACK" = 1 ]; then
+        printf 'skip  %-20s (no check host could take it, and a GPUI build stays off this Mac)\n' "desktop build"
+      else
+        cargo_step "desktop build" check --locked --workspace --all-targets
+      fi
+    fi
+  else
+    skip "desktop core tests" "nothing desktop/ reads changed"
+  fi
+fi
 # --quick (what `tb land` runs) builds the Mac app too when app/ or dock/
 # changed: in release, as the installed app's self-update and app/install.sh
 # build it (app/build-app.sh), so debug-only code that slips out of its
@@ -356,7 +426,7 @@ if [ -n "$FAILED" ]; then
     # of its log (XCTest's "error:" and "failed (", Swift Testing's ✘, the
     # node test runner's ✖ and "not ok", tsc's "error TS").
     # (swift colours its output even into a file, so that comes off first.)
-    failures="$(sed -E $'s/\x1b\\[[0-9;]*[A-Za-z]//g' "$log" | grep -nE ': error[: ]|error TS[0-9]|'"'"' failed \(|^not ok|✖|✘' | head -n 20)"
+    failures="$(sed -E $'s/\x1b\\[[0-9;]*[A-Za-z]//g' "$log" | grep -nE ': error[: ]|^error(\[E[0-9]+\])?:|error TS[0-9]|'"'"' failed \(|^not ok|✖|✘|\.\.\. FAILED$|panicked at' | head -n 20)"
     if [ -n "$failures" ]; then
       echo
       echo "--- $name: what failed (line: text) in $log"

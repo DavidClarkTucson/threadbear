@@ -90,6 +90,10 @@ mock runner. Run Rust builds and suites elsewhere (`scripts/remote.sh`):
 scripts/remote.sh cloud -- bash -c 'cd desktop && cargo test -p threadbear-core'
 ```
 
+`../check.sh` (and so `tb land`) runs `cargo test -p threadbear-core -p
+threadbear-client` on its check host whenever something under `desktop/`
+changed, and the full check adds `cargo check --workspace --all-targets`.
+
 `scripts/spec.sh` is the one-command version for use through `remote.sh`: it
 builds the app (Swift or GPUI), keeps its own copy of the GPUI binary so another
 checkout's build can't swap it mid-run (the cargo target folder is shared), and

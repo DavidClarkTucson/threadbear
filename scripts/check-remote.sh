@@ -128,6 +128,31 @@ if [ "${1:-}" = "--on-host" ]; then
     rm -rf "$src/$dir/.build"
     ln -s "$base/build/$name" "$src/$dir/.build"
   done
+  # Cargo for the desktop app's Rust (desktop/): the one desktop/scripts/remote.sh
+  # installed under gpui/ if there is one, else rustup's. Its target folder is
+  # kept between runs too, one for every checkout: this host's lock means only
+  # one run uses it at a time, and the copy is always at src/ with the Mac's
+  # file times (rsync -a), so cargo rebuilds only the crates whose files
+  # changed. It's dropped when the disk runs short, as a GPUI build fills
+  # several GiB and the cloud box runs a runner of its own (THREADBEAR-1R).
+  if [ -x "$base/gpui/cargo/bin/cargo" ]; then
+    export CARGO_HOME="$base/gpui/cargo" RUSTUP_HOME="$base/gpui/rustup"
+    PATH="$CARGO_HOME/bin:$PATH"
+  elif [ -x "$HOME/.cargo/bin/cargo" ]; then
+    PATH="$HOME/.cargo/bin:$PATH"
+  fi
+  # THREADBEAR_CHECK_SHARED_TARGET has check.sh make sure cargo sees every
+  # change (cargo_step there says why).
+  export CARGO_TARGET_DIR="$base/build/desktop-target" THREADBEAR_CHECK_SHARED_TARGET=1 \
+    CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10
+  free_kb="$(cd "$base" && eval "$free_cmd")"
+  case "$free_kb" in
+    ""|*[!0123456789]*) ;;
+    *) if [ "$free_kb" -lt $((12 * 1048576)) ] && [ -d "$CARGO_TARGET_DIR" ]; then
+         echo "Short of disk here, so the desktop app's cargo target goes; it builds from cold this time."
+         rm -rf "$CARGO_TARGET_DIR"
+       fi ;;
+  esac
 
   cd "$src" || exit 1
   # Under a limit of its own as well: this Mac giving up on it (a dropped
