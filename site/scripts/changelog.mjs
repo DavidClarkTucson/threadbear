@@ -55,7 +55,9 @@ export function readReleases(dir) {
       if (!KINDS.includes(h.kind)) throw new Error(`${at}: kind should be added, changed or fixed`);
       if (!h.title?.trim() || !h.text?.trim()) throw new Error(`${at}: needs a title and a text`);
       const m = h.media;
-      if (!m) return;
+      // A card is for something you can see (Mike, 11 Nov: "More videos and screenshots please",
+      // about a card that had none). If it can't be filmed, it's a plain line instead.
+      if (!m) throw new Error(`${at}: a highlight needs a clip or a picture; make it a plain line if it can't have one`);
       const names = m.type === "image" ? [m.src] : m.type === "clip" ? [m.src, m.poster] : null;
       if (!names) throw new Error(`${at}: media type should be clip or image`);
       if (names.some((n) => !MEDIA_NAME.test(n ?? ""))) throw new Error(`${at}: media names are lower-case-with-dashes files (.webp, .png, .jpg or .mp4)`);

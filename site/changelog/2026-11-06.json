@@ -76,6 +76,58 @@
         "height": 1500,
         "alt": "The Usage panel's Claude logins with full-width charts and pace lines, including About 60% will go unused, resets Sat 7:36 am, and Runs out Fri 9:38 am, 4 hours before it resets."
       }
+    },
+    {
+      "kind": "added",
+      "title": "A card about pools",
+      "text": "The first time a pool gets a second login, a card by the message box explains what pools do.",
+      "media": {
+        "type": "clip",
+        "src": "pools-intro-card.mp4",
+        "poster": "pools-intro-card.webp",
+        "width": 1880,
+        "height": 620,
+        "alt": "A Pools card appears beside the highlighted message box, saying a thread moves to another login in its pool when the one it's on nears its limit, then closes with Done."
+      }
+    },
+    {
+      "kind": "added",
+      "title": "Headings in patch list panels",
+      "text": "A list panel from a patch can group its rows under headings, end a row with a date or count, and show two lines of detail.",
+      "media": {
+        "type": "clip",
+        "src": "list-panel-groups.mp4",
+        "poster": "list-panel-groups.webp",
+        "width": 644,
+        "height": 900,
+        "alt": "The side pane switches from Highlights to a Previews list panel with rows under This branch and Elsewhere, times such as 4m and 2d at the ends of rows, and Home's detail wrapping onto a second line."
+      }
+    },
+    {
+      "kind": "changed",
+      "title": "Zoom into a big picture when comparing",
+      "text": "In the window for comparing options, scroll or pinch to zoom, drag to move around, and jump about with a small map of the whole page.",
+      "media": {
+        "type": "clip",
+        "src": "compare-zoom-minimap.mp4",
+        "poster": "compare-zoom-minimap.webp",
+        "width": 1200,
+        "height": 1096,
+        "alt": "A full-length landing page in the compare window zooms in from fit to readable size, is dragged down, then jumps to the top and the bottom by clicking a small map of the whole page at the right."
+      }
+    },
+    {
+      "kind": "changed",
+      "title": "Settings explain themselves",
+      "text": "Each Settings section has an ⓘ that says what it's for and what to ask your agent if you want it changed.",
+      "media": {
+        "type": "clip",
+        "src": "settings-info-tips.mp4",
+        "poster": "settings-info-tips.webp",
+        "width": 1440,
+        "height": 1244,
+        "alt": "In Settings, General, clicking the ⓘ beside Notifications, New threads and Code review opens a note on what each does, ending with what to ask your agent."
+      }
     }
   ],
   "added": [
@@ -83,16 +135,12 @@
     "A thread that's waiting on other threads hibernates until they finish, then carries on with what they said, and its row says Waiting on and which",
     "The Browser panel (the globe on a thread's right-hand rail) shows the pages an agent opens through BrowserBear in your own Chrome profile, and you can click and type in them there; when the agent needs you to sign in or approve something, the page opens in the panel with Your turn and Done",
     "Run a schedule on a pool, so each run starts on whichever login has room",
-    "A card explains pools the first time a pool gets a second login",
-    "List panels from patches can group rows under headings, end a row with a date or count, and show two lines of detail",
     "The website has a rail down the left for Threads, Scheduled, Projects, Runners and Usage, where you can see each runner's CPU, memory and disk, and Pause or Run now a schedule",
     "Run Threadbear's runner on a Linux server, where it installs as a background service"
   ],
   "changed": [
     "Threads on your other Macs and servers open from this Mac without pairing it with each one first",
     "Pools are shared between all your runners, every machine sees each login's latest usage, and new threads start on the login whose week resets soonest, so less of each week goes unused",
-    "Scroll or pinch to zoom into a big picture in the window for comparing options, then drag around it or jump about with a small map of the whole page",
-    "Each Settings section explains what it's for behind an ⓘ, with what to ask your agent if you want it changed",
     "HTML files previewed in the side pane show as static pages: their scripts don't run, and they can load only the styles, pictures and fonts they name",
     "A link to a Tandem project opens it in Tandem instead of the side pane",
     "A thread's ... menu has Open on the web",

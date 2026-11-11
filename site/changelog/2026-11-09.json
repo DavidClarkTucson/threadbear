@@ -52,6 +52,32 @@
         "height": 392,
         "alt": "The Archived section of the sidebar with three threads. The hovered row, Set up the Cloudflare tunnel, shows an Unarchive arrow and a trash button in place of its time."
       }
+    },
+    {
+      "kind": "changed",
+      "title": "Back skips the new-thread screen",
+      "text": "Back from a thread you just started goes to wherever you were before you pressed New thread, not to the empty new-thread screen.",
+      "media": {
+        "type": "clip",
+        "src": "back-after-new-thread.mp4",
+        "poster": "back-after-new-thread.webp",
+        "width": 2480,
+        "height": 1100,
+        "alt": "From Add dark mode to the dashboard, New thread opens the empty new-thread screen and a message is sent, starting Make the sidebar remember its width. A swipe back brings up a card saying Back to Add dark mode to the dashboard, which turns blue, and letting go opens that thread."
+      }
+    },
+    {
+      "kind": "fixed",
+      "title": "Pinned pages always open",
+      "text": "A page an agent pins to show you opens in the side pane every time, or as soon as you go back to that thread.",
+      "media": {
+        "type": "clip",
+        "src": "pin-opens-pane.mp4",
+        "poster": "pin-opens-pane.webp",
+        "width": 1860,
+        "height": 870,
+        "alt": "While on another thread, the agent in Make uploads resume after a crash pins resume-plan.md. Opening that thread opens the page in the side pane. The pane is closed, the agent pins the page again with a new line added, and it opens again showing Uploads over a phone hotspot."
+      }
     }
   ],
   "added": [
@@ -62,7 +88,6 @@
   ],
   "changed": [
     "The arrows on a diagram or small page in a reply open it full size in a window of its own, where they used to open it in the side pane",
-    "Back from a thread you just started goes to wherever you were before you pressed New thread, skipping the empty new-thread screen",
     "A swipe with nowhere to go says so, and a swipe has to go a little further before it counts",
     "The browser panel lists the pages an agent has open, each with a picture of the page, what the agent is doing there and Show window to bring the real window forward",
     "The Runners panel lists your runners in the same order as Settings and the phone, and you can drag them into a new order there",
@@ -76,7 +101,6 @@
     "On iPhone, scroll back through all of a long thread: past the newest 2,000 messages it used to say Loading… for good, and loading earlier messages now keeps your place, even mid-flick",
     "On iPhone, the Starred, Inbox and Running headings stay at the top again while you scroll, and pictures near the top bar or reply box no longer go blank",
     "A schedule keeps the message box's permission mode, Auto included, where a schedule made on Auto used to stop and ask before every edit",
-    "A page an agent pins to show you opens in the side pane every time, or as soon as you go back to that thread",
     "Hibernate until… with words works on threads running on another Mac",
     "A decision card from a thread on another runner shows what each answer does, as your own runner's cards do",
     "A thread another Mac asks to start here, with a folder named under that Mac's home folder, starts in the matching folder here, and the card says so when there's no such folder",

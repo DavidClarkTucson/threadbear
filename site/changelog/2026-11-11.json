@@ -3,12 +3,6 @@
   "highlights": [
     {
       "kind": "added",
-      "title": "A Terminal under each thread",
-      "text": "View > Show Terminal (⌘J) opens your own shell in the thread's folder, and each thread keeps its own. A shell command block in a reply has a play icon that puts the command at the prompt, for you to read before pressing Return.",
-      "credit": "muperdev"
-    },
-    {
-      "kind": "added",
       "title": "Answer a project's decisions in one place",
       "text": "A project's page starts with every question its threads are waiting on, and each answer goes to its thread as if you'd answered it there. It's an experiment: turn on Decisions on the Projects page in Settings > General > Experiments.",
       "media": {
@@ -97,21 +91,67 @@
         "height": 1304,
         "alt": "The Settings window with General, Models, Pools, Runners, Phone & browser and Keyboard down the left. General scrolls down through its sections to Code review, Activity log and Sleep, then Models, Pools and Keyboard are picked in turn from the sidebar."
       }
+    },
+    {
+      "kind": "added",
+      "title": "Back and forward arrows",
+      "text": "Arrows beside Share in a thread's bar step back and forward through the threads you've had open. Hover over one to see where it goes.",
+      "media": {
+        "type": "clip",
+        "src": "back-forward-arrows.mp4",
+        "poster": "back-forward-arrows.webp",
+        "width": 1760,
+        "height": 860,
+        "alt": "Three threads are opened one after another, then the back arrow beside Share steps back through them and the forward arrow steps forward again."
+      }
+    },
+    {
+      "kind": "added",
+      "title": "Move a thread to another machine",
+      "text": "Move to in a thread's right-click menu sends it to another of your machines, with its conversation, pictures and git work. It's an experiment.",
+      "media": {
+        "type": "image",
+        "src": "move-to-machine-sheet.webp",
+        "width": 976,
+        "height": 460,
+        "alt": "The Move sheet for moving a thread to bruce: the folder and login it will use there, a note that one background job won't come, and Cancel and Move buttons."
+      }
+    },
+    {
+      "kind": "added",
+      "title": "A schedule's model and effort",
+      "text": "Pick a schedule's model and effort in its editor.",
+      "media": {
+        "type": "image",
+        "src": "schedule-model-effort.webp",
+        "width": 1040,
+        "height": 900,
+        "alt": "The Edit schedule sheet for a weekly schedule, with a Model row holding a model picker and an effort picker."
+      }
+    },
+    {
+      "kind": "added",
+      "title": "Which machine a thread is on",
+      "text": "With more than one runner, each thread in the sidebar names its machine after its project.",
+      "media": {
+        "type": "image",
+        "src": "sidebar-machine-names.webp",
+        "width": 700,
+        "height": 620,
+        "alt": "Sidebar rows reading misc • m5, misc • bruce, Threadbear • m5 and CannMedia • bruce under their thread titles."
+      }
     }
   ],
   "added": [
+    "View > Show Terminal (⌘J) opens your own shell in the thread's folder, and a shell command block in a reply has a play icon that puts the command at the prompt for you to read before pressing Return (thanks to muperdev)",
     "Stop a running thread from the iPhone app or the website: Send turns into Stop while it works, as on the Mac",
     "⌘Q asks before quitting, with a Don't ask again box, and Settings > General > Quitting turns the question back on",
-    "Back and forward arrows beside Share in a thread's bar, each naming where it goes when you hover over it",
     "Settings > General > Experiments has a switch for each experiment, with what it does behind its ⓘ",
-    "With more than one runner, the sidebar shows which machine each thread is on after its project, as in \"Threadbear • M5\"",
     "Right-click a picture in the side pane for Show in Finder and Copy Path",
-    "Pick a schedule's model and effort in its editor",
     "Write to a thread 12 hours or more after its last turn and the agent is asked to start with a short recap of what the thread was for",
     "A patch can name a teardown command that runs when its thread's worktree is cleaned up, for things its setup made outside the folder (a Convex deployment per worktree, say)",
     "Threadbear can run other tools' update commands once a day, listed under `cliUpdates.extra` in runner.json",
     "A What's new page on the website, with each day's release",
-    "Move a thread to another of your machines from Move to in its right-click menu, with its conversation, pictures and git work (an experiment)",
     "Run OpenCode and Cursor threads next to Claude and Codex (an experiment)",
     "On Auto, a reviewer looks at approval cards first, lets through the ones that fit the thread's task and sends the rest to you with its reason (an experiment)",
     "An agent can put a command on its card that runs with one press on the thread's machine, with the output going straight back to the agent (an experiment)",

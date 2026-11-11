@@ -102,6 +102,58 @@
         "height": 790,
         "alt": "A Decisions needed card on 1 of 3: picking Yes, all 37 slides the second question in from the right and the counter rolls to 2 of 3, then picking Yes, close them slides in the third."
       }
+    },
+    {
+      "kind": "added",
+      "title": "Swipe between threads",
+      "text": "Swipe left or right with two fingers to go Back and Forward between threads, as in Safari.",
+      "media": {
+        "type": "clip",
+        "src": "swipe-back-forward.mp4",
+        "poster": "swipe-back-forward.webp",
+        "width": 1080,
+        "height": 960,
+        "alt": "A two-finger swipe on a thread brings up a Back to \"Export last quarter's invoices as CSV\" pill that turns blue, and that thread opens; swiping the other way shows Forward to \"Compare SQLite and plain files for the runner\" and goes back to it."
+      }
+    },
+    {
+      "kind": "changed",
+      "title": "Sent messages lift off",
+      "text": "A message you send lifts off the message box, and the done card's tick draws itself in.",
+      "media": {
+        "type": "clip",
+        "src": "send-lift-done-tick.mp4",
+        "poster": "send-lift-done-tick.webp",
+        "width": 1080,
+        "height": 920,
+        "alt": "\"Can you bump the version for the release?\" is sent from the message box and rises into the thread; the agent replies \"Bumped it to 1.4.3 in package.json.\" and a Done card appears above the message box with its tick drawing in."
+      }
+    },
+    {
+      "kind": "changed",
+      "title": "The bear sleeps at night",
+      "text": "Between 10 pm and 5 am the bear under an empty Inbox is asleep. A thread that wakes from hibernating has the bear stretching beside its note.",
+      "media": {
+        "type": "clip",
+        "src": "bear-asleep-and-stretch.mp4",
+        "poster": "bear-asleep-and-stretch.webp",
+        "width": 650,
+        "height": 280,
+        "alt": "The last Inbox thread is hibernated late at night, leaving \"Nothing in the inbox. Off to bed.\" under a sleeping bear with Zs drifting up. When the thread wakes and is opened, the small bear beside \"Woke up from hibernating.\" sits up and stretches a paw in the air."
+      }
+    },
+    {
+      "kind": "added",
+      "title": "About Threadbear waves",
+      "text": "Threadbear > About Threadbear opens a small window where the bear waves over a few numbers from your threads.",
+      "media": {
+        "type": "clip",
+        "src": "about-den-wave.mp4",
+        "poster": "about-den-wave.webp",
+        "width": 632,
+        "height": 480,
+        "alt": "The About Threadbear window opens with the bear tilting side to side as it waves, over \"21 threads since 6 Nov.\" and \"Busiest day: 8 Nov, 9 threads. Sorry.\""
+      }
     }
   ],
   "added": [
@@ -110,12 +162,10 @@
     "A soft ding when a thread finishes, waits for you or fails: choose Chime, Bell or Droplet in Settings > General > Notifications (off until you turn it on)",
     "⌥⌘↓ (Go > Next Inbox Thread) opens the next thread in your Inbox, so you can work through it without the mouse",
     "Drag a thread from the sidebar onto the open thread to mention it in your message",
-    "Swipe left or right with two fingers to go Back and Forward between threads, as in Safari",
     "Investigate on the error bar starts a thread that looks for the error's cause and fixes it",
     "When Claude refuses a message, Continue with Codex Sol carries the thread on in Codex",
     "Files on a thread's right-hand rail shows the thread's folder in the folder browser",
     "A thread's Highlights lists the threads it started, with where each is up to, and a click opens one",
-    "Threadbear > About Threadbear opens a small window where the bear waves over a few numbers from your threads",
     "A page in the side pane that needs its scripts says so, and Run them turns them on for that version of the file, still with no internet",
     "Options an agent asks you to compare can be videos and small pages as well as pictures, and the one it would pick is marked \"my pick\"",
     "The Usage panel has a meter and chart of its own for Fable's weekly limit",
@@ -134,8 +184,6 @@
     "Copy thread id is on a thread's right-click menu in the sidebar as well as its ... menu",
     "Usage on the left-hand rail is a honey pot, filled to how much is left on the login your next thread would use",
     "Every button shows a spinner or the change straight away, and can't be pressed twice while it waits, on the Mac and the iPhone",
-    "Sent messages lift off the message box, and the done card's tick draws itself in",
-    "Between 10 pm and 5 am the bear under an empty Inbox is asleep, and a thread that wakes from hibernating has the bear stretching beside its note",
     "Drop a file anywhere over the thread to attach it, not just on the message box",
     "A link's right-click menu has Open in Chrome for each Chrome profile you have open, so a page can go to the window with the right sign-in",
     "Web addresses inside code in a reply are links",

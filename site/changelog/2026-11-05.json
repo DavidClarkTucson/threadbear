@@ -37,6 +37,19 @@
         "height": 808,
         "alt": "Eight thread rows in the sidebar, each with a title and a grey line naming its project or folder and the computer it runs on, like misc and m5 or CannMedia and bruce. Three have a small mark before that line: an external drive on Check the photo library backup, a paw print on Rename the Settings tabs, and a clock on Export last quarter's invoices as CSV."
       }
+    },
+    {
+      "kind": "fixed",
+      "title": "Paths with spaces are links",
+      "text": "A file path with spaces in an agent's reply, like exports/Launch Poster.png, is a link now, so you can open it like any other path.",
+      "media": {
+        "type": "clip",
+        "src": "spaced-paths.mp4",
+        "poster": "spaced-paths.webp",
+        "width": 1292,
+        "height": 900,
+        "alt": "An agent replies that it exported the launch video and poster. Both paths, exports/Threadbear Launch.mp4 and exports/Launch Poster.png, show in blue as links, and opening the poster shows the picture in the panel on the right."
+      }
     }
   ],
   "added": [
@@ -52,7 +65,6 @@
   ],
   "fixed": [
     "Clicking the thread, the message box or a panel while Threadbear isn't the app in front now does what you clicked, not just bring the window forward",
-    "File paths with spaces in an agent's reply open as links",
     "Automatic updates no longer stay stuck on an older version after a hiccup while building the new one"
   ]
 }

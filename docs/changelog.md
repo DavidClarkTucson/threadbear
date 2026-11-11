@@ -3,13 +3,13 @@
 What's new in each daily release, for people who use Threadbear rather than people reading its
 commits. Mike picked the layout on 10 Nov 2026 after seeing Wayne Sutton's bearfooding changelog
 (tame-weasel-262.convex.site): a thread down the page with a sewn button at each release, the
-release's main changes (4 to 8 of them) as cards with a short clip or a picture, and everything
+release's main changes (as many as can be shown, often 6 to 12) as cards with a short clip or a picture, and everything
 else as plain Added / Changed / Fixed lines.
 
 What Mike said after the first version (11 Nov), which this page follows:
 - Videos beat before/after sliders, so a card gets a clip wherever something moves or happens in
   steps, a still only when a still really shows it. There's no before/after type any more.
-- More than three a day: each release usually has 4 to 8 things worth showing.
+- More than three a day, and then "more videos and screenshots please": every card has one, and anything a user can see that can be filmed gets a card.
 - Check something is really new before calling it Added. "Paste a screenshot" went up as new on
   9 Nov when pasting pictures had worked "for ages"; that release only fixed one kind of paste.
 
@@ -37,7 +37,7 @@ that has no file yet (`git tag -l 'release/*'` against `ls site/changelog`).
    and the tag's own plain notes (`git cat-file -p release/<this>`, its "What's new:" lines, a
    good start but check them against the commits).
 2. Write `site/changelog/<this>.json`:
-   - `highlights`: the 4 to 8 changes a user would most want to see (fewer for a small release),
+   - `highlights`: every change a user can see that can be filmed (often 6 to 12; fewer for a small release),
      each something the debug app can show, with a short title and one or two short sentences on
      what you can now do and where (menu path, setting, shortcut). Mike likes less text.
    - Before calling anything Added, or a big Changed, check it didn't exist before this release:
@@ -83,6 +83,10 @@ nothing moves the real pointer, so it's fine on Mike's Mac, one build at a time 
 - Nothing private in a picture: the demo threads are made up, but some mock data (the account
   picker design review, for one) shows Mike's real email addresses. Crop those out or use
   another screen.
-- Some things the mock can't show (the Browser panel, a Plan first card, a thread waiting for a
-  connection). Leave that highlight without `media` rather than faking it.
+- Every highlight has a clip or a picture: the build refuses one without (Mike, 11 Nov, "more
+  videos and screenshots please"). Something that only draws with the window in front (the
+  Terminal panel) is filmed on Tinker Desk, where taking over the screen is fine: a temp clone
+  of the release, commands through `ssh tinker-desk '~/.local/bin/desk "<cmd>"'`, then delete
+  it all, as Tinker Desk is kept clear of Threadbear. Something the mock can't show at all (the
+  Browser panel, a thread waiting for a connection) becomes a plain line, never a faked picture.
 - `alt` says what the picture shows, for someone who can't see it.
