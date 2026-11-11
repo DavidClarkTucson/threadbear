@@ -841,6 +841,11 @@ async function dispatch(client, method, p) {
     }
     case 'threads.events': {
       const t = need(p.threadId);
+      const failing = failingEvents.get(t.summary.id) ?? 0;
+      if (failing > 0) {
+        failingEvents.set(t.summary.id, failing - 1);
+        throw rpcError(-32000, "Couldn't read this thread's transcript.");
+      }
       let events = t.events;
       if (p.afterSeq !== undefined) events = events.filter((e) => e.seq > p.afterSeq);
       if (p.beforeSeq !== undefined) events = events.filter((e) => e.seq < p.beforeSeq);
@@ -1595,6 +1600,17 @@ async function dispatch(client, method, p) {
     }
     case 'mock.restart':
       return restartNow(p);
+    // The runner going away with no notice first (it crashed, or was
+    // stopped): the apps say they can't reach it, rather than "restarting".
+    case 'mock.goAway':
+      return restartNow({ ...p, unannounced: true });
+    // The next `times` reads of a thread's events fail, as a runner that
+    // can't read its transcript would (the "Couldn't load this thread" view).
+    case 'mock.failEvents': {
+      const t = need(p.threadId);
+      failingEvents.set(t.summary.id, Number(p.times ?? 1));
+      return { ok: true };
+    }
     case 'mock.clis':
       if (p.wentBack) return wentBack();
       return { clis };
@@ -1981,6 +1997,9 @@ function pendingMessage(waiting, onYou = 0) {
  * restarted" note and the resume text as a turn sent by the runner
  * (`origin: "runner"`). The reply goes out before anything closes.
  */
+// Threads whose next reads of their events fail (mock.failEvents).
+const failingEvents = new Map();
+
 function restartNow(p) {
   const downMs = Number(p.downMs ?? 3000);
   const resumeId = p.resume?.threadId ?? pendingRestart?.resumeThreadId;
@@ -2012,8 +2031,10 @@ function restartNow(p) {
       setStatus(id, 'stopped', false);
     }
   }
-  broadcastNotice('info', pendingMessage(0));
-  pendingRestart = { when: 'now', requestedAt: iso(), waitingFor: [] };
+  if (!p.unannounced) {
+    broadcastNotice('info', pendingMessage(0));
+    pendingRestart = { when: 'now', requestedAt: iso(), waitingFor: [] };
+  }
   setTimeout(() => {
     const port = wss.address()?.port;
     wss.close();

@@ -299,7 +299,10 @@ restarted" note and a turn whose message has `origin: "runner"`. As with
 the real runner, nothing is mid-turn across it: the threads a pending idle
 restart waited for finish just before it (those waiting on Mike stay
 waiting), and any other running turn ends interrupted with the thread
-stopped.
+stopped. `mock.goAway` (`downMs`) is the same with no notice first, as a
+runner that crashed or was stopped, for the "Can't reach the runner" bar.
+`mock.failEvents` (`threadId`, `times`, default 1) makes that thread's next
+reads of its events fail, for the "Couldn't load this thread" view.
 
 `mock.slow` (`ms`, `queueMs`; both 0 turns it off) plays a runner on a
 loaded Mac: `ms` holds every `threads.send`, `threads.create` and

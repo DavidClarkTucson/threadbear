@@ -31,6 +31,8 @@ pub struct Account {
     pub note: Option<String>,
     /// Kept as it came (AccountUsage), for the badge a later slice draws.
     pub usage: Option<Value>,
+    /// Where the login's CLI keeps its sign-in, for Sign in… (sign_in.rs).
+    pub config_dir: String,
 }
 
 impl Account {

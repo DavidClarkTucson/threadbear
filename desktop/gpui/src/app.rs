@@ -137,6 +137,17 @@ pub struct Threadbear {
     pub(crate) pending_open: Option<String>,
     /// What the Dock badge says now (notify.rs), so it's only set when that changes.
     pub(crate) dock_badge: Option<String>,
+    /// Why the connection last went, kept while it tries again, so the banner
+    /// says what's wrong rather than flicking to "Connecting" on each try
+    /// (`connection()`). Cleared when it's back, and by Try again.
+    pub(crate) last_drop: Option<(threadbear_client::runner::Disconnect, String)>,
+    /// Start runner is under way (runner_launcher.rs): its button spins.
+    pub(crate) starting_runner: bool,
+    /// The checkout the runner follows main in (`runner.status`'s
+    /// `update.checkout`), where Investigate starts its thread.
+    pub(crate) runner_checkout: Option<String>,
+    /// The release's checkout on a fork (`updates.upstream.checkout`).
+    pub(crate) upstream_checkout: Option<String>,
     /// The last settings change the runner turned down (`settingsError`).
     pub(crate) settings_error: Option<String>,
     /// A runner from before `settings.get`.
@@ -343,6 +354,10 @@ impl Threadbear {
             main_window: window.window_handle(),
             pending_open: None,
             dock_badge: None,
+            last_drop: None,
+            starting_runner: false,
+            runner_checkout: None,
+            upstream_checkout: None,
             settings_error: None,
             settings_unsupported: false,
             standing_instructions: None,
@@ -442,12 +457,18 @@ impl Threadbear {
                     self.remote.experiments = hello["experiments"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(str::to_owned)).collect();
                     self.runner_version = hello["runnerVersion"].as_str().unwrap_or("").to_owned();
                     self.upstream_on = hello["updates"]["upstream"]["state"].as_str().is_some_and(|s| s != "off");
+                    self.upstream_checkout = hello["updates"]["upstream"]["checkout"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
                     // A runner from before `providers` has Claude's built in.
                     if let Some(providers) = hello["providers"].as_array() {
                         self.small_jobs = providers.iter().filter(|p| p["smallJobs"].as_bool() == Some(true)).filter_map(|p| p["id"].as_str().map(str::to_owned)).collect();
                     }
                     // The runner's own update and the CLIs, for the Updates panel.
                     self.updates_from_hello(hello);
+                }
+                match &status {
+                    Status::Connected { .. } => self.last_drop = None,
+                    Status::Disconnected { kind, reason, .. } => self.last_drop = Some((*kind, reason.clone())),
+                    Status::Connecting { .. } => {}
                 }
                 self.status = status;
                 // Each time it's connected, the whole list again, and the
@@ -851,10 +872,13 @@ impl Threadbear {
     /// The window as data, in the Swift app's shape (app/Sources/Threadbear/AppDump.swift).
     #[cfg(feature = "automation")]
     pub(crate) fn dump(&self, cx: &App) -> Value {
-        let connection = match self.status {
-            Status::Connected { .. } => "connected",
-            Status::Connecting { .. } => "connecting",
-            Status::Disconnected { .. } => "lost",
+        // The Swift dump's names (`connectionName`).
+        let connection = match self.connection() {
+            Connection::Connected => "connected",
+            Connection::Connecting => "connecting",
+            Connection::Down(_) => "down",
+            Connection::Lost(_) => "lost",
+            Connection::Unauthorized(_) => "unauthorized",
         };
         let pane = self.pane.as_ref().map(|p| p.read(cx));
         let dock = self.dock.read(cx).layout().summary().replace("threadbear.", "");
@@ -945,6 +969,58 @@ impl Threadbear {
         inbox::sections_ordered(self.threads.values().filter(|t| query.is_empty() || inbox::matches(t, &query)), now, self.sidebar.order, &wakes)
     }
 
+    /// The connection as the Swift app tells it (`ConnectionState`). While it
+    /// tries again after a drop it stays what the drop was, as the Swift
+    /// app's does, rather than "Connecting" on each try.
+    pub(crate) fn connection(&self) -> Connection<'_> {
+        use threadbear_client::runner::Disconnect;
+        let drop = match &self.status {
+            Status::Connected { .. } => return Connection::Connected,
+            Status::Disconnected { kind, reason, .. } => Some((*kind, reason.as_str())),
+            Status::Connecting { .. } => self.last_drop.as_ref().map(|(kind, reason)| (*kind, reason.as_str())),
+        };
+        match drop {
+            None => Connection::Connecting,
+            Some((Disconnect::Down, reason)) => Connection::Down(reason),
+            Some((Disconnect::Lost, reason)) => Connection::Lost(reason),
+            Some((Disconnect::Refused, reason)) => Connection::Unauthorized(reason),
+        }
+    }
+
+    /// "Start runner" kickstarts the installed runner's LaunchAgent, which
+    /// only helps an app pointed at that runner's data folder: an app on the
+    /// mock or a dev runner must never start the live one (`canStartRunner`).
+    pub(crate) fn can_start_runner(&self) -> bool {
+        cfg!(target_os = "macos") && {
+            let home = threadbear_client::config::RunnerConfig::from_env().home;
+            let default = threadbear_client::config::default_home();
+            home == default || home.canonicalize().ok().zip(default.canonicalize().ok()).is_some_and(|(a, b)| a == b)
+        }
+    }
+
+    /// Start runner: launchctl, then a fresh try a moment later, as the
+    /// service takes a little while to listen (`startRunner`).
+    pub(crate) fn start_runner(&mut self, cx: &mut Context<Self>) {
+        if self.starting_runner || !self.can_start_runner() {
+            return;
+        }
+        self.starting_runner = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let failure = cx.background_executor().spawn(async { crate::runner_launcher::start() }).await;
+            cx.background_executor().timer(std::time::Duration::from_millis(600)).await;
+            this.update(cx, |this, cx| {
+                this.starting_runner = false;
+                if let Some(failure) = failure {
+                    this.error_message = Some(failure);
+                }
+                this.reconnect_now(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub(crate) fn connection_note(&self) -> Option<String> {
         match &self.status {
             Status::Connected { .. } => None,
@@ -952,6 +1028,16 @@ impl Threadbear {
             Status::Disconnected { reason, retry_in_ms, .. } => Some(format!("Can't reach the runner: {reason}. Trying again in {}s.", retry_in_ms.div_ceil(1000))),
         }
     }
+}
+
+/// `Threadbear::connection`: the Swift app's `ConnectionState`, each drop
+/// with what went wrong.
+pub(crate) enum Connection<'a> {
+    Connected,
+    Connecting,
+    Down(&'a str),
+    Lost(&'a str),
+    Unauthorized(&'a str),
 }
 
 /// `change`'s fields written over `into`'s, objects within objects too, as a

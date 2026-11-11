@@ -82,6 +82,9 @@ pub struct ThreadPane {
     pub(crate) feed: ThreadFeed,
     loaded: bool,
     error: Option<String>,
+    /// Its first read failed: the message, with Try again in place of the
+    /// transcript (`ThreadSession.state == .failed`).
+    load_failed: Option<String>,
     pub(crate) scroller: Entity<TranscriptList>,
     /// Everything the rows themselves hold between frames (rows.rs).
     pub(crate) rows: crate::rows::RowsState,
@@ -114,6 +117,7 @@ impl ThreadPane {
             feed: ThreadFeed::new(TranscriptModel::new(None)),
             loaded: false,
             error: None,
+            load_failed: None,
             scroller,
             rows: Default::default(),
             composer,
@@ -173,7 +177,13 @@ impl ThreadPane {
                 Ok(v) => EventsPage::decode(&v).unwrap_or_default(),
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.error = Some(e.message);
+                        // A reload over a transcript already shown keeps it,
+                        // and says so on the error line.
+                        if this.loaded {
+                            this.error = Some(e.message);
+                        } else {
+                            this.load_failed = Some(e.message);
+                        }
                         cx.notify();
                     })
                     .ok();
@@ -195,6 +205,7 @@ impl ThreadPane {
                     this.feed.set_sparse(this.summary.runner_id.is_some());
                     this.feed.begin_subscribe();
                     this.loaded = true;
+                    this.load_failed = None;
                     this.loading_older = false;
                     this.older_skip = None;
                     this.scroller.update(cx, |s, cx| s.reset(this.feed.model().rows().len(), cx));
@@ -218,6 +229,42 @@ impl ThreadPane {
             .ok();
         })
         .detach();
+    }
+
+    /// Try again, after the first read failed: back to Loading… at once.
+    fn retry_load(&mut self, cx: &mut Context<Self>) {
+        self.load_failed = None;
+        cx.notify();
+        self.load(cx);
+    }
+
+    /// "Couldn't load this thread.", what went wrong, and Try again, where
+    /// the transcript would be (DetailView's failed state).
+    fn render_load_failure(&self, message: String, cx: &mut Context<Self>) -> AnyElement {
+        let secondary = crate::style::secondary_text(cx);
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                v_flex()
+                    .max_w(px(420.))
+                    .px(px(20.))
+                    .gap(px(8.))
+                    .items_center()
+                    .child(div().text_size(px(13.)).line_height(px(crate::style::natural_line(13.))).font_weight(FontWeight::SEMIBOLD).child("Couldn't load this thread."))
+                    .child(div().text_size(px(13.)).line_height(px(crate::style::natural_line(13.))).text_color(secondary).text_center().child(message))
+                    // A regular push button, as Swift's Button("Try again").
+                    .child(crate::push_button::PushButton::new("load-retry", "Try again", "Load the thread again").render(cx, {
+                        let me = cx.entity().downgrade();
+                        move |_, _, cx| {
+                            me.update(cx, |this, cx| this.retry_load(cx)).ok();
+                        }
+                    })),
+            )
+            .into_any_element()
     }
 
     // Opening it reads it, as on the Mac, while the window's in front: one
@@ -781,7 +828,13 @@ impl ThreadPane {
                 out
             })
             .collect();
-        json!({ "threadId": self.summary.id, "state": if self.loaded { "loaded" } else { "loading" }, "atBottom": scroller.at_bottom(), "hasMoreAbove": self.has_more_above(), "rows": rows })
+        // The Swift dump's names, a failure with its message.
+        let state = match (&self.load_failed, self.loaded) {
+            (_, true) => "loaded".to_owned(),
+            (Some(message), false) => format!("failed: {message}"),
+            (None, false) => "loading".to_owned(),
+        };
+        json!({ "threadId": self.summary.id, "state": state, "atBottom": scroller.at_bottom(), "hasMoreAbove": self.has_more_above(), "rows": rows })
     }
 
     /// The reply buttons the thread's replies link, oldest first.
@@ -903,8 +956,11 @@ impl Render for ThreadPane {
             .relative()
             .size_full()
             .when_some(self.error.clone(), |s, e| s.child(div().px_7().py_1().text_sm().text_color(danger).child(e)))
-            .when(!self.loaded && self.error.is_none(), |s| s.child(div().p_4().text_sm().text_center().text_color(muted).child("Loading…")))
-            .child(div().flex_1().min_h_0().child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx)))
+            .when(!self.loaded && self.error.is_none() && self.load_failed.is_none(), |s| s.child(div().p_4().text_sm().text_center().text_color(muted).child("Loading…")))
+            .map(|s| match self.load_failed.clone() {
+                Some(message) if !self.loaded => s.child(self.render_load_failure(message, cx)),
+                _ => s.child(div().flex_1().min_h_0().child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx))),
+            })
             .child(self.composer.clone())
             .children(drop_layer)
     }

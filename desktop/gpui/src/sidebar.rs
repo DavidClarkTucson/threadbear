@@ -501,6 +501,11 @@ impl Threadbear {
                 let status = res.ok();
                 this.sidebar.restart_pending = status.as_ref().is_some_and(|v| v.get("pendingRestart").is_some_and(|p| !p.is_null()));
                 this.website_url = status.as_ref().and_then(crate::header::website_url);
+                // Where Investigate's thread works (`ownCheckout`); kept from
+                // the last answer if this one has none.
+                if let Some(checkout) = status.as_ref().and_then(|s| s["update"]["checkout"].as_str()).filter(|c| !c.is_empty()) {
+                    this.runner_checkout = Some(checkout.to_owned());
+                }
                 cx.notify();
             })
             .ok();

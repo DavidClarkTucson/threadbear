@@ -26,8 +26,25 @@ pub enum Status {
     #[serde(rename_all = "camelCase")]
     Connected { url: String, hello: Value },
     #[serde(rename_all = "camelCase")]
-    Disconnected { url: String, reason: String, retry_in_ms: u64 },
+    Disconnected { url: String, reason: String, retry_in_ms: u64, kind: Disconnect },
 }
+
+/// Why it isn't connected, as the Swift app tells them apart for its banner
+/// (`AppModel.Connection`): it was connected and the connection went
+/// (`lost`), the runner turned the token down (`unauthorized`), or the
+/// runner couldn't be reached at all (`runnerDown`), which is when Start
+/// runner can help.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Disconnect {
+    Lost,
+    Refused,
+    Down,
+}
+
+/// How `session` says the runner turned down the sign-in, so `run` can tell
+/// that apart from not reaching it.
+const TURNED_DOWN: &str = "The runner turned down the sign-in";
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct RpcError {
@@ -124,18 +141,19 @@ impl Client {
         loop {
             let url = self.config.url();
             self.set_status(Status::Connecting { url: url.clone() });
-            let reason = match self.clone().session(&url).await {
+            let (reason, kind) = match self.clone().session(&url).await {
                 Ok(()) => {
                     backoff_ms = 500;
-                    "The runner closed the connection".to_string()
+                    ("The runner closed the connection".to_string(), Disconnect::Lost)
                 }
-                Err(e) => e,
+                Err(e) if e.starts_with(TURNED_DOWN) => (e, Disconnect::Refused),
+                Err(e) => (e, Disconnect::Down),
             };
             self.out.lock().unwrap().take();
             for (_, tx) in self.pending.lock().unwrap().drain() {
                 let _ = tx.send(Err(RpcError::local("The connection to the runner closed")));
             }
-            self.set_status(Status::Disconnected { url, reason, retry_in_ms: backoff_ms });
+            self.set_status(Status::Disconnected { url, reason, retry_in_ms: backoff_ms, kind });
             // "Try again" in the connection banner cuts the wait short.
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(backoff_ms)) => {}
@@ -174,7 +192,7 @@ impl Client {
             .await
             .map_err(|_| "The runner didn't answer the sign-in".to_string())??;
         if let Some(err) = answer.get("error") {
-            return Err(format!("The runner turned down the sign-in: {}", err.get("message").and_then(Value::as_str).unwrap_or("no reason given")));
+            return Err(format!("{TURNED_DOWN}: {}", err.get("message").and_then(Value::as_str).unwrap_or("no reason given")));
         }
         let expected = auth::proof(&token, Role::Runner, &runner_nonce, &client_nonce, "primary", port);
         let theirs = answer.pointer("/result/proof").and_then(Value::as_str).unwrap_or("");

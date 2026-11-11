@@ -14,15 +14,15 @@ use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _};
+use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use serde_json::{json, Value};
-use threadbear_client::runner::Status;
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::navigation::history_tip;
 use threadbear_core::reducer::{RowContent, TurnCompletion, TurnErrorKind, TurnOutcome};
 use threadbear_core::shortcuts::ShortcutCommand;
+use threadbear_core::sign_in::{self, SignInAccount};
 
 /// `PaneHeader.height`: the panels' bars, and the title bar's strip.
 pub(crate) const HEADER_HEIGHT: f32 = 38.;
@@ -44,6 +44,19 @@ struct Banner {
     text: String,
     detail: Option<String>,
     retry: bool,
+    /// Start runner, beside Try again (`showStart`).
+    start: bool,
+    icon: &'static str,
+}
+
+impl Banner {
+    fn quiet(text: &str) -> Banner {
+        Banner { quiet: true, text: text.into(), detail: None, retry: false, start: false, icon: "bolt.horizontal" }
+    }
+
+    fn warning(icon: &'static str, text: &str, detail: Option<&str>) -> Banner {
+        Banner { quiet: false, text: text.into(), detail: detail.filter(|d| !d.is_empty()).map(str::to_owned), retry: true, start: false, icon }
+    }
 }
 
 /// What `limit_advice` says about a thread at its limit (`LimitAdvice`), for
@@ -490,8 +503,9 @@ impl Threadbear {
             // A thread at its limit says so in a box on its composer
             // (composer.rs, `LimitBox`), not across the top: Mike's call on
             // 10 Nov, as the bar read as an error and offered only the switch.
-            if let Some(account) = self.sign_in_account(thread, cx) {
-                column = column.child(self.render_signin_banner(thread, account, cx));
+            let (account, remote) = (self.sign_in_account(thread, cx), self.remote_sign_in_runner(thread, cx));
+            if account.is_some() || remote.is_some() {
+                column = column.child(self.render_signin_banner(thread, account, remote, cx));
             }
             if let Some((account, title)) = self.refusal_target(thread, cx) {
                 column = column.child(self.render_refusal_offer(thread, account, title, cx));
@@ -502,22 +516,30 @@ impl Threadbear {
 
     /// `AppModel.banner`: the line about the runner, if there's anything to say.
     fn connection_banner(&self) -> Option<Banner> {
+        use crate::app::Connection;
         let restarting = self.restart_expected();
-        match &self.status {
-            Status::Connected { .. } => {
-                if restarting {
-                    return Some(Banner { quiet: true, text: "The runner is restarting now.".into(), detail: None, retry: false });
-                }
-                if self.sidebar.restart_pending {
-                    return Some(Banner { quiet: true, text: "The runner will restart once its threads are done.".into(), detail: None, retry: false });
-                }
-                None
+        let connection = self.connection();
+        if let Connection::Connected = connection {
+            if restarting {
+                return Some(Banner::quiet("The runner is restarting now."));
             }
-            Status::Connecting { .. } if restarting => Some(Banner { quiet: true, text: "The runner is restarting. Reconnecting…".into(), detail: None, retry: false }),
-            Status::Disconnected { .. } if restarting => Some(Banner { quiet: true, text: "The runner is restarting. Reconnecting…".into(), detail: None, retry: false }),
-            Status::Connecting { .. } => Some(Banner { quiet: false, text: "Connecting to the runner…".into(), detail: None, retry: true }),
-            Status::Disconnected { reason, .. } => Some(Banner { quiet: false, text: "Lost the connection to the runner. Reconnecting…".into(), detail: Some(reason.clone()), retry: true }),
+            if self.sidebar.restart_pending {
+                return Some(Banner::quiet("The runner will restart once its threads are done."));
+            }
+            return None;
         }
+        // While a restart is under way the runner is meant to be down for a
+        // moment: say so quietly, with no buttons to press.
+        if restarting {
+            return Some(Banner::quiet("The runner is restarting. Reconnecting…"));
+        }
+        Some(match connection {
+            // One plain sentence; the raw reason is in the tooltip.
+            Connection::Down(reason) => Banner { start: self.can_start_runner(), ..Banner::warning("bolt.horizontal.circle", "Can't reach the runner.", Some(reason)) },
+            Connection::Lost(reason) => Banner::warning("bolt.horizontal", "Lost the connection to the runner. Reconnecting…", Some(reason)),
+            Connection::Unauthorized(reason) => Banner::warning("lock", "The runner didn't accept the token in secrets/runner-token.", Some(reason)),
+            Connection::Connecting | Connection::Connected => Banner::warning("bolt.horizontal", "Connecting to the runner…", None),
+        })
     }
 
     /// Whether the runner said it's restarting, recently enough that it being
@@ -555,14 +577,22 @@ impl Threadbear {
             .items_center()
             .bg(warning_fill)
             .text_size(px(style::size::LABEL))
-            .child(icon("bolt.horizontal", 13., secondary))
+            .child(icon(banner.icon, 13., secondary))
             .child(tipped!(div().id("connection-text").flex_1().min_w_0().truncate(), detail).child(banner.text))
+            // Regular push buttons, as the Swift bar's. Start runner spins
+            // until launchctl has answered and the app has tried again, and
+            // can't be pressed twice meanwhile.
+            .when(banner.start, |s| {
+                let me = cx.entity().downgrade();
+                s.child(crate::push_button::PushButton::new("banner-start-runner", "Start runner", "Start the runner's background service").busy(self.starting_runner).render(cx, move |_, _, cx| {
+                    me.update(cx, |this, cx| this.start_runner(cx)).ok();
+                }))
+            })
             .when(banner.retry, |s| {
-                s.child(
-                    tipped!(div().id("banner-retry").px(px(8.)).py(px(3.)).rounded(px(5.)).bg(style::primary_opacity(cx, 0.08)), "Try to reach the runner now rather than waiting")
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reconnect_now(cx)))
-                        .child("Try again"),
-                )
+                let me = cx.entity().downgrade();
+                s.child(crate::push_button::PushButton::new("banner-retry", "Try again", "Try to reach the runner now rather than waiting").render(cx, move |_, _, cx| {
+                    me.update(cx, |this, cx| this.reconnect_now(cx)).ok();
+                }))
             })
             .into_any_element()
     }
@@ -690,29 +720,41 @@ impl Threadbear {
         self.update_thread(thread, |_| {}, json!({ "accountId": account }), cx);
     }
 
-    /// `signInAccount`: the login to sign in again, when the open thread's
-    /// last turn failed with its login refused (and it's this runner's).
-    fn sign_in_account(&self, thread: &ThreadSummary, cx: &App) -> Option<(String, String)> {
-        if thread.status != "error" {
-            return None;
-        }
-        let completion = self.latest_completion(cx)?;
-        if completion.outcome != TurnOutcome::Failed || completion.error_kind != Some(TurnErrorKind::Auth) {
-            return None;
-        }
-        let provider = thread.provider.clone();
-        let name = if provider == "codex" { "Codex".to_string() } else { "Claude".to_string() };
-        Some((thread.account_id.clone(), name))
+    /// Whether the open thread's last turn failed with its login refused
+    /// (`signInNeeded`: errorKind auth, signed out or its session ran out).
+    fn sign_in_needed(&self, thread: &ThreadSummary, cx: &App) -> bool {
+        thread.status == "error" && self.latest_completion(cx).is_some_and(|c| c.outcome == TurnOutcome::Failed && c.error_kind == Some(TurnErrorKind::Auth))
     }
 
-    fn render_signin_banner(&mut self, thread: &ThreadSummary, account: (String, String), cx: &mut Context<Self>) -> AnyElement {
-        let (account_id, name) = account;
+    /// `signInAccount`: this Mac's login to sign in again. Never another
+    /// runner's thread (its login is signed in on that Mac), and an unknown
+    /// login falls back to the main one of a provider there is (sign_in.rs).
+    fn sign_in_account(&self, thread: &ThreadSummary, cx: &App) -> Option<SignInAccount> {
+        if !self.sign_in_needed(thread, cx) {
+            return None;
+        }
+        let known = self.logins.account(&thread.account_id).map(|a| SignInAccount { id: a.id.clone(), provider: a.provider_id().to_owned(), title: a.title.clone(), config_dir: a.config_dir.clone() });
+        sign_in::account_for(&thread.provider, thread.runner_id.is_some(), known)
+    }
+
+    /// `remoteSignInRunner`: another Mac's thread whose login was refused,
+    /// and the runner to sign in on.
+    fn remote_sign_in_runner(&self, thread: &ThreadSummary, cx: &App) -> Option<String> {
+        let runner = thread.runner_id.as_deref()?;
+        self.sign_in_needed(thread, cx).then(|| self.runner_name_of(runner))
+    }
+
+    fn render_signin_banner(&mut self, thread: &ThreadSummary, account: Option<SignInAccount>, remote: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         let hairline = style::hairline(cx);
         let orange = style::needs_you(cx);
         let id = thread.id.clone();
-        let command = if name == "Codex" { "codex login" } else { "claude login" };
-        let tip = format!("The login {account_id} was refused: signed out, or its session ran out");
-        let hint = format!("Run {command} in Terminal to sign in, then Send again");
+        let provider = account.as_ref().map_or(thread.provider.as_str(), |a| a.provider.as_str());
+        let name = threadbear_core::logins::provider_title(provider);
+        let (text, tip) = match (&account, &remote) {
+            (Some(a), _) => (format!("{name} needs you to sign in again."), format!("The login {} was refused: signed out, or its session ran out", a.title)),
+            (None, Some(runner)) => (format!("{name} on {runner} needs you to sign in again."), format!("Sign in on {runner} itself: {} in its Terminal", sign_in::login_command(provider))),
+            (None, None) => (String::new(), String::new()),
+        };
         h_flex()
             .flex_none()
             .px(px(14.))
@@ -723,18 +765,51 @@ impl Threadbear {
             .border_color(hairline)
             .text_size(px(style::size::LABEL))
             .child(icon("person.crop.circle.badge.exclamationmark", 13., orange))
-            .child(tipped!(div().id("signin-text").flex_1().min_w_0().truncate(), tip).child(format!("{name} needs you to sign in again.")))
-            .child(
-                tipped!(div().id("signin-button").px(px(8.)).py(px(3.)).rounded(px(5.)).bg(style::primary_opacity(cx, 0.08)), hint.clone())
-                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| window.push_notification(hint.clone(), cx)))
-                    .child("Sign in…"),
-            )
+            .child(tipped!(div().id("signin-text").flex_1().min_w_0().truncate(), tip).child(text))
+            // Another Mac's login is signed in on that Mac: Terminal here would
+            // sign in this Mac's CLI.
+            .when_some(account, |s, account| {
+                let tip = format!("Opens Terminal on {name}'s own sign-in for this login");
+                s.child(
+                    tipped!(div().id("signin-button").px(px(8.)).py(px(3.)).rounded(px(5.)).bg(style::primary_opacity(cx, 0.08)), tip)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.sign_in(account.clone(), cx)))
+                        .child("Sign in…"),
+                )
+            })
             .child(
                 tipped!(div().id("signin-again").px(px(8.)).py(px(3.)).rounded(px(5.)).bg(style::primary_opacity(cx, 0.08)), "Send your last message again, once you've signed in")
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_again(&id, cx)))
                     .child("Send again"),
             )
             .into_any_element()
+    }
+
+    /// Sign in…: Terminal on the CLI's own sign-in for that login, as the
+    /// runner starts that CLI (`signIn`). A .command file rather than
+    /// AppleScript, so macOS doesn't ask to let Threadbear control Terminal.
+    /// The CLI's path is the runner's (Codex is often Threadbear's own copy,
+    /// not on the PATH), asked for now so it's the one in use.
+    pub(crate) fn sign_in(&mut self, account: SignInAccount, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let clis = call(client, "clis.list", json!({})).await.ok();
+            let path = clis
+                .as_ref()
+                .and_then(|v| v["clis"].as_array())
+                .and_then(|list| list.iter().find(|c| c["provider"].as_str() == Some(account.provider.as_str())))
+                .and_then(|c| c["path"].as_str())
+                .unwrap_or("")
+                .to_owned();
+            let file = std::env::temp_dir().join(format!("threadbear-sign-in-{}.command", sign_in::file_safe(&account.id)));
+            let written = write_script(&file, &sign_in::script(&account, &path));
+            this.update(cx, |this, cx| match written {
+                // The script this app just wrote, every word of it quoted.
+                Ok(()) => crate::open_gate::open_own(&file, cx),
+                Err(e) => this.show_error(format!("Couldn't open Terminal to sign in: {e}"), cx),
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Sends the thread's last message of his again, after signing in
@@ -850,10 +925,14 @@ impl Threadbear {
         cx.notify();
     }
 
-    /// The checkout this app follows, where a thread can fix it: for a debug
-    /// build, the one it was compiled from, when the file is there
-    /// (`ownCheckout`). A release build asks the runner in a later slice.
+    /// The checkout this app follows, where a thread can fix it
+    /// (`ownCheckout`): the one the runner follows main in, or a fork's
+    /// release checkout, or for a debug build the one it was compiled from,
+    /// when the file is there. None when there's nowhere to work.
     fn own_checkout(&self) -> Option<String> {
+        if let Some(checkout) = self.runner_checkout.clone().or_else(|| self.upstream_checkout.clone()) {
+            return Some(checkout);
+        }
         if cfg!(debug_assertions) {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
             if path.join("AGENTS.md").exists() {
@@ -874,7 +953,19 @@ impl Threadbear {
         self.creating_investigation = true;
         cx.notify();
         let client = self.client.clone();
-        let params = json!({ "cwd": checkout, "text": format!("Find what caused this error in Threadbear and fix it:\n\n{message}"), "title": format!("Investigate: {message}"), "permissionMode": "full" });
+        // What the app knew, so the thread doesn't start from the bar's words
+        // alone (`errorReport`): the open thread, when, and the versions.
+        let open = self.open_thread();
+        let report = threadbear_core::investigate::Report {
+            message,
+            at: threadbear_core::investigate::now_text(),
+            thread_id: open.map(|t| t.id.clone()),
+            thread_title: open.map(|t| t.title.clone()),
+            thread_folder: open.map(|t| t.cwd.clone()),
+            app_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+            runner_version: Some(self.runner_version.clone()),
+        };
+        let params = json!({ "cwd": checkout, "text": threadbear_core::investigate::prompt(&report), "title": threadbear_core::investigate::title(&report), "permissionMode": "full" });
         cx.spawn_in(window, async move |this, cx| {
             let res = call(client, "threads.create", params).await;
             this.update_in(cx, |this, window, cx| {
@@ -897,7 +988,10 @@ impl Threadbear {
         .detach();
     }
 
+    /// Try again: says "Connecting to the runner…" until this try has an
+    /// answer, so the click shows (`reconnectNow`).
     pub(crate) fn reconnect_now(&mut self, cx: &mut Context<Self>) {
+        self.last_drop = None;
         self.client.retry_now();
         cx.notify();
     }
@@ -1016,7 +1110,7 @@ impl Threadbear {
     #[cfg(feature = "automation")]
     pub(crate) fn signin_status(&self, cx: &App) -> String {
         match self.open_thread().and_then(|t| self.sign_in_account(t, cx)) {
-            Some((account, _)) => format!("ok {account} {}", self.open_thread().map(|t| t.provider.clone()).unwrap_or_default()),
+            Some(account) => format!("ok {} {}", account.id, self.open_thread().map(|t| t.provider.clone()).unwrap_or_default()),
             None => "ok none".into(),
         }
     }
@@ -1088,4 +1182,15 @@ pub(crate) fn limit_button_title(title: String, pool: bool) -> String {
     } else {
         title
     }
+}
+
+/// The sign-in script, readable and runnable by Mike only, written whole.
+fn write_script(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    std::fs::write(path, text)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }

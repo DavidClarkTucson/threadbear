@@ -32,6 +32,15 @@ fn system_open(url: &str, cx: &mut App) {
     cx.open_url(url);
 }
 
+// ---------------------------------------------------------------- Threadbear's own
+
+/// A file the code itself has just written (the sign-in script), opened in
+/// its own app with no questions: Swift's `openOwn`. Never anything a runner,
+/// a page, the backend or an agent gave.
+pub(crate) fn open_own(path: &Path, cx: &mut App) {
+    system_open(&policy::file_url(&path.to_string_lossy()), cx);
+}
+
 // ---------------------------------------------------------------- links
 
 /// A web address in the browser. Anything else is refused, said so: for a
