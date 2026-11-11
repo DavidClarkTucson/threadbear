@@ -328,7 +328,11 @@ built parsers and gates with no launch of the app, which is the trap.)
   `@system.selfupdate` scenarios on the GPUI app (the panel's line, waiting
   for a Mac, Restart to Update in the app menu) and the first on the Swift
   app, with `@updates.panel` on both; core's tests (app_update 9, updates);
-  the runner's app-restarts tests (12, 3 new).
+  the runner's app-restarts tests (12, 3 new). And `stage-update.sh` itself,
+  run by hand from the M5 into a temp folder: main (fffea9cc) cloned into the
+  update cache, built in release on Tinker Desk in 4.5 minutes, the two
+  binaries back, and the bundle made here with main's commit, its desktop/
+  tree, the checkout and Mike's origin in build.json.
 
 ### 2026-11-11 The Swift app's settings and drafts, brought across once (`system.swiftimport`)
 

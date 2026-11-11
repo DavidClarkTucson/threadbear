@@ -128,6 +128,8 @@ fi
 # Made beside where it goes and moved in whole, so the app never finds half a
 # bundle staged.
 "$SRC/desktop/scripts/make-bundle.sh" "$BINS" "$NEXT_DIR.making" "$CHECKOUT"
+# The bundle has its own copies of the binaries (55 MB).
+rm -rf "$BINS"
 rm -rf "$NEXT_DIR"
 mv "$NEXT_DIR.making" "$NEXT_DIR"
 echo "Staged $NEXT_DIR; the app swaps it in when it next quits or launches."
