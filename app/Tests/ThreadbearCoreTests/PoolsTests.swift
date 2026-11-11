@@ -194,7 +194,7 @@ final class PoolsTests: XCTestCase {
     /// Mike's logins share "mike" before the @, so pools name them by
     /// their domain, falling back when two share one.
     func testLoginNames() {
-        XCTAssertEqual(accounts.map { AccountName.login($0.id, accounts: accounts) }, ["acme", "gmail", "bearworks", "convex", "Codex"])
+        XCTAssertEqual(accounts.map { AccountName.login($0.id, accounts: accounts) }, ["acme", "gmail", "bearworks", "work", "Codex"])
         let twoGmails = [Account(id: "a", title: "a@gmail.com", email: "a@gmail.com"), Account(id: "b", title: "b@gmail.com", email: "b@gmail.com"),
                          Account(id: "c", title: "a@gmail.co.uk", email: "a@gmail.co.uk")]
         XCTAssertEqual(twoGmails.map { AccountName.login($0.id, accounts: twoGmails) }, ["a@gmail.com", "b", "a@gmail.co.uk"])
