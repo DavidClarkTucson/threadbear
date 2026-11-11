@@ -43,6 +43,8 @@ pub struct Threadbear {
     /// Each thread's message box, kept so what's typed (with its undo and
     /// pictures) stays with the thread while others are open.
     pub(crate) composers: HashMap<String, Entity<Composer>>,
+    /// What every box has, kept across a quit (drafts.rs).
+    pub(crate) drafts: crate::drafts::Drafts,
     pub(crate) sidebar: crate::sidebar::SidebarState,
 
     // The window shell (shell.rs, rails.rs, header.rs).
@@ -236,6 +238,11 @@ impl Threadbear {
             cx.new(|cx| DockView::new(model, content, options, cx))
         };
         let frame = cx.observe_window_bounds(window, |this, window, cx| this.window_frame_changed(window, cx));
+        // What's typed and not sent is written as the app quits (drafts.rs).
+        let quitting = cx.on_app_quit(|this, cx| {
+            this.save_drafts(cx);
+            async {}
+        });
         // A thread is read once Mike's looking at it (AppModel.isLooking,
         // which is the app being active, whichever of its windows is in
         // front): coming back reads the open one (appBecameActive). The
@@ -270,6 +277,7 @@ impl Threadbear {
             search,
             folded,
             composers: HashMap::new(),
+            drafts: crate::drafts::Drafts::load(&threadbear_client::config::RunnerConfig::from_env().home),
             logins: RunnerLogins::default(),
             sidebar,
             root_focus: cx.focus_handle(),
@@ -332,7 +340,7 @@ impl Threadbear {
             side,
             sidebar_view: None,
             _events: events,
-            _subs: vec![appearance, searching, frame, menus, looking],
+            _subs: vec![appearance, searching, frame, menus, looking, quitting],
         };
         // The window starts on the Inbox with nothing open (`noteNavigation`
         // on launch), so Back from the first thread comes back here.
@@ -637,11 +645,16 @@ impl Threadbear {
         }
         let client = self.client.clone();
         let app = cx.entity().downgrade();
+        let made = !self.composers.contains_key(&id);
         let composer = self
             .composers
             .entry(id.clone())
             .or_insert_with(|| cx.new(|cx| Composer::new(Some(id.clone()), client.clone(), app, window, cx)))
             .clone();
+        // Its words from before a quit, the first time its box is made.
+        if made {
+            self.restore_saved_draft(&id, &composer, cx);
+        }
         self.selected = Some(id);
         self.shows_home = false;
         let pane = cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx));

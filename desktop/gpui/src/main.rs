@@ -10,6 +10,7 @@ mod automation;
 mod composer;
 mod composer_card;
 mod composer_chips;
+mod drafts;
 mod files;
 mod folders;
 #[cfg(feature = "frame-stats")]
