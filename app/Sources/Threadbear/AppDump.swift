@@ -326,6 +326,14 @@ struct AppDump: Encodable {
         /// cards and threads ("picture: Picture 1", "card: Fix the button",
         /// "thread: Morning brief").
         var chips: [String]? = nil
+        /// A gap row's words, from the row's own top, once drawn: they must
+        /// sit inside its fixed height, not over the rows either side.
+        var label: LabelFrame? = nil
+    }
+
+    struct LabelFrame: Encodable {
+        var top: Int
+        var height: Int
     }
 
     /// A draft's box as it's drawn: its label, each line (a Slack quote's
@@ -777,7 +785,7 @@ struct AppDump: Encodable {
                        expanded: opens(row) ? controller.isExpanded(row) : nil, inGroup: row.inGroup,
                        onScreen: NSLocationInRange(index, visible), seq: row.seq, turn: row.turnId, text: RowDebug.excerpt(row),
                        buttons: Self.buttons(row), drafts: Self.drafts(row), rich: Self.rich(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId),
-                       chips: Self.chips(row))
+                       chips: Self.chips(row), label: Self.gapLabel(table, index))
         }
         let state: String
         switch session.state {
@@ -788,6 +796,14 @@ struct AppDump: Encodable {
         }
         return Transcript(threadId: session.threadId, state: state, hasMoreAbove: session.hasMoreAbove,
                           atBottom: controller.isAtBottom, rows: rows)
+    }
+
+    /// Where a gap row's label is in its cell (flipped, so from the top),
+    /// when the row's on screen.
+    @MainActor
+    static func gapLabel(_ table: NSTableView, _ index: Int) -> LabelFrame? {
+        guard let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? GapRowCell else { return nil }
+        return LabelFrame(top: Int(cell.label.frame.minY.rounded()), height: Int(cell.label.frame.height.rounded()))
     }
 
     /// The keys the buttons show while ⌘ is held (`shortcutHint`): the

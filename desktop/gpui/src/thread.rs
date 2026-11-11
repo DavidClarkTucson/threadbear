@@ -1066,6 +1066,13 @@ impl ThreadPane {
                 if let Some(turn) = &row.turn_id {
                     out["turn"] = json!(turn);
                 }
+                // A gap's words, from the row's own top: they must sit inside
+                // its fixed height, not over the rows either side.
+                if matches!(row.content, RowContent::Gap(_)) && scroller.row_on_screen(index) {
+                    if let (Some(at), Some(drawn)) = (scroller.row_bounds(index), self.rows.gap_labels.borrow().get(&row.id).copied()) {
+                        out["label"] = json!({ "top": f32::from(drawn.top() - at.top()).round(), "height": f32::from(drawn.size.height).round() });
+                    }
+                }
                 if matches!(row.content, RowContent::Group(_) | RowContent::Tool(_) | RowContent::Reasoning(_)) || row.kind() == threadbear_core::reducer::RowKind::Diff {
                     out["expanded"] = json!(self.row_open(row));
                 }

@@ -81,6 +81,16 @@ Feature: Reading a thread
     Then the working line shows
     And the streaming reply grows
 
+  # A real thread's wait lines (a92fcf9a) wrapped onto several lines in the
+  # GPUI app and were drawn over the replies either side.
+  @transcript.gap
+  Scenario: Wait lines sit between the replies, not over them
+    Given a thread the agent picked up twice as background jobs finished, called "Land the folder it runs in"
+    When I open the thread "Land the folder it runs in"
+    Then the transcript shows a wait line starting "44s later · /Users/mike/.delegate/runs/"
+    And the transcript shows a wait line starting "3 min later · cd /Users/mike/dev/me/threadbear-threads/slot-5"
+    And each wait line's words are one line inside its own row
+
   @transcript.rowmenu
   Scenario: A reply's words can be copied from its menu
     When I open the thread "Make uploads resume after a crash"

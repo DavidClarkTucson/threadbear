@@ -251,6 +251,38 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: on Tinker Desk, `@system.activitylog` on GPUI, 4 of 4; with
   the old naming put back, the new scenario panics at the same place
   (entity_map.rs:156) as the crash Mike hit.
+### 2026-11-12 Wait lines stay on one line inside their row (`transcript.gap`)
+
+- In thread a92fcf9a the wait lines ("44s later · ...run.sh finished", "3 min
+  later · cd ... && git commit -qm "...") were drawn over the replies either
+  side. The row is a fixed 34 points, and the GPUI label was `flex_none` with
+  nothing stopping it wrapping: a long path ran past the column, and a
+  command holding a commit message drew every line of it, centred on the row
+  and spilling up and down. It's one line now, cut with "…" (`truncate`),
+  with at least 48 points of rule each side, as `GapRowCell` sizes it.
+- Only the first line of the words shows, with "…" when more followed
+  (`TurnGap::label_line`, `labelLine` in Swift). The Swift app had the same
+  words in its one-line field, which measured every line, so its frame
+  outgrew the row and the clipped middle of the commit message showed. Both
+  apps use the first line now.
+- Both dumps give a gap row's `label` (its top and height in the row) while
+  it's on screen, which is what shows words spilling out of a fixed row.
+- `mock.wakes` fills a thread with a reply and two turns the agent started
+  as background jobs finished, 44 s and 3 min later, one woken by a command
+  with a commit message in it.
+- Files: `desktop/gpui/src/rows/work.rs`, `rows.rs`, `rows/list.rs`,
+  `thread.rs`, `desktop/core/src/reducer/turn_gap.rs` and
+  `desktop/core/tests/stretch_tests.rs`;
+  `app/Sources/ThreadbearCore/Transcript/TurnGap.swift`,
+  `app/Sources/Threadbear/Transcript/Cells.swift`,
+  `app/Sources/Threadbear/AppDump.swift`, `TurnGapTests.swift`;
+  `app/Tools/mock-runner/server.mjs`; `features/reading-a-thread.feature`, its
+  steps and `support/driver.ts`.
+- Verification: on Tinker Desk, `@transcript.gap` passes on GPUI and Swift;
+  without the GPUI fix it fails ("3 min later · ..." 90 points tall). Core's
+  `testLabels` and `testALabelIsOneLine`, and Swift's TurnGapTests, pass.
+  compare.ts on an export of a92fcf9a scrolled to both wait lines: each is
+  one line between the replies in both apps.
 
 ### 2026-11-12 Another Mac's picture chips open nothing here (`rich.picturechips`)
 

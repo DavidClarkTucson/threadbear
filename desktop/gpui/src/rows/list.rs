@@ -97,6 +97,12 @@ impl TranscriptList {
         self.list.bounds_for_item(index).map(|b| b.size.height)
     }
 
+    /// Where the row sits in the window, once measured, for `dump`.
+    #[cfg(feature = "automation")]
+    pub fn row_bounds(&self, index: usize) -> Option<Bounds<Pixels>> {
+        self.list.bounds_for_item(index)
+    }
+
     /// Whether the row is in the viewport right now, for `dump`.
     #[cfg(feature = "automation")]
     pub fn row_on_screen(&self, index: usize) -> bool {

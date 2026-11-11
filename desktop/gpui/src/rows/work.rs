@@ -303,18 +303,34 @@ impl ThreadPane {
     }
 
     /// `GapRowCell`: a thin rule across the column with the wait in the middle.
-    pub(crate) fn gap_row(&mut self, gap: &TurnGap, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn gap_row(&mut self, row: &Row, gap: &TurnGap, cx: &mut Context<Self>) -> AnyElement {
         let (hairline, faint) = (style::hairline(cx), style::faint_text(cx));
-        let rule = || div().flex_1().h(px(1.)).bg(hairline);
+        // A short rule stays each side however long the words (Swift's
+        // `width - 48 * 2 - space * 2`).
+        let rule = || div().flex_1().min_w(px(48.)).h(px(1.)).bg(hairline);
         let tip_text = gap_tip(gap);
-        let line = h_flex()
-            .h(px(GAP_HEIGHT))
-            .items_center()
-            .gap(px(12.))
-            .child(rule())
-            .child(div().id("gap-label").text_size(px(size::SMALL)).text_color(faint).flex_none().tip(&tip_text).child(gap.label()))
-            .child(rule());
+        // One line, cut short with "…", as Swift's label is. Left to wrap,
+        // a long command (or one with a commit message in it) grew the words
+        // past the row's fixed height and drew them over the replies either
+        // side, as the list only gives the row its 34 points.
+        let label = div().id("gap-label").relative().min_w_0().truncate().text_size(px(size::SMALL)).text_color(faint).tip(&tip_text).child(gap.label_line());
+        #[cfg(feature = "automation")]
+        let label = label.child(self.measure_gap_label(&row.id));
+        #[cfg(not(feature = "automation"))]
+        let _ = row;
+        let line = h_flex().h(px(GAP_HEIGHT)).items_center().gap(px(12.)).child(rule()).child(label).child(rule());
         h_flex().w_full().px(px(crate::style::SIDE_INSET)).justify_center().child(div().w_full().min_w_0().max_w(px(crate::style::MAX_CONTENT_WIDTH)).child(line)).into_any_element()
+    }
+}
+
+#[cfg(feature = "automation")]
+impl ThreadPane {
+    /// Where the gap's words were drawn, for `dump`'s `label`: the row's
+    /// height is fixed, so words that outgrow it spill over the rows either
+    /// side, and only their own bounds show that.
+    fn measure_gap_label(&self, row_id: &str) -> impl IntoElement {
+        let (store, id) = (self.rows.gap_labels.clone(), row_id.to_owned());
+        canvas(move |bounds, _, _| { store.borrow_mut().insert(id.clone(), bounds); }, |_, _, _, _| {}).absolute().top_0().left_0().size_full()
     }
 }
 

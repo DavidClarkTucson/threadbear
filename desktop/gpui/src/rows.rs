@@ -68,6 +68,9 @@ pub(crate) struct RowsState {
     /// Where to come back to once older pages have brought its row in: the
     /// pane is new each time a thread opens, with only the newest page.
     pub(crate) pending_restore: Option<ScrollMemory>,
+    /// Each gap row's words as last drawn, by row id, for `dump` (work.rs).
+    #[cfg(feature = "automation")]
+    pub(crate) gap_labels: std::rc::Rc<std::cell::RefCell<HashMap<String, Bounds<Pixels>>>>,
 }
 
 /// Where a thread was reading, kept across opening other threads (the pane is
@@ -120,7 +123,7 @@ impl ThreadPane {
             RowContent::Group(group) => self.group_row(ix, &row, group, cx),
             RowContent::Working(status) => self.working_row(status.started_at, window, cx),
             RowContent::Background(status) => self.background_row(status, cx),
-            RowContent::Gap(gap) => self.gap_row(gap, cx),
+            RowContent::Gap(gap) => self.gap_row(&row, gap, cx),
             RowContent::Changes(changes) => self.changes_card(ix, &row, changes, cx),
         };
         // A step a work link went to: an accent rail and tint for a moment

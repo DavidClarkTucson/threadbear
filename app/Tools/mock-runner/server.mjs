@@ -1737,6 +1737,38 @@ async function dispatch(client, method, p) {
       broadcastSummary(threadId);
       return { thread: summary };
     }
+    case 'mock.wakes': {
+      // Turns the agent started by itself as background jobs finished, for
+      // the wait lines between them ("44s later · ... finished"): a reply,
+      // then a turn woken by a long script path 44 s later, then one woken
+      // 3 min later by a command with a commit message in it, each with the
+      // runner's note on what finished. A shape from a real thread
+      // (a92fcf9a), whose wait lines the GPUI app drew over the replies.
+      // Back-dated, as the waits are worked out from the events' times.
+      const t = need(p.threadId);
+      const id = t.summary.id;
+      const start = Date.now() - 10 * 60_000;
+      const at = (seconds) => new Date(start + seconds * 1000).toISOString();
+      const script = '/Users/mike/.delegate/runs/20261111-153921-review-the-landing-fix/run.sh';
+      const commit = 'cd /Users/mike/dev/me/threadbear-threads/slot-5 && git add runner/src/cli.ts runner/src/runner/worktrees.ts && git commit -qm "Land the folder it runs in, never the thread\'s own\n\nThe review: with an unreadable .git in a sub-agent\'s checkout, git finds\nno checkout here and the landing fell back to the thread\'s worktree.\nNow it stops and says why." && tb land';
+      const turns = [
+        { woke: null, reply: 'The fix is committed. The review is still reading it; I\'ll pick it up when it finishes.' },
+        { woke: { at: 49, description: script }, note: `Background command "${script}" completed (exit code 0)`, reply: 'The review turned up two real gaps: the landing still falls back when git can\'t read the checkout, and the chip waits too long. Fixing both.' },
+        { woke: { at: 49 + 5 + 180, description: commit }, note: `Background command "${commit.split('\n')[0]}" completed (exit code 0)\nIts output is in the task's file.`, reply: 'Landing now lands the checkout it runs from, not the thread\'s worktree, so a sub-agent\'s own landing takes its own work.' },
+      ];
+      let clock = 0;
+      for (const [i, turn] of turns.entries()) {
+        const turnId = `turn_wake_${i}`;
+        if (turn.woke) clock = turn.woke.at;
+        else persist(id, { type: 'user.message', text: p.ask ?? 'Fix the landing and have it reviewed', images: [], ts: at(clock) }, turnId);
+        persist(id, { type: 'turn.started', turnId, ts: at(clock), ...(turn.woke ? { wokeBy: [{ kind: 'shell', description: turn.woke.description }] } : {}) }, turnId);
+        if (turn.note) persist(id, { type: 'system.note', text: turn.note, ts: at(clock) }, turnId);
+        persist(id, { type: 'assistant.text', itemId: `wake_${i}`, text: turn.reply, ts: at(clock + 3) }, turnId);
+        persist(id, { type: 'turn.completed', turnId, outcome: 'completed', durationMs: 5000, ts: at(clock + 5) }, turnId);
+      }
+      setStatus(id, 'idle');
+      return { thread: t.summary };
+    }
     case 'mock.review': {
       // As an agent's show_options would: {threadId, review: { id?, title,
       // note?, recommended?, options }}, the options as DesignReview has them

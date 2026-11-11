@@ -24,6 +24,8 @@ export type Row = {
   /** The chips a row draws among its words: "picture: Picture 1", "card:
    * Fix the button", "thread: Morning brief". */
   chips?: string[];
+  /** A gap row's words as drawn, from the row's own top, while it's on screen. */
+  label?: { top: number; height: number };
 };
 
 export type Thread = {
