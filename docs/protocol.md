@@ -3272,8 +3272,10 @@ itself), the runner checks:
   commits off main (one from before newer pushes doesn't). Its git reads go
   through `untrustedGit`, so a repo's config can't run anything. Besides
   the repos of its `edited` files, the thread's own folder is looked in
-  for its commits. Only `origin` counts: work pushed to a fork remote
-  isn't seen. Added 11 Nov 2026, when a thread said Done with three draft
+  for its commits (a repo it reached only through a shell, elsewhere,
+  isn't found). Only `origin` counts: work pushed to a fork remote isn't
+  seen. At most six PR lookups per check, and opening the thread doesn't
+  start one while another is running. Added 11 Nov 2026, when a thread said Done with three draft
   PRs unmerged;
 - `thread`: a thread it started (`startedBy.threadId`), not archived,
   that's running or waiting on Mike, with `threadId`;

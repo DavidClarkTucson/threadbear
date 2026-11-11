@@ -80,6 +80,7 @@ export async function editedLooseEnds(edited: string[], commits: string[], skip?
     }
   }
   const out: LooseEnd[] = [];
+  const budget = { lookups: 0 };
   for (const [top, files] of repos) {
     const name = path.basename(top);
     const status = files.length ? await readGit(top, ['status', '--porcelain', '--untracked-files=all', '--', ...files]) : undefined;
@@ -95,7 +96,7 @@ export async function editedLooseEnds(edited: string[], commits: string[], skip?
       if (on.ok && !on.stdout.trim()) unpushed++;
     }
     if (unpushed > 0) out.push({ kind: 'unpushed', text: `${unpushed === 1 ? '1 commit' : `${unpushed} commits`} it made in ${name} ${unpushed === 1 ? "isn't" : "aren't"} pushed` });
-    out.push(...(await unmergedLooseEnds(top, pushed, prs)));
+    out.push(...(await unmergedLooseEnds(top, pushed, prs, budget)));
   }
   return out;
 }
@@ -110,13 +111,15 @@ export async function editedLooseEnds(edited: string[], commits: string[], skip?
 // to a reused branch doesn't cover them. A commit no remote branch has any
 // more (rebased and force-pushed) can't be told, so it's left out. Known
 // gaps (Codex's review): only origin is looked at, so work pushed to a fork
-// remote isn't seen, and a branch squashed into another thread's stacked
-// base counts as done there.
+// remote isn't seen; a branch squashed into another thread's stacked base
+// counts as done there; and a repo it only reached through a shell, outside
+// its own folder, isn't found. end_turn's needs rule covers what this
+// misses.
 const MAX_UNMERGED = 3;
-// Bounds on the work, as a thread can push many commits to many branches.
-const MAX_PUSHED = 40;
+// PR lookups for one check, across its repos. The commits need no cap of
+// their own: Highlights keeps at most 80 items.
 const MAX_LOOKUPS = 6;
-async function unmergedLooseEnds(top: string, pushed: string[], prs: PrLookup): Promise<LooseEnd[]> {
+async function unmergedLooseEnds(top: string, pushed: string[], prs: PrLookup, budget: { lookups: number }): Promise<LooseEnd[]> {
   if (!pushed.length) return [];
   const head = await readGit(top, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
   let main = head.ok ? head.stdout.trim() : '';
@@ -126,7 +129,7 @@ async function unmergedLooseEnds(top: string, pushed: string[], prs: PrLookup): 
   }
   if (!main.startsWith('origin/')) return [];
   const branches = new Set<string>();
-  for (const sha of pushed.slice(-MAX_PUSHED)) {
+  for (const sha of pushed) {
     if (!/^[0-9a-f]{7,64}$/i.test(sha)) continue;
     if (!(await readGit(top, ['cat-file', '-e', `${sha}^{commit}`])).ok) continue;
     if ((await readGit(top, ['merge-base', '--is-ancestor', sha, `refs/remotes/${main}`])).ok) continue;
@@ -143,10 +146,9 @@ async function unmergedLooseEnds(top: string, pushed: string[], prs: PrLookup): 
   const url = await readGit(top, ['remote', 'get-url', 'origin']);
   const repo = url.ok ? githubRepo(url.stdout.trim()) : undefined;
   const out: LooseEnd[] = [];
-  let lookups = 0;
   for (const branch of [...branches].sort()) {
     if (out.length >= MAX_UNMERGED) break;
-    const pr = repo && lookups++ < MAX_LOOKUPS ? await prs(repo, branch) : undefined;
+    const pr = repo && budget.lookups++ < MAX_LOOKUPS ? await prs(repo, branch) : undefined;
     if (pr && pr.state !== 'OPEN') {
       const tip = await readGit(top, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}^{commit}`]);
       if (tip.ok && tip.stdout.trim() === pr.headRefOid) continue;
