@@ -141,7 +141,7 @@ impl Threadbear {
         if self.schedules_supported {
             let mut button = RailButton::new("rail-scheduled", "clock", "Scheduled", mode == SidebarMode::Scheduled);
             button.tip = self.shortcut_tip("Scheduled", ShortcutCommand::ShowScheduled);
-            button.badge = Some(self.active_schedule_count);
+            button.badge = Some(self.scheduled.active_count());
             views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Scheduled, cx), cx));
         }
         if self.projects_supported {
@@ -231,7 +231,7 @@ impl Threadbear {
         let mode = self.mode;
         let mut activity = vec![json!({ "title": "Threads", "badge": self.inbox_count(cx), "active": mode == SidebarMode::Inbox })];
         if self.schedules_supported {
-            activity.push(json!({ "title": "Scheduled", "badge": self.active_schedule_count, "active": mode == SidebarMode::Scheduled }));
+            activity.push(json!({ "title": "Scheduled", "badge": self.scheduled.active_count(), "active": mode == SidebarMode::Scheduled }));
         }
         if self.projects_supported {
             activity.push(json!({ "title": "Projects", "active": mode == SidebarMode::Projects }));

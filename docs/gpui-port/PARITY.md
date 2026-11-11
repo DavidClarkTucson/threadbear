@@ -203,6 +203,43 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 The Scheduled view, its page and the editor (`schedule.list`, `schedule.page`, `schedule.editor`)
+
+- Scheduled in the activity bar opens the list in the sidebar and its page in
+  the main panel, as in the Swift app. The list has Active, Paused and Done
+  headings that fold (Done starts folded; saved as
+  `collapsedScheduleSections`). A row says when it runs next (or Paused,
+  Done), when it runs, the other Mac it runs on, and where it sends: a link to
+  that thread, or to the last one it started. Under that, a last run that
+  didn't send, or another Mac's Run now still waiting.
+- On hover: Run now (a spinner until the runner answers), Pause or Resume
+  (shown at once, put back if the runner says no) and Delete (asks first,
+  gone at once, back if refused). The right-click menu has the same, with
+  Edit.
+- The page: the bear winding its alarm clock (built into the app), the title
+  with its ⓘ, what's next and the six tiles (`ScheduledStats`); the picture
+  says something when it's poked. Its wobble isn't here yet.
+- The editor (`ScheduleEditor`): the message, a title, Once (a date and time)
+  or Repeat (presets that are only cron underneath, or a cron of its own),
+  and under it what the runner makes of that as it changes
+  (`schedules.preview`, a quarter of a second after the last change). Then
+  Sends to, Runs on (another Mac's folder is typed as a path there), Folder,
+  and Model and Effort from the login it runs on (`ScheduleModels`, ported
+  to desktop/core). Delete asks over the sheet and closes both.
+- Picking a thread (a schedule's target) puts the thread back in place of
+  the page and leaves the list as it is; Back and Forward remember the page.
+- Both apps' dumps say what a schedule's row shows, the page in place of the
+  thread (`homePage`) and the editor as it was opened (`scheduleEditor`). The
+  GPUI app takes the Swift app's `schedule` and `close-schedule` commands,
+  and its `select` now picks a thread without leaving the view, as Swift's
+  does.
+- Remaining: Schedule… from a composer's + menu and from Send's menu
+  (`composer.plus`, `composer.schedulefromsend`), the header's schedule chip,
+  the picture's wobble, Return in the message box saving.
+- Verification: scheduled.feature's 8 scenarios on Linux, and on Tinker Desk
+  against both apps; pictures of both apps' list, page and editor side by
+  side (the spacing was brought in to match after the first pair).
+
 ### 2026-11-10 One gate for opening links and files (Daybreak 58, 59, 63, 64, 67)
 
 - Every link and file the app hands to the system goes through

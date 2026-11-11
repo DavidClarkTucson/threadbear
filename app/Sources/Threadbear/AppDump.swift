@@ -71,6 +71,24 @@ struct AppDump: Encodable {
         var shown: Int? = nil
     }
 
+    struct HomePageInfo: Encodable {
+        var title: String
+        var status: String?
+        var stats: [StatInfo]
+    }
+
+    struct ScheduleEditorInfo: Encodable {
+        var isNew: Bool
+        var text: String
+        var once: Bool
+        var cron: String?
+    }
+
+    struct StatInfo: Encodable {
+        var value: String
+        var label: String
+    }
+
     struct Sidebar: Encodable {
         var mode: String
         var sections: [Section]
@@ -336,6 +354,12 @@ struct AppDump: Encodable {
     /// The Projects page's cards, while it's showing: "Title: 1 needs
     /// you · 2 working" (or "Title: quiet").
     var projectCards: [String]? = nil
+    /// The page in the detail area in place of a thread (`showsHomePage`):
+    /// its title, and for Scheduled its status line and tiles.
+    var homePage: HomePageInfo? = nil
+    /// The schedule editor while it's up, as it was opened: the sheet keeps
+    /// its own copy after that, so what's typed in it isn't here.
+    var scheduleEditor: ScheduleEditorInfo? = nil
     /// The librarian's state in words ("Looking at ..."), when the runner
     /// has projects.
     var librarian: String? = nil
@@ -568,13 +592,12 @@ struct AppDump: Encodable {
                 }),
             ]
         case .scheduled:
-            // Schedules in the thread shape: their state is the status.
+            // Schedules in the thread shape: their state is the status, and
+            // the row's lines as ScheduleRowView draws them.
             let groups = ScheduleSection.group(app.schedules)
             sections = ScheduleSection.allCases.map { section in
-                Section(name: section.title, threads: (groups[section] ?? []).map { schedule in
-                    Thread(id: schedule.id, title: schedule.title, status: schedule.paused ? "paused" : schedule.isFinished ? "finished" : "active",
-                           needsYou: false, unread: false, hovered: app.hoverOverride == schedule.id)
-                }, collapsed: app.collapsedScheduleSections.contains(section))
+                Section(name: section.title, threads: (groups[section] ?? []).map { scheduleRow($0, app: app) },
+                        collapsed: app.collapsedScheduleSections.contains(section))
             }
         }
         let key = app.selection ?? "new"
@@ -635,6 +658,8 @@ struct AppDump: Encodable {
             projectCards: app.openProject == nil && app.showsProjectsHome ? app.projectCards.map { card in
                 card.project.title + ": " + (card.status.isQuiet ? "quiet" : card.status.parts.map(\.text).joined(separator: " · "))
             } : nil,
+            homePage: homePageDump(app),
+            scheduleEditor: app.scheduleEditor.map { ScheduleEditorInfo(isNew: $0.isNew, text: $0.text, once: $0.once, cron: $0.once ? nil : $0.repeatChoice.cron) },
             librarian: app.librarian.map(LibrarianText.state),
             pools: app.usesPools ? app.pools.map { pool in
                 PoolInfo(id: pool.id, title: pool.title, logins: pool.accountIds, folders: pool.folders,
@@ -646,6 +671,58 @@ struct AppDump: Encodable {
             rails: rails(app),
             header: header(app)
         )
+    }
+
+    /// The page in the detail area, if one's in place of the thread.
+    @MainActor
+    private static func homePageDump(_ app: AppModel) -> HomePageInfo? {
+        guard app.openProject == nil else { return nil }
+        if app.showsScheduledHome {
+            let next = ScheduledStats.next(app.schedules)
+            let status = next.map { "Next: \(ScheduledStats.title($0)), \(ScheduledStats.when($0, now: app.now))" } ?? "Nothing coming up"
+            let tiles = app.schedulesSupported ? ScheduledStats.tiles(app.schedules, now: app.now) : []
+            return HomePageInfo(title: "Scheduled", status: status, stats: tiles.map { StatInfo(value: $0.value, label: $0.label) })
+        }
+        if app.showsProjectsHome { return HomePageInfo(title: "Projects", status: nil, stats: []) }
+        if app.showsLibrarianHome { return HomePageInfo(title: "Librarian", status: nil, stats: []) }
+        return nil
+    }
+
+    /// A schedule's row as ScheduleRowView draws it, in the thread shape:
+    /// when it next runs (or Paused, Done), the line under the title, a run
+    /// that didn't send or another Mac's Run now still waiting, and the
+    /// hover buttons' tips.
+    @MainActor
+    private static func scheduleRow(_ schedule: Schedule, app: AppModel) -> Thread {
+        let hovered = app.hoverOverride == schedule.id
+        let away = app.awayRunnerName(schedule)
+        let trailing: String
+        if schedule.paused {
+            trailing = "Paused"
+        } else if schedule.isFinished {
+            trailing = "Done"
+        } else if let next = schedule.nextRunAt {
+            trailing = ScheduleTime.relative(next, now: app.now)
+        } else {
+            trailing = ""
+        }
+        let place = ([schedule.whenText] + (away.map { [$0] } ?? []) + [app.scheduleTarget(schedule)]).joined(separator: " · ")
+        var waiting: String?
+        if let away, schedule.runRequestedAt != nil {
+            waiting = "Waiting for \(away) to run it"
+        } else if let last = schedule.lastRun {
+            switch last.outcome {
+            case .sent: waiting = nil
+            case .failed: waiting = "Last run failed" + (last.note.map { ": \($0)" } ?? "")
+            case .skipped: waiting = "Skipped last run" + (last.note.map { ": \($0)" } ?? "")
+            }
+        }
+        var buttons = [away.map { "Ask \($0) to run it now" } ?? "Run now"]
+        if !schedule.isFinished { buttons.append(schedule.paused ? "Resume" : "Pause") }
+        buttons.append("Delete")
+        return Thread(id: schedule.id, title: schedule.title, status: schedule.paused ? "paused" : schedule.isFinished ? "finished" : "active",
+                      needsYou: false, unread: false, hovered: hovered, waiting: waiting, place: place, trailing: trailing,
+                      hoverButtons: hovered ? buttons : nil)
     }
 
     /// What ThreadRowView draws for a row, as data: the same rules as its

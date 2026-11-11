@@ -103,7 +103,15 @@ pub struct Threadbear {
     /// When the runner last said it was restarting.
     pub(crate) restart_notice_ms: Option<i64>,
     pub(crate) schedules_supported: bool,
-    pub(crate) active_schedule_count: usize,
+    /// The Scheduled view: the list, its folded headings, what's on the way
+    /// (scheduled.rs).
+    pub(crate) scheduled: crate::scheduled::ScheduledState,
+    /// The schedule editor, while it's up (schedule_editor.rs).
+    pub(crate) schedule_editor: Option<Entity<crate::schedule_editor::ScheduleEditor>>,
+    /// The activity bar's page for the sidebar's view is in the main panel
+    /// (`showsScheduledHome` and friends), not the selected thread. Picking a
+    /// thread puts the thread back.
+    pub(crate) shows_home: bool,
     pub(crate) projects_supported: bool,
     /// Every project's id, title and whether it's archived, for the
     /// header's chips (`projects.list`).
@@ -201,6 +209,7 @@ impl Threadbear {
 
         let mut sidebar = crate::sidebar::SidebarState::new(cx);
         sidebar.order = settings.inbox_order();
+        let scheduled = crate::scheduled::ScheduledState::new(settings.saved.collapsed_schedule_sections.as_deref());
         let folded: HashSet<&'static str> = match &settings.saved.collapsed_sections {
             // The section keys are the Swift enum's raw values.
             Some(saved) => ["starred", "inbox", "running", "hibernating", "archived"].into_iter().filter(|k| saved.iter().any(|s| s == k)).collect(),
@@ -256,7 +265,9 @@ impl Threadbear {
             website_url: None,
             restart_notice_ms: None,
             schedules_supported: false,
-            active_schedule_count: 0,
+            scheduled,
+            schedule_editor: None,
+            shows_home: false,
             projects_supported: false,
             all_projects: Vec::new(),
             new_thread: crate::new_thread::NewThreadState::new(),
@@ -332,7 +343,9 @@ impl Threadbear {
                     self.side.update(cx, |side, cx| side.projects_updated(&params["projects"], cx));
                 }
                 "schedules.updated" => {
-                    self.load_schedules(cx);
+                    // The whole list, in order.
+                    self.schedules_supported = true;
+                    self.set_schedules(&params["schedules"]);
                     self.side.update(cx, |side, cx| side.schedules_updated(&params["schedules"], cx));
                 }
                 "remoteThreads.updated" => self.receive_remote(&params, cx),
@@ -374,14 +387,14 @@ impl Threadbear {
 
     /// Whether the runner has schedules at all, and how many are active
     /// (`schedulesSupported`, `activeScheduleCount`), for the activity bar.
-    fn load_schedules(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn load_schedules(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
             let res = call(client, "schedules.list", json!({})).await;
             this.update(cx, |this, cx| {
                 if let Ok(v) = res {
                     this.schedules_supported = true;
-                    this.active_schedule_count = v["schedules"].as_array().map_or(0, |list| list.iter().filter(|s| schedule_is_active(s)).count());
+                    this.set_schedules(&v["schedules"]);
                     cx.notify();
                 }
             })
@@ -392,6 +405,13 @@ impl Threadbear {
 
     pub(crate) fn open(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         if self.selected.as_deref() == Some(id.as_str()) {
+            // Open already, behind a page (a schedule's target was clicked):
+            // the page goes.
+            if self.shows_home {
+                self.shows_home = false;
+                self.note_navigation();
+                cx.notify();
+            }
             return;
         }
         let Some(summary) = self.threads.get(&id).cloned() else { return };
@@ -411,6 +431,7 @@ impl Threadbear {
             .or_insert_with(|| cx.new(|cx| Composer::new(Some(id.clone()), client.clone(), app, window, cx)))
             .clone();
         self.selected = Some(id);
+        self.shows_home = false;
         let pane = cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx));
         composer.update(cx, |c, cx| {
             c.attach(pane.downgrade());
@@ -436,6 +457,7 @@ impl Threadbear {
             old.read(cx).unsubscribe();
         }
         self.selected = None;
+        self.shows_home = false;
         self.note_navigation();
         cx.notify();
     }
@@ -532,6 +554,10 @@ impl Threadbear {
         let dock = self.dock.read(cx).layout().summary().replace("threadbear.", "");
         let mut sidebar = self.sidebar_dump(cx);
         sidebar["mode"] = json!(self.mode.name());
+        // The Scheduled view in the thread shape, as the Swift app's dump has it.
+        if self.mode == SidebarMode::Scheduled {
+            sidebar["sections"] = self.scheduled_dump()["sections"].clone();
+        }
         json!({
             "connection": connection,
             "selection": self.selection_dump(),
@@ -540,6 +566,14 @@ impl Threadbear {
             "newThread": crate::new_thread::page_dump(self, cx),
             "palette": self.composer(cx).map_or(Value::Null, |c| c.read(cx).palette_dump(cx)),
             "moveSheet": self.move_sheet.as_ref().map_or(Value::Null, |s| s.read(cx).dump(cx)),
+            "scheduleEditor": self.schedule_editor.as_ref().map_or(Value::Null, |e| e.read(cx).dump(cx)),
+            // The page in the main panel in place of a thread (`showsHomePage`).
+            "homePage": match self.home_page() {
+                Some(SidebarMode::Scheduled) => self.scheduled_home_dump(),
+                Some(SidebarMode::Projects) => json!({ "title": "Projects" }),
+                Some(_) => json!({ "title": "Librarian" }),
+                None => Value::Null,
+            },
             "transcript": pane.map(|p| p.dump(cx)).unwrap_or_else(|| json!({ "rows": [] })),
             "decisions": pane.and_then(|p| p.composer.read(cx).decision_lines(cx)),
             "banner": self.banner_dump(),
@@ -605,10 +639,6 @@ pub(crate) fn project_list(projects: &Value) -> Vec<(String, String, bool)> {
     projects.as_array().map_or_else(Vec::new, |list| list.iter().filter_map(|p| Some((p["id"].as_str()?.to_string(), p["title"].as_str()?.to_string(), p["archived"].as_bool().unwrap_or(false)))).collect())
 }
 
-/// `Schedule.isActive`: not paused and not finished.
-fn schedule_is_active(schedule: &Value) -> bool {
-    !schedule["paused"].as_bool().unwrap_or(false) && schedule["finishedAt"].is_null() && !schedule["finished"].as_bool().unwrap_or(false)
-}
 
 impl Render for Threadbear {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

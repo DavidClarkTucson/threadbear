@@ -28,6 +28,8 @@ mod prefs;
 mod rails;
 mod remote;
 mod rows;
+mod schedule_editor;
+mod scheduled;
 mod settings;
 mod shell;
 mod sidebar;

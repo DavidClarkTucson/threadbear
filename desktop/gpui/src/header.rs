@@ -60,7 +60,7 @@ impl Threadbear {
 
     /// The thread's title in the panel's bar, or a field while it's renamed.
     pub(crate) fn render_header_title(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let Some(thread) = self.open_thread().cloned().filter(|_| self.mode == SidebarMode::Inbox) else { return div().into_any_element() };
+        let Some(thread) = self.open_thread().cloned().filter(|_| self.home_page().is_none()) else { return div().into_any_element() };
         let faint = style::faint_text(cx);
         let secondary = style::secondary_text(cx);
         let hover = style::primary_opacity(cx, 0.06);
@@ -275,7 +275,7 @@ impl Threadbear {
     // The bar's buttons: back, forward, share, the ... menu.
 
     pub(crate) fn render_header_buttons(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let thread = self.open_thread().cloned().filter(|_| self.mode == SidebarMode::Inbox);
+        let thread = self.open_thread().cloned().filter(|_| self.home_page().is_none());
         let back = self.render_history_button(true, cx);
         let forward = self.render_history_button(false, cx);
         let share = thread.as_ref().filter(|_| self.website_url.is_some()).map(|t| self.render_share_button(t, cx));
@@ -981,7 +981,7 @@ impl Threadbear {
     /// The header as `dump` reports it (`ThreadHeader`).
     #[cfg(feature = "automation")]
     pub(crate) fn header_dump(&self) -> Option<Value> {
-        let t = self.open_thread().filter(|_| self.mode == SidebarMode::Inbox)?;
+        let t = self.open_thread().filter(|_| self.home_page().is_none())?;
         let back_to = self.can_go_back().then(|| self.destination(true)).flatten();
         let forward_to = self.can_go_forward().then(|| self.destination(false)).flatten();
         let back_key = self.shortcuts.key(ShortcutCommand::Back).map(|k| k.display());

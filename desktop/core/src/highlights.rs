@@ -836,36 +836,84 @@ pub fn started_detail<Tz: TimeZone>(row: &StartedRow, now: &DateTime<Tz>) -> Str
 
 /// A message the runner sends at a set time (`Schedule`), as much as the
 /// Scheduled group needs.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Schedule {
     pub id: String,
     pub title: String,
+    /// What it sends.
+    pub text: String,
+    /// A one-off: when it runs.
+    pub at: Option<String>,
+    /// Or repeating: a five-field cron or @daily and friends.
+    pub cron: Option<String>,
+    pub timezone: Option<String>,
+    /// The runner's words for `at` or `cron`: "Weekdays at 9:00".
     pub when_text: String,
+    /// Sends to this thread; None starts a new thread each time.
     pub thread_id: Option<String>,
     pub cwd: Option<String>,
+    pub account_id: Option<String>,
+    pub pool_id: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub permission_mode: Option<String>,
+    /// The thread whose agent made it; None for a person.
     pub created_by: Option<String>,
     pub paused: bool,
     pub finished_at: Option<String>,
     pub next_run_at: Option<String>,
     pub created_at: Option<String>,
+    pub runs: i64,
+    pub last_run: Option<LastRun>,
+    /// The runner it runs on, its name and icon (docs/protocol.md, "Schedules").
+    pub runner_id: Option<String>,
+    pub runner_name: Option<String>,
+    pub runner_icon: Option<String>,
+    /// A Run now asked of another runner, waiting for it to hear.
+    pub run_requested_at: Option<String>,
+}
+
+/// A schedule's last run (`Schedule.LastRun`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LastRun {
+    pub at: Option<String>,
+    /// "sent", "skipped" or "failed"; anything else reads as sent.
+    pub outcome: String,
+    /// The thread it sent to or started.
+    pub thread_id: Option<String>,
+    /// Why it was skipped or failed.
+    pub note: Option<String>,
 }
 
 impl Schedule {
     pub fn list(value: &Value) -> Vec<Schedule> {
         value.as_array().into_iter().flatten().filter_map(|s| serde_json::from_value(s.clone()).ok()).collect()
     }
-    fn is_finished(&self) -> bool {
+    pub fn is_finished(&self) -> bool {
         self.finished_at.is_some()
     }
-    fn is_active(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         !self.paused && !self.is_finished()
+    }
+    pub fn is_one_off(&self) -> bool {
+        self.cron.is_none()
+    }
+    /// It runs on another runner than this one (`runsElsewhere`); a schedule
+    /// from before runners, or a list of runners not in yet, is this one's.
+    pub fn runs_elsewhere(&self, self_runner_id: Option<&str>) -> bool {
+        matches!((self.runner_id.as_deref(), self_runner_id), (Some(runner), Some(own)) if runner != own)
     }
     fn belongs(&self, thread_id: &str) -> bool {
         self.thread_id.as_deref() == Some(thread_id) || self.created_by.as_deref() == Some(thread_id)
     }
-    fn next_ms(&self) -> Option<i64> {
+    pub fn next_ms(&self) -> Option<i64> {
         self.next_run_at.as_deref().and_then(parse_ms)
+    }
+    /// When another runner was asked to run it now, while it hasn't yet.
+    pub fn run_requested_ms(&self) -> Option<i64> {
+        self.run_requested_at.as_deref().and_then(parse_ms)
     }
 }
 

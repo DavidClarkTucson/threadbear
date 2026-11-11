@@ -137,6 +137,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "new" | "options" => crate::new_thread::automation(app, cmd, window, cx),
         "move" => crate::move_sheet::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("section").is_some() => crate::sidebar::automation(app, cmd, window, cx),
+        "expand" | "collapse" if cmd.get("scheduleSection").is_some() => crate::scheduled::automation(app, cmd, cx),
+        "schedule" | "close-schedule" => crate::scheduled::editor_automation(app, cmd, window, cx),
         "archive" | "snooze" if cmd.get("id").is_some() || cmd.get("said").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         "click" if cmd.get("tip").is_some() || cmd.get("tipPrefix").is_some() => crate::sidebar::automation(app, cmd, window, cx),
         // The pane beside the thread (highlights.rs): the Swift app's names.
@@ -155,13 +157,20 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let side = app.read(cx).side.clone();
             crate::viewer::viewer_command(&side, &json!({}), cx)
         }
-        "open" | "select" => {
+        "open" => {
             let id = app.read(cx).thread_id_from(text(cmd, "id"))?;
             app.update(cx, |t, cx| {
                 t.reveal_thread(&id, cx);
                 t.open(id.clone(), window, cx)
             });
             Ok(json!(format!("open ok {id}")))
+        }
+        // As the Swift app's: picks it and nothing more, so the sidebar stays
+        // on the view it's showing (a schedule's target does this).
+        "select" => {
+            let id = app.read(cx).thread_id_from(text(cmd, "id"))?;
+            app.update(cx, |t, cx| t.open(id.clone(), window, cx));
+            Ok(json!(format!("ok {id}")))
         }
         // The window shell (shell.rs, rails.rs, header.rs), the Swift
         // app's commands of the same names.

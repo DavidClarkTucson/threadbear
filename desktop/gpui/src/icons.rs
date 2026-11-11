@@ -193,6 +193,12 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "square" => IconName::Square,
         "exclamationmark.circle" => IconName::CircleAlert,
         "paperplane" => IconName::Send,
+        // The Scheduled list's row buttons and menu, and the editor's Repeat menu.
+        "pause" => IconName::Pause,
+        "play" | "playpause" => IconName::Play,
+        "calendar.badge.clock" => IconName::CalendarClock,
+        "slider.horizontal.3" => IconName::SlidersHorizontal,
+        "folder.badge.plus" => IconName::FolderPlus,
         _ => return None,
     };
     Some(Icon::new(lucide))
