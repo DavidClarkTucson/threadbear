@@ -127,7 +127,7 @@ fun ThreadScreen(threadId: String, back: () -> Unit, open: (String) -> Unit) {
                         // a send that fails puts it all back if nothing's been typed since.
                         val typed = box.text.text.toString()
                         box.clear()
-                        vm.send(message, photos = photos) { if (box.isEmpty) box.restore(typed, photos) else photos.forEach { it.upload?.drop() } }
+                        vm.send(message, photos = photos) { if (box.isEmpty) box.restore(typed, photos) else photos.forEach { it.abandon() } }
                     },
                     onStop = { model.stop(threadId) },
                 )

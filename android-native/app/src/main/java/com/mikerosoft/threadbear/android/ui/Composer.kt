@@ -218,7 +218,7 @@ private fun FieldBox(box: PhotoBox, placeholder: String, photosOn: Boolean, modi
     val context = LocalContext.current
     PhotoField(
         box, placeholder, TextFieldLineLimits.MultiLine(1, 6),
-        onPasteImages = if (photosOn) ({ uris -> box.add(uris.map { PhotoDecoding.fromUri(context, it) }, model, scope) }) else null,
+        onPasteImages = if (photosOn) ({ uris -> box.add(uris.map { PhotoDecoding.fromUri(context, it, imagesOnly = true) }, model, scope) }) else null,
         modifier = modifier.clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .heightIn(min = 44.dp).padding(horizontal = 16.dp, vertical = 11.dp),
     )
@@ -247,7 +247,7 @@ fun PhotoField(
     val context = LocalContext.current
     val chipStyle = SpanStyle(background = colors.surfaceContainerHighest, color = colors.onSurfaceVariant, fontSize = 0.87.em)
     val chips = remember(box, chipStyle) { box.chips(chipStyle) }
-    val paste = remember(onPasteImages) { onPasteImages?.let { receiver(context, it) } }
+    val paste = remember(onPasteImages) { onPasteImages?.let { receiver(it) } }
     Box(modifier, contentAlignment = Alignment.TopStart) {
         if (box.text.text.isEmpty()) {
             Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -266,18 +266,24 @@ fun PhotoField(
     }
 }
 
-/** Takes the pictures out of what's pasted and leaves the rest (text) for the field. */
+/**
+ * Takes the pictures out of what's pasted and leaves the rest (text) for
+ * the field. Decided from the clip's own description, with no call to the
+ * app that owns the uris: that would be on the main thread, and a stalled
+ * provider would freeze the box (Codex's review). Each is checked as a
+ * picture when it's read, off the main thread (PhotoDecoding.fromUri).
+ */
 @OptIn(ExperimentalFoundationApi::class)
-private fun receiver(context: Context, onImages: (List<Uri>) -> Unit) = object : ReceiveContentListener {
+private fun receiver(onImages: (List<Uri>) -> Unit) = object : ReceiveContentListener {
     override fun onReceive(transferableContent: TransferableContent): TransferableContent? {
         if (!transferableContent.hasMediaType(MediaType.Image)) return transferableContent
-        val wholeClipIsImages = transferableContent.clipMetadata.clipDescription.hasMimeType("image/*")
         val uris = mutableListOf<Uri>()
+        // An item with words goes in as words; one that's only a uri, in a clip that has pictures, is a picture.
         val rest = transferableContent.consume { item ->
-            val uri = item.uri ?: return@consume false
-            val image = runCatching { context.contentResolver.getType(uri) }.getOrNull()?.startsWith("image/") ?: wholeClipIsImages
-            if (image) uris += uri
-            image
+            val uri = item.uri
+            if (uri == null || item.text != null) return@consume false
+            uris += uri
+            true
         }
         if (uris.isNotEmpty()) onImages(uris)
         return rest
