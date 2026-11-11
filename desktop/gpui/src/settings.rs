@@ -46,6 +46,8 @@ pub struct Saved {
     pub collapsed_schedule_sections: Option<Vec<String>>,
     /// `inboxOrder`: `InboxOrder`'s raw value.
     pub inbox_order: Option<String>,
+    /// `appearance`: "system", "light" or "dark" (`AppAppearance`).
+    pub appearance: Option<String>,
     /// `dockLayout`: the Dock's JSON, the same shape Swift's Codable saves.
     pub dock_layout: Option<Value>,
 }

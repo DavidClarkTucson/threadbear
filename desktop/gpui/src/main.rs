@@ -33,6 +33,7 @@ mod rows;
 mod schedule_editor;
 mod scheduled;
 mod settings;
+mod settings_window;
 mod shell;
 mod sidebar;
 mod slash_palette;

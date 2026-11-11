@@ -189,20 +189,22 @@ pub(crate) fn home_title(title: &'static str, line: &'static str, more: &'static
 
 /// `InfoTip`: an ⓘ that says more in its tooltip, and in a popover when
 /// clicked, for text too long to read in a tooltip.
-pub(crate) fn info_tip(id: &'static str, text: &'static str, cx: &App) -> AnyElement {
+pub(crate) fn info_tip(id: impl Into<SharedString>, text: impl Into<SharedString>, cx: &App) -> AnyElement {
     let secondary = style::secondary_text(cx);
-    Popover::new(id)
+    let (id, text): (SharedString, SharedString) = (id.into(), text.into());
+    let shown = text.clone();
+    Popover::new(ElementId::Name(id.clone()))
         // Above it, as the Swift popover's arrow on its bottom edge puts it.
         .anchor(Anchor::BottomLeft)
         .trigger(InfoTrigger { id, text, color: secondary })
-        .content(move |_, _, _| div().w(px(280.)).p(px(12.)).text_size(px(12.)).child(text))
+        .content(move |_, _, _| div().w(px(280.)).p(px(12.)).text_size(px(12.)).child(shown.clone()))
         .into_any_element()
 }
 
 #[derive(IntoElement)]
 struct InfoTrigger {
-    id: &'static str,
-    text: &'static str,
+    id: SharedString,
+    text: SharedString,
     color: Hsla,
 }
 

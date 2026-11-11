@@ -558,7 +558,7 @@ impl Threadbear {
             Command::ShowLibrarian => self.set_mode(SidebarMode::Librarian, cx),
             Command::ShowHibernating => self.show_folded_section("hibernating", cx),
             Command::ShowArchived => self.show_folded_section("archived", cx),
-            Command::Settings => window.push_notification("Settings isn't in this app yet.", cx),
+            Command::Settings => self.open_settings(None, cx),
             Command::ZoomIn => self.zoom_in(window, cx),
             Command::ZoomOut => self.zoom_out(window, cx),
             Command::ActualSize => self.set_zoom(zoom::DEFAULT_PERCENT, window, cx),

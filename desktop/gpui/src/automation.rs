@@ -95,6 +95,13 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     let from_new = cmd["cmd"] == "send" && app.read_with(cx, |t, _| t.selected.is_none()).map_err(|e| e.to_string())?;
     let weak = app.clone();
     let Some(app) = app.upgrade() else { return Err("the app has gone".into()) };
+    // `"settings": true`: in the Settings window, as the Swift app's `click`
+    // and `shot --settings` reach it.
+    let window = if cmd["settings"].as_bool() == Some(true) && cmd["cmd"] != "settings" {
+        app.read_with(cx, |t, _| t.settings_window.as_ref().map(|(handle, _)| *handle)).ok_or("the Settings window isn't open")?
+    } else {
+        window
+    };
     let out = cx.update_window(window, |_, window, cx| step(&app, cmd, window, cx)).map_err(|e| e.to_string())??;
     if !from_new {
         return Ok(out);
@@ -131,6 +138,23 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             Ok(app.read(cx).dump(cx))
         }
         "status" => Ok(json!("ok")),
+        // The Settings window, as the Swift command: opened (on `tab`), or
+        // `"close": true` closes it.
+        "settings" => {
+            if cmd["close"].as_bool() == Some(true) {
+                let open = app.update(cx, |t, _| t.settings_window.take());
+                if let Some((handle, _)) = open {
+                    handle.update(cx, |_, window, _| window.remove_window()).ok();
+                }
+                return Ok(json!("ok closed"));
+            }
+            let tab = match cmd["tab"].as_str() {
+                Some(name) => Some(crate::settings_window::Tab::from_name(name).ok_or_else(|| format!("tab must be one of {}", crate::settings_window::Tab::ALL.map(|t| t.name()).join(", ")))?),
+                None => None,
+            };
+            app.update(cx, |t, cx| t.open_settings(tab, cx));
+            Ok(json!("ok"))
+        }
         // The sidebar's commands (sidebar.rs). Guarded ones only take the forms
         // that name a section, a row or a tip; the others fall through below.
         "hover" | "sort" | "archive-more" | "star" | "unstar" | "unarchive" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),
@@ -627,11 +651,10 @@ fn shell_step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &m
         // sets NSApp.appearance. Lasts until the system changes.
         "appearance" => {
             let mode = cmd["mode"].as_str().ok_or("mode is light, dark or system")?;
-            use gpui_kit::component::{Theme, ThemeMode};
+            // The preference too, so the Mac's own change doesn't undo it; a
+            // script's choice isn't saved.
             match mode {
-                "light" => Theme::change(ThemeMode::Light, Some(window), cx),
-                "dark" => Theme::change(ThemeMode::Dark, Some(window), cx),
-                "system" => Theme::sync_system_appearance(Some(window), cx),
+                "light" | "dark" | "system" => crate::style::set_appearance(crate::style::Appearance::from_name(mode), window, cx),
                 other => return Err(format!("mode is light, dark or system, not {other:?}")),
             }
             Ok(json!(format!("ok {mode}")))

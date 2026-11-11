@@ -77,6 +77,16 @@ struct AppDump: Encodable {
         var stats: [StatInfo]
     }
 
+    struct SettingsWindowInfo: Encodable {
+        var tab: String
+        var appearance: String
+        var defaultFolder: String?
+        var keepAwake: Bool?
+        var labReview: Bool?
+        var privateFolders: [String]?
+        var smallJobsPool: String?
+    }
+
     struct ScheduleEditorInfo: Encodable {
         var isNew: Bool
         var text: String
@@ -362,6 +372,9 @@ struct AppDump: Encodable {
     /// The schedule editor while it's up, as it was opened: the sheet keeps
     /// its own copy after that, so what's typed in it isn't here.
     var scheduleEditor: ScheduleEditorInfo? = nil
+    /// The Settings window while it's open: its section, and the runner's
+    /// settings it shows.
+    var settingsWindow: SettingsWindowInfo? = nil
     /// The librarian's state in words ("Looking at ..."), when the runner
     /// has projects.
     var librarian: String? = nil
@@ -662,6 +675,10 @@ struct AppDump: Encodable {
             } : nil,
             homePage: homePageDump(app),
             scheduleEditor: app.scheduleEditor.map { ScheduleEditorInfo(isNew: $0.isNew, text: $0.text, once: $0.once, cron: $0.once ? nil : $0.repeatChoice.cron) },
+            settingsWindow: SettingsWindow.current?.isVisible == true ? SettingsWindowInfo(
+                tab: app.settingsTab.rawValue, appearance: UserDefaults.standard.string(forKey: AppAppearance.key) ?? "system",
+                defaultFolder: app.runnerSettings?.defaultCwd, keepAwake: app.runnerSettings?.keepAwake, labReview: app.runnerSettings?.labReview,
+                privateFolders: app.runnerSettings?.models.privateFolders, smallJobsPool: app.runnerSettings?.models.pool) : nil,
             librarian: app.librarian.map(LibrarianText.state),
             pools: app.usesPools ? app.pools.map { pool in
                 PoolInfo(id: pool.id, title: pool.title, logins: pool.accountIds, folders: pool.folders,

@@ -214,6 +214,35 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 The Settings window, with General and Models (`settings.window`, `settings.general`, `settings.models`)
+
+- ⌘, and the rail's gear open Settings in a window of its own, with the
+  Swift app's sidebar of sections (General, Models, Pools, Runners, Phone &
+  browser, Keyboard) and a grouped form whose sections say, behind their ⓘ,
+  what each is and what to ask your agent. A second ⌘, brings it forward.
+- General: Appearance (this app's own, kept in desktop-settings.json and
+  followed by every window), the default folder with Choose…, standing
+  instructions (saved a second after typing stops and when the window
+  closes; a file changed outside Settings is shown as it was when reading
+  started, with Show Newer Version, Clear and Use These, which sends the
+  words shown), Code review, Sleep, Updates from Mike (on a fork),
+  Experiments, and the runner's version. A change shows at once, and one
+  the runner turns down puts back what it had (unless something newer came)
+  with its reason under the form.
+- Models: Small jobs' pool, with None and a set pool that has no Claude
+  login, and the private folders, with a minus on each and Add Folder….
+- Not here yet: the ding (GPUI has no sound to play it with), the activity
+  log (the GPUI app keeps none) and Quitting's question (it doesn't ask),
+  and the Pools, Runners, Phone & browser and Keyboard sections, which say
+  so.
+- The GPUI app's scripts reach the window as the Swift app's do (`settings`
+  with `tab` or `close`, `"settings": true` on `click` and `screenshot`), and
+  both dumps say what it shows (`settingsWindow`).
+- Verification: settings.feature on Linux and on Tinker Desk; the Swift app
+  passes the window scenario, and its two click scenarios are GPUI-only, as
+  a scripted click in the Swift app's AppKit form starts a tracking loop that
+  never answers; both apps' General and Models side by side.
+
 ### 2026-11-11 The Librarian view and its page (`librarian.log`, `librarian.page`, `librarian.picture`)
 
 - Librarian in the activity bar (with its count of looks under way and

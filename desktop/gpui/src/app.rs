@@ -125,6 +125,19 @@ pub struct Threadbear {
     /// The providers whose logins can run small jobs (titles, the
     /// librarian), from hello's `providers` (`ProviderInfo.smallJobs`).
     pub(crate) small_jobs: Vec<String>,
+    /// The Settings window while it's open (settings_window.rs).
+    pub(crate) settings_window: Option<(AnyWindowHandle, Entity<crate::settings_window::SettingsWindow>)>,
+    /// The last settings change the runner turned down (`settingsError`).
+    pub(crate) settings_error: Option<String>,
+    /// A runner from before `settings.get`.
+    pub(crate) settings_unsupported: bool,
+    /// Standing instructions (`instructions.get`), None from a runner without them.
+    pub(crate) standing_instructions: Option<threadbear_core::runner_settings::StandingInstructions>,
+    /// The runner's version, from hello (`runnerVersion`).
+    pub(crate) runner_version: String,
+    /// This copy checks for Mike's releases (hello's `updates.upstream`, on
+    /// a fork), so Settings offers how often to bring them in.
+    pub(crate) upstream_on: bool,
     pub(crate) projects_supported: bool,
     /// Every project's id, title and whether it's archived, for the
     /// header's chips (`projects.list`).
@@ -156,8 +169,14 @@ impl Threadbear {
         // transcript and composer have them (`scrollerStyle = .overlay`).
         crate::style::install_window_colours(cx);
         Theme::set_scrollbar_mode(gpui_kit::component::scroll::ScrollbarMode::Scrolling, cx);
-        Theme::sync_system_appearance(Some(window), cx);
-        let appearance = window.observe_window_appearance(|window, cx| Theme::sync_system_appearance(Some(window), cx));
+        // Light or dark as Settings › General says, else the Mac's, followed
+        // as it changes.
+        crate::style::set_appearance(crate::style::Appearance::from_name(settings.saved.appearance.as_deref().unwrap_or("system")), window, cx);
+        let appearance = window.observe_window_appearance(|window, cx| {
+            if crate::style::appearance() == crate::style::Appearance::System {
+                Theme::sync_system_appearance(Some(window), cx);
+            }
+        });
         crate::style::set_zoom_percent(settings.zoom_percent());
         shell::apply_zoom_to_theme(settings.zoom_percent(), cx);
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -286,6 +305,12 @@ impl Threadbear {
             librarian_pokes: crate::home_page::Pokes::new(crate::home_page::Art::Librarian),
             runner_settings: None,
             small_jobs: vec!["claude".into()],
+            settings_window: None,
+            settings_error: None,
+            settings_unsupported: false,
+            standing_instructions: None,
+            runner_version: String::new(),
+            upstream_on: false,
             projects_supported: false,
             all_projects: Vec::new(),
             new_thread: crate::new_thread::NewThreadState::new(),
@@ -311,6 +336,8 @@ impl Threadbear {
                 if let Status::Connected { hello, .. } = &status {
                     self.logins = RunnerLogins::from_hello(hello);
                     self.remote.experiments = hello["experiments"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(str::to_owned)).collect();
+                    self.runner_version = hello["runnerVersion"].as_str().unwrap_or("").to_owned();
+                    self.upstream_on = hello["updates"]["upstream"]["state"].as_str().is_some_and(|s| s != "off");
                     // A runner from before `providers` has Claude's built in.
                     if let Some(providers) = hello["providers"].as_array() {
                         self.small_jobs = providers.iter().filter(|p| p["smallJobs"].as_bool() == Some(true)).filter_map(|p| p["id"].as_str().map(str::to_owned)).collect();
@@ -361,6 +388,7 @@ impl Threadbear {
                 }
                 "librarian.updated" => self.librarian.status = Some(threadbear_core::librarian::Status::decode(&params["librarian"])),
                 "settings.updated" => self.runner_settings = Some(params["settings"].clone()),
+                "instructions.updated" => self.standing_instructions = Some(threadbear_core::runner_settings::StandingInstructions::decode(&params["instructions"])),
                 "projects.updated" => {
                     self.librarian.projects_made = crate::librarian::projects_made(&params["projects"]);
                     self.sidebar.project_icons = crate::sidebar::project_icons(&params["projects"]);
@@ -434,13 +462,23 @@ impl Threadbear {
     pub(crate) fn load_runner_settings(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
-            if let Ok(v) = call(client, "settings.get", json!({})).await {
-                this.update(cx, |this, cx| {
-                    this.runner_settings = Some(v["settings"].clone());
-                    cx.notify();
-                })
-                .ok();
-            }
+            let res = call(client, "settings.get", json!({})).await;
+            this.update(cx, |this, cx| {
+                match res {
+                    Ok(v) => {
+                        this.runner_settings = Some(v["settings"].clone());
+                        this.settings_unsupported = false;
+                    }
+                    // A runner from before settings.
+                    Err(e) if e.code == -32601 => {
+                        this.settings_unsupported = true;
+                        this.runner_settings = None;
+                    }
+                    Err(_) => {}
+                }
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
     }
@@ -460,7 +498,10 @@ impl Threadbear {
             let res = call(client, "settings.update", change).await;
             this.update(cx, |this, cx| {
                 match res {
-                    Ok(v) => this.runner_settings = Some(v["settings"].clone()),
+                    Ok(v) => {
+                        this.runner_settings = Some(v["settings"].clone());
+                        this.settings_error = None;
+                    }
                     Err(e) => {
                         // Put back only if nothing newer has come since
                         // (`settings.updated` from another window), and ask
@@ -469,7 +510,8 @@ impl Threadbear {
                             this.runner_settings = before;
                         }
                         this.load_runner_settings(cx);
-                        this.show_error(e.message, cx);
+                        // Under the form in Settings (`SettingsErrorRow`).
+                        this.settings_error = Some(e.message);
                     }
                 }
                 cx.notify();
@@ -477,6 +519,15 @@ impl Threadbear {
             .ok();
         })
         .detach();
+    }
+
+    /// Settings › General › Appearance: this app's own, kept in its settings
+    /// file (`AppAppearance`).
+    pub(crate) fn set_appearance(&mut self, appearance: crate::style::Appearance, window: &mut Window, cx: &mut Context<Self>) {
+        crate::style::set_appearance(appearance, window, cx);
+        self.settings.saved.appearance = (appearance != crate::style::Appearance::System).then(|| appearance.name().to_owned());
+        self.save_settings_soon(cx);
+        cx.notify();
     }
 
     /// The providers whose logins can run small jobs (`smallJobs`).
@@ -652,6 +703,8 @@ impl Threadbear {
             "palette": self.composer(cx).map_or(Value::Null, |c| c.read(cx).palette_dump(cx)),
             "moveSheet": self.move_sheet.as_ref().map_or(Value::Null, |s| s.read(cx).dump(cx)),
             "scheduleEditor": self.schedule_editor.as_ref().map_or(Value::Null, |e| e.read(cx).dump(cx)),
+            // The Settings window while it's open, and what it shows.
+            "settingsWindow": self.settings_window.as_ref().map_or(Value::Null, |(_, view)| view.read(cx).dump(cx)),
             // The page in the main panel in place of a thread (`showsHomePage`).
             "homePage": match self.home_page() {
                 Some(SidebarMode::Scheduled) => self.scheduled_home_dump(),

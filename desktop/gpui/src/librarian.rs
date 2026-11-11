@@ -389,7 +389,8 @@ impl Threadbear {
                         .small()
                         .outline()
                         .tooltip("Private folders, whose threads are never sent anywhere")
-                        .on_click(cx.listener(|this, _, window, cx| this.run_command(crate::shell::Command::Settings, window, cx))),
+                        // Settings › Models, where the private folders are (`openModelSettings`).
+                        .on_click(cx.listener(|this, _, _, cx| this.open_settings(Some(crate::settings_window::Tab::Models), cx))),
                 ),
             )
             .into_any_element()

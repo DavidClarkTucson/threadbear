@@ -23,6 +23,74 @@ pub fn set_zoom_percent(percent: u32) {
     ZOOM_PERCENT.store(percent, Ordering::Relaxed);
 }
 
+/// `AppAppearance`: light or dark for this app only, or the Mac's (Settings ›
+/// General › Appearance). Kept here so the windows' appearance observers can
+/// tell whether to follow the Mac.
+static APPEARANCE: AtomicU32 = AtomicU32::new(0);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Appearance {
+    System,
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub const ALL: [Appearance; 3] = [Appearance::System, Appearance::Light, Appearance::Dark];
+
+    /// The Swift app's raw value, which the settings file keeps.
+    pub fn name(self) -> &'static str {
+        match self {
+            Appearance::System => "system",
+            Appearance::Light => "light",
+            Appearance::Dark => "dark",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Appearance {
+        match name {
+            "light" => Appearance::Light,
+            "dark" => Appearance::Dark,
+            _ => Appearance::System,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Appearance::System => "Same as the Mac",
+            Appearance::Light => "Light",
+            Appearance::Dark => "Dark",
+        }
+    }
+}
+
+pub fn appearance() -> Appearance {
+    match APPEARANCE.load(Ordering::Relaxed) {
+        1 => Appearance::Light,
+        2 => Appearance::Dark,
+        _ => Appearance::System,
+    }
+}
+
+/// Sets the preference and puts it on the window: the theme is the app's, so
+/// every window follows.
+pub fn set_appearance(appearance: Appearance, window: &mut Window, cx: &mut App) {
+    use gpui_kit::component::{Theme, ThemeMode};
+    APPEARANCE.store(
+        match appearance {
+            Appearance::System => 0,
+            Appearance::Light => 1,
+            Appearance::Dark => 2,
+        },
+        Ordering::Relaxed,
+    );
+    match appearance {
+        Appearance::System => Theme::sync_system_appearance(Some(window), cx),
+        Appearance::Light => Theme::change(ThemeMode::Light, Some(window), cx),
+        Appearance::Dark => Theme::change(ThemeMode::Dark, Some(window), cx),
+    }
+}
+
 /// `zoomed`: a design size at the window's zoom (`TypeScale.scaled`).
 pub fn zoomed(size: f32) -> f32 {
     threadbear_core::zoom::scaled(size, zoom_percent())
