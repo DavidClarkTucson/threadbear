@@ -51,7 +51,7 @@ you go.
   `file.conflict`)
 - [ ] PDFs, videos and .html files open in their own app rather than the pane
   (`file.quicklook`, `file.video`, `file.htmlpreview`)
-- [ ] A folder doesn't update while it's open, takes one row at a time, has no
+- [x] A folder doesn't update while it's open, takes one row at a time, has no
   type-to-select, no Space, ⌘↑ or ⌘⇧. keys, no icon view, and the path bar's
   "…" isn't a menu (`folder.*`)
 

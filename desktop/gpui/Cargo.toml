@@ -46,6 +46,10 @@ tempfile = "3"
 # image, so a small copy is blurred here, off the main thread. Already in the
 # build through GPUI, at this version and with these formats.
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "ico"] }
+# Hearing a folder in the pane change (file_watch.rs): FSEvents on the Mac,
+# inotify on Linux, ReadDirectoryChangesW on Windows. Already in the build
+# through gpui-kit, at this version and with its default features.
+notify = "=8.2.1"
 # The Terminal panel's emulator (terminal.rs, terminal_element.rs): the
 # screen, its scrollback and selection, the escape codes programs print, and
 # the shell's pty (a Unix pty on macOS and Linux, ConPTY on Windows), with

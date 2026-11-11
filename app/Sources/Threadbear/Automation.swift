@@ -897,6 +897,10 @@ enum Automation {
             if let hidden = c["hidden"] as? Bool { pane.setShowHidden(hidden) }
             if let name = c["expand"] as? String, !pane.expand(name: name) { return "error no folder called \(name)" }
             if let name = c["select"] as? String, !pane.select(name: name) { return "error no row called \(name)" }
+            // A ⌘-click: that row picked as well (a table's own selecting
+            // ignores a made-up click, as "click" says).
+            if let name = c["selectAlso"] as? String, !pane.selectAlso(name: name) { return "error no row called \(name)" }
+            if c["pathMenu"] as? Bool == true { return "ok \(pane.debugPathMenu.joined(separator: " | "))" }
             if c["quickLook"] as? Bool == true {
                 try? await Task.sleep(for: .milliseconds(300))
                 return "ok would look at \(pane.quickLookPaths())"

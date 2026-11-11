@@ -478,6 +478,22 @@ pub fn type_select(names: &[&str], typed: &str, picked: Option<usize>) -> Option
 /// How long a pause ends the letters typed for `type_select`.
 pub const TYPE_SELECT_PAUSE_MS: u64 = 1000;
 
+/// What an empty folder says.
+pub const EMPTY_WORDS: &str = "Nothing in this folder";
+
+/// What the browser says when the runner couldn't list a folder (`code` and
+/// `message` its error), `away` naming another Mac's runner
+/// (`FolderPaneView.words`).
+pub fn failure_words(code: i64, message: &str, away: Option<&str>) -> String {
+    if code == -32601 {
+        return format!("{}'s runner needs updating to show folders.", away.unwrap_or("That Mac"));
+    }
+    if away.is_none() && message.starts_with("No such folder") {
+        return "This folder isn't there any more.".to_owned();
+    }
+    format!("Couldn't read this folder{}.", away.map(|a| format!(" on {a}")).unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -691,6 +707,14 @@ mod tests {
         assert_eq!(type_select(&names, "d", Some(4)), Some(0), "round from the top");
         assert_eq!(type_select(&names, "z", Some(1)), None);
         assert_eq!(type_select(&names, "", Some(1)), None);
+    }
+
+    #[test]
+    fn a_folder_that_cant_be_read_says_why() {
+        assert_eq!(failure_words(-32602, "No such folder: /a/b", None), "This folder isn't there any more.");
+        assert_eq!(failure_words(-32602, "Not a folder: /a/b", None), "Couldn't read this folder.");
+        assert_eq!(failure_words(-32601, "Method not found", Some("bruce")), "bruce's runner needs updating to show folders.");
+        assert_eq!(failure_words(-32602, "No such folder: /a/b", Some("bruce")), "Couldn't read this folder on bruce.");
     }
 
     #[test]

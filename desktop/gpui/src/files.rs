@@ -437,6 +437,14 @@ impl SidePane {
     /// (`PreviewButtons`).
     pub(crate) fn preview_buttons(&mut self, preview: &PanePreview, thread: &ThreadSummary, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let mut row = h_flex().flex_none().gap(px(0.));
+        if let Target::Folder(path) = &preview.target {
+            row = row.child(self.folder_mode_button(p, cx));
+            // Another Mac's folder has no copy here to hand over.
+            if !thread.is_remote() {
+                let open_path = path.clone();
+                row = row.child(self.header_button("hl-open", "arrow.up.right", "Open in Finder".to_owned(), p, cx, move |this, cx| this.open_externally(&open_path.clone(), cx)));
+            }
+        }
         if let Some(path) = preview.file_path().filter(|path| core::is_markdown(path) && self.offers_text(preview, thread)) {
             let _ = path;
             row = row.child(self.markdown_menu(preview.editing, p, cx));

@@ -126,7 +126,9 @@ impl MenuItem {
     pub(crate) fn submenu(title: impl Into<String>, symbol: &'static str, children: Vec<MenuItem>) -> Self {
         Self { title: title.into(), symbol: Some(symbol), action: None, checked: false, children }
     }
-    /// Shown, greyed: a choice that's coming but isn't here yet.
+    /// Shown, greyed: a choice that's coming but isn't here yet. None just
+    /// now (the folder's Show as icons was the last).
+    #[allow(dead_code)]
     pub(crate) fn disabled(title: impl Into<String>, symbol: &'static str) -> Self {
         Self { title: title.into(), symbol: Some(symbol), action: None, checked: false, children: vec![] }
     }
@@ -185,6 +187,12 @@ pub(crate) enum MenuAction {
     OpenFolderRow { key: String, entry: threadbear_core::folders::FolderEntry },
     SortFolder { key: String, sort: threadbear_core::folders::FolderSort },
     FolderHidden { hidden: bool },
+    FolderMode { mode: threadbear_core::folders::FolderMode },
+    /// Each of the rows picked, in its app, or shown in its folder.
+    OpenEach { paths: Vec<String> },
+    RevealEach { paths: Vec<String> },
+    /// A folder from the path bar's "…" menu, picking the one below it.
+    FolderCrumb { key: String, path: String, selecting: Option<String> },
     // A Scheduled row's (`scheduleRow`).
     EditSchedule { id: String },
     ShowSchedules,
@@ -664,6 +672,13 @@ impl SidePane {
             MenuAction::OpenFolderRow { key, entry } => self.run_folder_row_action(&key, entry, thread, cx),
             MenuAction::SortFolder { key, sort } => self.set_folder_sort(&key, sort, cx),
             MenuAction::FolderHidden { hidden } => self.set_folder_hidden(hidden, cx),
+            MenuAction::FolderMode { mode } => self.set_folder_mode(mode, cx),
+            MenuAction::OpenEach { paths } => paths.iter().for_each(|path| self.open_externally(path, cx)),
+            MenuAction::RevealEach { paths } => {
+                let origin = if thread.is_remote() { crate::open_gate::Origin::OtherMac } else { crate::open_gate::Origin::ThisMac };
+                paths.iter().for_each(|path| crate::files::reveal(path, origin, cx));
+            }
+            MenuAction::FolderCrumb { key, path, selecting } => self.run_folder_crumb_action(&key, path, selecting, thread, cx),
         }
         self.menu = None;
         cx.notify();
@@ -1416,6 +1431,8 @@ impl Render for SidePane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let bg = cx.theme().background;
+        // The folder showing is the one kept up to date (folders.rs).
+        self.keep_folder_current(cx);
         let Some(thread) = self.thread(cx) else {
             return v_flex().size_full().bg(bg).child(crate::files::pane_note("Pick a thread to see its Highlights.", p)).into_any_element();
         };

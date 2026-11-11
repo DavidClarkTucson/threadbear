@@ -491,6 +491,59 @@ built parsers and gates with no launch of the app, which is the trap.)
   --all-targets`; settings, window and reading-a-thread features on the
   GPUI app (all pass but settings.feature's Keep the Mac awake, which fails
   the same way with main's settings window).
+### 2026-11-11 The folder browser kept up to date, more than one row, the Finder's keys, icons and the path bar's menu (`folder.list`, `folder.keys`, `folder.icons`, `folder.pathbar`, `folder.menu`, `foundation.filewatch`)
+
+- A folder in the pane is read again when it changes on this machine
+  (notify's watch: FSEvents, inotify, ReadDirectoryChangesW, already in the
+  build through gpui-kit), once a burst of changes settles (300 ms, 3 s for
+  a folder of over 2000), every 15 seconds for another Mac's, and when the
+  window comes to the front. Only the folder showing and its open rows are
+  watched. A folder that's gone says "This folder isn't there any more.", an
+  empty one "Nothing in this folder", as the Swift app's.
+- Rows as NSOutlineView's: a click picks one, ⌘-click adds or takes away,
+  ⇧-click picks the run, ↑ and ↓ move (⇧ to extend), ⌘A picks them all,
+  typing a name picks its row (a second's pause starts again), → and ← open
+  and close a folder (← inside one goes to it), Return, Enter and ⌘↓ open the
+  picked row, ⌘↑ goes up with the folder come out of picked, ⌘⇧. shows and
+  hides hidden files, ⌘C copies the picked paths. Space opens the picked
+  file in the pane, with Back to the folder: the Swift app has Quick Look
+  there, and does this for another Mac's files.
+- A picked row's menu is for all the rows picked (Open in its app and Reveal
+  for each, Copy paths); Show as icons and Show as a list work, from the menu
+  and from the bar's button over a folder (with Open in Finder beside it).
+  The sort, hidden files and the view are remembered across launches.
+- Show as icons: as many tiles to a row as fit at 116 wide, shared out, 128
+  tall, the picture 84 square with the name under it in two lines, the
+  picked ones in the accent at 45%. A picture on this machine shows its own
+  thumbnail (made off the main thread from at most 8192 pixels a side), at
+  18 points in the list too. Folders are the Finder's blue folder and other
+  files a page, drawn here.
+- The path bar keeps the nearest folders that fit, measured, and puts the
+  rest behind its "…", now a menu of them, nearest first; going up a folder
+  picks the one below it, as the Finder does. The list's header and rows
+  measured against the Swift ones: the 26 point header with semibold titles,
+  the sort's arrow at the end of the Name column and rules between columns,
+  and the rows' triangle, icon and name where NSOutlineView puts them.
+- Not the same yet: no Quick Look (Space opens the file), no drag-out
+  (`drag.fileout`), thumbnails for pictures only (no video frames), files'
+  icons a page whatever their kind, and ⌘C copies the paths, not the files.
+- Both apps' `folder` command takes `selectAlso` (a ⌘-click) and `pathMenu`;
+  the GPUI app's now takes `mode` icons, `key` (by the Mac key code, as the
+  Swift app's), `click`, and `quickLook` (what Space would show).
+- Files: `desktop/gpui/src/folders.rs` (rewritten), `file_watch.rs` (new);
+  core's `folders.rs` (FolderMode, tucked_count, grid_columns, Selection,
+  type_select, failure_words, thumbnails, settle_ms, with tests); the lines
+  in `highlights.rs` (the menu's new actions, the pane keeping its folder
+  current), `files.rs` (the bar's buttons over a folder), `main.rs`,
+  `Cargo.toml` and `Cargo.lock` (notify); the Swift app's
+  `Views/FolderBrowser.swift` and `Automation.swift` (selectAlso, pathMenu);
+  `features/folders.feature` and its steps.
+- Verification: folders.feature's 7 new scenarios and its 6 others, with
+  file-previews, highlights, picture-viewer and patches, on Tinker Desk
+  against the GPUI app (43 of 43) and the Swift app (folders and
+  file-previews, 21 of 21); core's tests, the integration ones too. The list
+  and the icons side by side with the Swift app's in dark: the header, rows,
+  tiles and path bar line up within a point.
 
 ### 2026-11-11 Thread chips in replies and agents' messages (`rich.threadchips`, `transcript.reply`, `transcript.agentmessage`)
 

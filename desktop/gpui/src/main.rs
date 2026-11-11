@@ -20,6 +20,7 @@ mod draft_boxes;
 mod drafts;
 mod file_edit;
 mod file_find;
+mod file_watch;
 mod files;
 mod files_store;
 mod folders;
