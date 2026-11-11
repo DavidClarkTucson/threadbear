@@ -134,6 +134,12 @@ final class AppModel {
     /// What the runner said about a thread archived elsewhere, held back
     /// while its row slides off, so the row's still there to slide.
     @ObservationIgnored var heldWhileSliding: [String: ThreadSummary] = [:]
+    /// Threads archived here that are already out of the list while the
+    /// runner's answer is on its way (`archive`). A summary that arrives
+    /// before the runner has it still says not archived; `threads`' didSet
+    /// keeps the guess, and leaves the thread's Terminal shell running till
+    /// the runner says yes.
+    @ObservationIgnored var archivesInFlight: Set<String> = []
     /// Archived threads whose panel is still dropping into the Archived
     /// heading (`ArchiveFlight`). The heading leaves them out of its count
     /// and rows until they land, so the count rolls on as one arrives.
@@ -189,8 +195,17 @@ final class AppModel {
     @ObservationIgnored var archivesNotSent: Set<String> = []
     var threads: [String: ThreadSummary] = [:] {
         didSet {
-            // An archived thread's Terminal shell stops (TerminalPanel.swift).
-            Terminals.shared.stopArchived(in: threads)
+            // An archive still on its way (`archive`): a summary from before
+            // the runner had it (thread.updated, a reconnect's list, another
+            // runner's) doesn't bring the row back. Setting threads in its
+            // own didSet doesn't run didSet again.
+            for id in archivesInFlight where threads[id] != nil && threads[id]?.archivedAt == nil {
+                threads[id]?.archivedAt = oldValue[id]?.archivedAt
+            }
+            // An archived thread's Terminal shell stops (TerminalPanel.swift),
+            // but not on the guess: a refused archive brings the row back,
+            // and its shell should still be there.
+            Terminals.shared.stopArchived(in: threads, except: archivesInFlight)
             // A summary from another runner never says which runner it's on
             // (runnerId is this app's own marker), so one stored over a
             // remote thread's (markSeen's reply, a rename's, an archive's)

@@ -78,15 +78,17 @@ final class Terminals {
     /// 10 Nov). The home shell now has a key of its own (TerminalKey.home)
     /// that no thread id can be, and only this Mac's own threads have
     /// shells of their own here, so only their summaries stop one.
-    func stopArchived(in threads: [String: ThreadSummary]) {
-        for key in Self.archived(Array(sessions.keys), in: threads) { stop(key) }
+    func stopArchived(in threads: [String: ThreadSummary], except unconfirmed: Set<String> = []) {
+        for key in Self.archived(Array(sessions.keys), in: threads, except: unconfirmed) { stop(key) }
     }
 
     /// Which of `keys` are shells of this Mac's threads that `threads`
-    /// says are archived. Never the home shell.
-    static func archived(_ keys: [TerminalKey], in threads: [String: ThreadSummary]) -> [TerminalKey] {
+    /// says are archived. Never the home shell, nor one whose archive the
+    /// runner hasn't agreed to yet (`unconfirmed`, AppModel.archivesInFlight).
+    static func archived(_ keys: [TerminalKey], in threads: [String: ThreadSummary],
+                         except unconfirmed: Set<String> = []) -> [TerminalKey] {
         keys.filter { key in
-            guard case .thread(let id) = key, let thread = threads[id] else { return false }
+            guard case .thread(let id) = key, let thread = threads[id], !unconfirmed.contains(id) else { return false }
             return !thread.isRemote && thread.isArchived
         }
     }
