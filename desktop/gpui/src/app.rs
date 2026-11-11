@@ -779,7 +779,8 @@ impl Threadbear {
     /// The sections with the search applied, as they're drawn.
     pub(crate) fn shown_sections(&self, cx: &App, now: i64) -> Vec<inbox::Section> {
         let query = self.search.read(cx).value().trim().to_lowercase();
-        inbox::sections_ordered(self.threads.values().filter(|t| query.is_empty() || inbox::matches(t, &query)), now, self.sidebar.order)
+        let wakes = inbox::wakes(&self.scheduled.list);
+        inbox::sections_ordered(self.threads.values().filter(|t| query.is_empty() || inbox::matches(t, &query)), now, self.sidebar.order, &wakes)
     }
 
     pub(crate) fn connection_note(&self) -> Option<String> {

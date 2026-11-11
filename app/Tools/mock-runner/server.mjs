@@ -1471,6 +1471,15 @@ async function dispatch(client, method, p) {
       return deviceList();
     }
     // Mock-only helpers for perf runs, demos and screenshots.
+    case 'mock.checkIn': {
+      // A check-in booked on a thread, as an agent's schedule_message leaves
+      // one: a schedule that messages it in an hour (or `minutes`), for a
+      // scenario about a thread waiting on its schedule.
+      const entry = [...threads.values()].find((t) => t.summary.title === p.title);
+      if (!entry) throw rpcError(-32602, `No thread called "${p.title}"`);
+      const at = new Date(Date.now() + (p.minutes ?? 60) * 60_000).toISOString();
+      return dispatch(client, 'schedules.create', { title: p.text ?? 'See how it went', text: p.text ?? 'See how it went.', at, threadId: entry.summary.id, createdBy: entry.summary.id });
+    }
     case 'mock.moveLeftBehind':
       moveLeftBehind = p.lines ?? [];
       return { lines: moveLeftBehind };
