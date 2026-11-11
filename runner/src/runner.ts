@@ -159,6 +159,7 @@ import { newThreadsPart, type NewThreadsPart } from './runner/new-threads.ts';
 import { LAB_REVIEW_ROUNDS, applyAnswers, fixedSinceLastRound, labReviewPart, ledgerCard, openFindings, parseVerdict, type LabReviewPart } from './runner/lab-review.ts';
 import { looseEndsPart, type LooseEndsPart } from './runner/loose-ends.ts';
 import { CONFINED_NO_SANDBOX, sandboxFor } from './sandbox.ts';
+import { COPIED_REFUSAL, neutraliseCopied, realCopy } from './real-copy.ts';
 
 export type Notification =
   | { method: 'thread.updated'; params: { thread: ThreadSummary } }
@@ -779,6 +780,10 @@ export class Runner {
       const rec = this.rebuild(id);
       if (rec) records.push(rec);
     }
+    // A dev runner on a copy of the real data dir: its threads name real
+    // sessions and folders, so none of them may run (real-copy.ts).
+    const copy = realCopy(this.store.home);
+    if (copy) for (const rec of records) this.store.save(neutraliseCopied(rec, copy.work));
     let stopped = 0;
     for (const rec of records) {
       if (opts.skip?.has(rec.id)) continue;
@@ -1831,6 +1836,9 @@ export class Runner {
     const { rec, rt } = st;
     const adapter = this.adapters[rec.provider];
     if (!adapter) throw new Error(`This runner can't run ${providerName(rec.provider)} threads.`);
+    // Checked here, where every way a thread runs (a send, a carry-on, a
+    // wake, a review) comes through, rather than at each of them.
+    if (rec.copied) throw new Error(COPIED_REFUSAL);
     if (!rec.nativeSessionId) rec.nativeSessionId = crypto.randomUUID();
     const gen = ++rt.generation;
     const resume = Boolean(rec.sessionUsed);

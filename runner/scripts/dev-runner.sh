@@ -2,10 +2,18 @@
 # Runs this working tree's runner in the foreground on a throwaway data dir,
 # to try a change without touching the installed runner.
 #
-#   scripts/dev-runner.sh [--home DIR] [--port N] [--keep]
+#   scripts/dev-runner.sh [--home DIR | --clone-real [FROM]] [--port N] [--keep]
 #
-#   --home DIR   data dir (default: a new temp folder). The real one, and any
-#                data dir an installed runner uses, are refused.
+#   --home DIR   data dir (default: a new temp folder). The real one, any
+#                data dir an installed runner uses, and one holding threads
+#                this script didn't make (a copy of the real one) are refused.
+#   --clone-real [FROM]
+#                a new temp data dir with a copy of the real one's threads
+#                and projects (FROM: another data dir), for trying a change
+#                on real-sized data. Every copied thread is idle, has no
+#                session and its folder is under <home>/work, and the runner
+#                never runs one (src/real-copy.ts). Nothing else comes:
+#                no accounts' settings, schedules, secrets or backend keys.
 #   --port N     port (default 0: a free one, written to <home>/runner.json
 #                where tb and the app find it)
 #   --keep       keep the temp data dir when it stops (it holds the threads'
@@ -40,12 +48,16 @@ DEFAULT_HOME="$HOME/Library/Application Support/Threadbear"
 DATA_HOME=""
 PORT=0
 KEEP=0
+CLONE_FROM=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --home) DATA_HOME="${2:?--home needs a folder}"; shift ;;
     --port) PORT="${2:?--port needs a number}"; shift ;;
     --keep) KEEP=1 ;;
+    --clone-real)
+      CLONE_FROM="$DEFAULT_HOME"
+      case "${2:-}" in ''|-*) ;; *) CLONE_FROM="$2"; shift ;; esac ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -58,6 +70,10 @@ real_dir() {
   if [ -d "$1" ]; then (cd "$1" && pwd -P); else printf '%s' "${1%/}"; fi
 }
 
+if [ -n "$CLONE_FROM" ] && [ -n "$DATA_HOME" ]; then
+  echo "--clone-real makes its own data dir; leave --home out." >&2
+  exit 1
+fi
 MADE_HOME=0
 if [ -z "$DATA_HOME" ]; then
   TMP_ROOT="${TMPDIR:-/tmp}"
@@ -75,6 +91,18 @@ DATA_HOME="$(real_dir "$DATA_HOME")"
 # install, say); its lock would stop this one anyway, but say why.
 if [ -e "$DATA_HOME/runner/launch.mjs" ]; then
   echo "$DATA_HOME belongs to an installed runner. Use another --home." >&2
+  exit 1
+fi
+# A data dir with threads this script didn't make is most likely a copy of
+# the real one, whose threads name Mike's real sessions and folders: on 11
+# Nov 2026 a dev runner on one carried on a thread that had been mid-turn,
+# in his real session. --clone-real makes a copy that's safe.
+if [ -z "$CLONE_FROM" ] && [ ! -e "$DATA_HOME/.dev-runner" ] && [ ! -e "$DATA_HOME/copy-of-real.json" ] \
+  && [ -n "$(ls -A "$DATA_HOME/threads" 2>/dev/null)" ]; then
+  echo "$DATA_HOME has threads this script didn't make (a copy of a real data dir?)." >&2
+  echo "Their sessions and folders are real ones, so it won't start on it. For real-sized data use" >&2
+  echo "  scripts/dev-runner.sh --clone-real [FROM]" >&2
+  echo "which copies the threads with nothing that runs. Only if it is a dev data dir you made yourself before 11 Nov: touch $DATA_HOME/.dev-runner" >&2
   exit 1
 fi
 
@@ -100,7 +128,12 @@ esac
 # whether tb or a debug app's composer starts it. (The account and model
 # are the ones the end-to-end tests use.)
 IN_WORK=""
+if [ -n "$CLONE_FROM" ]; then
+  [ "$(real_dir "$CLONE_FROM")" != "$DATA_HOME" ] || { echo "Can't clone a data dir into itself." >&2; exit 1; }
+  (cd "$RUNNER_DIR" && "$NODE" src/real-copy.ts "$CLONE_FROM" "$DATA_HOME" "$WORK") || exit 1
+fi
 if [ ! -e "$DATA_HOME/runner.json" ]; then
+  : > "$DATA_HOME/.dev-runner"
   mkdir -p "$WORK"
   # With CLI updates off, the runner takes the codex beside its Node's real
   # file (process.execPath, past links: Homebrew's bin/node is in its

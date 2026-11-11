@@ -348,6 +348,9 @@ if `tb` isn't found (an older runner, or outside a thread), use
   the live runner unless `THREADBEAR_HOME` is set in that same command).
   Its threads start in `<dev home>/work` on claude-main (or
   `TB_E2E_ACCOUNT`) and claude-haiku-5-5 (its `runner.json` defaults), from `tb` or a debug app's composer alike.
+  For real-sized data use `--clone-real`, never `--home` on a copy of the
+  real data dir: a copy's threads are Mike's real sessions and folders
+  (docs/dev-tools.md, section 4).
   Leave `--home` out, or keep it and any extra work folders under
   `$TMPDIR`: Agent Archive skips transcripts from there, but not from
   `/tmp`, so a try-out thread in `/tmp` ends up in Mike's archive.
