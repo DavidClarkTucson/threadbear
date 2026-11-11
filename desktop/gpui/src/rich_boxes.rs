@@ -326,11 +326,11 @@ impl RichStore {
     }
 
     fn keep_pictures(&mut self, key: String, pictures: (Arc<Image>, Arc<Image>), cx: &mut App) {
-        let cost = png_cost(&pictures.0.bytes).saturating_add(png_cost(&pictures.1.bytes));
         // One allocation for the same picture however many blocks drew it.
         let pictures = (self.shared(pictures.0), self.shared(pictures.1));
         let in_frame = &self.in_frame;
-        for (dark, light) in self.pictures.keep_with(key, pictures, cost, |key| in_frame.pins(key)) {
+        let parts = [(pictures.0.id(), png_cost(&pictures.0.bytes)), (pictures.1.id(), png_cost(&pictures.1.bytes))];
+        for (dark, light) in self.pictures.keep_parts_with(key, pictures, &parts, |key| in_frame.pins(key)) {
             self.let_go.extend([dark, light]);
         }
         self.release(cx);

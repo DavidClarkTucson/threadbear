@@ -261,8 +261,16 @@ pub fn picture_size(kind: RichKind, natural: (f32, f32), room: f32, max_body: f3
 pub struct PictureBudget<V> {
     budget: usize,
     used: usize,
-    /// Oldest first, with each one's cost.
-    entries: std::collections::VecDeque<(String, V, usize)>,
+    /// Oldest first, with the parts each one holds.
+    entries: std::collections::VecDeque<(String, V, Vec<u64>)>,
+    /// Each part (a picture, by its id) once, however many blocks hold it,
+    /// with how many do and what it takes up: blocks drawn alike share
+    /// their pictures, so they're counted once (Codex's fifth look at
+    /// Daybreak 92).
+    parts: std::collections::HashMap<u64, (usize, usize)>,
+    /// For parts given only as a cost (`keep`): ids of their own, from the
+    /// top down, apart from pictures' hashes.
+    next_own: u64,
 }
 
 impl<V: Clone> PictureBudget<V> {
@@ -270,7 +278,7 @@ impl<V: Clone> PictureBudget<V> {
     pub const BYTES: usize = 160 * 1024 * 1024;
 
     pub fn new(budget: usize) -> PictureBudget<V> {
-        PictureBudget { budget, used: 0, entries: std::collections::VecDeque::new() }
+        PictureBudget { budget, used: 0, entries: std::collections::VecDeque::new(), parts: std::collections::HashMap::new(), next_own: u64::MAX }
     }
 
     /// Keeps `value` as the newest, and gives back what had to go to fit it
@@ -283,18 +291,47 @@ impl<V: Clone> PictureBudget<V> {
     /// `keep`, never letting go of the blocks `pinned` says are being drawn,
     /// by key: it goes over the budget for them rather than take a picture
     /// off the screen (they're FrameBudget's, which holds half of it), and
-    /// `trim` brings it back once they're not.
+    /// `trim_with` brings it back once they're not.
     pub fn keep_with(&mut self, key: String, value: V, cost: usize, pinned: impl Fn(&str) -> bool) -> Vec<V> {
+        let own = self.next_own;
+        self.next_own -= 1;
+        self.keep_parts_with(key, value, &[(own, cost)], pinned)
+    }
+
+    /// `keep_with` for a value made of parts (pictures, by id, and what
+    /// each takes up), a part counted once while any block holds it.
+    pub fn keep_parts_with(&mut self, key: String, value: V, parts: &[(u64, usize)], pinned: impl Fn(&str) -> bool) -> Vec<V> {
         let mut gone = Vec::new();
-        if let Some(at) = self.entries.iter().position(|(k, ..)| *k == key) {
-            let (_, old, old_cost) = self.entries.remove(at).expect("there");
-            self.used -= old_cost;
-            gone.push(old);
+        // Held before the old one under this key lets them go, so a part
+        // both have isn't counted out and in again.
+        for &(id, cost) in parts {
+            let part = self.parts.entry(id).or_insert((0, cost));
+            if part.0 == 0 {
+                self.used += cost;
+            }
+            part.0 += 1;
         }
-        self.entries.push_back((key, value, cost));
-        self.used += cost;
+        if let Some(at) = self.entries.iter().position(|(k, ..)| *k == key) {
+            gone.push(self.take(at));
+        }
+        self.entries.push_back((key, value, parts.iter().map(|&(id, _)| id).collect()));
         gone.extend(self.trim_with(pinned));
         gone
+    }
+
+    /// Entry `at` out, its parts let go of.
+    fn take(&mut self, at: usize) -> V {
+        let (_, value, ids) = self.entries.remove(at).expect("there");
+        for id in ids {
+            if let Some(part) = self.parts.get_mut(&id) {
+                part.0 -= 1;
+                if part.0 == 0 {
+                    self.used -= part.1;
+                    self.parts.remove(&id);
+                }
+            }
+        }
+        value
     }
 
     /// Back within the budget, oldest first, never the newest nor a pinned
@@ -307,9 +344,7 @@ impl<V: Clone> PictureBudget<V> {
                 at += 1;
                 continue;
             }
-            let (_, old, old_cost) = self.entries.remove(at).expect("there");
-            self.used -= old_cost;
-            gone.push(old);
+            gone.push(self.take(at));
         }
         gone
     }
@@ -326,9 +361,7 @@ impl<V: Clone> PictureBudget<V> {
     /// Takes `key`'s pictures out, giving them back to be freed.
     pub fn remove(&mut self, key: &str) -> Option<V> {
         let at = self.entries.iter().position(|(k, ..)| k == key)?;
-        let (_, value, cost) = self.entries.remove(at).expect("there");
-        self.used -= cost;
-        Some(value)
+        Some(self.take(at))
     }
 
     pub fn used(&self) -> usize {
@@ -577,5 +610,28 @@ mod tests {
         // Once they're not drawn, back within it.
         assert_eq!(kept.trim_with(|_| false), ['a', 'c'], "under the budget once a and c go");
         assert_eq!(kept.used(), 60);
+    }
+
+    /// Blocks drawn alike share their pictures, counted once: six of the
+    /// same and one other fit where seven distinct ones wouldn't.
+    #[test]
+    fn shared_pictures_are_counted_once() {
+        let mut kept = PictureBudget::new(100);
+        for n in 0..6 {
+            assert!(kept.keep_parts_with(format!("a{n}"), n, &[(1, 30), (2, 5)], |_| false).is_empty());
+        }
+        assert!(kept.keep_parts_with("b".into(), 9, &[(3, 30), (4, 5)], |_| false).is_empty());
+        assert_eq!((kept.len(), kept.used()), (7, 70));
+        assert!(kept.trim_with(|_| false).is_empty());
+        // The part goes only with the last block holding it.
+        for n in 0..5 {
+            kept.remove(&format!("a{n}"));
+        }
+        assert_eq!(kept.used(), 70);
+        kept.remove("a5");
+        assert_eq!(kept.used(), 35);
+        // The same key again with the same parts doesn't count them twice.
+        kept.keep_parts_with("b".into(), 10, &[(3, 30), (4, 5)], |_| false);
+        assert_eq!((kept.len(), kept.used()), (1, 35));
     }
 }
