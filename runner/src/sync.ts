@@ -375,7 +375,7 @@ export type SyncStatus = {
 // The approval or question a thread is waiting on, as the phone sees it.
 export type PendingApproval =
   // seq: the event's (API 44), for the main Mac's transcript of this thread.
-  | { approvalId: string; kind: 'approval'; seq?: number; name: string; title: string; options: ApprovalOption[]; inputSummary?: string }
+  | { approvalId: string; kind: 'approval'; seq?: number; name: string; title: string; options: ApprovalOption[]; inputSummary?: string; planSeq?: number }
   | { approvalId: string; kind: 'question'; seq?: number; questions: Question[] }
   // docs/protocol.md, "Secrets": key is the runner's public key, which the
   // phone seals its answer to.
@@ -958,7 +958,7 @@ function phoneAnswers(raw: unknown): AskAnswer[] | undefined {
 export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   const asks = d.asks !== undefined || d.asksSeq !== undefined || d.next !== undefined;
   const sections = d.needs !== undefined || d.pendingReviews !== undefined || d.waitingForRoom !== undefined;
-  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined)) return d;
+  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
   const out = { ...d };
   if (v < SECTIONS_API_VERSION) {
     delete out.needs;
@@ -970,6 +970,10 @@ export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   if (v < SECRETS_API_VERSION && out.pendingApproval?.kind === 'secret') delete out.pendingApproval;
   if (v < RELAY_API_VERSION && out.pendingApproval?.seq !== undefined) {
     const { seq: _seq, ...rest } = out.pendingApproval;
+    out.pendingApproval = rest as PendingApproval;
+  }
+  if (v < PLAN_API_VERSION && out.pendingApproval?.kind === 'approval' && out.pendingApproval.planSeq !== undefined) {
+    const { planSeq: _planSeq, ...rest } = out.pendingApproval;
     out.pendingApproval = rest as PendingApproval;
   }
   if (v < WOKE_API_VERSION) delete out.woke;
@@ -1347,6 +1351,9 @@ export class ConvexSync {
   private scrubber: Scrubber;
   // Tool calls on a file of secrets that haven't finished.
   private secretCalls = new Map<string, string>();
+  // A plan's seq by "<threadId> <itemId>", for the ExitPlanMode card that
+  // waits on it (its planSeq): the card goes up before the plan's row.
+  private planSeqs = new Map<string, number>();
   // Full sync: following events into bodies, and those waiting to go up.
   private bodyCollector = new BodyCollector();
   private bodies: RawBody[] = [];
@@ -2162,6 +2169,11 @@ export class ConvexSync {
       this.onButton(threadId, e.button);
       return;
     }
+    if (e.type === 'plan.proposed') {
+      this.planSeqs.set(`${threadId} ${e.itemId}`, e.seq);
+      // Only the newest few are ever waited on.
+      if (this.planSeqs.size > 100) this.planSeqs.delete(this.planSeqs.keys().next().value!);
+    }
     const m = toMessageDoc(threadId, e, this.scrubber.safeText);
     if (m) {
       this.messages.push(this.woke.take(m, e));
@@ -2183,11 +2195,13 @@ export class ConvexSync {
       const raw = summaryField(e.input);
       const shownAsIs = raw === undefined || this.scrubber.safeText(raw) === raw;
       const whole = shownAsIs && remoteCardShowsAll(e.name, e.input, this.threadCwd(threadId), e.title);
+      const planSeq = e.name === 'ExitPlanMode' && e.itemId ? this.planSeqs.get(`${threadId} ${e.itemId}`) : undefined;
       this.addCard(threadId, {
         approvalId: e.approvalId, kind: 'approval', seq: e.seq, name: e.name,
         title: whole ? e.title : `${e.title}. ${REMOTE_ALLOW_REFUSED}`,
         options: whole ? e.options : e.options.filter((o) => o !== 'allow' && o !== 'allowAlways'),
         ...(summary ? { inputSummary: summary } : {}),
+        ...(planSeq !== undefined ? { planSeq } : {}),
       });
     } else if (e.type === 'question.requested') {
       this.addCard(threadId, { approvalId: e.approvalId, kind: 'question', seq: e.seq, questions: e.questions });

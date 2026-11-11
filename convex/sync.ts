@@ -496,10 +496,16 @@ function onTheMac(p: Record<string, any>): Record<string, any> {
   return { approvalId: p.approvalId, kind: 'approval', name: String(p.name ?? p.kind ?? 'question').slice(0, 60), title: p.kind === 'question' ? 'A question is waiting. Answer it on the Mac.' : 'This is waiting for you. Answer it on the Mac.', options: [] };
 }
 
+// A row with the room of a plan (CAP.planDoc): one the agent wrote, marked plan.
+function isPlanRow(m: Record<string, any>): boolean {
+  return m.plan === true && m.role === 'assistant';
+}
+
 // A runner key's message cut to fit whole (CAP.messageDoc): its text, and
 // every other field too.
 function fitMessage<T extends Record<string, any>>(m: T): T | undefined {
-  const plan = m.plan === true;
+  // Only an agent's text can be a plan: a tool row's line never gets the room.
+  const plan = isPlanRow(m);
   const out: Record<string, any> = { ...m, text: cutBytes(String(m.text ?? ''), plan ? CAP.planMessage : CAP.message), at: cutBytes(String(m.at ?? ''), 64) };
   for (const f of ['origin', 'toolKind', 'turn']) if (typeof out[f] === 'string') out[f] = cutBytes(out[f], 100);
   if (Array.isArray(out.wokeBy)) out.wokeBy = out.wokeBy.slice(0, 5).map((w: any) => ({ kind: cutBytes(String(w?.kind ?? ''), 40), description: cutBytes(String(w?.description ?? ''), 200) }));
@@ -1385,7 +1391,7 @@ export const appendMessages = mutation({
         if (!caller.owner) {
           // Whole, as it would be stored, within a row's cap: its old text
           // with new buttons can be over it though each fit as sent.
-          if (storedBytes({ ...existing, ...patch, runnerId: undefined }) > CAP.messageDoc) {
+          if (storedBytes({ ...existing, ...patch, runnerId: undefined }) > (isPlanRow(existing) ? CAP.planDoc : CAP.messageDoc)) {
             skipped.push(`${m.threadId}:${m.seq}`);
             continue;
           }

@@ -127,6 +127,9 @@ export const threadFields = {
         title: v.string(),
         options: v.array(v.string()),
         inputSummary: v.optional(v.string()),
+        // Claude's ExitPlanMode card: the seq of the plan row it waits on
+        // (API 72), so the phone shows that plan and never an older one.
+        planSeq: v.optional(v.number()),
       }),
       v.object({
         approvalId: v.string(),

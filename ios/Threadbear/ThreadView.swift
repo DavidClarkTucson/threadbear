@@ -186,7 +186,7 @@ struct ThreadView: View {
                     }
                     if let pending = thread.pendingApproval {
                         PendingCard(threadId: thread.threadId, runnerId: thread.runnerId, pending: pending,
-                                    plan: Plans.waiting(pending) ? Plans.latest(in: messages) : nil) { sent = ($0, nil) }
+                                    plan: Plans.plan(for: pending, in: messages)) { sent = ($0, nil) }
                             // Its own state per question: a tapped button doesn't carry over to the next.
                             .id(pending.id)
                             .transition(Juice.cardGoes)
@@ -275,8 +275,9 @@ struct ThreadView: View {
             .sheet(item: $planShown) { plan in
                 let newest = Plans.latest(in: messages)?.seq == plan.seq
                 let pending = thread.pendingApproval
-                // Go ahead only on the newest plan's own card, when it can be allowed from here.
-                PlanSheet(plan: plan, approvalId: newest && Plans.canGoAhead(pending) ? pending?.id : nil, canSendBack: newest) { approvalId in
+                // Go ahead only on the card that waits on this very plan, when it can be allowed from here.
+                let waitsOnIt = Plans.plan(for: pending, in: messages)?.seq == plan.seq
+                PlanSheet(plan: plan, approvalId: waitsOnIt && Plans.canGoAhead(pending) ? pending?.id : nil, canSendBack: newest) { approvalId in
                     goAhead(approvalId)
                 } sendBack: { text in
                     await send(text, to: thread)

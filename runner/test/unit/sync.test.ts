@@ -722,6 +722,28 @@ test('approvals: the row carries what the thread waits on until it is answered',
   assert.deepEqual(last.pendingApproval, { approvalId: 'q1', kind: 'question', questions: [{ question: 'Which?', multiSelect: false, options: [{ label: 'A' }, { label: 'B', description: 'the other' }] }] });
 });
 
+test('plans: the ExitPlanMode card names the plan row it waits on, from API 72', async () => {
+  for (const [backend, named] of [[PLAN_API_VERSION, true], [PLAN_API_VERSION - 1, false]] as const) {
+    const f = setupFull({ apiVersion: backend });
+    const docs = () => f.calls.filter((c) => c.fn === 'sync:upsertThreads').flatMap((c) => c.args.threads as ThreadDoc[]);
+    f.sync.start();
+    await f.sync.flushNow();
+    const t = f.h.runner.create({ text: 'go', cwd: f.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+    const s = session(f.h, t.id);
+    s.init();
+    s.out({ kind: 'planProposed', itemId: 'toolu_b', text: '# Bots\n\n1. Add a table' } as never);
+    s.out({ kind: 'event', event: { type: 'approval.requested', approvalId: 'ap1', itemId: 'toolu_b', name: 'ExitPlanMode', title: 'Finish the plan', input: { plan: '# Bots\n\n1. Add a table' }, options: ['allow', 'deny'] } as never });
+    f.h.clock.advance(SYNC_COALESCE_MS);
+    await tick();
+    const planSeq = f.h.runner.events(t.id, {}).events.find((e) => e.type === 'plan.proposed')!.seq;
+    const card = docs().filter((d) => d.threadId === t.id).at(-1)!.pendingApproval as { planSeq?: number; options: string[] };
+    assert.equal(card.planSeq, named ? planSeq : undefined, `backend ${backend}`);
+    // A plan's lines aren't one line a card shows whole: Go ahead stays on the Mac.
+    assert.deepEqual(card.options, ['deny']);
+    await f.sync.stop();
+  }
+});
+
 test('inputSummary picks the command or path, one line, never the whole input', () => {
   assert.equal(inputSummary({ description: 'x', command: '  npm test\nnpm run build ' }), 'npm test');
   assert.equal(inputSummary({ file_path: '/a/b.ts', content: 'lots' }), '/a/b.ts');
