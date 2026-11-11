@@ -3,6 +3,9 @@
 // opening outside it, the bar's Back, Reload and Open in browser, and the
 // Convex dashboard given its deploy key.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Given, Then, When } from '@cucumber/cucumber';
 import type { ThreadbearWorld } from '../support/world.ts';
 import { okValue, type Dump } from '../support/driver.ts';
@@ -98,6 +101,62 @@ Then('the link to the other site opened in the browser', async function (this: T
 
 Then("the page server's page opened in the browser", async function (this: ThreadbearWorld) {
   await waitOpened(this, sites().home);
+});
+
+/** A script in the panel's page, run with no click behind it, as a
+ * page's own timer or a compromised script would run it. */
+async function pageScript(world: ThreadbearWorld, js: string) {
+  const out = await world.app.do({ cmd: 'webPanel', do: 'eval', js: `void (${js})` });
+  assert.ok(!out.startsWith('error'), out);
+}
+
+When('the panel\'s page opens a window to the other site by itself', async function (this: ThreadbearWorld) {
+  await pageScript(this, `window.open(${JSON.stringify(`${sites().other}/by-itself`)})`);
+});
+
+When('the panel\'s page opens a window on its own site by itself', async function (this: ThreadbearWorld) {
+  await pageScript(this, "window.open(location.origin + '/second')");
+});
+
+When('the panel\'s page sends itself to the other site by itself', async function (this: ThreadbearWorld) {
+  await pageScript(this, `location.href = ${JSON.stringify(`${sites().other}/by-itself`)}`);
+});
+
+When("I click the panel page's link {string} twice in a moment", async function (this: ThreadbearWorld, selector: string) {
+  await this.app.do({ cmd: 'webPanel', do: 'click', selector, times: 2 }, 30);
+});
+
+When("I drop a file from the Finder on the panel's page", async function (this: ThreadbearWorld) {
+  // A page of its own, so if it loaded the panel's title would say so.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-dropped-'));
+  const file = path.join(dir, 'dropped.html');
+  fs.writeFileSync(file, '<!doctype html><title>Dropped</title><p>A file from this Mac.</p>');
+  const out = await this.app.do({ cmd: 'webPanel', do: 'drop', file });
+  assert.ok(!out.startsWith('error'), out);
+});
+
+/** Everything the app would have opened over the next two seconds, on top
+ * of what it already had: long enough for a page's own timers and a drop to
+ * have done whatever they'd do. */
+async function openedAfterAMoment(world: ThreadbearWorld): Promise<string[]> {
+  const until = Date.now() + 2000;
+  let seen: string[] = [];
+  while (Date.now() < until) {
+    seen = await openedSoFar(world);
+    await new Promise((done) => setTimeout(done, 200));
+  }
+  return seen;
+}
+
+Then('nothing was opened in the browser', async function (this: ThreadbearWorld) {
+  const seen = await openedAfterAMoment(this);
+  assert.deepEqual(seen, [], `it opened ${JSON.stringify(seen)}`);
+});
+
+Then('the link to the other site opened in the browser once', async function (this: ThreadbearWorld) {
+  const seen = await openedAfterAMoment(this);
+  const want = `${sites().other}/video`;
+  assert.equal(seen.filter((u) => u === want).length, 1, `it opened ${JSON.stringify(seen)}`);
 });
 
 Then('{string} opened in the browser', async function (this: ThreadbearWorld, url: string) {

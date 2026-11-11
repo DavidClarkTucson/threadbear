@@ -55,6 +55,58 @@ Feature: Web pages in a thread's panels
     When I click the panel page's link "#next-window"
     Then the panel shows the page "Second page"
 
+  # Only a person's click sends a page to the browser or opens a new window,
+  # and at most one a second (Codex review, 11 Nov: a script could open a
+  # browser tab a second).
+  @panel.web @web-runtime @swift-pending
+  Scenario: A page's own scripts can't open windows, in the browser or the panel
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When the panel's page opens a window to the other site by itself
+    And the panel's page opens a window on its own site by itself
+    Then nothing was opened in the browser
+    And the panel shows the page "Panel home"
+
+  @panel.web @web-runtime @swift-pending
+  Scenario: Two clicks in a moment on a link to another site open it once
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When I click the panel page's link "#other-window" twice in a moment
+    Then the link to the other site opened in the browser once
+
+  # Only web addresses load in a panel: a file from this Mac or a page made
+  # of data doesn't, by a link in a new window or dropped from the Finder.
+  @panel.web @web-runtime @swift-pending
+  Scenario: A file, or a page made of data, never loads in a panel
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When I click the panel page's link "#file-window"
+    And I click the panel page's link "#data-window"
+    And I drop a file from the Finder on the panel's page
+    Then nothing was opened in the browser
+    And the panel shows the page "Panel home"
+
+  @panel.convex @web-runtime @swift-pending
+  Scenario: The dashboard's own scripts can't take it, or the browser, anywhere
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread has the Convex panel, with a deploy key
+    And I show the "convex.dashboard" section of the pane
+    Then the panel shows the page "Credentials for happy-otter-123 with a key"
+    When the panel's page sends itself to the other site by itself
+    And the panel's page opens a window to the other site by itself
+    Then nothing was opened in the browser
+    And the panel shows the page "Credentials for happy-otter-123 with a key"
+
   # The app's own key bindings see ⌘A first; with the page holding the
   # keyboard it's the page's Select All, as the Swift app's Edit menu sends it.
   @panel.web @web-runtime @swift-pending

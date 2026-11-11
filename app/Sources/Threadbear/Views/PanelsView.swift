@@ -1043,6 +1043,11 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     }
 
     private func makeView(_ config: WKWebViewConfiguration, sealed: Bool = false) -> WKWebView {
+        // A page's own script opens no window without a click. WebKit lets
+        // one on a Mac by default, and every window a panel's page asks for
+        // goes to the browser or loads over it, so a compromised script
+        // could open a browser tab a second (Codex review, 11 Nov).
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
         let view = sealed ? SealedPreviewWebView(frame: .zero, configuration: config) : FirstClickWebView(frame: .zero, configuration: config)
         view.navigationDelegate = self
         view.uiDelegate = self
@@ -1061,6 +1066,15 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     func canGoBack(_ url: URL) -> Bool { views[url]?.canGoBack ?? false }
 
     func goBack(_ url: URL) { views[url]?.goBack() }
+
+    /// Whether the dashboard's own navigation off its site goes to the
+    /// browser: only a link or a form someone clicked. One a script started,
+    /// or a redirect, is cancelled without opening anything, or a compromised
+    /// dashboard script could open a browser tab a second (Codex review,
+    /// 11 Nov).
+    nonisolated static func convexSendsOut(_ type: WKNavigationType) -> Bool {
+        type == .linkActivated || type == .formSubmitted
+    }
 
     /// Whether a click in a patch's panel should open somewhere else rather
     /// than load over its page: a link, a form or a window.open (not a
@@ -1128,7 +1142,7 @@ final class WebPanelPool: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         if isConvexView(webView), navigationAction.targetFrame?.isMainFrame ?? true,
            let url = navigationAction.request.url, url.host != Self.convexEmbedded.host,
            LinkPolicy.web(url) != nil {
-            OpenGate.openWeb(url)
+            if Self.convexSendsOut(navigationAction.navigationType) { OpenGate.openWeb(url) }
             decisionHandler(.cancel)
             return
         }

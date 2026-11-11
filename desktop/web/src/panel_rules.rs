@@ -58,6 +58,93 @@ pub fn leaves(url: &str, home: &str) -> bool {
     site(url).is_some_and(|target| target != home)
 }
 
+/// What a navigation of a panel's main frame does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Browse {
+    /// It loads in the panel.
+    Stay,
+    /// It opens in the browser, and the panel keeps its page.
+    Leave,
+    /// It's cancelled, and nothing opens anywhere.
+    Drop,
+}
+
+/// A navigation of the panel's main frame to `url`, from a page on `home`
+/// (its site), where `own` is the address the app loaded in the panel.
+/// `gesture` is a person's click or key behind it, `redirect` a server's
+/// redirect.
+///
+/// - Only a web address loads, or the panel's own page (a `data:` page a
+///   patch named) or a blank one: a file dropped on the page, or anything
+///   else Chromium would load by itself, is cancelled (Codex review, 11 Nov).
+/// - On its own site it stays.
+/// - Another site, clicked: the browser, as WebPanelPool.leavesPanel has it.
+/// - Another site, not clicked: in a patch's panel it stays, so a sign-in
+///   that goes through another site and back still works, as in the Swift
+///   app. In the Convex dashboard it's cancelled: the dashboard's own
+///   scripts and redirects never reach the browser, or a compromised script
+///   could open a browser tab a second (Codex review, 11 Nov).
+pub fn browse(url: &str, home: &str, own: &str, convex: bool, gesture: bool, redirect: bool) -> Browse {
+    if site(url).is_none() {
+        return if url == own || url == "about:blank" { Browse::Stay } else { Browse::Drop };
+    }
+    if !leaves(url, home) {
+        return Browse::Stay;
+    }
+    match (gesture && !redirect, convex) {
+        (true, _) => Browse::Leave,
+        (false, true) => Browse::Drop,
+        (false, false) => Browse::Stay,
+    }
+}
+
+/// What a page's request for a new window does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Popup {
+    /// It opens in the browser.
+    Leave,
+    /// It loads in the panel itself: there's no other window to give it.
+    LoadHere,
+    /// Nothing happens.
+    Drop,
+}
+
+/// A new window for `url`, asked for by a page on `home`. Only a person's
+/// click opens one: a page's own `window.open` (from a timer, say) is
+/// dropped. Only a web address goes anywhere: a file or `data:` page asked
+/// for in a new window doesn't load in the panel (Codex review, 11 Nov).
+pub fn popup(url: &str, home: &str, convex: bool, gesture: bool) -> Popup {
+    if !gesture || site(url).is_none() {
+        Popup::Drop
+    } else if convex || leaves(url, home) {
+        Popup::Leave
+    } else {
+        Popup::LoadHere
+    }
+}
+
+/// How often a panel may send a page to the browser: once a second at most,
+/// however fast its clicks come (each click is a gesture, so a page could
+/// turn every one into a new window).
+pub const LEAVE_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Lets a panel send a page to the browser at most once every `LEAVE_EVERY`.
+#[derive(Debug, Default)]
+pub struct LeaveGate {
+    last: Option<std::time::Instant>,
+}
+
+impl LeaveGate {
+    /// Whether one may go now; if so, the next has to wait.
+    pub fn allow(&mut self, now: std::time::Instant) -> bool {
+        if self.last.is_some_and(|last| now.saturating_duration_since(last) < LEAVE_EVERY) {
+            return false;
+        }
+        self.last = Some(now);
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +167,63 @@ mod tests {
         assert!(!leaves("about:blank", &home));
         // A data: page has no site of its own, so every web link leaves it.
         assert!(leaves("https://example.com/", ""));
+    }
+
+    #[test]
+    fn only_a_click_sends_a_page_to_the_browser() {
+        let own = "http://localhost:3000/";
+        let home = site(own).unwrap();
+        let other = "https://attacker.example/1";
+        // (url, convex, gesture, redirect) -> what happens
+        let cases = [
+            ("http://localhost:3000/settings", false, false, false, Browse::Stay),
+            ("http://localhost:3000/settings", true, true, false, Browse::Stay),
+            (other, false, true, false, Browse::Leave),
+            (other, true, true, false, Browse::Leave),
+            // A patch's page going through another site by itself (a sign-in).
+            (other, false, false, false, Browse::Stay),
+            (other, false, true, true, Browse::Stay),
+            // The dashboard's own script or a redirect: nothing opens.
+            (other, true, false, false, Browse::Drop),
+            (other, true, true, true, Browse::Drop),
+        ];
+        for (url, convex, gesture, redirect, want) in cases {
+            assert_eq!(browse(url, &home, own, convex, gesture, redirect), want, "{url} convex {convex} gesture {gesture} redirect {redirect}");
+        }
+    }
+
+    #[test]
+    fn only_a_web_page_loads_in_a_panel() {
+        let home = site("http://localhost:3000/").unwrap();
+        for url in ["file:///etc/hosts", "data:text/html,<title>x</title>", "blob:http://localhost:3000/abc", "chrome://version", "mailto:a@b.c"] {
+            assert_eq!(browse(url, &home, "http://localhost:3000/", false, true, false), Browse::Drop, "{url}");
+            assert_eq!(popup(url, &home, false, true), Popup::Drop, "{url} in a new window");
+        }
+        // The panel's own data: page (the mock runner's stand-ins), and the
+        // blank start of the Convex view, do load.
+        let own = "data:text/html,<title>stand-in</title>";
+        assert_eq!(browse(own, "", own, false, false, false), Browse::Stay);
+        assert_eq!(browse("about:blank", &home, "http://localhost:3000/", true, false, false), Browse::Stay);
+    }
+
+    #[test]
+    fn a_new_window_needs_a_click() {
+        let home = site("http://localhost:3000/").unwrap();
+        assert_eq!(popup("https://attacker.example/", &home, false, false), Popup::Drop, "a script's window.open");
+        assert_eq!(popup("http://localhost:3000/two", &home, false, false), Popup::Drop, "even on its own site");
+        assert_eq!(popup("https://example.com/", &home, false, true), Popup::Leave);
+        assert_eq!(popup("http://localhost:3000/two", &home, false, true), Popup::LoadHere);
+        assert_eq!(popup("http://localhost:3000/two", &home, true, true), Popup::Leave, "the dashboard's all go out");
+    }
+
+    #[test]
+    fn a_panel_sends_at_most_one_page_a_second() {
+        let start = std::time::Instant::now();
+        let mut gate = LeaveGate::default();
+        assert!(gate.allow(start));
+        assert!(!gate.allow(start + std::time::Duration::from_millis(300)));
+        assert!(!gate.allow(start + std::time::Duration::from_millis(999)));
+        assert!(gate.allow(start + LEAVE_EVERY));
+        assert!(!gate.allow(start + LEAVE_EVERY + std::time::Duration::from_millis(10)));
     }
 }

@@ -222,6 +222,54 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Web panels after Codex's review: only a click opens anything, and only web pages load (`panel.web`, `panel.convex`)
+
+- Only a person's click sends a page from a panel to the browser, or opens
+  a new window, and at most one a second, however fast the clicks come. A
+  page's own `window.open` (from a timer, say) is dropped in a patch's
+  panel and the Convex dashboard alike, and so is the dashboard's own
+  navigation off its site, a script's or a redirect's. Codex found a
+  compromised dashboard script could otherwise open a browser tab a second
+  (`setInterval(() => location.href = …, 1000)`); it found no way for
+  another site to get the deploy key, and no bridge a page could call.
+- The Swift app had the same hole: its Convex view sent any navigation off
+  the dashboard to the browser, and WebKit lets a script open windows on a
+  Mac unless told not to, which no panel view did. Its dashboard now sends
+  out only a clicked link or form (`WebPanelPool.convexSendsOut`), and
+  every panel view has `javaScriptCanOpenWindowsAutomatically` off.
+- What a panel's page logs to its console stays out of web-runtime.log, as
+  the sealed pages' does: the dashboard's code, or a script on its site,
+  could log the deploy key.
+- Only a web address loads in a panel. A file, a `data:` page or anything
+  else asked for in a new window is dropped, rather than loaded in the
+  panel, and so is any other navigation of the panel to one, a file
+  dropped on the page from the Finder among them; the panel's own page (a
+  patch's `data:` page) and the Convex view's blank start still load.
+- Left as it is, on purpose: a same-site link that redirects to another
+  site, or a script's own change of location, loads in a patch's panel, as
+  in the Swift app (WebPanelPool.leavesPanel: "so a sign-in that goes
+  through another site and back still works").
+- Files: `desktop/web/src/panel_rules.rs` (the rules, `browse`, `popup`
+  and `LeaveGate`, with their tests), `desktop/web/src/mac/panel.rs`,
+  `desktop/gpui/src/web_panels.rs` (`webPanel`'s `drop`, and `times` on a
+  click); `features/web-panels.feature`, its steps and pages; Swift:
+  `PanelsView.swift`, `ConvexPanelTests.swift`; SECURITY.md.
+- Verification: on Tinker Desk's desktop against the GPUI app,
+  web-panels.feature's 13 scenarios (4 new: a page's own window.open, to
+  another site and to its own, opens nothing; two clicks in a moment open
+  one page; a file or data page in a new window, and a file dropped on the
+  page, don't load; the dashboard's own scripted navigation and
+  window.open open nothing and it keeps its page), web-runtime.feature's 3
+  and patches.feature's 5: 21 of 21. Run against a build with the rules as
+  they were landed, three of the four new scenarios failed (two opens from
+  two clicks, the page's own window.open loading its second page in the
+  panel, the dashboard's script opening the other site); the file one
+  passed there too, as Chromium already refuses those loads by itself in
+  this build, so it shows at runtime that nothing loads, and the rule is
+  there in case a later Chromium doesn't. The web crate's tests (the rules,
+  case by case); the Swift app's ConvexPanelTests (2 new), PanelLinksTests
+  and LocalPreviewTests on Tinker Desk, 13 of 13.
+
 ### 2026-11-11 Web panels and the Convex panel, through the web runtime (`panel.web`, `panel.bar`, `panel.convex`)
 
 - A patch's url panel shows its page in the pane: a Chromium page in a

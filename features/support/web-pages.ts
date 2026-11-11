@@ -41,7 +41,9 @@ export async function startSites(): Promise<Sites> {
 <p><a id="other" href="${other}/video">A video on another site</a></p>
 <p><a id="next" href="${base}/second">Another of this site's pages</a></p>
 <p><a id="next-window" target="_blank" href="${base}/second">The same, in a new window</a></p>
-<p><a id="other-window" target="_blank" href="${other}/video">The video, in a new window</a></p>`,
+<p><a id="other-window" target="_blank" href="${other}/video">The video, in a new window</a></p>
+<p><a id="file-window" target="_blank" href="file:///etc/hosts">A file on this Mac, in a new window</a></p>
+<p><a id="data-window" target="_blank" href="data:text/html,%3Ctitle%3EMade%20of%20data%3C%2Ftitle%3E">A page made of data, in a new window</a></p>`,
     '/second': '<!doctype html><title>Second page</title><p>The site\'s second page.</p>',
   }));
   const dashboard = await serve(() => ({

@@ -1040,12 +1040,14 @@ pub(crate) fn fill_pane_dump(pane: &mut serde_json::Map<String, Value>, thread: 
 
 // ---------------------------------------------------------------- automation
 
-/// `{"cmd":"webPanel","do":"eval"|"click"|"focus"|"wait"|"choose", "key"?, "js"?, "selector"?, "title"?, "deployment"?, "wait"?}`:
+/// `{"cmd":"webPanel","do":"eval"|"click"|"drop"|"focus"|"wait"|"choose", "key"?, "js"?, "selector"?, "times"?, "file"?, "title"?, "deployment"?, "wait"?}`:
 /// a script's way into a panel's page, the one shown last unless `key` names
 /// another. `eval` runs `js` in the page and answers its value; `click`
 /// clicks the element `selector` finds as a person would (a real mouse press
 /// through DevTools' Input domain, so the page sees a user's gesture, which
-/// is what decides whether a link leaves the panel); `focus` gives the page
+/// is what decides whether a link leaves the panel; `times` clicks again
+/// straight after); `drop` drops the file at `file` on it as the Finder
+/// would; `focus` gives the page
 /// the keyboard, as a click in it does; `wait` waits until it's done loading
 /// (and has `title`, if given). Each answers the page's dump. `choose` picks
 /// `deployment` in the Convex panel that offers it.
@@ -1105,8 +1107,23 @@ pub(crate) async fn automation(cmd: &Value, cx: &mut AsyncApp) -> Result<Value, 
             let at = page.devtools("Runtime.evaluate", json!({ "expression": find, "returnByValue": true })).await.map_err(|_| "the page went away".to_owned())??;
             let point = &at["result"]["value"];
             let (Some(x), Some(y)) = (point["x"].as_f64(), point["y"].as_f64()) else { return Err(format!("nothing in the page matches {selector}")) };
-            for kind in ["mousePressed", "mouseReleased"] {
-                page.devtools("Input.dispatchMouseEvent", json!({ "type": kind, "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1 })).await.map_err(|_| "the page went away".to_owned())??;
+            // `times`: clicks one straight after another, as fast as DevTools
+            // takes them.
+            for _ in 0..cmd["times"].as_u64().unwrap_or(1).clamp(1, 10) {
+                for kind in ["mousePressed", "mouseReleased"] {
+                    page.devtools("Input.dispatchMouseEvent", json!({ "type": kind, "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1 })).await.map_err(|_| "the page went away".to_owned())??;
+                }
+            }
+        }
+        // A file from the Finder dropped on the page at (`x`, `y`), through
+        // DevTools' Input domain as a real drop is delivered: `file` is its path.
+        "drop" => {
+            let file = cmd["file"].as_str().ok_or("drop needs file")?;
+            let (x, y) = (cmd["x"].as_f64().unwrap_or(60.), cmd["y"].as_f64().unwrap_or(60.));
+            // Copy, link or move, as the Finder offers.
+            let data = json!({ "items": [], "files": [file], "dragOperationsMask": 1 | 2 | 16 });
+            for kind in ["dragEnter", "dragOver", "drop"] {
+                page.devtools("Input.dispatchDragEvent", json!({ "type": kind, "x": x, "y": y, "data": data })).await.map_err(|_| "the page went away".to_owned())??;
             }
         }
         // The keyboard, as a click in the page gives it. A scripted app's
@@ -1131,7 +1148,7 @@ pub(crate) async fn automation(cmd: &Value, cx: &mut AsyncApp) -> Result<Value, 
                 cx.background_executor().timer(Duration::from_millis(100)).await;
             }
         }
-        other => return Err(format!("do must be eval, click, focus, wait or choose, not {other:?}")),
+        other => return Err(format!("do must be eval, click, drop, focus, wait or choose, not {other:?}")),
     }
     Ok(cx.update(|cx| dump_page(&key, cx)))
 }
