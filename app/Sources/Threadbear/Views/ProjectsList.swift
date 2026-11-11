@@ -16,21 +16,23 @@ struct ProjectsList: View {
     var body: some View {
         let built = app.projectSections
         let archived = app.projects.filter(\.archived)
-        // Each thread's first row, for the arrow keys to scroll to.
-        var firstRow: [String: String] = [:]
-        for section in built.sections {
-            for thread in section.threads where firstRow[thread.id] == nil {
-                firstRow[thread.id] = SectionRow.id(section: section.id, thread: thread.id)
-            }
-        }
-        for thread in built.unfiled where firstRow[thread.id] == nil {
-            firstRow[thread.id] = SectionRow.id(section: Self.unfiledId, thread: thread.id)
-        }
         // With the projectDecisions experiment on, each project is one row,
         // folded until its chevron opens it (ProjectFolds); otherwise every
         // project's threads are listed under its heading, as before.
         let folding = app.projectDecisionsOn
         let open = app.openProjectRows
+        let shows = { (id: String) in !folding || open.contains(id) }
+        // Each thread's first row that's drawn, for the arrow keys to scroll
+        // to: one in a folded project isn't there to scroll to (Codex's review).
+        var firstRow: [String: String] = [:]
+        for section in built.sections where shows(section.id) {
+            for thread in section.threads where firstRow[thread.id] == nil {
+                firstRow[thread.id] = SectionRow.id(section: section.id, thread: thread.id)
+            }
+        }
+        for thread in built.unfiled where shows(ProjectFolds.unfiledId) && firstRow[thread.id] == nil {
+            firstRow[thread.id] = SectionRow.id(section: Self.unfiledId, thread: thread.id)
+        }
         return VStack(spacing: 0) {
             ModeHeader(title: "Projects", count: built.sections.count)
             SidebarButtonRow(icon: "plus", title: "New project", tip: "Make a new project", busy: app.isBusy(BusyKey.newProject)) {
@@ -233,13 +235,15 @@ private struct ProjectFoldRow: View {
     private var isPage: Bool { project.map { app.openProjectId == $0.id } ?? false }
 
     var body: some View {
-        HStack(spacing: zoomed(2)) {
+        HStack(spacing: 0) {
             Button(action: toggle) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: zoomed(9), weight: .bold))
                     .foregroundStyle(hovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(SidebarMetrics.faint))
                     .rotationEffect(.degrees(open ? 90 : 0))
-                    .frame(width: zoomed(16), height: zoomed(22))
+                    .frame(width: zoomed(20), height: zoomed(22))
+                    .padding(.vertical, zoomed(6))
+                    .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -277,14 +281,18 @@ private struct ProjectFoldRow: View {
                 }
                 .monospacedDigit()
                 .lineLimit(1)
+                // The row's padding is inside the two buttons, so every
+                // point of its highlight is one or the other (Codex's
+                // review: a click near its edge did nothing).
+                .padding(.trailing, SidebarMetrics.trailing)
+                .padding(.vertical, zoomed(6))
+                .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .tip(tip)
         }
-        .padding(.leading, zoomed(2))
-        .padding(.trailing, SidebarMetrics.trailing)
-        .padding(.vertical, zoomed(6))
+        .fixedSize(horizontal: false, vertical: true)
         .background(background, in: RoundedRectangle(cornerRadius: SidebarMetrics.corner))
         .onHover { hovering = $0 }
         .padding(.top, zoomed(2))
