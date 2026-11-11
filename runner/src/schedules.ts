@@ -688,7 +688,6 @@ export class Scheduler {
       if (p.checkTimeoutSecs === null) delete rec.checkTimeoutSecs;
       else rec.checkTimeoutSecs = checkedTimeout(p.checkTimeoutSecs);
     }
-    const moved = !rec.threadId && p.cwd !== undefined;
     if (!rec.threadId) {
       if (p.cwd !== undefined) rec.cwd = away ? p.cwd.trim() || undefined : this.checkedFolder(p.cwd);
       if (rec.cwd === undefined) delete rec.cwd;
@@ -712,9 +711,14 @@ export class Scheduler {
     }
     rec.updatedAt = this.iso();
     if (replan) this.plan(rec);
-    // Passing the check again, or moving it, approves it as it is now. Any
-    // other change leaves its approval alone.
-    if (!away && (p.check !== undefined || moved)) this.approveCheck(rec, p.checkCard);
+    // Passing the check again approves it as it is now. Nothing else does,
+    // a new folder included: approval is bound to the folder, so one moved
+    // is held there until the check is passed again (from a thread that
+    // asks first, a card). The apps' editors send the folder with every
+    // save and show no check, so a save meant to change the title once
+    // approved whatever a pull had changed the check's scripts to
+    // (security review, 11 Nov 2026).
+    if (!away && p.check !== undefined) this.approveCheck(rec, p.checkCard);
     await this.put(rec);
     this.tick();
     return this.view(rec);

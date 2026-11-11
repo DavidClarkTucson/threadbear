@@ -5070,8 +5070,12 @@ kept in `schedules.json` in the data dir.
   followed, as it can change the shell it's sourced into). The hash goes in
   `patch-trust.json`, as `check:<hash>` in that folder's list (so a worktree
   counts as its main checkout), written only by the runner the check runs on:
-  making a schedule with a check, passing `check` to an update, or moving the
-  schedule's folder approves it as it is then. The backend's row says what
+  making a schedule with a check, or passing `check` to an update, approves
+  it as it is then. Nothing else does: an update that only names a folder,
+  the same one or another, approves nothing, so a check moved to another
+  folder is held there until it's passed again (the apps' editors send the
+  folder only when it changed, and show no check; security review, 11 Nov
+  2026). The backend's row says what
   to run, never that it was approved. Before each run it's worked out afresh,
   and the check doesn't run unless that hash is stored and its folder is
   there. A script changed, a link retargeted, a file that turned up, a thread

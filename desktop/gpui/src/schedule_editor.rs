@@ -71,6 +71,10 @@ pub(crate) struct EditorState {
     /// Pictures in the composer's draft it came from, which a schedule
     /// can't send.
     pub(crate) draft_images: usize,
+    /// The folder an existing schedule had when the editor opened, as the
+    /// runner has it (None: its default). A save sends a folder only when
+    /// it's changed from this.
+    pub(crate) opened_cwd: Option<String>,
 }
 
 impl EditorState {
@@ -80,6 +84,18 @@ impl EditorState {
     /// Runs on another runner's Mac.
     fn is_away(&self) -> bool {
         self.runner_id.is_some()
+    }
+
+    /// The folder an update sends: none unless it changed. Every save used
+    /// to send it, and the runner took a folder as a move, which approved
+    /// the schedule's check again as its scripts were then, though the
+    /// editor never shows the check (security review, 11 Nov 2026). The
+    /// runner no longer approves on a move either; this keeps a save to
+    /// what was changed.
+    fn update_cwd(&self, away_folder: &str) -> Option<String> {
+        let now = if self.is_away() { away_folder.trim() } else { self.cwd.trim() };
+        let was = self.opened_cwd.as_deref().unwrap_or("").trim();
+        (now != was).then(|| now.to_owned())
     }
 }
 
@@ -182,6 +198,8 @@ impl Threadbear {
             }
             None => state.cwd = schedule.cwd.clone().unwrap_or_else(|| self.logins.defaults.cwd.clone()),
         }
+        // What the editor shows for it, so a save that leaves it alone sends none.
+        state.opened_cwd = Some(state.cwd.clone());
         self.open_schedule_editor(state, window, cx);
     }
 
@@ -463,7 +481,9 @@ impl ScheduleEditor {
         let method = if let Some(id) = &s.schedule_id {
             params["scheduleId"] = json!(id);
             if s.thread_id.is_none() {
-                params["cwd"] = json!(if s.is_away() { away_folder } else { s.cwd.trim().to_owned() });
+                if let Some(cwd) = s.update_cwd(&away_folder) {
+                    params["cwd"] = json!(cwd);
+                }
                 // This Mac's model and effort (None goes back to the default);
                 // another Mac's logins aren't this one's.
                 if !s.is_away() {
@@ -961,5 +981,32 @@ impl ScheduleEditor {
             "canSave": self.can_save(cx),
             "error": self.save_error,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EditorState;
+
+    fn opened(cwd: &str, away: bool) -> EditorState {
+        EditorState { schedule_id: Some("s1".into()), cwd: cwd.into(), opened_cwd: Some(cwd.into()), runner_id: away.then(|| "r2".into()), ..EditorState::default() }
+    }
+
+    #[test]
+    fn a_save_that_keeps_the_folder_sends_none() {
+        // Finding 89: the folder went with every save, and the runner took it as a move.
+        assert_eq!(opened("/Users/m/dev/x", false).update_cwd(""), None);
+        assert_eq!(opened("/Users/m/dev/x ", false).update_cwd(""), None);
+        assert_eq!(opened("~/work", true).update_cwd(" ~/work "), None);
+    }
+
+    #[test]
+    fn a_changed_folder_is_sent() {
+        let mut s = opened("/Users/m/dev/x", false);
+        s.cwd = "/Users/m/dev/y".into();
+        assert_eq!(s.update_cwd(""), Some("/Users/m/dev/y".into()));
+        assert_eq!(opened("~/work", true).update_cwd("~/other"), Some("~/other".into()));
+        // Another Mac's default folder, cleared: sent as empty.
+        assert_eq!(opened("~/work", true).update_cwd(""), Some(String::new()));
     }
 }

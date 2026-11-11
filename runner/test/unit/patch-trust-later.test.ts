@@ -477,6 +477,23 @@ test('schedule check: a change to what it runs holds it, the thread is told once
   await sched.update({ scheduleId: sc.id, title: 'Watch' });
   await due(h);
   assert.equal(ran.length, 1);
+  // Nor does a save from the apps' editors, which send the folder with every
+  // save and show no check (security review, 11 Nov 2026, finding 89): its
+  // folder as it was, written another way, or the same with model and effort.
+  await sched.update({ scheduleId: sc.id, title: 'Watch', text: 'Look again', cwd: dir, model: 'claude-haiku-5-5', effort: 'low' });
+  await sched.update({ scheduleId: sc.id, cwd: dir + '/' });
+  await due(h);
+  assert.equal(ran.length, 1, 'a save that kept its folder approved nothing');
+  assert.equal(h.runner.patchTrust.checkApproved('./check.sh', dir).approved, false);
+  // Nor a real move: approval is per folder, and nobody was shown the check
+  // there. Moving back finds it held still, as its scripts changed.
+  const other = repo({ 'check.sh': '#!/bin/sh\necho other\n' });
+  await sched.update({ scheduleId: sc.id, cwd: other });
+  await due(h);
+  assert.equal(ran.length, 1, 'moved, and held there');
+  assert.equal(h.runner.patchTrust.checkApproved('./check.sh', other).approved, false);
+  assert.equal(toldHeld(h), 2, 'and told once there');
+  await sched.update({ scheduleId: sc.id, cwd: dir });
 
   // Passing the check again does.
   await sched.update({ scheduleId: sc.id, check: './check.sh' });
@@ -486,7 +503,7 @@ test('schedule check: a change to what it runs holds it, the thread is told once
   fs.appendFileSync(path.join(dir, 'helper.sh'), '# again\n');
   await due(h);
   assert.equal(ran.length, 2);
-  assert.equal(toldHeld(h), 2);
+  assert.equal(toldHeld(h), 3);
   sched.stop();
 });
 

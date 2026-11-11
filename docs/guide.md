@@ -899,8 +899,10 @@ something slow like Slack. What a check prints is kept until a run
 carrying it has been sent, so a runner restart in between doesn't lose it.
 Ask a thread to "only run when there's something new" and it writes the
 check. Run now skips it. It's bound to what it runs: if a script it
-reaches changes, it doesn't run until the same check is passed to the
-schedule again, and the thread is told once.
+reaches changes, or you move the schedule to another folder, it doesn't
+run until the same check is passed to the schedule again (ask a thread to
+pass it), and the thread is told once. Changing a schedule's words, time or
+folder in the app never approves its check.
 
 If you run Threadbear on more than one Mac (or on a Linux server as well,
 INSTALL.md section 6), a schedule that starts a new
