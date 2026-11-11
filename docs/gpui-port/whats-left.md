@@ -9,9 +9,11 @@ you go.
 
 ## Being built now
 
-- [ ] The design review window: answering an agent's design options, stepping
+- [x] The design review window: answering an agent's design options, stepping
   through every shot, zoom, minimap, the header's "Review design options (N)"
   and `review:` links (`review.*`, `transcript.review`, `header.pendingreviews`)
+- [ ] The review window plays clips and shows pages in place, as the Swift one
+  does, rather than stills that open in their apps (`review.media`)
 - [x] Projects: the Projects page and sidebar view, a project's page, its
   decisions, Projects ▸ in the row and ... menus, the header's project tiles
   opening the page, New Thread in a project (`projects.*`, `header.projectchip`)

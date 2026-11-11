@@ -866,12 +866,19 @@ built parsers and gates with no launch of the app, which is the trap.)
   the line that starts the shell, once.
 - Left as they are, from the reviews: an input method sending a command and
   then Return as two commits (that's typing, as far as anything can tell); a
-  key someone has bound to accept-line themselves (Tab, but any key can be,
-  so only brackets help there); a program run in the Terminal that ignores
+  key someone has bound to accept-line themselves (any key can be, so only
+  brackets help there); a program run in the Terminal that ignores
   SIGHUP and SIGTERM outliving it, as one run with nohup does; and the
   shell being reaped and its pid handed on between checking its start time
   and signalling it, as both systems give pids out in turn, so that needs
   every other pid used in the microseconds between two system calls.
+- Later the same night, from another thread: Tab wasn't only a key someone
+  had bound. Without brackets zsh's own completion expands a `$(...)` before
+  it, which runs it, so a Tab in such a paste is asked about too (992c5734).
+  And Daybreak's finding 84 showed brackets alone weren't enough: a pasted
+  ^\ or ^Z is a signal to the pty before the shell sees it, which throws the
+  opening bracket away, so the rest ran by itself. Both apps' pastes now drop
+  every control but Tab and Return, brackets or not (c80a85a6).
 - Both apps' `terminal` command takes `commit` (an input method's text all at
   once); the GPUI app takes `quit`, as the Swift app does.
 - Files: `desktop/core/src/terminal.rs`, `desktop/gpui/src/{terminal,
