@@ -17,8 +17,16 @@ const made: string[] = [];
 
 export function webRuntimeSetup(tags: string[]): 'skipped' | undefined {
   const mac = process.platform === 'darwin';
-  if (tags.includes('@web-prompt') && !mac) return 'skipped';
-  if (tags.includes('@web-runtime')) {
+  // The GPUI app's pictures of diagrams and pages, kept on disk under the
+  // same names as the Swift app's: a folder of its own each time, or one
+  // scenario's drawing shows in the next without it being drawn.
+  const pictures = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-spec-rich-'));
+  made.push(pictures);
+  process.env.THREADBEAR_RICH_CACHE_DIR = pictures;
+  // The Swift app draws pages with WebKit: it has no runtime to need.
+  const gpui = (process.env.TB_APP ?? 'gpui') === 'gpui';
+  if (gpui && tags.includes('@web-prompt') && !mac) return 'skipped';
+  if (gpui && tags.includes('@web-runtime')) {
     if (!mac || !process.env.TB_WEB_RUNTIME_ARCHIVE) return 'skipped';
     if (!tags.includes('@web-runtime-fresh')) {
       const shared = process.env.TB_WEB_RUNTIME_DIR ?? path.join(os.tmpdir(), 'tb-spec-web-runtime');

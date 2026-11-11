@@ -314,6 +314,9 @@ struct AppDump: Encodable {
         var buttons: [String]? = nil
         /// The ```slack, ```email and ```draft boxes it draws (DraftBlockCell).
         var drafts: [DraftInfo]? = nil
+        /// Its ```mermaid and ```html boxes (RichBlockCell), as the GPUI
+        /// app's dump has them.
+        var rich: [RichInfo]? = nil
         /// Its closed ```bash blocks and their icons (`shellBlocks`).
         var shellBlocks: [String]? = nil
         /// The chips it draws among its words: Mike's bubble's pictures,
@@ -330,6 +333,19 @@ struct AppDump: Encodable {
         var lines: [String]
         var styled: [String]
         var copy: String
+    }
+
+    /// A rich box as drawn: its language, whether the picture or the source
+    /// shows, where its drawing has got to ("drawing", "drawn", "failed:
+    /// <why>"), whether it's asking about a web runtime (never, here: WebKit
+    /// comes with macOS), what its Copy says, and its picture's size.
+    struct RichInfo: Encodable {
+        var kind: String
+        var shows: String
+        var state: String
+        var asks: Bool
+        var copy: String
+        var size: String?
     }
 
     struct LimitInfo: Encodable {
@@ -425,6 +441,8 @@ struct AppDump: Encodable {
     /// The Terminal panel: whether it's up, the open thread's shell and what
     /// its screen says, and every shell (TerminalPanel.swift).
     var terminal: TerminalInfo? = nil
+    /// Diagrams and pages open full size, by block id (RichBlockWindow).
+    var richWindows: [String]? = nil
 
     struct TerminalInfo: Encodable {
         var shown: Bool
@@ -785,7 +803,7 @@ struct AppDump: Encodable {
                 return Row(id: row.id, kind: row.kind.rawValue, height: Int(table.rect(ofRow: index).height.rounded()),
                            expanded: opens(row) ? app.transcript.isExpanded(row) : nil, inGroup: row.inGroup,
                            onScreen: NSLocationInRange(index, visible), seq: row.seq, turn: row.turnId, text: RowDebug.excerpt(row),
-                           buttons: Self.buttons(row), drafts: Self.drafts(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId),
+                           buttons: Self.buttons(row), drafts: Self.drafts(row), rich: Self.rich(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId),
                            chips: Self.chips(row))
             }
             let state: String
@@ -858,7 +876,8 @@ struct AppDump: Encodable {
             runners: PanelLines(shown: app.runnersShown, lines: runnersLines(app)),
             updates: PanelLines(shown: app.updatesShown, lines: updatesLines(app)),
             connectors: PanelLines(shown: app.connectorsShown, lines: connectorsLines(app)),
-            terminal: terminalInfo(app, window: window)
+            terminal: terminalInfo(app, window: window),
+            richWindows: RichBlockWindowController.openIds
         )
     }
 
@@ -1753,6 +1772,28 @@ struct AppDump: Encodable {
     /// The thread chips in drawn text, each as its words ("thread: 85735a8f").
     private static func threadChips(_ text: NSAttributedString) -> [String]? {
         let found = ThreadChips.chips(in: text).map { "thread: \((text.string as NSString).substring(with: $0.range))" }
+        return found.isEmpty ? nil : found
+    }
+
+    /// The rich boxes a reply draws (RichBlockCell), read off its rendered
+    /// text, in order.
+    static func rich(_ row: TranscriptRow) -> [RichInfo]? {
+        guard case .assistant(let item) = row.content, RichBlocks.mayHoldRich(item.text) else { return nil }
+        let text = MarkdownRenderer.render(item.text).string
+        var found: [RichInfo] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            guard let cell = (value as? NSTextAttachment)?.attachmentCell as? RichBlockCell else { return }
+            var state = "drawing", size: String?
+            switch cell.blockState {
+            case .drawing: state = "drawing"
+            case .drawn(let drawn):
+                state = "drawn"
+                size = "\(Int(drawn.size.width.rounded()))x\(Int(drawn.size.height.rounded()))"
+            case .failed(let why): state = "failed: \(why)"
+            }
+            found.append(RichInfo(kind: cell.block.kind.rawValue, shows: cell.showsPicture ? "drawn" : "source", state: state, asks: false,
+                                  copy: "Copy", size: size))
+        }
         return found.isEmpty ? nil : found
     }
 

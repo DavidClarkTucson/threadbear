@@ -319,6 +319,8 @@ impl ThreadPane {
             .plugin(drafts)
             // A thread's id as its chip (`with_thread_chips`).
             .plugin(chips)
+            // A closed ```mermaid or ```html fence as what it shows (rich_boxes.rs).
+            .plugin(crate::rich_boxes::RichBoxes)
     }
 
     /// The reading column's text: markdown, selectable, links going where they

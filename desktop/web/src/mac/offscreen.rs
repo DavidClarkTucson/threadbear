@@ -21,13 +21,28 @@ struct Shared {
     size: Mutex<(i32, i32)>,
     scale: Mutex<f32>,
     /// The one address the page may show; anything else is cancelled.
-    allowed: Mutex<String>,
+    allowed: Arc<Mutex<String>>,
     calls: Mutex<HashMap<i32, oneshot::Sender<Result<Json, String>>>>,
     load: Mutex<Option<oneshot::Sender<Result<(), String>>>>,
+    /// Waiting for Chromium to paint the view at this size, in pixels.
+    painted: Mutex<Option<((i32, i32), oneshot::Sender<Result<(), String>>)>>,
     gone: AtomicBool,
 }
 
 impl Shared {
+    /// A frame Chromium painted: the one waited for, if it's that size (a
+    /// pixel either way, for a scale that doesn't come out whole).
+    fn paint(&self, width: i32, height: i32) {
+        let Ok(mut waiting) = self.painted.lock() else { return };
+        if let Some(((w, h), _)) = waiting.as_ref() {
+            if (width - w).abs() <= 1 && (height - h).abs() <= 1 {
+                if let Some((_, tx)) = waiting.take() {
+                    let _ = tx.send(Ok(()));
+                }
+            }
+        }
+    }
+
     fn fail_all(&self, why: &str) {
         self.gone.store(true, Ordering::Release);
         let calls: Vec<_> = self.calls.lock().map(|mut c| c.drain().map(|(_, tx)| tx).collect()).unwrap_or_default();
@@ -35,6 +50,9 @@ impl Shared {
             let _ = tx.send(Err(why.to_owned()));
         }
         if let Some(tx) = self.load.lock().ok().and_then(|mut l| l.take()) {
+            let _ = tx.send(Err(why.to_owned()));
+        }
+        if let Some((_, tx)) = self.painted.lock().ok().and_then(|mut p| p.take()) {
             let _ = tx.send(Err(why.to_owned()));
         }
     }
@@ -77,11 +95,14 @@ impl Offscreen {
         let shared = Arc::new(Shared {
             size: Mutex::new((options.width.max(1), options.height.max(1))),
             scale: Mutex::new(options.scale.max(1.)),
-            allowed: Mutex::new(url.to_owned()),
+            allowed: Arc::new(Mutex::new(url.to_owned())),
             calls: Mutex::new(HashMap::new()),
             load: Mutex::new(Some(loaded)),
+            painted: Mutex::new(None),
             gone: AtomicBool::new(false),
         });
+        let stopped = shared.clone();
+        let guard = sealed::Guard { allowed: shared.allowed.clone(), on_stop: Arc::new(move || stopped.fail_all("its page stopped")) };
         let window_info = WindowInfo::default().set_as_windowless(std::ptr::null_mut());
         let off = if options.javascript { State::ENABLED } else { State::DISABLED };
         let settings = BrowserSettings {
@@ -101,10 +122,12 @@ impl Offscreen {
         };
         let mut client = OffscreenClient::new(
             OffscreenRender::new(shared.clone()),
-            SealedRequests::new(shared.clone()),
+            sealed::SealedRequests::new(guard),
             Loads::new(shared.clone()),
-            NoPopups::new(),
-            QuietConsole::new(),
+            sealed::NoPopups::new(),
+            sealed::QuietConsole::new(),
+            sealed::NoMenu::new(),
+            sealed::NoDownloads::new(),
         );
         let browser = browser_host_create_browser_sync(Some(&window_info), Some(&mut client), Some(&CefString::from(url)), Some(&settings), None, Some(&mut context))
             .ok_or("Chromium didn't make the page")?;
@@ -136,7 +159,7 @@ impl Offscreen {
         rx
     }
 
-    /// Lays the page out at a new size.
+    /// Lays the page out at a new size, in points.
     pub fn resize(&self, width: i32, height: i32) {
         if let Ok(mut size) = self.shared.size.lock() {
             *size = (width.max(1), height.max(1));
@@ -144,6 +167,33 @@ impl Offscreen {
         if let Some(host) = self.browser.host() {
             host.was_resized();
         }
+    }
+
+    /// Lays the page out `width` by `height` points at `scale` pixels each,
+    /// and says when Chromium has painted it that size. A picture is only
+    /// ever taken of what's inside the view, so the view is made the size of
+    /// the picture first (a page measured in a view a point tall came out
+    /// blank before this).
+    pub fn resize_and_paint(&self, width: i32, height: i32, scale: f32) -> Reply<()> {
+        let (width, height, scale) = (width.max(1), height.max(1), scale.max(0.1));
+        let (tx, rx) = oneshot::channel();
+        let expected = ((width as f32 * scale).round() as i32, (height as f32 * scale).round() as i32);
+        if let Ok(mut waiting) = self.shared.painted.lock() {
+            *waiting = Some((expected, tx));
+        }
+        let scale_changed = self.shared.scale.lock().map(|mut s| std::mem::replace(&mut *s, scale) != scale).unwrap_or(false);
+        if let Ok(mut size) = self.shared.size.lock() {
+            *size = (width, height);
+        }
+        if let Some(host) = self.browser.host() {
+            if scale_changed {
+                host.notify_screen_info_changed();
+            }
+            host.was_resized();
+            // Painted again even if Chromium thinks nothing changed.
+            host.invalidate(PaintElementType::VIEW);
+        }
+        rx
     }
 
     /// Shows another of the app's own pages in it.
@@ -178,12 +228,32 @@ impl Drop for Offscreen {
 /// A PNG of the top-left `width` by `height` CSS pixels, at the page's
 /// scale, taken from what Chromium drew.
 pub async fn picture(page: &Offscreen, width: f64, height: f64) -> Result<Vec<u8>, String> {
+    picture_scaled(page, width, height, 1.).await
+}
+
+/// The same, at `scale` of the page's own (below 1 for a big one), taking in
+/// what lies beyond the view as well.
+pub(crate) async fn picture_scaled(page: &Offscreen, width: f64, height: f64, scale: f64) -> Result<Vec<u8>, String> {
     let shot = page
-        .devtools("Page.captureScreenshot", json!({ "format": "png", "fromSurface": true, "captureBeyondViewport": true, "clip": { "x": 0, "y": 0, "width": width, "height": height, "scale": 1 } }))
+        .devtools("Page.captureScreenshot", json!({ "format": "png", "fromSurface": true, "captureBeyondViewport": true, "clip": { "x": 0, "y": 0, "width": width, "height": height, "scale": scale } }))
         .await
         .map_err(|_| "the page went away".to_owned())??;
     let data = shot["data"].as_str().ok_or("the picture came back empty")?;
     base64(data).ok_or_else(|| "the picture couldn't be read".to_owned())
+}
+
+/// Standard base64, for a page's bytes in a data: address.
+pub(crate) fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+        out.push(ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[n as usize & 63] as char } else { '=' });
+    }
+    out
 }
 
 /// A PNG's size, from its header.
@@ -231,6 +301,8 @@ wrap_client! {
         loads: LoadHandler,
         popups: LifeSpanHandler,
         console: DisplayHandler,
+        menu: ContextMenuHandler,
+        downloads: DownloadHandler,
     }
 
     impl Client {
@@ -248,6 +320,12 @@ wrap_client! {
         }
         fn display_handler(&self) -> Option<DisplayHandler> {
             Some(self.console.clone())
+        }
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(self.menu.clone())
+        }
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(self.downloads.clone())
         }
     }
 }
@@ -274,46 +352,12 @@ wrap_render_handler! {
             1
         }
 
-        // The pictures come from DevTools; nothing to do with each frame.
-        fn on_paint(&self, _browser: Option<&mut Browser>, _type_: PaintElementType, _dirty_rects: Option<&[Rect]>, _buffer: *const u8, _width: c_int, _height: c_int) {}
-    }
-}
-
-wrap_request_handler! {
-    struct SealedRequests {
-        shared: Arc<Shared>,
-    }
-
-    impl RequestHandler {
-        // The page the app gave, in the main frame; in a frame only what the
-        // page carries in itself (its policy has frame-src 'none' anyway).
-        // Never a link, a form, a refresh or a script's navigation.
-        fn on_before_browse(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, _user_gesture: c_int, _is_redirect: c_int) -> c_int {
-            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
-            let main = frame.is_some_and(|f| f.is_main() == 1);
-            let allowed = if main { self.shared.allowed.lock().is_ok_and(|a| *a == url) || url == "about:blank" } else { sealed::may_load(&url) };
-            if allowed {
-                0
-            } else {
-                1
+        // The pictures come from DevTools; a frame only says the view has
+        // been painted at the size a picture's waiting for.
+        fn on_paint(&self, _browser: Option<&mut Browser>, type_: PaintElementType, _dirty_rects: Option<&[Rect]>, _buffer: *const u8, width: c_int, height: c_int) {
+            if type_ == PaintElementType::VIEW {
+                self.shared.paint(width, height);
             }
-        }
-
-        fn resource_request_handler(
-            &self,
-            _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
-            _request: Option<&mut Request>,
-            _is_navigation: c_int,
-            _is_download: c_int,
-            _request_initiator: Option<&CefString>,
-            _disable_default_handling: Option<&mut c_int>,
-        ) -> Option<ResourceRequestHandler> {
-            Some(sealed::Blocker::new())
-        }
-
-        fn on_render_process_terminated(&self, _browser: Option<&mut Browser>, _status: TerminationStatus, _error_code: c_int, _error_string: Option<&CefString>) {
-            self.shared.fail_all("its page stopped");
         }
     }
 }
@@ -339,44 +383,6 @@ wrap_load_handler! {
     }
 }
 
-wrap_life_span_handler! {
-    struct NoPopups;
-
-    impl LifeSpanHandler {
-        // Nothing opens a window: a sealed page has nowhere to send one.
-        fn on_before_popup(
-            &self,
-            _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
-            _popup_id: c_int,
-            _target_url: Option<&CefString>,
-            _target_frame_name: Option<&CefString>,
-            _target_disposition: WindowOpenDisposition,
-            _user_gesture: c_int,
-            _popup_features: Option<&PopupFeatures>,
-            _window_info: Option<&mut WindowInfo>,
-            _client: Option<&mut Option<Client>>,
-            _settings: Option<&mut BrowserSettings>,
-            _extra_info: Option<&mut Option<DictionaryValue>>,
-            _no_javascript_access: Option<&mut c_int>,
-        ) -> c_int {
-            1
-        }
-    }
-}
-
-wrap_display_handler! {
-    struct QuietConsole;
-
-    impl DisplayHandler {
-        // What a page says to its console stays out of Chromium's log: it can
-        // carry the agent's words.
-        fn on_console_message(&self, _browser: Option<&mut Browser>, _level: LogSeverity, _message: Option<&CefString>, _source: Option<&CefString>, _line: c_int) -> c_int {
-            1
-        }
-    }
-}
-
 wrap_dev_tools_message_observer! {
     struct Answers {
         shared: Arc<Shared>,
@@ -398,6 +404,10 @@ mod tests {
 
     #[test]
     fn reads_base64_and_png_sizes() {
+        for text in ["", "a", "ab", "abc", "hello world", "<p>ünïcode ✓</p>"] {
+            assert_eq!(base64(&base64_encode(text.as_bytes())).unwrap(), text.as_bytes(), "{text}");
+        }
+        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
         assert_eq!(base64("aGVsbG8=").unwrap(), b"hello");
         assert_eq!(base64("aGVsbG8gd29ybGQ=").unwrap(), b"hello world");
         assert_eq!(base64("YQ==").unwrap(), b"a");

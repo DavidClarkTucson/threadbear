@@ -316,7 +316,8 @@ fi
 # The desktop app's Rust (desktop/, the GPUI port), when something it reads
 # changed: desktop/ itself, the mock runner its client's tests start and the
 # runner code that mock imports, the Mac app's test fixtures core's tests
-# share, and the app's art the GPUI app builds in. Nothing ran it before, and
+# share, and the app's art and diagram library (Pele) the GPUI app builds
+# in. Nothing ran it before, and
 # on 11 Nov a GPUI change that built a file:// URL outside the open gate
 # landed on main, exactly what core's open_gate_source test is there to catch.
 # --quick runs the small crates' tests (the core logic, the golden
@@ -325,9 +326,9 @@ fi
 # (cargo check of the GPUI app, the dock and every test), a few minutes from
 # cold. On a check host cargo's target folder is kept between runs
 # (scripts/check-remote.sh), so --quick stays about a minute.
-DESKTOP_NEEDS='^desktop/|^app/Tools/mock-runner/|^runner/src/|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/Art/'
+DESKTOP_NEEDS='^desktop/|^app/Tools/mock-runner/|^runner/src/|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/Art/|^app/Sources/Threadbear/Resources/Rich/'
 # What cargo builds from outside desktop/ (include_bytes!), for the hashing below.
-DESKTOP_BUILT_IN=(app/Sources/Threadbear/Resources/Art)
+DESKTOP_BUILT_IN=(app/Sources/Threadbear/Resources/Art app/Sources/Threadbear/Resources/Rich)
 #
 # That kept target is shared by every checkout that sends a run, and cargo
 # calls a crate fresh when none of its files is newer than its last build: a

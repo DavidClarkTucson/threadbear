@@ -17,6 +17,12 @@ pub use download::Progress;
 pub use mac::host::{bundle_identifier, start, status, Launch, Status};
 #[cfg(target_os = "macos")]
 pub use mac::offscreen::{picture, png_size, Offscreen, Options, Reply};
+/// The transcript's diagrams and pages, drawn into pictures (mac/rich.rs).
+#[cfg(target_os = "macos")]
+pub use mac::rich::{data_url, draw_diagram, draw_page, reset as reset_rich, Drawn};
+/// A page in a native view, placed from a GPUI layout slot (mac/page.rs).
+#[cfg(target_os = "macos")]
+pub use mac::page::Page;
 
 /// The helper processes' main (the threadbear-web-helper binary).
 pub fn helper_main() -> i32 {
@@ -60,6 +66,26 @@ mod elsewhere {
     pub fn bundle_identifier() -> Option<String> {
         None
     }
+
+    /// What a drawing gives back (mac/rich.rs has the real one).
+    pub struct Drawn {
+        pub width: f32,
+        pub height: f32,
+        pub clipped: bool,
+        pub dark: Vec<u8>,
+        pub light: Vec<u8>,
+        pub window_page: String,
+    }
+
+    pub async fn draw_diagram(_source: &str, _zoom: u32, _scale: f32) -> Result<Drawn, String> {
+        Err("there's no web runtime for this system yet".into())
+    }
+
+    pub async fn draw_page(_html: &str, _zoom: u32, _scale: f32) -> Result<Drawn, String> {
+        Err("there's no web runtime for this system yet".into())
+    }
+
+    pub fn reset_rich() {}
 }
 #[cfg(not(target_os = "macos"))]
 pub use elsewhere::*;

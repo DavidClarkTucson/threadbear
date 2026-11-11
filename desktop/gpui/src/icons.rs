@@ -195,6 +195,7 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "person.crop.circle.badge.exclamationmark" => IconName::UserRoundX,
         "checkmark.circle.fill" => IconName::CircleCheck,
         "arrow.up.right" => IconName::ArrowUpRight,
+        "arrow.up.left.and.arrow.down.right" => IconName::Maximize2,
         "arrow.triangle.2.circlepath" => IconName::RefreshCw,
         "arrow.right.circle" => IconName::CircleArrowRight,
         "minus.circle" => IconName::CircleMinus,

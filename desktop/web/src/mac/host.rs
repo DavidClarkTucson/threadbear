@@ -19,11 +19,8 @@ use std::sync::Mutex;
 unsafe extern "C" {
     fn tb_cef_install_app_hooks();
     fn tb_cef_start_message_loop();
-    // Placing a page's own view in a GPUI layout slot: the web panels' and
-    // the full-size window's, which come next.
-    #[allow(dead_code)]
+    // Placing a page's own view in a GPUI layout slot (page.rs).
     pub(crate) fn tb_view_set_frame(view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
-    #[allow(dead_code)]
     pub(crate) fn tb_view_set_hidden(view: *mut c_void, hidden: bool);
     fn tb_main_bundle_identifier() -> *const c_char;
 }

@@ -51,6 +51,8 @@ mod rails;
 mod remote;
 mod reply_buttons;
 mod review_window;
+mod rich_boxes;
+mod rich_window;
 mod rows;
 mod runner_launcher;
 mod runners_panel;
@@ -136,6 +138,8 @@ fn main() {
         gpui_kit::init(cx);
         // Whether the web runtime is installed; nothing starts until a page needs it.
         web_runtime::init(cx);
+        // The diagrams and pages in replies, drawn through it.
+        rich_boxes::init(cx);
         let settings = Settings::load();
         let bounds = initial_bounds(&settings, cx);
         gpui_kit::open_window(

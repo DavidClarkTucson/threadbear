@@ -21,6 +21,8 @@
 use super::host::{set_status, Status};
 use cef::*;
 use std::cell::RefCell;
+use std::os::raw::c_int;
+use std::sync::{Arc, Mutex};
 
 thread_local! {
     static CONTEXT: RefCell<Option<RequestContext>> = const { RefCell::new(None) };
@@ -122,6 +124,116 @@ wrap_resource_request_handler! {
             } else {
                 ReturnValue::CANCEL
             }
+        }
+    }
+}
+
+/// What a sealed page's handlers share with whoever made it.
+#[derive(Clone)]
+pub(crate) struct Guard {
+    /// The one address the page may show in its main frame: the app's own.
+    pub(crate) allowed: Arc<Mutex<String>>,
+    /// Said when the page's process stops (a page too big, a crash).
+    pub(crate) on_stop: Arc<dyn Fn() + Send + Sync>,
+}
+
+wrap_request_handler! {
+    pub(crate) struct SealedRequests {
+        guard: Guard,
+    }
+
+    impl RequestHandler {
+        // The page the app gave, in the main frame; in a frame only what the
+        // page carries in itself (its policy has frame-src 'none' anyway).
+        // Never a link, a form, a refresh or a script's navigation.
+        fn on_before_browse(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, _user_gesture: c_int, _is_redirect: c_int) -> c_int {
+            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            let main = frame.is_some_and(|f| f.is_main() == 1);
+            let allowed = if main { self.guard.allowed.lock().is_ok_and(|a| *a == url) || url == "about:blank" } else { may_load(&url) };
+            if allowed {
+                0
+            } else {
+                1
+            }
+        }
+
+        fn resource_request_handler(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _is_navigation: c_int,
+            _is_download: c_int,
+            _request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            Some(Blocker::new())
+        }
+
+        fn on_render_process_terminated(&self, _browser: Option<&mut Browser>, _status: TerminationStatus, _error_code: c_int, _error_string: Option<&CefString>) {
+            (self.guard.on_stop)();
+        }
+    }
+}
+
+wrap_life_span_handler! {
+    pub(crate) struct NoPopups;
+
+    impl LifeSpanHandler {
+        // Nothing opens a window: a sealed page has nowhere to send one.
+        fn on_before_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _popup_id: c_int,
+            _target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: c_int,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut c_int>,
+        ) -> c_int {
+            1
+        }
+    }
+}
+
+wrap_display_handler! {
+    pub(crate) struct QuietConsole;
+
+    impl DisplayHandler {
+        // What a page says to its console stays out of Chromium's log: it can
+        // carry the agent's words.
+        fn on_console_message(&self, _browser: Option<&mut Browser>, _level: LogSeverity, _message: Option<&CefString>, _source: Option<&CefString>, _line: c_int) -> c_int {
+            1
+        }
+    }
+}
+
+wrap_context_menu_handler! {
+    pub(crate) struct NoMenu;
+
+    impl ContextMenuHandler {
+        // Chromium's own menu has Back, Reload, Print and View Source, none
+        // of which a sealed page should offer.
+        fn on_before_context_menu(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _params: Option<&mut ContextMenuParams>, model: Option<&mut MenuModel>) {
+            if let Some(model) = model {
+                model.clear();
+            }
+        }
+    }
+}
+
+wrap_download_handler! {
+    pub(crate) struct NoDownloads;
+
+    impl DownloadHandler {
+        fn can_download(&self, _browser: Option<&mut Browser>, _url: Option<&CefString>, _request_method: Option<&CefString>) -> c_int {
+            0
         }
     }
 }

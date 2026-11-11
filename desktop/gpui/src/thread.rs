@@ -149,6 +149,8 @@ impl ThreadPane {
             older_failures: 0,
             _subs: vec![scrolled],
         };
+        // Its diagrams and pages drawing, and the web runtime (rich_boxes.rs).
+        pane._subs.extend(crate::rich_boxes::watch(cx));
         pane.load(cx);
         pane.load_buttons(cx);
         pane
@@ -184,6 +186,7 @@ impl ThreadPane {
             older_failures: 0,
             _subs: vec![],
         };
+        pane._subs.extend(crate::rich_boxes::watch(cx));
         pane.load_subagent(cx);
         pane._poll = Some(cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_secs(3)).await;
@@ -1066,6 +1069,10 @@ impl ThreadPane {
                     }
                     if let Some(drafts) = crate::draft_boxes::dump(&item.text) {
                         out["drafts"] = drafts;
+                    }
+                    // Its ```mermaid and ```html boxes (rich_boxes.rs).
+                    if let Some(rich) = crate::rich_boxes::dump(&item.text, cx) {
+                        out["rich"] = rich;
                     }
                     if let Some(blocks) = crate::shell_blocks::dump_lines(&item.text, &self.summary.id, cx) {
                         out["shellBlocks"] = json!(blocks);

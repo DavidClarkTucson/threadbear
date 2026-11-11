@@ -1111,6 +1111,8 @@ impl Threadbear {
             "panels": self.side.read(cx).dump(cx),
             // Where the web runtime has got to (web_runtime.rs).
             "webRuntime": crate::web_runtime::dump(cx),
+            // Diagrams and pages open full size, by block id (rich_window.rs).
+            "richWindows": crate::rich_boxes::windows_dump(cx),
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
             "terminal": crate::terminal::dump(self, cx),
         })

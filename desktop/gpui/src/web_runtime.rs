@@ -148,7 +148,6 @@ impl WebRuntime {
 
     /// Whether whatever needs the runtime should ask: not installed, not
     /// turned down this run, and possible here.
-    #[allow(dead_code)] // The rich blocks' and panels' question, which come next.
     pub(crate) fn asks(&self) -> bool {
         !self.not_now && matches!(self.state, State::Missing | State::Failed(_)) || self.state.busy()
     }
@@ -234,7 +233,6 @@ fn megabytes() -> u64 {
 /// when the place just shows what it can without it. `wants` finishes "Show
 /// …?": "this diagram", "this page", "web pages in this panel". `id` keeps
 /// each place's buttons apart.
-#[allow(dead_code)] // Shown by the rich blocks and the web panels, which come next.
 pub(crate) fn prompt(id: &str, wants: &str, cx: &App) -> Option<AnyElement> {
     let runtime = runtime(cx)?;
     let r = runtime.read(cx);
@@ -349,7 +347,7 @@ pub(crate) async fn automation(cmd: &Value, cx: &mut AsyncApp) -> Result<Value, 
                 cx.background_executor().timer(Duration::from_millis(100)).await;
             }
         }
-        "start" | "smoke" => {
+        "start" | "smoke" | "probe" => {
             let wait = if wait.is_zero() { Duration::from_secs(60) } else { wait };
             loop {
                 let (running, engine) = cx.update(|cx| {
@@ -373,8 +371,11 @@ pub(crate) async fn automation(cmd: &Value, cx: &mut AsyncApp) -> Result<Value, 
             if cmd["do"] == "smoke" {
                 return smoke(cmd["save"].as_str()).await;
             }
+            if cmd["do"] == "probe" {
+                return probe(cx).await;
+            }
         }
-        other => return Err(format!("do must be install, notNow, cancel, start or smoke, not {other:?}")),
+        other => return Err(format!("do must be install, notNow, cancel, start, smoke or probe, not {other:?}")),
     }
     Ok(cx.update(|cx| runtime.read(cx).dump()))
 }
@@ -396,6 +397,45 @@ async fn smoke(save: Option<&str>) -> Result<Value, String> {
 
 #[cfg(all(feature = "automation", not(target_os = "macos")))]
 async fn smoke(_save: Option<&str>) -> Result<Value, String> {
+    Err("there's no web runtime for this system yet".into())
+}
+
+/// An agent's html made to try everything a sealed page mustn't, drawn the
+/// way the transcript draws one (threadbear_web::draw_page): its scripts
+/// would make it 3000 points tall, and everything it names (pictures,
+/// styles, fonts, frames, media, prefetches, a refresh, a form) points at a
+/// listener on this Mac. It should come out short, and nothing should reach
+/// the listener.
+#[cfg(all(feature = "automation", target_os = "macos"))]
+async fn probe(cx: &mut AsyncApp) -> Result<Value, String> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("no listener: {e}"))?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let at = format!("http://127.0.0.1:{port}");
+    let html = format!(
+        r#"<style>@import url({at}/import.css); body{{background:url({at}/bg.png)}} @font-face{{font-family:probe;src:url({at}/font.woff)}} p{{font-family:probe}}</style>
+<link rel="stylesheet" href="{at}/link.css"><link rel="dns-prefetch" href="//tb-probe.invalid"><link rel="preconnect" href="{at}">
+<link rel="prefetch" href="{at}/prefetch"><link rel="icon" href="{at}/icon.png"><meta http-equiv="refresh" content="0;url={at}/refresh">
+<p>probe</p><img src="{at}/img.png"><picture><source srcset="{at}/source.png"><img></picture>
+<iframe src="{at}/frame"></iframe><object data="{at}/object"></object><embed src="{at}/embed">
+<video src="{at}/video.mp4" autoplay muted></video><audio src="{at}/audio.mp3" autoplay></audio>
+<form action="{at}/form" method="post"><input name="q" value="x"><button autofocus>send</button></form>
+<svg width="10" height="10"><image href="{at}/svg.png" width="10" height="10"/></svg>
+<script>document.body.style.height = '3000px'; fetch('{at}/fetch'); new Image().src = '{at}/script-img'; navigator.sendBeacon('{at}/beacon'); location = '{at}/navigate';</script>
+<script src="{at}/script.js"></script><body onload="document.body.style.height = '3000px'">"#
+    );
+    let drawn = threadbear_web::draw_page(&html, 100, 2.).await?;
+    // Anything late (a refresh, a prefetch) has a moment to try.
+    cx.background_executor().timer(Duration::from_millis(1500)).await;
+    let mut reached = 0;
+    while listener.accept().is_ok() {
+        reached += 1;
+    }
+    Ok(json!({ "height": drawn.height, "reached": reached }))
+}
+
+#[cfg(all(feature = "automation", not(target_os = "macos")))]
+async fn probe(_cx: &mut AsyncApp) -> Result<Value, String> {
     Err("there's no web runtime for this system yet".into())
 }
 

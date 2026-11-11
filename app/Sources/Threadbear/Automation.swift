@@ -93,6 +93,8 @@ enum Automation {
         app.pasteboard = pasteboard
         // A draft's Copy too, so a script's copies leave Mike's clipboard be.
         DraftBlockCell.pasteboard = pasteboard
+        // And a ```mermaid or ```html box's Copy.
+        RichBlockCell.pasteboard = pasteboard
         // A ```bash block's Copy, and its play icon's copy when the Terminal's
         // busy, go there too, not to the Mac's own clipboard.
         ShellBlockIcons.pasteboard = pasteboard

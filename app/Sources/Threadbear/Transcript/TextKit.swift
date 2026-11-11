@@ -750,8 +750,8 @@ final class TranscriptTextView: NSTextView {
         case .drawn: RichBlocks.shared.setShowsSource(block.id, false)
         case .source: RichBlocks.shared.setShowsSource(block.id, true)
         case .copy:
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(block.source, forType: .string)
+            RichBlockCell.pasteboard.clearContents()
+            RichBlockCell.pasteboard.setString(block.source, forType: .string)
         case .open:
             RichRenderer.shared.openWindow(block)
         }

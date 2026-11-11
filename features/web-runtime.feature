@@ -16,7 +16,7 @@ Feature: The web runtime
   Scenario: Installing the web runtime, then drawing a page with it
     Then the web runtime isn't installed
     When I install the web runtime
-    Then the web runtime is installed
+    Then the web runtime says it's installed
     And the web runtime draws a page with no window
 
   @foundation.webruntime @swift-pending @web-prompt

@@ -25,7 +25,7 @@ When("I install the web runtime from a file that isn't the pinned build", async 
   await this.app.do({ cmd: 'webRuntime', do: 'install', archive: file, wait: 60 }, 90);
 });
 
-Then('the web runtime is installed', async function (this: ThreadbearWorld) {
+Then("the web runtime says it's installed", async function (this: ThreadbearWorld) {
   await this.until('the web runtime installed', (d) => webRuntime(d)?.state === 'ready', 30_000);
 });
 

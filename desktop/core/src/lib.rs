@@ -27,6 +27,7 @@ pub mod pools;
 pub mod projects;
 pub mod remote;
 pub mod reply_buttons;
+pub mod rich_block;
 pub mod review;
 pub mod runner_settings;
 pub mod runners;

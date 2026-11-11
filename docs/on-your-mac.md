@@ -65,7 +65,11 @@ File references are where to look.
   processes), all stopping when the app quits. Its own process sandbox is
   off for now, as it only covers a runtime inside the app's bundle
   (`desktop/web/src/mac/host.rs`). Removing the `web-runtime` folder
-  uninstalls it.
+  uninstalls it. The pictures it draws of ```` ```mermaid ```` and
+  ```` ```html ```` blocks go in `~/Library/Caches/Threadbear/rich`, the
+  same files, under the same names, as the Mac app's (below), so a block
+  either app has drawn shows straight away in the other. Diagrams use the
+  Pele bundled with the app, as the Mac app's do.
 - **A LaunchAgent:** `~/Library/LaunchAgents/com.mikerosoft.threadbear.runner.plist`,
   which keeps the runner going while you're logged in. A runner on a Linux
   server (INSTALL.md, section 6) has a systemd user service in its place,

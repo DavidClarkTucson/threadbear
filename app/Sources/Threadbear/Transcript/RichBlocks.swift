@@ -207,6 +207,10 @@ enum RichDiskCache {
 /// Everything it shows is fixed when the row renders; a change renders the
 /// row again with a new cell.
 final class RichBlockCell: NSTextAttachmentCell {
+    /// Where Copy puts the source: the Mac's clipboard, or a scripted app's
+    /// own pasteboard (Automation), so a script's copies leave Mike's be.
+    nonisolated(unsafe) static var pasteboard: NSPasteboard = .general
+
     enum Action: String, CaseIterable {
         case drawn, source, copy, open
 

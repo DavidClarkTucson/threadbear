@@ -372,6 +372,125 @@ built parsers and gates with no launch of the app, which is the trap.)
   phone would, as the demo's pairing link. The Swift Phone & browser form
   draws blank in-process while Tinker Desk's screen is locked, so that one
   was checked against its code.
+### 2026-11-11 Diagrams and pages in a reply, drawn through the web runtime (`rich.mermaid`, `rich.html`, `rich.chrome`, `rich.fullsize`)
+
+- A closed ```` ```mermaid ```` or ```` ```html ```` fence in a reply is
+  drawn as what it shows, in the Swift app's box: the language on the left,
+  the Diagram (Preview for a page) / Source switch, Copy (a tick for a
+  moment) and full size, each with its tip. A diagram sits at its own size
+  or smaller, centred; a page fills the width and fades out past 560
+  points. One still streaming in stays code. The kit's block plugin finds
+  them anywhere in a reply, as the drafts' does.
+- Drawn the Swift app's way, through the runtime's sealed offscreen pages,
+  one at a time and given up on after 15 seconds: a diagram by Pele (the
+  copy the Swift app bundles) in a world of its own beside the app's page,
+  whose policy runs nothing, the source handed over as a JSON string; an
+  agent's page with JavaScript off and the Swift app's policy first, laid
+  out 720 points wide, in each look. The pictures go to
+  `~/Library/Caches/Threadbear/rich` under the Swift app's names, so a block
+  either app drew shows at once in the other, and a launch shows them
+  straight away.
+- The question: until the runtime's installed, a box shows its source under
+  "Show this diagram? It needs the web runtime, a 135 MB download, once."
+  with Install web runtime and Not now (until a restart), the download's
+  progress with Cancel, or why it failed with Try again.
+- Full size: a window of its own, most of the screen, holding the sealed
+  page in a native view that follows the window (the runtime's first
+  windowed page: no script, no menu, no navigation); one per block.
+- Checked on the way: an agent's page that tries a script, fetch, a beacon,
+  styles, fonts, pictures, frames, media, prefetches, preconnects, a refresh,
+  a form and a navigation, all at a listener on this Mac, comes out short
+  (its scripts didn't run) and nothing reaches the listener.
+- Both apps' dumps give a reply's boxes as `rich` and the open windows as
+  `richWindows`, and the Swift box's Copy now goes to a script's own
+  pasteboard, as its draft Copy does.
+- Not here yet: the web panels and the Convex panel (next); a selection
+  across a reply copies a box as its fenced source, but Copy's "Copied"
+  bubble the drafts have isn't here (the Swift box has none either).
+  Windows and Linux: no runtime yet, so boxes show their source there,
+  untested beyond that.
+- Files: `desktop/gpui/src/rich_boxes.rs`, `rich_window.rs`,
+  `desktop/web/src/mac/rich.rs`, `page.rs`, `desktop/core/src/rich_block.rs`
+  (new); `sealed.rs` and `offscreen.rs` (shared handlers, a view sized to
+  each picture and painted before it's taken); the lines in `main.rs`,
+  `rows.rs`, `thread.rs`, `app.rs`, `icons.rs`, `web_runtime.rs` (the
+  probe), the gpui Cargo.toml (raw-window-handle), check.sh (Pele is built
+  in from `app/`); Swift: `AppDump.swift`, `Automation.swift`,
+  `RichBlocks.swift`, `TextKit.swift`, `RichBlockWindow.swift`;
+  `features/rich-blocks.feature` and its steps; docs: guide.md,
+  on-your-mac.md, SECURITY.md, app/README.md.
+- Verification: rich-blocks.feature's 7 scenarios and web-runtime.feature's
+  3 on Tinker Desk's desktop against the GPUI app (10 of 10); against the
+  Swift app, 5 of 5 (the probe and the question are `@swift-pending`: the
+  Swift app's lockdown has its own tests, and it never asks); core's tests (the rich block's: which fences
+  count, ids the same as the Swift app's, the policy first, the source as a
+  string, picture sizes); screenshots of a diagram and a page in both looks,
+  the Source view, the question, and the full-size window captured from
+  the real screen, all looked at.
+
+### 2026-11-11 The web runtime: Chromium when it's asked for, checked before it's unpacked (`foundation.webruntime`)
+
+- Install web runtime (Settings > General > Web runtime for now; the
+  question with Not now comes with the first things that need it, next)
+  downloads CEF's official minimal build 156.0.15 from Spotify's CDN, 135
+  MB, on a thread of its own, with its progress and a Cancel. It's kept
+  only if its size, the SHA-1 Spotify publishes and a SHA-256 pinned in
+  the app all match (checked again from the file just before unpacking),
+  then only the framework comes out of the archive, refusing any entry
+  that would land outside it (`..`, absolute names, links out, hard
+  links), into a `.partial` folder renamed into place once whole, in
+  `~/Library/Application Support/Threadbear/web-runtime/` (never the app
+  bundle). The state shows as Not installed, Downloading n of 135 MB,
+  Unpacking, Installed (running) or why it failed.
+- Chromium starts the first time something needs it, inside the app's own
+  process (the spike's run-loop timer and nested loop, Ghostex's AppKit
+  hooks), its helpers being copies of the app's `threadbear-web-helper` made
+  in the runtime's folder as "Threadbear Helper" apps. It draws a sealed
+  page with no window and DevTools hands its picture back, which is what
+  diagrams and pages will use. The sealed pages' request context keeps
+  nothing, cancels every request but the page's own data, has a dead
+  proxy and no network prediction, and allows no navigation, popups or
+  downloads.
+- Building it needs no CEF, cmake or ninja: cef-dll-sys's build script is
+  off and `desktop/web/src/mac/loader.rs` (generated from its bindings by
+  `desktop/web/scripts/gen-loader.mjs`) does its wrapper's one job, looking
+  each C function up in the framework once loaded, with a compile-time check
+  that every signature matches the bindings.
+- Found on the way: Chromium's sandbox on a Mac lets helpers read only
+  inside the app bundle macOS started, so with the runtime in the data
+  folder every sandboxed helper was refused the framework. It runs without
+  that sandbox for now; on is option B, the framework in the app (Mike's
+  call, gpui-port.md, "How A is built"). And helpers find the app by the
+  bundle they're in, so the runtime is laid out as CEF's own app layout in
+  a `Threadbear Web.bundle` Chromium is told is its main bundle.
+- Not here yet: the question where it's needed and diagrams, pages and
+  panels drawn through it (next); Remove in Settings (it can't go while
+  that run of the app has it loaded); Threadbear's own signed copy (waits
+  for Mike). Windows and Linux: no runtime yet, untested; the app says
+  it isn't available there, and their CI skips the runtime's scenarios.
+- Files: `desktop/web/` (new crate: `download.rs`, `mac/host.rs`,
+  `mac/sealed.rs`, `mac/offscreen.rs`, `mac/helper.rs`, `mac/loader.rs`,
+  `mac/loader_support.rs`, `native/appkit_hooks.m`, `scripts/gen-loader.mjs`),
+  `desktop/core/src/web_runtime.rs`, `desktop/gpui/src/web_runtime.rs` and
+  `web_helper.rs` (new), and the lines that hook them into `main.rs`,
+  `app.rs`, `automation.rs`, `settings_window.rs`, the Cargo files,
+  `desktop/scripts/install-app.sh` (ships the helper), core's open-gate
+  source test (now reads `web/` too); `features/web-runtime.feature`,
+  its steps and `support/web-runtime.ts` (each scenario gets an empty
+  runtime folder of its own); docs: on-your-mac.md, SECURITY.md,
+  forking.md, gpui-port.md, features.md's new row.
+- Verification: web-runtime.feature's 3 scenarios on Tinker Desk's desktop
+  (3 of 3: install from the pinned archive and a page drawn with no window,
+  800 by 240 pixels; a file that isn't the build refused unpacked; Settings'
+  row); a real download from Spotify's CDN through the app on Tinker Desk,
+  then a page drawn (picture checked by eye); core's tests (the 7 new ones:
+  a mismatched or short or long download never kept, the file checked again
+  before unpacking, only the framework unpacked, hostile entries refused,
+  helpers made once per binary) and integration tests, the client's and
+  the web crate's, all `--locked`; `cargo check --locked --workspace
+  --all-targets`; settings, window and reading-a-thread features on the
+  GPUI app (all pass but settings.feature's Keep the Mac awake, which fails
+  the same way with main's settings window).
 
 ### 2026-11-11 Thread chips in replies and agents' messages (`rich.threadchips`, `transcript.reply`, `transcript.agentmessage`)
 

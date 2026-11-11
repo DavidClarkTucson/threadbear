@@ -69,6 +69,9 @@ libc = "=0.2.191"
 # (open_gate.rs). Both are already built, with these features, for gpui's
 # own macOS platform.
 [target.'cfg(target_os = "macos")'.dependencies]
+# A window's own NSView, the parent a web page's view goes in (rich_window.rs).
+# Already in the build through GPUI, at this version.
+raw-window-handle = "=0.6.2"
 # NSColor and NSAppearance: the window's colour from the system (style.rs).
 # NSDockTile: the Dock badge (notify.rs). NSSound: the finished ding
 # (ding.rs). NSAlert and its button: Quit's "Don't ask again"
