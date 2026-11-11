@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -88,10 +89,18 @@ private fun Root(model: AppModel, openThread: MutableStateFlow<String?>) {
     pending?.let { request ->
         AlertDialog(
             onDismissRequest = { model.cancelPair() },
-            title = { Text(request.title) },
-            text = { Text(request.message) },
+            title = { Text(breakable(request.title, request.host), style = MaterialTheme.typography.titleLarge) },
+            text = { Text(breakable(request.message, request.host)) },
             confirmButton = { TextButton(onClick = { model.acceptPair(request) }) { Text("Pair") } },
             dismissButton = { TextButton(onClick = { model.cancelPair() }) { Text("Cancel") } },
         )
     }
 }
+
+/**
+ * A Convex host is longer than a dialog line, and Android broke it
+ * mid-word with the "?" alone on the last line: let it break only after
+ * its dots (a zero-width space), and keep what follows it joined on.
+ */
+private fun breakable(text: String, host: String): String =
+    text.replace(host, host.replace(".", ".\u200B") + "\u2060")

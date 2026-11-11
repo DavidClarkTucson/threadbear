@@ -252,9 +252,17 @@ fun ThreadRow(t: PhoneThread, now: Instant, projects: Map<String, PhoneProject>,
         modifier.fillMaxWidth().animateContentSize().padding(start = 6.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // The gutter: the unread dot.
+        // The gutter, as the iPhone's row (and the Mac's ThreadRowLook): a
+        // dot when it needs Mike, a tick when it finished unread with
+        // nothing needed. Not for unread alone: a running thread is always
+        // unread, and its working mark already says so.
+        val done = kind == RowStatus.Kind.TIME && t.unread && !t.needsYou
+        val needs = kind == RowStatus.Kind.NEEDS_YOU || (t.needsYou && kind != RowStatus.Kind.WORKING)
         Box(Modifier.width(14.dp), contentAlignment = Alignment.Center) {
-            if (t.unread || t.needsYou) Box(Modifier.size(7.dp).clip(CircleShape).background(signals.accent))
+            when {
+                done -> Icon(Line.Check, "Done, unread", Modifier.size(10.dp), tint = signals.accent)
+                needs -> Box(Modifier.size(7.dp).clip(CircleShape).background(signals.accent))
+            }
         }
         ProjectTile(t.projects?.firstOrNull()?.let { projects[it.id] }, t.projects?.firstOrNull()?.title ?: t.folderName, 38.dp)
         Spacer(Modifier.width(12.dp))
@@ -263,7 +271,7 @@ fun ThreadRow(t: PhoneThread, now: Instant, projects: Map<String, PhoneProject>,
                 Text(
                     t.title.ifEmpty { "Untitled" },
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (t.unread) FontWeight.SemiBold else FontWeight.Normal,
+                    fontWeight = if (t.needsYou || kind == RowStatus.Kind.NEEDS_YOU || done) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
                 )
                 if (t.starredAt != null) {
@@ -276,7 +284,11 @@ fun ThreadRow(t: PhoneThread, now: Instant, projects: Map<String, PhoneProject>,
                     Icon(Line.startedBy(it.kind), null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(4.dp))
                 }
-                val line = listOfNotNull(InboxSections.wakeLine(t, now), t.placeText).joinToString(" · ")
+                val model = LocalModel.current
+                val runners by model.runners.collectAsStateWithLifecycle()
+                val runner = if (runners.size > 1) runners.firstOrNull { it.runnerId == t.runnerId }?.name else null
+                val doing = t.working?.takeIf { t.isBusy || (t.pendingApproval == null && !t.waitingOnMike) }
+                val line = listOfNotNull(InboxSections.wakeLine(t, now), t.placeText, runner, doing).joinToString(" · ")
                 Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -297,11 +309,26 @@ fun ThreadRow(t: PhoneThread, now: Instant, projects: Map<String, PhoneProject>,
     }
 }
 
-/** A project's tile: its first letter on a quiet square, as the Mac's sidebar. */
+/**
+ * A project's tile (the iPhone's ProjectIconView): its picture, else the
+ * title's first letter on a quiet square; a folder with no project at all.
+ * The Mac's SF Symbol icons have no Android match, so they fall back to
+ * the letter.
+ */
 @Composable
 fun ProjectTile(project: PhoneProject?, title: String, size: androidx.compose.ui.unit.Dp) {
+    val shape = RoundedRectangle(size)
+    val picture = project?.icon?.url?.let { ProjectPictures.image(it) }
+    if (picture != null) {
+        androidx.compose.foundation.Image(
+            picture, contentDescription = null,
+            modifier = Modifier.size(size).clip(shape),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+        )
+        return
+    }
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(size * 0.26f)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        Modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) {
         if (project == null && title.isEmpty()) {
@@ -315,6 +342,8 @@ fun ProjectTile(project: PhoneProject?, title: String, size: androidx.compose.ui
         }
     }
 }
+
+private fun RoundedRectangle(size: androidx.compose.ui.unit.Dp) = RoundedCornerShape(size * 0.26f)
 
 /** A soft pulse in the accent, for a thread that's working. */
 @Composable

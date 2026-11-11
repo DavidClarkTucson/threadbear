@@ -47,6 +47,11 @@ private val dark = darkColorScheme(
     outline = Color(0xFF3A3A3F),
     outlineVariant = Color(0xFF26262A),
     error = Color(0xFFFF453A),
+    // Snackbars: Material's default inverse is near-white, a glaring bar on
+    // this dark grey; a raised grey keeps them in the quiet palette.
+    inverseSurface = Color(0xFF2E2E33),
+    inverseOnSurface = Color(0xFFEDEDF0),
+    inversePrimary = Color(0xFF0A84FF),
 )
 
 private val light = lightColorScheme(

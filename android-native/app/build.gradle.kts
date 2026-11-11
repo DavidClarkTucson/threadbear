@@ -45,7 +45,10 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":kit"))
     implementation("dev.convex:android-convexmobile:0.8.0@aar") { isTransitive = true }
-    implementation("net.java.dev.jna:jna:5.14.0@aar")
+    // 5.19.1, not 5.14: older builds' libjnidispatch.so leaves writable data
+    // on the page its read-only (RELRO) part ends in, so it would crash on a
+    // 16 KB-page phone, and Android 17 warns about it on every debug launch.
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
 
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
