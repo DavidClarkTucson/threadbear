@@ -95,6 +95,9 @@ object Push {
             .build()
         try {
             NotificationManagerCompat.from(context).notify(threadId, 1, n)
+            // Unpaired while this was being opened (Firebase calls us off the
+            // main thread): take it straight back down.
+            if (!PairingStore(context).paired()) clear(context, threadId)
         } catch (_: SecurityException) {
             // The permission was taken away between the check and here.
         }
@@ -109,6 +112,9 @@ object Push {
         PushKeyStore(context).clear()
         if (available) runCatching { FirebaseMessaging.getInstance().deleteToken().await() }
     }
+
+    /** Unpairing takes down every notification the old pairing left. */
+    fun clearAll(context: Context) = NotificationManagerCompat.from(context).cancelAll()
 
     /** Opening a thread clears its notification, as reading it on the iPhone does. */
     fun clear(context: Context, threadId: String) = NotificationManagerCompat.from(context).cancel(threadId, 1)

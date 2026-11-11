@@ -50,16 +50,21 @@ export function fcmReason(body: unknown): string | undefined {
 // 2026). A phone's token only works with its own project, and the relay
 // keeps no tokens to remember which (docs/push-relay.md), so a send tries
 // each key in turn. Firebase answers another project's token with 403
-// PERMISSION_DENIED whose code is SENDER_ID_MISMATCH, so any other answer
-// about the token itself (404 UNREGISTERED, 400 INVALID_ARGUMENT) is the
-// token's own project speaking: the send stops there (fcmSettled), and that
-// answer wins (fcmPick), so the backend still drops a gone phone. A key
-// that fails for its own reasons (401, a timeout, a 5xx) settles nothing,
-// and the next key is tried.
+// PERMISSION_DENIED whose code is SENDER_ID_MISMATCH. Only a word about
+// the token itself (UNREGISTERED, INVALID_ARGUMENT) is the token's own
+// project speaking: the send stops there (fcmSettled), and that answer
+// wins (fcmPick). A status alone settles nothing: a key's own sign-in
+// failing comes back as a 400 or 401 too, and the next key must still be
+// tried.
 export type FcmResult = { status: number; reason?: string };
 export const wrongProject = (r: FcmResult) => r.reason === 'SENDER_ID_MISMATCH';
 /** The token's own project has answered: sent, or a verdict on the token. */
-export const fcmSettled = (r: FcmResult) => r.status === 200 || ((r.status === 404 || r.status === 400) && !wrongProject(r));
+export const fcmSettled = (r: FcmResult) => r.status === 200 || r.reason === 'UNREGISTERED' || r.reason === 'INVALID_ARGUMENT';
+// With nothing settled, a failure of the relay's own (a timeout, a 503) is
+// answered before a 404 that isn't UNREGISTERED: fcmGone takes any 404 as a
+// gone phone, and a project that never claimed the token mustn't drop
+// another project's live one.
 export function fcmPick(results: FcmResult[]): FcmResult | undefined {
-  return results.find(fcmSettled) ?? results.find((r) => !wrongProject(r)) ?? results[0];
+  const unsettled = results.filter((r) => !wrongProject(r));
+  return results.find(fcmSettled) ?? unsettled.find((r) => r.status !== 404) ?? unsettled[0] ?? results[0];
 }

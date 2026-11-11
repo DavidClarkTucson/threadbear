@@ -102,3 +102,15 @@ test("a key that fails for its own reasons doesn't hide the token's own project'
   assert.equal(fcmSettled({ status: 0, reason: 'timeout' }), false);
   assert.equal(fcmSettled({ status: 503 }), false);
 });
+
+test("a key's own sign-in failing never settles a send, and an unclaimed 404 doesn't drop another project's phone", () => {
+  // Keith's key can't sign in (Google's token endpoint answers 400): Mike's key is still tried
+  assert.equal(fcmSettled({ status: 400, reason: 'UNAUTHENTICATED' }), false);
+  assert.deepEqual(fcmPick([{ status: 400, reason: 'UNAUTHENTICATED' }, { status: 200 }]), { status: 200 });
+  // Keith's project hiccups, Mike's says a bare 404: the hiccup is the answer, so Keith's phone stays
+  const picked = fcmPick([{ status: 503, reason: 'UNAVAILABLE' }, { status: 404, reason: 'NOT_FOUND' }])!;
+  assert.deepEqual(picked, { status: 503, reason: 'UNAVAILABLE' });
+  assert.equal(fcmGone(picked.status, picked.reason), false);
+  // A malformed token is the same verdict from either project
+  assert.equal(fcmSettled({ status: 400, reason: 'INVALID_ARGUMENT' }), true);
+});

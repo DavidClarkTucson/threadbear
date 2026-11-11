@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The app's state, for as long as the process lives (the iPhone's
@@ -159,6 +160,11 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
             val trial = ConvexFfiTransport(shown.pairing.deploymentUrl)
             try {
                 val me = PhoneBackend(trial, shown.pairing.token).me()
+                // Another server: the old one stops reaching this phone. The
+                // same server with a new token keeps the registration, which
+                // registerPush moves to the new token.
+                val old = _pairing.value
+                pairingChanged(forget = old != null && old.deploymentUrl != shown.pairing.deploymentUrl)
                 store.save(shown.pairing)
                 trial.close()
                 connect(shown.pairing)
@@ -193,21 +199,44 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
         // Already registered this run: the resume check costs nothing then.
         if (newToken == null && _pushToken.value != null) return
         if (_identity.value?.sendsNotifications == false) return
+        val epoch = pairingEpoch
         scope.launch {
-            val token = newToken ?: Push.token() ?: return@launch
-            val key = PushKeyStore(appContext).loadOrCreate()?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
-            try {
-                b.registerDevice(token, "production", "android", key)
-                _pushToken.value = token
-            } catch (_: Exception) {
+            // One at a time with forgetting an old pairing's token (pairingChanged),
+            // so a quick re-pair can't register the token being deleted, and work
+            // for a pairing that's since changed is dropped, not finished.
+            pushLock.withLock {
+                if (epoch != pairingEpoch) return@withLock
+                val token = newToken ?: Push.token() ?: return@withLock
+                val key = PushKeyStore(appContext).loadOrCreate()?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+                try {
+                    b.registerDevice(token, "production", "android", key)
+                    if (epoch == pairingEpoch) _pushToken.value = token
+                } catch (_: Exception) {
+                }
             }
         }
     }
 
+    private val pushLock = kotlinx.coroutines.sync.Mutex() // fair: queued work runs in order
+    @Volatile private var pairingEpoch = 0
+
+    /**
+     * The pairing changed (unpaired, or paired with something else): what's
+     * queued for the old one is dropped, and with [forget] the old backend
+     * loses this phone (Firebase deletes the token, so its next send comes
+     * back UNREGISTERED and it drops the device) and the push key is made
+     * anew, so the old backend's sealed notifications can't be opened.
+     */
+    private fun pairingChanged(forget: Boolean) {
+        pairingEpoch++
+        _pushToken.value = null
+        if (forget) scope.launch { pushLock.withLock { Push.forget(appContext) } }
+    }
+
     fun unpair() {
         store.clear()
-        _pushToken.value = null
-        scope.launch { Push.forget(appContext) }
+        pairingChanged(forget = true)
+        Push.clearAll(appContext)
         transport?.close()
         transport = null
         _backend.value = null
