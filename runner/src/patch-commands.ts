@@ -67,6 +67,8 @@ const INERT_MODULES = new Set(
   ['fs', 'fs/promises', 'path', 'path/posix', 'url', 'os', 'crypto', 'util', 'events', 'stream', 'stream/promises', 'buffer', 'string_decoder', 'querystring', 'timers', 'timers/promises', 'assert', 'assert/strict', 'readline', 'readline/promises', 'zlib', 'http', 'https', 'net', 'dns', 'dns/promises', 'perf_hooks']
     .flatMap((m) => [m, `node:${m}`]),
 );
+// child_process options that don't change what runs.
+const INERT_OPTIONS = new Set(['encoding', 'stdio', 'timeout', 'maxBuffer', 'windowsHide', 'input', 'killSignal', 'detached', 'signal', 'uid', 'gid', 'serialization', 'windowsVerbatimArguments']);
 const PROCESS_RUNNERS = new Set(['binding', '_linkedBinding', 'execve', 'dlopen']);
 const PATH_MODULES = new Set(['path', 'node:path', 'path/posix', 'node:path/posix']);
 const PATH_FUNCTIONS = new Set(['join', 'resolve', 'dirname', 'basename', 'normalize', 'relative', 'extname']);
@@ -390,9 +392,8 @@ class Reader {
     if (!parent || !isValue(node, parent, this.parents)) return;
     const p = parent.node;
     if (parent.key === 'callee' && p.type === 'CallExpression') return;
-    // `{ cwd, sh }` or `{ sh: run }` handing on a context: whatever takes it
-    // calls it as `.sh(...)` or takes it out as sh, both seen there.
-    if (isSh && p.type === 'Property' && parent.key === 'value' && keyName(p) === 'sh') return;
+    // Not even into an object as `sh`: whatever takes it can call it by
+    // any name (`Object.values(o)[0](...)`; Codex's review).
     // Handed to a helper in this file, whose parameter is sh too (read()).
     if (isSh && p.type === 'CallExpression' && parent.key === 'arguments') {
       const callee = unwrap(p.callee);
@@ -458,9 +459,38 @@ class Reader {
     return v.map((text) => ({ text, at: at.start }));
   }
 
+  // A child_process call's options, as far as they change what runs: `cwd`
+  // (where a relative script is), `shell`. Anything that could change it
+  // some other way (`env` with NODE_OPTIONS, a shell by path, `execPath`,
+  // options not written in place) makes it a command this can't follow.
+  private options(opts: AstNode | undefined): { cwd: (string | undefined)[]; shell: boolean } | 'unknown' {
+    if (!opts) return { cwd: [undefined], shell: false };
+    const o = unwrap(opts);
+    if (o.type !== 'ObjectExpression') return 'unknown';
+    let cwd: (string | undefined)[] = [undefined];
+    let shell = false;
+    for (const p of o.properties) {
+      if (p.type === 'SpreadElement' || p.computed || p.kind !== 'init') return 'unknown';
+      const name = keyName(p);
+      const v = unwrap(p.value);
+      if (name === 'shell') {
+        if (v.type === 'Literal' && (v.value === false || v.value === true)) shell = v.value;
+        else return 'unknown';
+      } else if (name === 'cwd') cwd = this.value(v, new Map(), 0);
+      else if (!INERT_OPTIONS.has(name ?? '')) return 'unknown';
+    }
+    return { cwd, shell };
+  }
+
   private cpCommands(fn: string, args: AstNode[], at: AstNode): Found[] {
     if (!args[0]) return [];
-    if (fn === 'exec' || fn === 'execSync') return this.commandsOf(args[0], at);
+    if (fn === 'exec' || fn === 'execSync') {
+      // exec(command, options?, callback?)
+      const o = this.options(args[1] && !isFunction(unwrap(args[1])) ? args[1] : undefined);
+      if (o === 'unknown') return [{ text: VALUE, at: at.start }];
+      const cmds = this.commandsOf(args[0], at);
+      return o.cwd.flatMap((cd) => cmds.map((c) => (cd === undefined ? c : { ...c, text: `cd ${quoteWord(cd)} && ${c.text}` })));
+    }
     // execFile(file, [args], opts), spawn(file, [args], opts), fork(module, [args], opts)
     let list: AstNode | undefined = args[1];
     let opts: AstNode | undefined = args[2];
@@ -482,24 +512,17 @@ class Reader {
         }
       } else words = [[VALUE]];
     }
-    // shell: anything but a plain false (or none) could be a shell.
-    const shell = (() => {
-      if (!opts) return false;
-      const o = unwrap(opts);
-      if (o.type !== 'ObjectExpression') return true;
-      for (const p of o.properties) {
-        if (p.type === 'SpreadElement' || p.computed) return true;
-        if (keyName(p) === 'shell') return !(unwrap(p.value).type === 'Literal' && unwrap(p.value).value === false);
-      }
-      return false;
-    })();
+    const o = this.options(opts);
+    if (o === 'unknown') return [{ text: VALUE, at: at.start }];
     const out: Found[] = [];
-    for (const prog of programs) {
-      for (const w of words) {
-        // With a shell, the words are joined and the shell reads them, as Node does.
-        const text = shell && fn !== 'fork' ? [unquoteWord(prog), ...w].join(' ') : [prog, ...w.map(quoteWord)].join(' ');
-        out.push({ text, at: at.start });
-        if (out.length > MAX_VARIANTS) return [{ text: VALUE, at: at.start }];
+    for (const cd of o.cwd) {
+      for (const prog of programs) {
+        for (const w of words) {
+          // With a shell, the words are joined and the shell reads them, as Node does.
+          const text = o.shell && fn !== 'fork' ? [unquoteWord(prog), ...w].join(' ') : [prog, ...w.map(quoteWord)].join(' ');
+          out.push({ text: cd === undefined ? text : `cd ${quoteWord(cd)} && ${text}`, at: at.start });
+          if (out.length > MAX_VARIANTS) return [{ text: VALUE, at: at.start }];
+        }
       }
     }
     return out;
@@ -523,9 +546,20 @@ class Reader {
         });
         return parts;
       }
-      case 'BinaryExpression':
+      case 'BinaryExpression': {
         if (n.operator !== '+') return [VALUE];
-        return join(next(n.left), next(n.right));
+        // Text only when one side is surely text: `1 + 2` is 3, and a value
+        // of unknown type might be a number (Codex's review).
+        const l = this.textType(n.left, 0);
+        const r = this.textType(n.right, 0);
+        if (l === 'string' || r === 'string') return join(next(n.left), next(n.right));
+        if (l === 'number' && r === 'number') {
+          const a = next(n.left);
+          const b = next(n.right);
+          if (a.length === 1 && b.length === 1 && a[0] !== VALUE && b[0] !== VALUE) return [String(Number(a[0]) + Number(b[0]))];
+        }
+        return [VALUE];
+      }
       case 'ConditionalExpression':
         return union(next(n.consequent), next(n.alternate));
       case 'LogicalExpression':
@@ -560,6 +594,34 @@ class Reader {
     }
   }
 
+  // Whether an expression is surely a string, surely a number, or either.
+  private textType(node: AstNode, depth: number): 'string' | 'number' | 'unknown' {
+    if (depth > MAX_DEPTH) return 'unknown';
+    const n = unwrap(node);
+    switch (n.type) {
+      case 'Literal':
+        return typeof n.value === 'string' ? 'string' : typeof n.value === 'number' ? 'number' : 'unknown';
+      case 'TemplateLiteral':
+        return 'string';
+      case 'BinaryExpression': {
+        if (n.operator !== '+') return ['-', '*', '/', '%', '**'].includes(n.operator) ? 'number' : 'unknown';
+        const l = this.textType(n.left, depth + 1);
+        const r = this.textType(n.right, depth + 1);
+        return l === 'string' || r === 'string' ? 'string' : l === 'number' && r === 'number' ? 'number' : 'unknown';
+      }
+      case 'Identifier': {
+        const b = this.only(n.name);
+        return b?.kind === 'const' ? this.textType(b.init, depth + 1) : 'unknown';
+      }
+      case 'ConditionalExpression': {
+        const a = this.textType(n.consequent, depth + 1);
+        return a === this.textType(n.alternate, depth + 1) ? a : 'unknown';
+      }
+      default:
+        return 'unknown';
+    }
+  }
+
   private importMeta(n: AstNode): string | undefined {
     if (n.type !== 'MemberExpression' || n.object.type !== 'MetaProperty') return undefined;
     const name = memberName(n);
@@ -575,12 +637,24 @@ class Reader {
     if (args.some((a) => a.type === 'SpreadElement')) return [VALUE];
     const vals = () => args.map((a) => this.value(a, env, depth + 1));
     // path.join(...) and the like, imported or off a namespace.
-    const pathFn = callee.type === 'Identifier' ? this.pathNames.get(callee.name) : callee.type === 'MemberExpression' && !callee.computed && callee.object.type === 'Identifier' && this.pathSpaces.has(callee.object.name) ? memberName(callee) : undefined;
+    // Only through the import itself: a parameter or local of the same
+    // name is something else (Codex's review).
+    const imported = (name: string) => !env.has(name) && this.only(name)?.kind === 'import';
+    const pathFn = callee.type === 'Identifier' && imported(callee.name) ? this.pathNames.get(callee.name) : callee.type === 'MemberExpression' && !callee.computed && callee.object.type === 'Identifier' && imported(callee.object.name) && this.pathSpaces.has(callee.object.name) ? memberName(callee) : undefined;
     if (pathFn && PATH_FUNCTIONS.has(pathFn)) {
       const fn = (path as unknown as Record<string, (...a: string[]) => string>)[pathFn];
-      return each(vals(), (a) => (pathFn === 'resolve' && a.some((x) => x.includes(VALUE)) ? VALUE : fn(...a)));
+      // A value worked out as it runs could be `..`, absolute or anything,
+      // which the real function would fold away: the whole path is one.
+      return each(vals(), (a) => {
+        if (a.some((x) => x.includes(VALUE))) return VALUE;
+        try {
+          return fn(...a);
+        } catch {
+          return VALUE;
+        }
+      });
     }
-    if (callee.type === 'Identifier' && this.urlNames.get(callee.name) === 'fileURLToPath' && args.length === 1) {
+    if (callee.type === 'Identifier' && imported(callee.name) && this.urlNames.get(callee.name) === 'fileURLToPath' && args.length === 1) {
       return each(vals(), ([u]) => {
         if (u.includes(VALUE) || !u.startsWith('file:')) return VALUE;
         try {
@@ -590,9 +664,9 @@ class Reader {
         }
       });
     }
-    const osFn = callee.type === 'Identifier' ? this.osNames.get(callee.name) : callee.type === 'MemberExpression' && !callee.computed && callee.object.type === 'Identifier' && this.osSpaces.has(callee.object.name) ? memberName(callee) : undefined;
+    const osFn = callee.type === 'Identifier' && imported(callee.name) ? this.osNames.get(callee.name) : callee.type === 'MemberExpression' && !callee.computed && callee.object.type === 'Identifier' && imported(callee.object.name) && this.osSpaces.has(callee.object.name) ? memberName(callee) : undefined;
     if (osFn === 'homedir' && args.length === 0) return [os.homedir()];
-    if (callee.type === 'Identifier' && callee.name === 'String' && args.length === 1 && !this.bindings.has('String')) return this.value(args[0], env, depth + 1);
+    if (callee.type === 'Identifier' && callee.name === 'String' && args.length === 1 && !this.bindings.has('String') && !env.has('String')) return this.value(args[0], env, depth + 1);
     // ['node', script, ...].join(' ')
     if (callee.type === 'MemberExpression' && memberName(callee) === 'join' && unwrap(callee.object).type === 'ArrayExpression') {
       const arr = unwrap(callee.object);
@@ -606,7 +680,7 @@ class Reader {
       return out;
     }
     // A helper of one expression: `const quote = (s) => \`'${...}'\``.
-    if (callee.type === 'Identifier') {
+    if (callee.type === 'Identifier' && !env.has(callee.name)) {
       const fn = this.localFunction(callee.name);
       if (fn) {
         const body = returned(fn);
@@ -736,7 +810,11 @@ function product(a: string[][], b: string[][]): string[][] {
 // Each combination of the arguments' ways, through `fn`.
 function each(args: string[][], fn: (a: string[]) => string): string[] {
   let combos: string[][] = [[]];
-  for (const a of args) combos = product(combos, a.map((x) => [x]));
+  for (const a of args) {
+    combos = product(combos, a.map((x) => [x]));
+    // Too many ways: the result is a value, not the call with an argument lost.
+    if (combos.length === 1 && combos[0].length === 1 && combos[0][0] === VALUE && args.length > 1) return [VALUE];
+  }
   return [...new Set(combos.map(fn))];
 }
 

@@ -179,3 +179,36 @@ test("patchCommands: what it won't reason about, and a file built to take foreve
   assert.ok(Date.now() - started < 2000, 'quick');
   assert.ok('commands' in r);
 });
+
+// Codex's review of the fix (11 Nov): each of these ran a file the scan
+// didn't see, or hid the reason. Each must ask about that file, or ask about
+// every edit.
+test("what Codex's review found: each still asks", async () => {
+  const outside = fs.realpathSync(tmpDir());
+  put(path.join(outside, 'go.mjs'), 'console.log(1);\n');
+  const cases: Record<string, { patch: string; file: string }> = {
+    'too many ways for a path call': {
+      patch: `import { relative } from 'node:path';
+export default { actions: [{ title: 'Run', run: 'node ${path.join(outside, 'go.mjs')}' }], panels: [{ title: 'P', items: ({ sh, a, b, c, d, e, f, g }: any) => sh('node ' + relative(a ? '/a' : b ? '/b' : c ? '/c' : '/d', d ? '/e' : e ? '/f' : f ? '/g' : g ? '/h' : '/i')) }] };`,
+      file: path.join(outside, 'go.mjs'),
+    },
+    'a cwd in the options': { patch: `import { execFileSync } from 'node:child_process'; export default { panels: [{ title: 'P', items: () => execFileSync('node', ['go.mjs'], { cwd: ${JSON.stringify(outside)} }) }] };`, file: path.join(outside, 'go.mjs') },
+    'a path through ..': { patch: `import { join } from 'node:path'; export default { panels: [{ title: 'P', items: ({ sh, cwd }: any) => sh(join(cwd, '..', 'status.sh')) }] };`, file: path.join(outside, 'status.sh') },
+    'a script outside that isn\'t there yet': { patch: `import { join } from 'node:path'; export default { panels: [{ title: 'P', items: ({ sh }: any) => sh('node ' + join(${JSON.stringify(path.join(outside, 'later'))}, 'go.mjs')) }] };`, file: path.join(outside, 'later', 'go.mjs') },
+    'a parameter named like an import': { patch: `import { join } from 'node:path'; function command(join: any) { return 'node ' + join('/safe', 'tool.mjs'); } export default { panels: [{ title: 'P', items: ({ sh }: any) => sh(command((a: string, b: string) => '/actual/' + b)) }] };`, file: path.join(outside, 'x.md') },
+    'numbers added': { patch: `export default { panels: [{ title: 'P', items: ({ sh }: any) => sh('node ${outside}/tool' + (1 + 2) + '.mjs') }] };`, file: path.join(outside, 'tool3.mjs') },
+    'sh in an object': { patch: `export default { panels: [{ title: 'P', items: ({ sh }: any) => { const cbs = { sh }; for (const fn of Object.values(cbs)) fn('node ' + process.env.SCRIPT); return []; } }] };`, file: path.join(outside, 'x.md') },
+  };
+  for (const [name, c] of Object.entries(cases)) {
+    const { runsAsCode } = await withHomePatch(c.patch);
+    assert.ok(runsAsCode(c.file), name);
+  }
+});
+
+test('the note leaves out what could be a credential in the command', async () => {
+  const { h, thread, runsAsCode, cwd } = await withHomePatch(`export default { panels: [{ title: 'P', items: ({ sh }: any) => sh('node ' + process.env.SCRIPT + ' --token SECRET_TOKEN_abc') }] };`);
+  assert.equal(runsAsCode(path.join(cwd, 'README.md')), 'unsure');
+  const note = h.events(thread.id).find((e) => e.type === 'system.note' && String(e.text).includes('ask before every file edit'));
+  assert.ok(note);
+  assert.doesNotMatch(note.text, /SECRET/);
+});

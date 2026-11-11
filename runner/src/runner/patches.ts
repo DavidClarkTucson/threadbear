@@ -83,7 +83,13 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
     // the main checkout; the check runs when a land is asked for. So neither
     // runs what an agent just wrote until it has got past a step that's asked
     // about.
-    const read = patchCommands(text, module, own);
+    // Anything it trips on is read the old way, never skipped.
+    let read: ReturnType<typeof patchCommands>;
+    try {
+      read = patchCommands(text, module, own);
+    } catch (e) {
+      read = { unknown: { line: 1, why: `Threadbear couldn't read it (${e instanceof Error ? e.message : String(e)})` } };
+    }
     if ('commands' in read) {
       for (const c of read.commands) {
         if (c.text.length > 4000) {
@@ -98,6 +104,14 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
         // constant, is in no word of the text.
         const reach = commandFilesOutside(c.text, from);
         reach.files.forEach(add);
+        // And every absolute or `~/` path in the command as it was worked
+        // out, there yet or not: the follow passes over a missing script
+        // outside the repo, which an agent could then write (Codex's review).
+        for (const word of c.text.split(/[\s'"`;&|()<>=]+/)) {
+          if (!word || word.includes('__threadbear_value') || word.length > 4096) continue;
+          if (word.startsWith('/') && word.length > 1) add(word);
+          else if (word.startsWith('~/')) add(path.join(os.homedir(), word.slice(2)));
+        }
         if (reach.problem) unsure({ file: module, line: c.line, command: c.text, problem: sayValue(reach.problem) });
       }
     } else {
@@ -114,7 +128,7 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
         } else if (PLAIN_WEB_ADDRESS.test(command)) add(path.resolve(from, command));
         else if (reach.problem && !data.has(command)) {
           const at = text.indexOf(command);
-          const shown = command.length > 80 ? `${command.slice(0, 80)}...` : command;
+          const shown = commandShown(command);
           unsure({
             file: module,
             problem: `${read.unknown.why} (line ${read.unknown.line}), so Threadbear reads every string in it as a command it might run, and can't follow \`${shown}\`${at >= 0 ? ` (line ${text.slice(0, at).split('\n').length})` : ''}: ${reach.problem.replace(/^the command (line \d+ )?/, 'it ')}`,
@@ -155,8 +169,29 @@ export function editsAskText(patch: string, why: UnsureWhy | undefined): string 
     .replace(/,? which patch trust can't follow\.?$/, '')
     .replace(/\.$/, '');
   if (!why.command) return `${head}: ${problem}${line}.${why.fix ? ` ${why.fix}` : ''}`;
-  const shown = (why.command.length > 120 ? `${why.command.slice(0, 120)}...` : why.command).replace(/\$\{__threadbear_value\}/g, '${...}');
+  const shown = commandShown(why.command);
   return `${head}: Threadbear can't follow \`${shown}\`${line}, as it ${problem}. ${EDITS_ASK_FIX}`;
+}
+
+// A command as the note shows it: its first few words, with anything after
+// a word like token or key, and anything long enough to be one, left out.
+// The note is kept in the transcript and goes to the phone, and a patch's
+// command can carry a credential (Codex's review).
+export function commandShown(command: string): string {
+  const words = command.replace(/\$\{__threadbear_value\}/g, '${...}').split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const [i, w] of words.entries()) {
+    if (out.length >= 4) {
+      out.push('...');
+      break;
+    }
+    const secretish =
+      (i > 0 && /token|key|secret|pass|auth|bearer|cookie/i.test(words[i - 1])) ||
+      /(token|key|secret|pass|auth)[^=]*=/i.test(w) ||
+      /^[A-Za-z0-9_+=-]{24,}$/.test(w.replace(/^['"]|['"]$/g, ''));
+    out.push(secretish ? '...' : w.length > 80 ? `${w.slice(0, 80)}...` : w);
+  }
+  return out.join(' ');
 }
 
 const EDITS_ASK_FIX = "Write the command as plain text, or build it only from constants in the file (like `node ${join(import.meta.dirname, 'x.mjs')}`), so Threadbear can see what it runs.";
