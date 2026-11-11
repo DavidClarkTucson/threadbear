@@ -104,10 +104,15 @@ object Push {
     /** Shows one: the sealed title and text opened with this phone's key, else the stand-in. */
     fun show(context: Context, threadId: String, sealed: String?) {
         if (!permitted(context)) return
-        val opening = generation
-        // Unpaired: whatever's still on its way from the old backend isn't shown.
-        if (!PairingStore(context).paired()) return
-        val key = PushKeyStore(context).load()
+        // The generation and the key are read together, under the lock a
+        // pairing change takes: either both are the old pairing's (and the
+        // posting check below drops it) or both the new one's, never the new
+        // generation with the old key. Mid-change (quiet), or unpaired,
+        // nothing from the old backend is shown.
+        val (opening, key) = synchronized(lock) {
+            if (quiet || !PairingStore(context).paired()) return
+            generation to PushKeyStore(context).load()
+        }
         val opened = if (sealed != null && key != null) PushSeal.open(sealed, key) else null
         val open = Intent(context, MainActivity::class.java)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)

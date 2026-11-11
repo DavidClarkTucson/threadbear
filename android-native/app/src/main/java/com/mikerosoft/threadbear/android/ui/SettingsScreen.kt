@@ -98,7 +98,8 @@ fun SettingsScreen(back: () -> Unit, runnerOrder: () -> Unit) {
     ) { inner ->
         Column(Modifier.padding(inner).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
             Group("Paired with") {
-                Field("Server", pairing?.serverName ?: "None")
+                // Breaks after its dots, not mid-word, when it needs two lines.
+                Field("Server", pairing?.serverName?.replace(".", ".\u200B") ?: "None")
                 identity?.let { me ->
                     Field("Phone", me.name)
                     me.expiresAt?.let { Field("Token expires", day.format(it.atZone(ZoneId.systemDefault()))) }
