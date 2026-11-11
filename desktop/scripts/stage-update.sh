@@ -116,13 +116,17 @@ if [[ -n "$HOSTS" ]]; then
   # path is the same on every Mac with the same user name.
   THREADBEAR_REMOTE_KEY="$(ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F'"' '/IOPlatformUUID/ { print $4; exit }')"
   export THREADBEAR_REMOTE_KEY="${THREADBEAR_REMOTE_KEY:-$(hostname)}"
-  "$SRC/desktop/scripts/remote.sh" "$HOST" -- bash -c "set -o pipefail; cd desktop && nice cargo build --release -p threadbear-gpui --features $FEATURES 2>&1 | tail -3" || rc=$?
+  # The build says where it built (remote.sh sets CARGO_TARGET_DIR), and the
+  # binaries come from there: not a key worked out here, which an older
+  # remote.sh in main would disagree with (Codex's second look, 12 Nov).
+  out="$CACHE/remote.out"
+  "$SRC/desktop/scripts/remote.sh" "$HOST" -- bash -c "set -o pipefail; cd desktop && nice cargo build --release -p threadbear-gpui --features $FEATURES 2>&1 | tail -3 && echo \"BUILT_IN=\$CARGO_TARGET_DIR\"" > "$out" 2>&1 || rc=$?
+  cat "$out"
   [[ "$rc" == 0 ]] || remote_failed "$rc"
-  # remote.sh keeps each checkout's target under its own key: this clone's,
-  # with this Mac's id, worked out as it does.
-  key="$(printf '%s%s' "$(cd "$SRC" && pwd)" "@$THREADBEAR_REMOTE_KEY" | shasum | cut -c1-10)"
+  built_in="$(sed -n 's/^BUILT_IN=//p' "$out" | tail -1)"
+  [[ "$built_in" == /* ]] || { echo "The build on $HOST didn't say where it built." >&2; exit 1; }
   for bin in threadbear-gpui threadbear-web-helper; do
-    scp -q "$HOST:.cache/threadbear-check/gpui/target-$key/release/$bin" "$BINS/$bin" || remote_failed "$?"
+    scp -q "$HOST:$built_in/release/$bin" "$BINS/$bin" || remote_failed "$?"
   done
 else
   echo "No check hosts in $CONFIG: building here."

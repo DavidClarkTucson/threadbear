@@ -74,6 +74,11 @@ fn old_dir() -> PathBuf {
     beside(".Threadbear GPUI.app.old")
 }
 
+/// The note a swap keeps while it happens (core's `swap`).
+fn swapping_note() -> PathBuf {
+    beside(".Threadbear GPUI.app.swapping")
+}
+
 /// The update build's output, for Show the Log.
 pub(crate) fn log_path() -> PathBuf {
     installed::home_dir().join("Library").join("Logs").join("threadbear-desktop-update.log")
@@ -99,7 +104,7 @@ pub(crate) fn apply_staged_at_launch() -> bool {
     if !launch.installed {
         return false;
     }
-    match rules::apply_staged(&install_dir(), &next_dir(), &old_dir(), launch.build.as_ref()) {
+    match rules::apply_staged(&install_dir(), &next_dir(), &old_dir(), &swapping_note(), launch.build.as_ref()) {
         Ok(Some(staged)) => {
             note(&format!("swapped in {} at launch", staged.short));
             relaunch_after_exit(&install_dir(), false);
@@ -414,7 +419,7 @@ impl Threadbear {
             // SAFETY: a signal to the build we started, still ours to wait on.
             unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
         }
-        match rules::apply_staged(&install_dir(), &next_dir(), &old_dir(), self.updater.running.as_ref()) {
+        match rules::apply_staged(&install_dir(), &next_dir(), &old_dir(), &swapping_note(), self.updater.running.as_ref()) {
             Ok(Some(staged)) => note(&format!("swapped in {} at quit", staged.short)),
             Ok(None) => {}
             Err(e) => note(&e),

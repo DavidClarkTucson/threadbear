@@ -150,7 +150,7 @@ fn pending_panics(r: &Reporting) {
         record.reported = true;
         let _ = write_record(&r.folder, name.trim_end_matches(".json"), &record);
         let event = report::panic_event(base(r, &record.at), &record);
-        send(r, &event, &format!("panic {}", record.message));
+        send(r, &event, &format!("panic {}", report::safe_message(&record.message)));
     }
 }
 

@@ -43,14 +43,22 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/threadbear-gpui-XXXX")"
 trap 'rm -rf "$work"' EXIT
 
 if [ -n "$build_on" ]; then
+  # This Mac's own folders on the host (remote.sh), as the checkout's path
+  # can be the same on two Macs that share one.
+  THREADBEAR_REMOTE_KEY="$(ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F'"' '/IOPlatformUUID/ { print $4; exit }')"
+  export THREADBEAR_REMOTE_KEY="${THREADBEAR_REMOTE_KEY:-$(hostname)}"
   # pipefail, so a build that fails stops here rather than passing on tail's
   # success and copying the last good build's binaries under this commit's
-  # name (Codex's review, 12 Nov).
-  "$root/desktop/scripts/remote.sh" "$build_on" -- bash -c "set -o pipefail; cd desktop && nice cargo build --release -p threadbear-gpui --features $features 2>&1 | tail -2"
-  key="$(printf '%s' "$root" | shasum | cut -c1-10)"
+  # name; and the binaries come from where the build says it built
+  # (remote.sh sets CARGO_TARGET_DIR), not a key worked out here (Codex's
+  # reviews, 12 Nov).
+  "$root/desktop/scripts/remote.sh" "$build_on" -- bash -c "set -o pipefail; cd desktop && nice cargo build --release -p threadbear-gpui --features $features 2>&1 | tail -2 && echo \"BUILT_IN=\$CARGO_TARGET_DIR\"" > "$work/remote.out" 2>&1 || { cat "$work/remote.out" >&2; exit 1; }
+  cat "$work/remote.out"
+  built_in="$(sed -n 's/^BUILT_IN=//p' "$work/remote.out" | tail -1)"
+  [[ "$built_in" == /* ]] || { echo "The build on $build_on didn't say where it built." >&2; exit 1; }
   # The app and its web helper, which the same build makes (desktop/gpui/Cargo.toml).
   for bin in threadbear-gpui threadbear-web-helper; do
-    scp -q "$build_on:.cache/threadbear-check/gpui/target-$key/release/$bin" "$work/$bin"
+    scp -q "$build_on:$built_in/release/$bin" "$work/$bin"
   done
 else
   export CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10

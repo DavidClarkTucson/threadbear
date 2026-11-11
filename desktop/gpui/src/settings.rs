@@ -66,6 +66,9 @@ pub struct Saved {
     /// When the Swift app's settings and drafts were brought across
     /// (swift_import.rs): once, so none is.
     pub swift_import: Option<String>,
+    /// The parts of that done so far ("settings", "drafts", "files"), each
+    /// once, while another is still to go after a failure.
+    pub swift_import_parts: Vec<String>,
     /// `updateRestore`: the sidebar's view and the thread that were open
     /// when the app restarted itself for an update, put back once (app_update.rs).
     pub update_restore: Option<Value>,

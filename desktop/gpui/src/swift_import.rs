@@ -18,6 +18,13 @@ use threadbear_core::swift_import::{self as rules, Plist};
 
 /// From main(), before the window opens and anything reads the settings or
 /// the drafts. The note that says what came across, if anything did.
+///
+/// In three parts, each done once: the settings, the drafts and the small
+/// files. One that went isn't done again when another fails and is tried
+/// next launch, so a draft sent since, or a setting changed back since, stays
+/// as it is (Codex's second look, 12 Nov). A part that failed (a file there
+/// that couldn't be read, a write that didn't go, `defaults` failing) is
+/// tried again at the next launch.
 pub(crate) fn run_once(settings: &mut Settings, cx: &App) -> Option<String> {
     if settings.saved.swift_import.is_some() {
         return None;
@@ -26,40 +33,56 @@ pub(crate) fn run_once(settings: &mut Settings, cx: &App) -> Option<String> {
     if stand_in.is_none() && !crate::installed::on_real_data() {
         return None;
     }
-    let xml = match &stand_in {
-        Some(file) => read_some(Path::new(file)).ok().flatten().map(|d| String::from_utf8_lossy(&d).into_owned()),
-        None => export(),
-    };
-    let defaults = match xml.as_deref().and_then(rules::parse_plist) {
-        Some(Plist::Dict(d)) => d,
-        _ => Default::default(),
-    };
-    // AppKit's frames are measured up from the bottom of the main screen.
-    let screen = cx.primary_display().map_or(900., |d| f64::from(d.bounds().size.height));
-    let mut current = serde_json::to_value(&settings.saved).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default();
-    let mut filled = rules::fill_missing(&mut current, rules::settings(&defaults, screen));
-    if let Ok(saved) = serde_json::from_value(Value::Object(current)) {
-        settings.saved = saved;
-    }
-    let home = settings.path().parent().map(Path::to_path_buf);
-    let mut drafts = 0;
+    let done = |settings: &Settings, part: &str| settings.saved.swift_import_parts.iter().any(|p| p == part);
     let mut failed = None;
-    if let Some(home) = &home {
-        match bring_drafts(home) {
-            Ok(count) => drafts = count,
-            Err(e) => failed = Some(e),
+    let defaults = match read_defaults(stand_in.as_deref()) {
+        Ok(defaults) => Some(defaults),
+        Err(e) => {
+            failed = Some(e);
+            None
         }
-        match bring_side_files(home, &defaults) {
-            Ok(keys) => filled.extend(keys),
-            Err(e) => failed = Some(e),
+    };
+    let mut filled = Vec::new();
+    if let Some(defaults) = &defaults {
+        if !done(settings, "settings") {
+            // AppKit's frames are measured up from the bottom of the main screen.
+            let screen = cx.primary_display().map_or(900., |d| f64::from(d.bounds().size.height));
+            let mut current = serde_json::to_value(&settings.saved).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default();
+            filled = rules::fill_missing(&mut current, rules::settings(defaults, screen));
+            if let Ok(saved) = serde_json::from_value(Value::Object(current)) {
+                settings.saved = saved;
+            }
+            settings.saved.swift_import_parts.push("settings".into());
         }
     }
-    // Once: done, so a setting changed here later stays. Not if something
-    // couldn't be read or written, as that may go next time; trying again
-    // only fills what's still missing, so it's safe to repeat.
+    let mut drafts = 0;
+    if let Some(home) = settings.path().parent().map(Path::to_path_buf) {
+        if !done(settings, "drafts") {
+            match bring_drafts(&home) {
+                Ok(count) => {
+                    drafts = count;
+                    settings.saved.swift_import_parts.push("drafts".into());
+                }
+                Err(e) => failed = Some(e),
+            }
+        }
+        if let (Some(defaults), false) = (&defaults, done(settings, "files")) {
+            match bring_side_files(&home, defaults) {
+                Ok(keys) => {
+                    filled.extend(keys);
+                    settings.saved.swift_import_parts.push("files".into());
+                }
+                Err(e) => failed = Some(e),
+            }
+        }
+    }
     match failed {
-        None => settings.saved.swift_import = Some(threadbear_core::inbox::iso_time(crate::now_ms())),
-        Some(e) => eprintln!("threadbear: bringing the Swift app's settings across will try again next launch: {e}"),
+        None if ["settings", "drafts", "files"].iter().all(|p| done(settings, p)) => {
+            settings.saved.swift_import = Some(threadbear_core::inbox::iso_time(crate::now_ms()));
+            settings.saved.swift_import_parts.clear();
+        }
+        None => {}
+        Some(e) => eprintln!("threadbear: bringing the rest of the Swift app's settings across will try again next launch: {e}"),
     }
     settings.save();
     rules::note(&filled, drafts)
@@ -80,28 +103,53 @@ fn read_some(path: &Path) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
+/// The Swift app's settings, or the stand-in's: empty when there's no Swift
+/// app (`defaults` gives an empty list then), an error when they couldn't be
+/// read, so that part is tried again.
+fn read_defaults(stand_in: Option<&std::ffi::OsStr>) -> Result<std::collections::BTreeMap<String, Plist>, String> {
+    let xml = match stand_in {
+        Some(file) => read_some(Path::new(file))?.map(|d| String::from_utf8_lossy(&d).into_owned()),
+        None => export()?,
+    };
+    Ok(match xml.as_deref().and_then(rules::parse_plist) {
+        Some(Plist::Dict(d)) => d,
+        _ => Default::default(),
+    })
+}
+
 /// The Swift app's settings as an XML property list, through cfprefsd, so
-/// they're as the Swift app last left them. None where there's no Swift app.
+/// they're as the Swift app last left them. None where there's no Swift app
+/// or they're too big to be real; an error when `defaults` failed.
 #[cfg(target_os = "macos")]
-fn export() -> Option<String> {
+fn export() -> Result<Option<String>, String> {
     use std::process::{Command, Stdio};
-    let out = Command::new("/usr/bin/defaults").args(["export", "com.mikerosoft.threadbear", "-"]).stderr(Stdio::null()).output().ok()?;
-    (out.status.success() && out.stdout.len() as u64 <= MOST_BYTES).then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let out = Command::new("/usr/bin/defaults").args(["export", "com.mikerosoft.threadbear", "-"]).stderr(Stdio::null()).output().map_err(|e| format!("couldn't run defaults: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("defaults export failed ({})", out.status));
+    }
+    Ok((out.stdout.len() as u64 <= MOST_BYTES).then(|| String::from_utf8_lossy(&out.stdout).into_owned()))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn export() -> Option<String> {
-    None
+fn export() -> Result<Option<String>, String> {
+    Ok(None)
 }
 
 /// The Swift app's `app-drafts.json` into this app's `desktop-drafts.json`,
 /// where a box is empty here, written as drafts.rs writes it (core's
-/// private_file.rs: whole, and only Mike's account can read it).
+/// private_file.rs: whole, and only Mike's account can read it). A drafts
+/// file here that can't be read as drafts (too big, not JSON) is left alone,
+/// never written over with only the Swift app's (Codex's second look).
 fn bring_drafts(home: &Path) -> Result<usize, String> {
     // A file that isn't JSON won't be by next time, so it's nothing to bring.
     let Some(swift) = read_some(&home.join("app-drafts.json"))?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()) else { return Ok(0) };
     let path = home.join("desktop-drafts.json");
-    let mut current = read_some(&path)?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()).and_then(|v| v.as_object().cloned()).unwrap_or_default();
+    let mut current = if path.exists() {
+        let Some(map) = read_some(&path)?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()).and_then(|v| v.as_object().cloned()) else { return Ok(0) };
+        map
+    } else {
+        Default::default()
+    };
     let count = rules::fill_drafts(&mut current, &swift);
     if count > 0 {
         let data = serde_json::to_vec(&Value::Object(current)).map_err(|e| e.to_string())?;

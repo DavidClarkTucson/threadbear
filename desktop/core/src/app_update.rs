@@ -112,17 +112,21 @@ pub fn decide(main_tree: &str, running: &BuildInfo, staged: Option<&BuildInfo>, 
 /// there's never a moment with no app there: two renames left none if the
 /// app was killed between them (Codex's review, 12 Nov). The old bundle (the
 /// running one, when this is done on quit) then goes to `old`, to be deleted
-/// at the next launch. Killed before that, the old one is left staged, and
-/// `apply_staged` won't put an older build back.
-pub fn swap(install: &Path, next: &Path, old: &Path) -> std::io::Result<()> {
+/// at the next launch. `swapping` notes the incoming build's tree while it
+/// happens: killed after the exchange, the old bundle is left at `next`, and
+/// the note says it isn't the one to put in (`apply_staged`). Not the build
+/// times, which a wrong clock gets wrong (Codex's second look).
+pub fn swap(install: &Path, next: &Path, old: &Path, swapping: &Path, incoming: &str) -> std::io::Result<()> {
     if old.exists() {
         std::fs::remove_dir_all(old)?;
     }
     if !install.exists() {
         return std::fs::rename(next, install);
     }
+    crate::private_file::write(swapping, incoming.as_bytes())?;
     exchange(next, install)?;
-    std::fs::rename(next, old)
+    std::fs::rename(next, old)?;
+    std::fs::remove_file(swapping)
 }
 
 /// Swaps what two paths name, at once.
@@ -169,27 +173,29 @@ fn exchange(a: &Path, b: &Path) -> std::io::Result<()> {
 /// swapped in. A staged bundle that matches what's running (a build that
 /// finished after the same tree went in another way), or that has no
 /// build.json, is dropped. Leftovers of an earlier swap go first.
-pub fn apply_staged(install: &Path, next: &Path, old: &Path, running: Option<&BuildInfo>) -> Result<Option<BuildInfo>, String> {
+pub fn apply_staged(install: &Path, next: &Path, old: &Path, swapping: &Path, running: Option<&BuildInfo>) -> Result<Option<BuildInfo>, String> {
     if old.exists() {
         let _ = std::fs::remove_dir_all(old);
+    }
+    // A swap cut short. If what's at `next` isn't the build it was putting
+    // in, the exchange happened and that's the old bundle: it goes, rather
+    // than back in. If it is, the exchange never happened: on as usual.
+    if let Ok(incoming) = std::fs::read_to_string(swapping) {
+        let at_next = BuildInfo::read(next).map(|b| b.app_tree);
+        if next.exists() && at_next.as_deref() != Some(incoming.trim()) {
+            let _ = std::fs::rename(next, old);
+        }
+        let _ = std::fs::remove_file(swapping);
     }
     if !next.exists() {
         return Ok(None);
     }
-    // Not what's running, and not older than it: an old bundle can be left
-    // staged by a swap killed half done.
-    let Some(staged) = BuildInfo::read(next).filter(|s| running.is_none_or(|r| r.app_tree != s.app_tree && !older(s, r))) else {
+    let Some(staged) = BuildInfo::read(next).filter(|s| running.is_none_or(|r| r.app_tree != s.app_tree)) else {
         let _ = std::fs::remove_dir_all(next);
         return Ok(None);
     };
-    swap(install, next, old).map_err(|e| format!("couldn't put {} in place: {e}", next.display()))?;
+    swap(install, next, old, swapping, &staged.app_tree).map_err(|e| format!("couldn't put {} in place: {e}", next.display()))?;
     Ok(Some(staged))
-}
-
-/// Built before `than`, by their `built_at` times (ISO, so they sort as
-/// strings); unknown either side counts as not older.
-fn older(build: &BuildInfo, than: &BuildInfo) -> bool {
-    !build.built_at.is_empty() && !than.built_at.is_empty() && build.built_at < than.built_at
 }
 
 /// The idle time, with the app in front, that counts as not using it.
@@ -298,13 +304,15 @@ mod tests {
         let install = bundle(&dir, "Threadbear GPUI.app", &build("aaa", "t1"));
         let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("bbb", "t2"));
         let old = dir.join(".Threadbear GPUI.app.old");
-        swap(&install, &next, &old).unwrap();
+        let swapping = dir.join(".Threadbear GPUI.app.swapping");
+        swap(&install, &next, &old, &swapping, "t2").unwrap();
+        assert!(!swapping.exists(), "the note goes once it's done");
         assert_eq!(marker(&install).as_deref(), Some("bbb"));
         assert_eq!(marker(&old).as_deref(), Some("aaa"));
         assert!(!next.exists());
         // A swap that can't happen leaves the installed one where it is: the
         // exchange is one step, done or not.
-        assert!(swap(&install, &dir.join("gone.app"), &old).is_err());
+        assert!(swap(&install, &dir.join("gone.app"), &old, &swapping, "t9").is_err());
         assert_eq!(marker(&install).as_deref(), Some("bbb"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -314,33 +322,49 @@ mod tests {
         let dir = temp("apply");
         let install = bundle(&dir, "Threadbear GPUI.app", &build("aaa", "t1"));
         let old = dir.join(".Threadbear GPUI.app.old");
+        let swapping = dir.join(".Threadbear GPUI.app.swapping");
         // The same tree as what's running: dropped, nothing swapped.
         let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("aab", "t1"));
-        assert_eq!(apply_staged(&install, &next, &old, Some(&build("aaa", "t1"))), Ok(None));
+        assert_eq!(apply_staged(&install, &next, &old, &swapping, Some(&build("aaa", "t1"))), Ok(None));
         assert!(!next.exists());
         assert_eq!(marker(&install).as_deref(), Some("aaa"));
         // A leftover from an earlier swap is cleared, and a new build goes in.
         bundle(&dir, ".Threadbear GPUI.app.old", &build("zzz", "t0"));
         let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("bbb", "t2"));
-        assert_eq!(apply_staged(&install, &next, &old, Some(&build("aaa", "t1"))).unwrap().map(|b| b.short), Some("bbb".to_owned()));
+        assert_eq!(apply_staged(&install, &next, &old, &swapping, Some(&build("aaa", "t1"))).unwrap().map(|b| b.short), Some("bbb".to_owned()));
         assert_eq!(marker(&install).as_deref(), Some("bbb"));
         assert_eq!(marker(&old).as_deref(), Some("aaa"));
         // Nothing staged: nothing happens.
-        assert_eq!(apply_staged(&install, &next, &old, Some(&build("bbb", "t2"))), Ok(None));
+        assert_eq!(apply_staged(&install, &next, &old, &swapping, Some(&build("bbb", "t2"))), Ok(None));
         // A staged folder with no build.json is dropped.
         std::fs::create_dir_all(&next).unwrap();
-        assert_eq!(apply_staged(&install, &next, &old, Some(&build("bbb", "t2"))), Ok(None));
+        assert_eq!(apply_staged(&install, &next, &old, &swapping, Some(&build("bbb", "t2"))), Ok(None));
         assert!(!next.exists());
-        // An older build left staged (a swap killed after its exchange, before
-        // its last rename) isn't put back over a newer one.
-        let mut older = build("ccc", "t3");
-        older.built_at = "2026-11-11T10:00:00Z".into();
-        let mut newer = build("bbb", "t2");
-        newer.built_at = "2026-11-12T10:00:00Z".into();
-        let next = bundle(&dir, ".Threadbear GPUI.app.next", &older);
-        assert_eq!(apply_staged(&install, &next, &old, Some(&newer)), Ok(None));
-        assert!(!next.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_swap_cut_short_is_finished_the_right_way() {
+        let dir = temp("cut-short");
+        let old = dir.join(".Threadbear GPUI.app.old");
+        let swapping = dir.join(".Threadbear GPUI.app.swapping");
+        // Killed after the exchange: the new one's in place, the old one's
+        // left at next, and the note says t2 was coming in. The old one goes,
+        // not back in, whatever the clocks said.
+        let install = bundle(&dir, "Threadbear GPUI.app", &build("bbb", "t2"));
+        let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("aaa", "t1"));
+        std::fs::write(&swapping, "t2").unwrap();
+        assert_eq!(apply_staged(&install, &next, &old, &swapping, Some(&build("bbb", "t2"))), Ok(None));
         assert_eq!(marker(&install).as_deref(), Some("bbb"));
+        assert!(!next.exists() && !swapping.exists());
+        // Killed before it: the note and the staged one agree, so it goes in.
+        let _ = std::fs::remove_dir_all(&old);
+        let install = bundle(&dir, "Threadbear GPUI.app", &build("aaa", "t1"));
+        let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("bbb", "t2"));
+        std::fs::write(&swapping, "t2").unwrap();
+        assert_eq!(apply_staged(&install, &next, &old, &swapping, Some(&build("aaa", "t1"))).unwrap().map(|b| b.short), Some("bbb".to_owned()));
+        assert_eq!(marker(&install).as_deref(), Some("bbb"));
+        assert!(!swapping.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

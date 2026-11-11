@@ -94,7 +94,10 @@ pub fn hang_event(mut event: Map<String, Value>, stall: &crate::hang_watch::Past
 /// down with it; elsewhere that thread stopped and the app carried on.
 pub fn panic_event(mut event: Map<String, Value>, panic: &PanicRecord) -> Value {
     event.insert("level".into(), json!(if panic.main_thread { "fatal" } else { "error" }));
-    let value = if panic.location.is_empty() { panic.message.clone() } else { format!("{} at {}", panic.message, panic.location) };
+    // Again here, not only when it was kept: a record an older build kept
+    // (and scrubbed less well) goes out by the same rule (Codex, 12 Nov).
+    let message = safe_message(&panic.message);
+    let value = if panic.location.is_empty() { message } else { format!("{message} at {}", panic.location) };
     event.insert(
         "exception".into(),
         json!({ "values": [{
