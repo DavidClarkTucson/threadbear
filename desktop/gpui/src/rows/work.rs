@@ -2,7 +2,7 @@
 // and the working line (HeaderRowCell, GroupRowCell, WorkingRowCell and
 // BackgroundRowCell in Cells.swift).
 use super::metrics::*;
-use super::{row_wrap, tip};
+use super::row_wrap;
 use crate::style::{self, size};
 use crate::thread::ThreadPane;
 use gpui_kit::base::SelectableText;
@@ -13,6 +13,7 @@ use gpui_kit::*;
 use crate::style::px;
 use threadbear_core::reducer::{BackgroundStatus, BackgroundWork, Detail, Field, NumberedLine, Row, ToolItem, ToolKind, ToolPresentation, TurnGap, WorkGroup, WorkSummary};
 use threadbear_core::reducer::{ApprovalDecision, ApprovalItem, ApprovalText, DiffBuilder, SecretItem, TextItem};
+use crate::tips::Tip as _;
 
 /// The SVG bytes of the Lucide icon standing in for an SF Symbol, from the
 /// kit's own catalog (its `Assets` only carries 101 of them). A name map
@@ -121,7 +122,7 @@ pub(crate) fn work_line(
         line = line.on_click(move |e, window, cx| on_click(e, window, cx));
     }
     if let Some(tooltip) = tooltip {
-        line = line.tooltip(tip(tooltip));
+        line = line.tip(tooltip);
     }
     line
 }
@@ -295,7 +296,7 @@ impl ThreadPane {
             .items_center()
             .text_size(px(size::WORK))
             .text_color(quiet)
-            .tooltip(tip(&tip_text))
+            .tip(&tip_text)
             .child(div().flex_none().w(px(TITLE_INDENT)).child(icon("pawprint", 15., quiet)))
             .child(div().truncate().child(BackgroundWork::line_with_detail(&status.tasks)));
         h_flex().w_full().px(px(crate::style::SIDE_INSET)).justify_center().child(div().w_full().min_w_0().max_w(px(crate::style::MAX_CONTENT_WIDTH)).child(line)).into_any_element()
@@ -311,7 +312,7 @@ impl ThreadPane {
             .items_center()
             .gap(px(12.))
             .child(rule())
-            .child(div().id("gap-label").text_size(px(size::SMALL)).text_color(faint).flex_none().tooltip(tip(&tip_text)).child(gap.label()))
+            .child(div().id("gap-label").text_size(px(size::SMALL)).text_color(faint).flex_none().tip(&tip_text).child(gap.label()))
             .child(rule());
         h_flex().w_full().px(px(crate::style::SIDE_INSET)).justify_center().child(div().w_full().min_w_0().max_w(px(crate::style::MAX_CONTENT_WIDTH)).child(line)).into_any_element()
     }
@@ -403,7 +404,7 @@ fn tool_body(ix: usize, tool: &ToolItem, remote: bool, cx: &App) -> AnyElement {
                 let origin = if remote { crate::open_gate::Origin::OtherMac } else { crate::open_gate::Origin::ThisMac };
                 note.child(
                     h_flex().child("Output shortened · ").child(
-                        div().id(("show-all", ix)).cursor_pointer().text_color(style::link_text(cx)).tooltip(tip("The whole output, in a file")).on_click(move |_, _, cx| crate::open_gate::open_file(&path, origin, cx)).child("Show all"),
+                        div().id(("show-all", ix)).cursor_pointer().text_color(style::link_text(cx)).tip("The whole output, in a file").on_click(move |_, _, cx| crate::open_gate::open_file(&path, origin, cx)).child("Show all"),
                     ),
                 )
             }

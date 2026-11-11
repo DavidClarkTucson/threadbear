@@ -7,7 +7,6 @@ use crate::composer::Composer;
 use crate::style;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Enter, InputEvent, Textarea, TextareaState};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -18,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 use threadbear_core::composer::{self, OWN_ANSWER};
 use threadbear_core::reducer::{Ask, AskNote, AsksCard, RowContent};
+use crate::tips::Tip as _;
 
 /// What Mike has picked on the open card, kept with the composer so it
 /// survives moving to another thread and back (AppModel's askPicks, nextPicks
@@ -443,7 +443,7 @@ impl Composer {
                         .rounded(px(6.))
                         .cursor_pointer()
                         .hover(|s| s.bg(style::hover_fill(cx)))
-                        .tooltip(|window, cx| Tooltip::new("Send this with your next message").build(window, cx))
+                        .tip("Send this with your next message")
                         .on_click(move |_, window, cx| {
                             if let Some(this) = this2.upgrade() {
                                 this.update(cx, |this, cx| this.toggle_follow_up(index, window, cx));
@@ -464,7 +464,7 @@ impl Composer {
                                 .cursor_pointer()
                                 .hover(|s| s.bg(style::hover_fill(cx)))
                                 .child(Icon::from(IconName::CircleQuestionMark).with_size(px(14.)).text_color(if explained { style::accent(cx) } else { style::quiet_text(cx) }))
-                                .tooltip(|window, cx| Tooltip::new("Ask what this means").build(window, cx))
+                                .tip("Ask what this means")
                                 .on_click(move |_, window, cx| {
                                     cx.stop_propagation();
                                     if let Some(this) = this3.upgrade() {
@@ -538,7 +538,7 @@ impl Composer {
                 // SF's chevron at 11 pt semibold is about 10 by 6; Lucide's,
                 // a 12 by 6 stroke in 24, comes to that at 17.
                 .child(Icon::from(if collapsed { IconName::ChevronUp } else { IconName::ChevronDown }).with_size(px(17.)))
-                .tooltip(move |window, cx| Tooltip::new(if collapsed { "Expand" } else { "Collapse" }).build(window, cx))
+                .tip(if collapsed { "Expand" } else { "Collapse" })
                 .on_click(move |_, window, cx| {
                     if let Some(this) = collapse_this.upgrade() {
                         this.update(cx, |this, cx| this.toggle_collapsed(window, cx));
@@ -841,7 +841,7 @@ pub(crate) trait AskHost: Sized + 'static {
                     .when(n > 0, |s| s.border_t_1().border_color(style::primary_opacity(cx, 0.055)))
                     .cursor_pointer()
                     .hover(|s| s.bg(style::hover_fill(cx)))
-                    .tooltip(move |window, cx| Tooltip::new(if own { "Answer in your own words" } else { "Pick this answer" }).build(window, cx))
+                    .tip(if own { "Answer in your own words" } else { "Pick this answer" })
                     .on_click(move |_, window, cx| {
                         if let Some(this) = this.upgrade() {
                             this.update(cx, |this, cx| this.ask_pick_answer(index, value, window, cx));
@@ -958,7 +958,7 @@ impl AskHost for Composer {
                     .bg(hsla(0., 0., 0., 0.6))
                     .cursor_pointer()
                     .child(Icon::from(IconName::X).with_size(px(9.)).text_color(gpui_kit::white()))
-                    .tooltip(|window, cx| Tooltip::new("Remove").build(window, cx))
+                    .tip("Remove")
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.remove_picture_in(&remove_input, remove_id.clone(), window, cx)));
                 let group: SharedString = format!("answer-picture-{ask}-{n}").into();
                 row = row.child(div().id(("answer-picture", ask * 100 + n)).group(group.clone()).relative().child(tile).child(div().invisible().group_hover(group, |s| s.visible()).child(remove)));
@@ -977,7 +977,7 @@ impl AskHost for Composer {
             .cursor_pointer()
             .hover(|s| s.bg(style::hover_fill(cx)))
             .child(Icon::from(IconName::ImagePlus).with_size(px(14.)).text_color(style::secondary_label(cx)))
-            .tooltip(|window, cx| Tooltip::new("Add pictures to this answer (or paste or drop them in the box)").build(window, cx))
+            .tip("Add pictures to this answer (or paste or drop them in the box)")
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.choose_answer_pictures(ask, window, cx)))
             .into_any_element();
         Some((strip, add))
@@ -1317,7 +1317,7 @@ pub(crate) fn card_button(id: impl Into<ElementId>, title: &str, look: ButtonLoo
         .line_height(px(16.))
         .cursor_pointer()
         .hover(|s| s.opacity(0.85))
-        .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+        .tip(tip)
         .child(title.to_owned())
 }
 
@@ -1350,7 +1350,7 @@ fn pager_arrow(glyph: &'static str, enabled: bool, tip: &'static str, id: impl I
         .rounded(px(7.5))
         .text_size(px(style::size::LABEL))
         .line_height(px(16.))
-        .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+        .tip(tip)
         .map(|s| {
             if enabled {
                 s.px(px(metrics::PAGER_PAD - 1.))

@@ -13,7 +13,6 @@ use gpui_kit::assets::IconName;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -23,6 +22,7 @@ use threadbear_core::navigation::history_tip;
 use threadbear_core::reducer::{RowContent, TurnCompletion, TurnErrorKind, TurnOutcome};
 use threadbear_core::shortcuts::ShortcutCommand;
 use threadbear_core::sign_in::{self, SignInAccount};
+use crate::tips::Tip as _;
 
 /// `PaneHeader.height`: the panels' bars, and the title bar's strip.
 pub(crate) const HEADER_HEIGHT: f32 = 38.;
@@ -34,7 +34,7 @@ macro_rules! tipped {
     ($el:expr, $tip:expr $(,)?) => {{
         let tip_text: SharedString = $tip.into();
         let shown = tip_text.clone();
-        $el.test_support().aria_label(tip_text).tooltip(move |window, cx| Tooltip::new(shown.clone()).build(window, cx))
+        crate::tips::Tip::tip($el.test_support().aria_label(tip_text), shown)
     }};
 }
 
@@ -249,7 +249,7 @@ impl Threadbear {
                 }
             }))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .tooltip(|window, cx| Tooltip::new("Return saves, Escape cancels").build(window, cx))
+            .tip("Return saves, Escape cancels")
             .child(Input::new(field).appearance(false).small().pl(px(0.)))
             .into_any_element()
     }

@@ -138,7 +138,7 @@ you go.
   (`system.selfupdate`, `system.handover`)
 - [x] Crash reports to Sentry, and the hang watch (`system.crash`,
   `system.hangwatch`)
-- [ ] The activity log (`system.activitylog`, `foundation.tooltips`)
+- [x] The activity log (`system.activitylog`, `foundation.tooltips`)
 - [ ] Bringing the Swift app's settings and drafts across on first launch
 - [ ] Windows and Linux: notifications, the badge, a menu bar and window
   buttons (`dock.titlebar`, `menu.*`)

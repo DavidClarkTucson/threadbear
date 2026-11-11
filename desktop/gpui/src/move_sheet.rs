@@ -12,7 +12,6 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable, Sizable as _, StyledExt as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -23,6 +22,7 @@ use serde_json::json;
 use serde_json::Value;
 use threadbear_client::runner::Status;
 use threadbear_core::remote::{MovePreview, RunnerInfo};
+use crate::tips::Tip as _;
 
 /// `AppModel.MoveRequest`: which thread, to which runner.
 #[derive(Clone)]
@@ -407,7 +407,7 @@ impl RenderOnce for MoveLoginTrigger {
             .border_color(style::hairline(cx))
             .bg(style::button_fill(cx))
             .cursor_pointer()
-            .tooltip(|window, cx| Tooltip::new("The login it carries on with there").build(window, cx))
+            .tip("The login it carries on with there")
             .child(div().flex_1().min_w_0().truncate().text_size(px(size::LABEL)).child(self.label))
             .child(Icon::from(gpui_kit::assets::IconName::ChevronDown).with_size(px(11.)).text_color(style::faint_icon(cx)))
     }
@@ -441,7 +441,7 @@ impl Render for MoveSheet {
                             .gap(px(10.))
                             .items_center()
                             .child(label("Folder"))
-                            .child(div().id("move-folder").flex_1().min_w_0().tooltip(move |window, cx| Tooltip::new(folder_tip.clone()).build(window, cx)).child(Input::new(&self.folder).small().font_family(cx.theme().mono_font_family.clone()))),
+                            .child(div().id("move-folder").flex_1().min_w_0().tip(folder_tip.clone()).child(Input::new(&self.folder).small().font_family(cx.theme().mono_font_family.clone()))),
                     )
                     .child(h_flex().gap(px(10.)).items_center().child(label("Login")).child(div().flex_1().min_w_0().child(login_picker))),
             )

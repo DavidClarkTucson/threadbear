@@ -13,7 +13,6 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, Textar
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::radio::Radio;
 use gpui_kit::component::time_field::{HourCycle, TimeField, TimeFieldEvent, TimeFieldState, TimePrecision};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _, StyledExt as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -32,6 +31,7 @@ use threadbear_core::composer::effort_title;
 use threadbear_core::inbox::{iso_time, parse_ms};
 use threadbear_core::new_thread::abbreviate_home;
 use threadbear_core::schedules::{self as rules, RepeatChoice, RepeatKind, ScheduleModels};
+use crate::tips::Tip as _;
 
 /// Monday first; cron counts Sunday as 0.
 const WEEKDAYS: [(u32, &str); 7] = [(1, "Monday"), (2, "Tuesday"), (3, "Wednesday"), (4, "Thursday"), (5, "Friday"), (6, "Saturday"), (0, "Sunday")];
@@ -632,7 +632,7 @@ impl ScheduleEditor {
     fn repeat_detail(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let secondary = style::secondary_text(cx);
         let word = |text: &'static str| div().flex_none().text_size(px(style::size::LABEL)).text_color(secondary).child(text).into_any_element();
-        let time = || vec![word("at"), div().id("schedule-time").flex_none().w(px(110.)).tooltip(|window, cx| Tooltip::new("What time to send it").build(window, cx)).child(TimeField::new(&self.time).small()).into_any_element()];
+        let time = || vec![word("at"), div().id("schedule-time").flex_none().w(px(110.)).tip("What time to send it").child(TimeField::new(&self.time).small()).into_any_element()];
         let repeat = &self.state.repeat;
         match repeat.kind {
             RepeatKind::Hourly | RepeatKind::Custom => Vec::new(),
@@ -739,11 +739,11 @@ impl Render for ScheduleEditor {
             div().text_size(px(style::size::SIDEBAR_META)).line_height(px(14.)).text_color(secondary).child(what)
         });
         let message = v_flex().gap(px(4.)).child(message_box).children(images_note);
-        let title = div().id("schedule-title").tooltip(|window, cx| Tooltip::new("Its name in the Scheduled list. Left empty, it's named after the message's first line.").build(window, cx)).child(Input::new(&self.title).small());
+        let title = div().id("schedule-title").tip("Its name in the Scheduled list. Left empty, it's named after the message's first line.").child(Input::new(&self.title).small());
 
         let once = state.once;
         let editor = cx.entity().downgrade();
-        let when = div().id("schedule-when").flex_none().tooltip(|window, cx| Tooltip::new("Send it once, or again and again").build(window, cx)).child(
+        let when = div().id("schedule-when").flex_none().tip("Send it once, or again and again").child(
             ButtonGroup::new("schedule-when-group")
                 .small()
                 .outline()
@@ -757,7 +757,7 @@ impl Render for ScheduleEditor {
 
         let mut rows: Vec<AnyElement> = vec![form_row("Message", message, cx).into_any_element(), form_row("Title", title, cx).into_any_element(), form_row("When", h_flex().child(when), cx).into_any_element()];
         if once {
-            let at = div().id("schedule-at").flex_none().w(px(240.)).tooltip(|window, cx| Tooltip::new("When to send it").build(window, cx)).child(DatePicker::new(&self.at).small());
+            let at = div().id("schedule-at").flex_none().w(px(240.)).tip("When to send it").child(DatePicker::new(&self.at).small());
             rows.push(form_row("At", h_flex().child(at), cx).into_any_element());
         } else {
             let kind = state.repeat.kind;
@@ -772,7 +772,7 @@ impl Render for ScheduleEditor {
             let detail = self.repeat_detail(cx);
             rows.push(form_row("Repeat", h_flex().gap(px(6.)).items_center().child(picker).children(detail), cx).into_any_element());
             if kind == RepeatKind::Custom {
-                let cron = div().id("schedule-cron").tooltip(|window, cx| Tooltip::new("Minute, hour, day of the month, month and day of the week").build(window, cx)).child(Input::new(&self.cron).small().font_family(cx.theme().mono_font_family.clone()));
+                let cron = div().id("schedule-cron").tip("Minute, hour, day of the month, month and day of the week").child(Input::new(&self.cron).small().font_family(cx.theme().mono_font_family.clone()));
                 rows.push(form_row("Cron", cron, cx).into_any_element());
             }
         }
@@ -786,7 +786,7 @@ impl Render for ScheduleEditor {
             let radios = v_flex()
                 .id("schedule-sends-to")
                 .gap(px(6.))
-                .tooltip(|window, cx| Tooltip::new("Send it into this thread, or start a new thread with it each time").build(window, cx))
+                .tip("Send it into this thread, or start a new thread with it each time")
                 .child(Radio::new("sends-here").label("This thread").checked(to_thread).on_click(move |_, _, cx| {
                     let from = from.clone();
                     e1.update(cx, |e, cx| {
@@ -857,7 +857,7 @@ impl Render for ScheduleEditor {
                     .items_center()
                     .text_size(px(style::size::LABEL))
                     .text_color(secondary)
-                    .tooltip(|window, cx| Tooltip::new("Where it runs. To run it somewhere else, make a new schedule.").build(window, cx))
+                    .tip("Where it runs. To run it somewhere else, make a new schedule.")
                     .child(icons::symbol(symbol).with_size(px(12.)).text_color(secondary))
                     .child(div().truncate().child(name));
                 rows.push(form_row("Runs on", line, cx).into_any_element());
@@ -866,7 +866,7 @@ impl Render for ScheduleEditor {
                 // A path on that Mac: nothing here can check or choose it.
                 let away = state.runner_name.clone().unwrap_or_else(|| "another Mac".into());
                 let tip = format!("A folder on {away}. Left empty, {away}'s default folder.");
-                let folder = div().id("schedule-away-folder").tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)).child(Input::new(&self.away_folder).small());
+                let folder = div().id("schedule-away-folder").tip(tip.clone()).child(Input::new(&self.away_folder).small());
                 rows.push(form_row("Folder", folder, cx).into_any_element());
             } else {
                 let mut choices: Vec<Choice> = recent

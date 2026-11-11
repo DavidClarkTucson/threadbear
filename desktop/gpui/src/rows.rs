@@ -18,7 +18,6 @@ use crate::thread::ThreadPane;
 use gpui_kit::base::{SelectableText, TextView};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -619,7 +618,6 @@ fn card(border: Hsla) -> Div {
     v_flex().gap_3().p_3p5().rounded_xl().border_1().border_color(border)
 }
 
-/// A tooltip builder for `.tooltip(...)`, Every control gets one.
 /// The transcript's code blocks stay plain, as the Swift app's do; the kit's
 /// highlighter is for the file preview (files.rs).
 pub(crate) fn plain_code_blocks(_: &gpui_kit::base::text::CodeBlock) -> Vec<(std::ops::Range<usize>, gpui_kit::HighlightStyle)> {
@@ -643,10 +641,5 @@ impl crate::thread::ThreadPane {
             })
             .ok_or_else(|| format!("no row of {count} pictures in this thread"))
     }
-}
-
-pub(crate) fn tip(text: &str) -> impl Fn(&mut Window, &mut App) -> AnyView + use<> {
-    let text: SharedString = text.to_owned().into();
-    move |window, cx| Tooltip::new(text.clone()).build(window, cx)
 }
 

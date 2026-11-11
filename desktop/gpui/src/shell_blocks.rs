@@ -13,6 +13,7 @@ use gpui_kit::*;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use threadbear_core::terminal::{self as rules, ShellBlock};
+use crate::tips::Tip as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Icon {
@@ -144,7 +145,7 @@ fn icon(which: Icon, command: &str, thread: &str, cx: &App) -> impl IntoElement 
         .hover(|s| s.bg(style::primary_opacity(cx, 0.1)).text_color(style::label_text(cx)))
         .role(Role::Button)
         .aria_label(SharedString::from(which.tip()))
-        .tooltip(crate::rows::tip(which.tip()))
+        .tip(which.tip())
         // Not the start of a text selection in the block under it.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, window, cx| press(which, &command, &thread, window, cx))

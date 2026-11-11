@@ -7,7 +7,6 @@
 // as they draw.
 use crate::style;
 use gpui_kit::base::text::{InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
@@ -16,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Mutex;
 use threadbear_core::reply_buttons::{self as buttons, Look, ReplyButton};
+use crate::tips::Tip as _;
 
 #[derive(Default)]
 struct Store {
@@ -216,7 +216,7 @@ impl MarkdownPlugin for Pills {
             .whitespace_nowrap()
             .cursor_pointer()
             .hover(|s| s.opacity(0.85))
-            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .tip(tip.clone())
             // Not the start of a selection in the text around it.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(move |_, window, cx| {

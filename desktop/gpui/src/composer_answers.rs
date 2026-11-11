@@ -6,13 +6,13 @@
 use crate::composer::Composer;
 use crate::style::{self, size};
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
 use crate::style::px;
 use threadbear_core::composer::{picked_answer_label, OWN_ANSWER};
+use crate::tips::Tip as _;
 
 /// What the × on a chip says, and is called.
 const TAKE_BACK: &str = "Take this answer back";
@@ -64,7 +64,7 @@ impl Composer {
                     .border_color(accent.opacity(0.45))
                     .text_size(px(size::CHIP))
                     .line_height(px(style::natural_line(size::CHIP)))
-                    .tooltip(move |window, cx| Tooltip::new(action.clone()).build(window, cx))
+                    .tip(action.clone())
                     .when(asks > 1, |s| s.child(div().text_color(secondary).child((index + 1).to_string())))
                     .when(pick == OWN_ANSWER, |s| s.child(crate::icons::symbol("pencil").with_size(px(10.)).text_color(secondary)))
                     .child(div().max_w(px(260.)).truncate().text_color(style::label_text(cx)).child(label))
@@ -75,7 +75,7 @@ impl Composer {
                             .aria_label(TAKE_BACK)
                             .cursor_pointer()
                             .child(gpui_kit::component::Icon::from(gpui_kit::assets::IconName::X).with_size(px(10.)).text_color(secondary))
-                            .tooltip(|window, cx| Tooltip::new(TAKE_BACK).build(window, cx))
+                            .tip(TAKE_BACK)
                             .on_click(take_back),
                     ),
             );

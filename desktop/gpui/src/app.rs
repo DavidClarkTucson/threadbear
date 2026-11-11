@@ -292,6 +292,8 @@ impl Threadbear {
             if std::mem::take(&mut this.settings_dirty) {
                 this.settings.save();
             }
+            // The activity log's last line (activity.rs).
+            crate::activity::quit();
             async {}
         });
         // A thread is read once Mike's looking at it (AppModel.isLooking,
@@ -420,6 +422,9 @@ impl Threadbear {
             _events: events,
             _subs: vec![appearance, searching, frame, menus, looking, quitting, side_changed, main_context],
         };
+        // Records nothing unless it's switched on in Settings (activity.rs).
+        let showing = crate::activity::showing(this.dock.read(cx).layout());
+        crate::activity::install(cx.entity().downgrade(), window.window_handle(), &RunnerConfig::from_env().home, this.settings.saved.activity_log == Some(true), showing, cx);
         // The window starts on the Inbox with nothing open (`noteNavigation`
         // on launch), so Back from the first thread comes back here.
         this.note_navigation();
@@ -491,6 +496,7 @@ impl Threadbear {
         if !active {
             self.hints_reset(cx);
         }
+        crate::activity::window_active(window, active, cx);
         if let (true, Some(pane)) = (crate::thread::is_looking(), self.pane.clone()) {
             pane.read(cx).mark_seen();
         }
@@ -1317,6 +1323,7 @@ impl Render for Threadbear {
         // The web panels' pages are native views: shown and placed once the
         // window's laid out, where their panels were drawn (web_panels.rs).
         let pages = crate::web_panels::sweeper(self.open_menu_at(), self.share_popover.is_some());
-        self.render_shell(window, cx).children(open_menu).child(pages)
+        // Last: every press in the window, for the activity log (tips.rs).
+        self.render_shell(window, cx).children(open_menu).child(pages).child(crate::tips::window_presses())
     }
 }

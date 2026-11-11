@@ -9,7 +9,6 @@
 use crate::composer::Composer;
 use crate::style;
 use gpui_kit::component::popover::PopoverState;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -17,6 +16,7 @@ use gpui_kit::*;
 use crate::style::px;
 use threadbear_core::login_picker::{login_lines, login_sections, LoginItem, LoginSection};
 use threadbear_core::new_thread::ChipBadge;
+use crate::tips::Tip as _;
 
 /// The picker's width (AccountPickerView.width).
 const WIDTH: f32 = 360.;
@@ -95,7 +95,7 @@ fn login_row(item: &LoginItem, _window: &mut Window, cx: &App, action: impl Fn(&
         .rounded(px(6.))
         .cursor_pointer()
         .hover(|s| s.bg(style::primary_opacity(cx, 0.06)))
-        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .tip(tip.clone())
         .on_click(move |_, window, cx| action(window, cx))
         .child(
             v_flex()

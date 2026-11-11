@@ -15,7 +15,6 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -25,6 +24,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use threadbear_core::chrono::Local;
 use threadbear_core::librarian::{self as rules, Entry, Job, Outcome, State, Status};
+use crate::tips::Tip as _;
 
 /// The Librarian's state in the app (`Threadbear::librarian`).
 pub(crate) struct LibrarianState {
@@ -278,7 +278,7 @@ impl Threadbear {
                             .text_size(px(style::size::SIDEBAR_META))
                             .line_height(px(14.))
                             .text_color(p.faint)
-                            .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                            .tip(full.clone())
                             .child(due),
                     ),
             )
@@ -332,7 +332,7 @@ impl Threadbear {
                                 .text_size(px(style::size::SIDEBAR_META))
                                 .line_height(px(14.))
                                 .text_color(p.faint)
-                                .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                                .tip(full.clone())
                                 .child(ago),
                         )
                     }),
@@ -366,7 +366,7 @@ impl Threadbear {
         let paused = status.paused;
         let label = |text: &'static str| div().w(px(110.)).flex_none().text_size(px(style::size::LABEL)).line_height(px(16.)).text_color(secondary).child(text);
         let switch_tip = if paused { "Paused: what's queued waits. Turn it on to carry on" } else { "Turn it off to pause; what's queued waits" };
-        let switch = div().id("librarian-switch").test_support().aria_label(switch_tip.to_owned()).tooltip(move |window, cx| Tooltip::new(switch_tip).build(window, cx)).child(
+        let switch = div().id("librarian-switch").test_support().aria_label(switch_tip.to_owned()).tip(switch_tip).child(
             Switch::new("librarian-look")
                 .checked(!paused)
                 .disabled(pausing)

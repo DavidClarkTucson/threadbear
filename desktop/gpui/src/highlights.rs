@@ -10,7 +10,6 @@ use crate::app::Threadbear;
 use crate::{call, icons, now_ms, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -25,6 +24,7 @@ use threadbear_client::runner::Client;
 use threadbear_core::highlights::{self as core, fold, Highlight, HighlightKind, HighlightSections, Panel, ProjectInfo, ProjectRow, Schedule, ThreadHighlights};
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::sidebar as side;
+use crate::tips::Tip as _;
 
 pub(crate) const HIGHLIGHTS: &str = "threadbear.highlights";
 pub(crate) const PATCHES: &str = "threadbear.patches";
@@ -891,7 +891,7 @@ pub(crate) fn icon(name: &str, size: f32, color: Hsla) -> Icon {
 pub(crate) fn tipped(el: Stateful<Div>, tip: impl Into<SharedString>) -> gpui_kit::base::ObservedElement<Stateful<Div>> {
     let text: SharedString = tip.into();
     let shown = text.clone();
-    el.test_support().aria_label(text).tooltip(move |window, cx| Tooltip::new(shown.clone()).build(window, cx))
+    el.test_support().aria_label(text).tip(shown)
 }
 
 /// One row in the pane's lists (`PaneRow`): a grey icon, the title with a word
@@ -1049,7 +1049,7 @@ impl PaneRow {
         let row = row.when(self.on_click.is_some(), |s| s.hover(move |st| st.bg(hover)).cursor_pointer());
         let mut wrapper = div().id(self.id).px(px(OUTER_INSET)).child(row);
         if let Some(tip) = self.tip {
-            wrapper = wrapper.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
+            wrapper = wrapper.tip(tip.clone());
         }
         let mut wrapper = wrapper.test_support().aria_label(SharedString::from(self.title));
         if let Some(click) = self.on_click {

@@ -13,7 +13,6 @@ use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, StyledExt as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -25,6 +24,7 @@ use std::time::Duration;
 
 use threadbear_core::inbox::{iso_time, InboxOrder, ThreadSummary};
 use threadbear_core::sidebar::{self as rows, RowAction, RowLook, RowMode, Tile, TrailingKind};
+use crate::tips::Tip as _;
 
 type Clock = threadbear_core::chrono::DateTime<threadbear_core::chrono::Local>;
 
@@ -372,7 +372,7 @@ macro_rules! tipped {
     ($el:expr, $id:expr, $tip:expr) => {{
         let tip_text: SharedString = $tip.into();
         let shown = tip_text.clone();
-        $el.id($id).test_support().aria_label(tip_text).tooltip(move |window, cx| Tooltip::new(shown.clone()).build(window, cx))
+        crate::tips::Tip::tip($el.id($id).test_support().aria_label(tip_text), shown)
     }};
 }
 pub(crate) use tipped;
@@ -1047,7 +1047,7 @@ impl Threadbear {
         // icon and title, so the Input's own padding is dropped.
         h_flex()
             .id("search-field")
-            .tooltip(|window, cx| Tooltip::new("Search threads").build(window, cx))
+            .tip("Search threads")
             .flex_1()
             .min_w_0()
             // 29 tall as the Swift field is (6 over and under a 14 pt line):
@@ -1286,7 +1286,7 @@ impl Threadbear {
                     .items_baseline()
                     .gap(px(4.))
                     .text_color(secondary)
-                    .tooltip(move |window, cx| Tooltip::new(place_tip_text.clone()).build(window, cx))
+                    .tip(place_tip_text.clone())
                     .when_some(byline.as_ref(), |s, b| s.child(icons::try_symbol(&b.symbol).unwrap_or_else(|| icons::symbol("wrench.and.screwdriver")).with_size(px(style::size::SIDEBAR_META)).text_color(secondary).flex_none()))
                     .child(div().min_w_0().truncate().text_size(px(style::size::SIDEBAR_META + 1.)).line_height(px(15.)).child(place)),
             )
@@ -1305,7 +1305,7 @@ impl Threadbear {
                         .text_size(px(style::size::SIDEBAR_META + 1.))
                         .line_height(px(15.))
                         .text_color(secondary)
-                        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                        .tip(tip.clone())
                         .child(format!("\u{2022} {runner}")),
                 )
             })
@@ -1323,7 +1323,7 @@ impl Threadbear {
             .id(ElementId::Name(format!("row-{id}").into()))
             .test_support()
             .aria_label(tip.clone())
-            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .tip(tip.clone())
             .when(offline, |s| s.opacity(0.5))
             .relative()
             .items_center()
@@ -1567,7 +1567,7 @@ fn render_tile(t: &ThreadSummary, look: &RowLook, behind: Hsla, project_icon: Op
         .flex_none()
         .size(px(TILE + 4.))
         .id(ElementId::Name(format!("tile-{}", t.id).into()))
-        .tooltip(move |window, cx| Tooltip::new(help.clone()).build(window, cx))
+        .tip(help.clone())
         .when(stacked, |s| {
             // A second project's edge showing behind, up and to the right.
             s.child(div().absolute().left(px(4.)).top_0().size(size).rounded(px(7.)).bg(p.tile)).child(div().absolute().left_0().bottom_0().size(px(TILE + 2.)).rounded(px(8.)).bg(behind))
@@ -1617,7 +1617,7 @@ fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyEle
         TrailingKind::Woke => gives_way(div()).text_size(meta).line_height(px(15.)).font_medium().text_color(p.accent).child(text).into_any_element(),
     };
     match tip {
-        Some(tip) => gives_way(div()).id(ElementId::Name(format!("trailing-{id}").into())).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)).child(el).into_any_element(),
+        Some(tip) => gives_way(div()).id(ElementId::Name(format!("trailing-{id}").into())).tip(tip.clone()).child(el).into_any_element(),
         None => el,
     }
 }
@@ -1671,7 +1671,7 @@ fn render_subagent_row(t: &ThreadSummary, row: &rows::SubagentRow, first: bool, 
     let hover = p.hover;
     div()
         .id(ElementId::Name(format!("sub-{}-{}", t.id, sub.id).into()))
-        .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
+        .tip(tooltip_text.clone())
         .relative()
         .pt(px(5.))
         .pb(px(6.))

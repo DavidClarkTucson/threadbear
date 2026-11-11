@@ -4,6 +4,7 @@
 // channel; requests run there too and their results come back as tasks.
 // Read-outs that exist only for the scripted control (`automation.rs`).
 #![cfg_attr(not(feature = "automation"), allow(dead_code, unused_imports))]
+mod activity;
 mod activity_panels;
 mod alert;
 mod app;
@@ -85,6 +86,7 @@ mod style;
 mod terminal;
 mod terminal_element;
 mod thread;
+mod tips;
 mod thread_panels;
 mod updates_panel;
 mod usage;

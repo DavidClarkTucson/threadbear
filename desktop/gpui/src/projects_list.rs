@@ -14,10 +14,9 @@ use crate::home_page::mode_header;
 use crate::projects::project_icon;
 use crate::sidebar::{icon, palette, tipped, Palette, CORNER, LEADING, OUTER_INSET, TRAILING};
 use crate::{now_ms, style};
-// `tipped!` (sidebar.rs) needs TestSupportExt and Tooltip where it's used.
+// `tipped!` (sidebar.rs) needs TestSupportExt where it's used.
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;

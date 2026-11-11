@@ -1732,7 +1732,9 @@ title in it). An agent reads it with `tb activity`, or
 It's off until you turn it on. It's kept in the `activity` folder of
 Threadbear's data folder, a file a day, and each file is deleted after 30
 days. Threadbear never sends it anywhere, though once an agent has read
-some of it, that's part of its thread like anything else it reads.
+some of it, that's part of its thread like anything else it reads. The new
+desktop app (the `gpuiApp` experiment) keeps the same log in the same files,
+with its own switch in its Settings, and marks its lines as its own.
 
 ### Keeping the Mac awake
 

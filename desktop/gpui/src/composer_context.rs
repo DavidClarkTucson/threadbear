@@ -11,7 +11,6 @@ use crate::style;
 use gpui_kit::component::popover::PopoverState;
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -24,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use threadbear_client::runner::Client;
 use threadbear_core::composer::ContextMeter;
 use threadbear_core::context_breakdown::{ContextAnswer, ContextBreakdown, Swatch};
+use crate::tips::Tip as _;
 
 /// The last answer for each thread, kept while the app runs, so the popover
 /// opens on it while it asks again (AppModel.contextUsage); and the threads
@@ -142,7 +142,7 @@ fn refresh_button(facts: &Rc<ContextFacts>, answer: Option<&ContextAnswer>, cx: 
         .rounded(px(4.))
         .when(asleep, |s| s.opacity(0.4))
         .when(!asleep, |s| s.cursor_pointer().hover(|s| s.bg(style::hover_fill(cx))).on_click(move |_, _, cx| load(&again, cx)))
-        .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+        .tip(tip)
         .child(crate::icons::symbol("arrow.clockwise").with_size(px(11.)).text_color(secondary))
         .into_any_element()
 }
@@ -175,7 +175,7 @@ fn breakdown_view(breakdown: &ContextBreakdown, note: Option<String>, cx: &App) 
             .child(div().flex_none().text_color(secondary).child(row.token_text()))
             .child(div().flex_none().w(px(38.)).flex().justify_end().text_color(secondary).child(row.percent_text().unwrap_or_default()));
         column = column.child(match tip {
-            Some(tip) => line.tooltip(move |window, cx| Tooltip::new(tip).build(window, cx)).into_any_element(),
+            Some(tip) => line.tip(tip).into_any_element(),
             None => line.into_any_element(),
         });
     }
@@ -190,7 +190,7 @@ fn breakdown_view(breakdown: &ContextBreakdown, note: Option<String>, cx: &App) 
                 .line_height(px(style::natural_line(11.)))
                 .text_color(secondary)
                 .child(words)
-                .when_some(note, |s, note| s.child(div().id("context-note").child(crate::icons::symbol("exclamationmark.circle").with_size(px(11.)).text_color(secondary)).tooltip(move |window, cx| Tooltip::new(note.clone()).build(window, cx)))),
+                .when_some(note, |s, note| s.child(div().id("context-note").child(crate::icons::symbol("exclamationmark.circle").with_size(px(11.)).text_color(secondary)).tip(note.clone()))),
         );
     }
     column.into_any_element()

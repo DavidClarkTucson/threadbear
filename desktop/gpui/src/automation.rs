@@ -134,6 +134,11 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     if cmd["cmd"] == "webPanel" {
         return crate::web_panels::automation(cmd, cx).await;
     }
+    // The activity log (activity.rs), as the Swift app's `activity`: a press
+    // or a key, then what today's file has, a moment later.
+    if cmd["cmd"] == "activity" {
+        return crate::activity::automation(app, window, cmd, cx).await;
+    }
     let weak = app.clone();
     // A design review's window (review_window.rs), as the Swift command.
     if cmd["cmd"] == "review" {

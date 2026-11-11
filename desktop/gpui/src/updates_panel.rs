@@ -23,6 +23,7 @@ use std::time::Duration;
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::new_thread::{Draft, NewThreadPicks};
 use threadbear_core::updates::{self as rules, AppSide, CliStatus, RunnerUpdates};
+use crate::tips::Tip as _;
 
 /// What the App section says, as this app doesn't update itself.
 const APP_LINE: &str = "This app doesn't update itself yet. A new build goes in with desktop/scripts/install-app.sh.";
@@ -443,7 +444,7 @@ impl Threadbear {
         let current = cli.policy.clone();
         let app = cx.entity().downgrade();
         let words = format!("Updates: {}", rules::policy_title(&cli.policy));
-        let holder = div().id(SharedString::from(format!("updates-policy-{}", cli.provider))).flex_none().test_support().aria_label(tip).tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx));
+        let holder = div().id(SharedString::from(format!("updates-policy-{}", cli.provider))).flex_none().test_support().aria_label(tip).tip(tip);
         if busy {
             // Taking no other choice until the runner has this one.
             return holder.opacity(0.5).child(MenuLabel::new(SharedString::from(format!("updates-policy-{provider}-label")), words, 11., style::label_text(cx))).into_any_element();

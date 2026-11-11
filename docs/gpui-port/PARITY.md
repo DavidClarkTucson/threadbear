@@ -547,6 +547,59 @@ built parsers and gates with no launch of the app, which is the trap.)
   fail with its fix taken out; the Swift app's build and tests on Tinker
   Desk. The rich boxes' frame budget and release weren't run against CEF
   (no web runtime on Linux, and this Mac is Mike's), only built and read.
+### 2026-11-11 The activity log, and every tooltip through one helper (`system.activitylog`, `foundation.tooltips`)
+
+- Settings > General > Activity log, with Keep an activity log, where the
+  Swift app has it (after Code review), off until it's turned on, kept as
+  `activityLog` in desktop-settings.json (the Swift app's name for it).
+- What's noted, as ActivityRecorder notes it, a line each in
+  `<data folder>/activity/<day>.jsonl`: a click, named by the tooltip of the
+  smallest control under the pointer, with the dock panel it was in, the
+  window, the button, a double click and the keys held; a menu item from the
+  menu bar or its key ("Thread › Archive" with "⌘E"); a shortcut no menu has
+  (⌘ or ⌃ with a key, and Escape, never another key); a tooltip read (once
+  in 5 s); where the window went (the sidebar's view, the thread or
+  sub-agent, a project's or a view's page); the panels showing; a send, by
+  its pictures and answers, never its words (and a new thread's, and an
+  edit); an answer (allow, deny, answered); the app coming to the front or
+  going behind, another of its windows in front; the launch with its
+  version, build and panels; and the quit. The same JSON, keys sorted, local
+  time with its offset, so `tb activity` and `--summary` read both apps'
+  lines as one; this app's say `"app": "desktop"`. One write a line to a file
+  opened for appending (both apps may write at once), the folder 0700 and
+  left out of Time Machine (the attribute tmutil sets), files 0600, 20 MB a
+  day at most, each gone after 30 days.
+- Every control's tooltip goes through `tips.rs`'s `.tip(text)` now (88
+  places moved over; highlights.rs's `tipped` and the two `tipped!` macros
+  use it). It also lays an invisible anchor over the control that names a
+  press as it begins (the capture phase), so a control that stops the click
+  is named too; while the log is off it does nothing. Core's
+  `tips_source.rs` fails on a tooltip made any other way, as TipsTests does
+  for the Swift app.
+- Not the same yet: a kit component's own tooltip (a Button's, a Switch's:
+  the kit draws those, and a child put in a Button changes how it looks)
+  names nothing, so a click there has no target (Settings' buttons, the
+  schedule editor's, the Move sheet's); the kit's in-window menus (right-click
+  menus, pop-ups) aren't noted as menu items; a click no tooltip names has no
+  `view` (the Swift app's AppKit class); a transcript card's button isn't
+  "Card button: <action>"; and a key held down is noted each time it repeats.
+- Both apps' `activity` command: `on`, `click` (a tip, pressed with nothing
+  under it pressed), `button`, `key` with `command`, and `last`.
+- Files: `desktop/core/src/activity.rs` and `desktop/gpui/src/{activity,
+  tips}.rs` (new), core's `tips_source.rs`, a line each in `app.rs`,
+  `shell.rs`, `thread.rs`, `composer.rs`, `new_thread.rs`, `rows/cards.rs`,
+  `settings.rs`, `settings_window.rs`, `main.rs` and `automation.rs`, the
+  tooltips moved over in 26 files, `features/activity-log.feature` and its
+  steps, `docs/guide.md`, `docs/on-your-mac.md` (the `activity` folder, which
+  wasn't listed for the Swift app either).
+- Verification: on Tinker Desk, activity-log.feature on both apps (3 of 3
+  each: a click named by its tooltip, in the threads panel; a message sent
+  noted in its thread with none of its words; nothing noted while it's
+  off), with hang-watch.feature on the Swift app again; the whole GPUI suite
+  after the tooltips moved over, 368 of 376 (6 skipped as before), the two
+  that failed under a load of 50 to 90 (a file conflict's wait, a project
+  decision's dump) passing when run again; core's tests (502, and
+  tips_source.rs among the integration ones).
 
 ### 2026-11-11 View > Collapse Threads, and threadbear:// links from outside (`menu.view`, `nav.deeplink`)
 

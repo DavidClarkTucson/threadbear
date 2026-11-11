@@ -586,6 +586,8 @@ impl ThreadPane {
     /// transcript straight away, and goes back into the box if the runner
     /// doesn't take it. `draft` is what to give back then.
     pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<crate::composer::RestoreDraft>, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
+        // By count, never its words (activity.rs).
+        crate::activity::sent(Some(&self.summary.id), images.len(), answers.as_object().map(|a| a.len()).or_else(|| answers.as_array().map(Vec::len)).unwrap_or(0), false);
         // Shown straight away and put right when the runner echoes it back.
         self.next_pending += 1;
         let pending_id = format!("local-{}", self.next_pending);

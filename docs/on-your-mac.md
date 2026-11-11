@@ -110,7 +110,12 @@ File references are where to look.
   and `shortcuts.json`, the keyboard shortcuts you've changed in Settings >
   Keyboard, which the app reads and writes and never sends anywhere,
   `schedule-runs/`, schedule runs your Convex backend hasn't been told
-  of yet, a file each, kept only until it has, and
+  of yet, a file each, kept only until it has, `activity/`, the activity
+  log, only while Keep an activity log is on in Settings > General (what
+  you click, open, choose and send in the app, never what you type; a file
+  a day, each deleted after 30 days, left out of Time Machine and never
+  sent anywhere; the Mac app's `ActivityRecorder.swift` and the GPUI
+  app's `desktop/gpui/src/activity.rs` write the same files), and
   with the standing instructions experiment on, `instructions.md`, which every
   agent is given, and `instructions.sig`, which says Settings saved it). In `secrets/`, `asked/` holds the answers you
   type into an agent's secret card, one owner-only file each with a small

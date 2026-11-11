@@ -10,7 +10,6 @@ use crate::prefs;
 use crate::style::{self, size};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -23,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 use threadbear_core::composer::effort_title;
 use threadbear_core::logins::model_title_with;
 use threadbear_core::slash::{self, PaletteKey, PaletteState, SlashCommand};
+use crate::tips::Tip as _;
 
 /// The commands each thread has offered (`AppModel.slashCommands`); the app
 /// holds one. Asked for each time a thread's palette opens, as the runner
@@ -275,7 +275,7 @@ impl Composer {
                     .when(on, |s| s.bg(style::primary_opacity(cx, 0.1)))
                     .when(!on, |s| s.hover(move |s| s.bg(hover)))
                     .text_color(if on { fg } else { muted })
-                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .tip(tip.clone())
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.palette.category = category;
                         this.palette.selected = None;
@@ -332,7 +332,7 @@ impl Composer {
             .truncate()
             .when(on, |s| s.bg(accent).text_color(gpui_kit::white()))
             .when(!on, |s| s.text_color(fg).hover(move |s| s.bg(hover)))
-            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .tip(tip.clone())
             // Picked on the first click, at once; a second click on the
             // picked row runs it (read from the click itself).
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
@@ -470,7 +470,7 @@ fn palette_button(title: &'static str, tip: String, cx: &App, on_click: impl Fn(
         .hover(|s| s.bg(style::primary_opacity(cx, 0.14)))
         .cursor_pointer()
         .child(title)
-        .tooltip(move |window, cx| Tooltip::new(shown.clone()).build(window, cx))
+        .tip(shown.clone())
         .on_click(on_click)
 }
 

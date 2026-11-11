@@ -15,7 +15,6 @@ use crate::thread::ThreadPane;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Copy, Cut, Enter, Escape, IndentInline, InlineToken, InlineTokenContext, InlineTokenHoverEvent, InputEvent, MoveDown, MoveUp, Textarea, TextareaState};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -32,6 +31,7 @@ use threadbear_core::reducer::ImageRef;
 use threadbear_core::slash::{PaletteKey, PaletteState};
 use std::cell::Cell;
 use std::rc::Rc;
+use crate::tips::Tip as _;
 
 /// A picture in the box: the token that draws its chip, what it came from,
 /// and what the runner made of it (`media.import`).
@@ -492,6 +492,7 @@ impl Composer {
         if let Some(edit) = self.editing.as_mut() {
             edit.sending = true;
         }
+        crate::activity::sent(Some(&thread_id), images.len(), 0, true);
         cx.notify();
         let client = self.client.clone();
         let images_json: Vec<Value> = images.iter().map(image_ref_json).collect();
@@ -951,7 +952,7 @@ impl Composer {
                 .bg(hsla(0., 0., 0., 0.72))
                 .cursor_pointer()
                 .child(Icon::from(IconName::X).with_size(px(9.)).text_color(gpui_kit::white()))
-                .tooltip(|window, cx| Tooltip::new("Remove").build(window, cx))
+                .tip("Remove")
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.remove_picture(remove_id.clone(), window, cx)));
             row = row.child(div().id(("strip-tile", index)).group("tile").relative().child(tile).child(div().invisible().group_hover("tile", |s| s.visible()).child(remove)));
         }
@@ -974,7 +975,7 @@ impl Composer {
                 .aria_label("Starting the thread")
                 .bg(style::send_faint_fill(cx))
                 .child(Spinner::new().color(style::quiet_text(cx)).with_size(px(14.)))
-                .tooltip(|window, cx| Tooltip::new("Starting the thread").build(window, cx))
+                .tip("Starting the thread")
                 .into_any_element();
         }
         if running && !can_send && self.stopping {
@@ -984,7 +985,7 @@ impl Composer {
                 .aria_label("Stopping")
                 .bg(style::send_faint_fill(cx))
                 .child(Spinner::new().color(style::quiet_text(cx)).with_size(px(14.)))
-                .tooltip(|window, cx| Tooltip::new("Stopping").build(window, cx))
+                .tip("Stopping")
                 .into_any_element();
         }
         if running && !can_send {
@@ -997,7 +998,7 @@ impl Composer {
                 .bg(bg)
                 .child(Icon::from(IconName::Square).with_size(px(10.)).text_color(fg))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)))
-                .tooltip(|window, cx| Tooltip::new(if cfg!(target_os = "macos") { "Stop (⌘.)" } else { "Stop (Ctrl+.)" }).build(window, cx))
+                .tip(if cfg!(target_os = "macos") { "Stop (⌘.)" } else { "Stop (Ctrl+.)" })
                 // Its key to the left while ⌘ is held (key_hints.rs).
                 .relative()
                 .children(crate::key_hints::hint(self.app.upgrade().and_then(|a| a.read(cx).shortcut_display(threadbear_core::shortcuts::ShortcutCommand::Stop)), crate::key_hints::Placement::Before))
@@ -1013,7 +1014,7 @@ impl Composer {
             .bg(bg)
             .child(Icon::from(IconName::ArrowUp).with_size(px(14.)).text_color(fg))
             .when(can_send, |s| s.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx))))
-            .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+            .tip(tip)
             .into_any_element()
     }
 

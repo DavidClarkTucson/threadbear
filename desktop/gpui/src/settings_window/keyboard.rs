@@ -13,7 +13,6 @@ use crate::push_button::PushButton;
 use crate::{icons, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -23,6 +22,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use threadbear_core::keyboard::{self as rules, Group, Look, Recorder};
 use threadbear_core::shortcuts::{ShortcutBindings, ShortcutCommand};
+use crate::tips::Tip as _;
 
 /// The page's own state while the window is open.
 #[derive(Default)]
@@ -221,7 +221,7 @@ impl SettingsWindow {
             .id("settings-keyboard-search")
             .test_support()
             .aria_label(rules::SEARCH_PROMPT)
-            .tooltip(|window, cx| Tooltip::new(rules::SEARCH_PROMPT).build(window, cx))
+            .tip(rules::SEARCH_PROMPT)
             .h(px(29.))
             .pl(px(16.))
             .pr(px(9.))
@@ -300,7 +300,7 @@ impl SettingsWindow {
                     .id(SharedString::from(format!("settings-key-reset-{}", command.name())))
                     .test_support()
                     .aria_label(format!("Reset {}", command.title()))
-                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .tip(tip.clone())
                     .flex_none()
                     .cursor_pointer()
                     .text_size(px(11.))
@@ -343,7 +343,7 @@ impl SettingsWindow {
             // Its name for VoiceOver and the specs, as Swift's
             // accessibilityLabel: "Archive, ⌘E".
             .aria_label(rules::cap_label(command, bindings))
-            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .tip(tip.clone())
             .flex_none()
             .min_w(px(78.))
             .px(px(8.))

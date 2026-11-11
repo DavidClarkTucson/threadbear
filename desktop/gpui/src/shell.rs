@@ -313,7 +313,9 @@ macro_rules! commands {
         }
 
         fn register_commands(root: Stateful<Div>, cx: &mut Context<Threadbear>) -> Stateful<Div> {
-            root $(.on_action(cx.listener(|this, _: &$action, window, cx| this.run_command(Command::$variant, window, cx))))*
+            // From the menu bar or a key: noted in the activity log as the
+            // menu item it is (activity.rs), then run.
+            root $(.on_action(cx.listener(|this, _: &$action, window, cx| this.command_chosen(Command::$variant, window, cx))))*
         }
     };
 }
@@ -537,6 +539,7 @@ impl Threadbear {
     /// Saves the panel layout (`dock.onChange`), a moment after it last moved:
     /// a divider drag changes it every frame.
     pub(crate) fn dock_layout_changed(&mut self, layout: DockLayout, cx: &mut Context<Self>) {
+        crate::activity::panels(crate::activity::showing(&layout));
         self.settings.saved.dock_layout = serde_json::to_value(&layout).ok();
         self.save_settings_soon(cx);
         // Threads' own panels and the main panel's tabs (thread_panels.rs).
@@ -776,6 +779,9 @@ impl Threadbear {
             return;
         }
         let place = self.place();
+        // The page in place of a thread, as the activity log names it.
+        let page = (place.home && place.mode != SidebarMode::Inbox).then(|| place.mode.name());
+        crate::activity::view(place.mode.name(), place.thread.as_deref(), self.subagent.as_ref().map(|(_, id)| id.as_str()), place.project.as_deref(), page);
         self.history.record(place);
     }
 
@@ -1206,8 +1212,21 @@ impl Threadbear {
             })
         }
         let command = menus.iter().find_map(|m| find(&m.items, title)).ok_or_else(|| format!("no menu item {title:?}"))?;
-        self.run_command(command, window, cx);
+        self.command_chosen(command, window, cx);
         Ok(())
+    }
+
+    /// "Thread › Archive": the menu and the item a command is, for the
+    /// activity log, or none for a command no menu has.
+    pub(crate) fn menu_path(&self, command: Command, cx: &App) -> Option<String> {
+        fn find(parent: &str, entries: &[MenuEntry], command: Command) -> Option<String> {
+            entries.iter().find_map(|e| match e {
+                MenuEntry::Item { title, command: c, .. } if *c == command => Some(format!("{parent} › {title}")),
+                MenuEntry::Submenu { title, items } => find(title, items, command),
+                _ => None,
+            })
+        }
+        self.menu_model(cx).iter().find_map(|m| find(&m.title, &m.items, command))
     }
 
     // The shell's drawing.

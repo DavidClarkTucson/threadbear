@@ -8,11 +8,11 @@ use crate::shell::{self, SidebarMode};
 use crate::style::px;
 use crate::{icons, style};
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{v_flex, ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use threadbear_core::shortcuts::ShortcutCommand;
+use crate::tips::Tip as _;
 
 /// `ActivityBar.width`.
 pub(crate) const BAR_WIDTH: f32 = 44.;
@@ -66,7 +66,7 @@ fn rail_button(button: RailButton, on_click: impl Fn(&mut Threadbear, &mut Windo
         .when(!button.active, |s| s.hover(move |h| h.bg(hover_fill).text_color(fg)))
         .test_support()
         .aria_label(label)
-        .tooltip(move |window, cx| Tooltip::new(tip_for_tooltip.clone()).build(window, cx))
+        .tip(tip_for_tooltip.clone())
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| on_click(this, window, cx)))
         .child(match button.face {
             Some(face) => face,

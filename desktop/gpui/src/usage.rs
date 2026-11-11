@@ -30,6 +30,7 @@ use std::time::{Duration, Instant};
 use threadbear_core::chrono::Local;
 use threadbear_core::logins::Account;
 use threadbear_core::usage::{self as rules, Card, Chart, LoginRow, LoginStatus, Meter, Range, Stats, Tile, Tone};
+use crate::tips::Tip as _;
 
 /// How often the panel asks again while it's open, and how often it checks
 /// it still is.
@@ -346,7 +347,7 @@ fn tokens_chart(chart: &Chart, accounts: &[Account], hovered: Option<i64>, plot:
         .bg(p.track)
         .test_support()
         .aria_label("Show today by the hour, or the last 7 days by the day".to_owned())
-        .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Show today by the hour, or the last 7 days by the day").build(window, cx))
+        .tip("Show today by the hour, or the last 7 days by the day")
         .children([(Range::Today, "Today"), (Range::Week, "7 days")].map(|(r, title)| {
             let on = r == range;
             div()

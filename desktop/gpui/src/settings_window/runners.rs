@@ -12,7 +12,6 @@ use crate::{icons, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -20,6 +19,7 @@ use gpui_kit::*;
 use crate::style::px;
 use serde_json::{json, Value};
 use threadbear_core::runners::{self as rules, SettingsRow};
+use crate::tips::Tip as _;
 
 /// A Form row's height on the Mac, which the ordered rows keep so the list
 /// matches the sections round it (`.frame(minHeight: 38)`).
@@ -125,7 +125,7 @@ impl SettingsWindow {
             .id("settings-direct-link-holder")
             .test_support()
             .aria_label(tip)
-            .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+            .tip(tip)
             .flex_none()
             .child(crate::mac_switch::MacSwitch::new("settings-direct-link", false).disabled(true));
         sections.push(section("settings-other-machines", "Other machines' threads", rules::OTHERS_ABOUT, rules::OTHERS_ASK, vec![row("Connect to other machines directly", switch, cx)], cx));

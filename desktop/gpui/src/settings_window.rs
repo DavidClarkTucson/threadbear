@@ -19,7 +19,6 @@ use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -30,6 +29,7 @@ use std::time::Duration;
 use threadbear_core::completion_sound::{self, Ding};
 use threadbear_core::new_thread::abbreviate_home;
 use threadbear_core::runner_settings::{experiment_about, BringIn, RunnerSettings, StandingInstructions};
+use crate::tips::Tip as _;
 
 mod devices;
 mod keyboard;
@@ -499,7 +499,7 @@ impl SettingsWindow {
         let folder_control = h_flex()
             .gap(px(8.))
             .items_center()
-            .child(div().id("settings-default-folder").max_w(px(280.)).text_ellipsis_middle().whitespace_nowrap().overflow_hidden().text_size(px(13.)).text_color(style::secondary_text(cx)).tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx)).child(folder))
+            .child(div().id("settings-default-folder").max_w(px(280.)).text_ellipsis_middle().whitespace_nowrap().overflow_hidden().text_size(px(13.)).text_color(style::secondary_text(cx)).tip(full.clone()).child(folder))
             .child(self.button("settings-choose-folder", "Choose…", "Pick the folder new threads start in", cx, |this, window, cx| this.choose_default_folder(window, cx)));
         sections.push(section(
             "settings-new-threads",
@@ -524,6 +524,21 @@ impl SettingsWindow {
                 cx,
             ));
         }
+        // Why it's worth turning on, then what's in it, for anyone wary of
+        // turning it on (the Swift app's, Mike, 29 Oct). This Mac's own
+        // (activity.rs), but where the Swift app has it.
+        let activity = self.app.upgrade().is_some_and(|a| a.read(cx).settings.saved.activity_log == Some(true));
+        let switch = self.switch("settings-activity-log", activity, "Note what you click and open in this app", cx, |this, on, cx| {
+            this.app.update(cx, |app, cx| app.set_activity_log(on, cx)).ok();
+        });
+        sections.push(section(
+            "settings-activity",
+            "Activity log",
+            "When you ask a thread to change Threadbear, its agent can check this log first to see how you really use the app. It notes the buttons, rows and menu items you use (by their tooltips and titles), your shortcuts, the threads and pages you open, and when you send or answer something, never what you type. It stays on this Mac for 30 days and Threadbear never sends it anywhere.",
+            "read it with tb activity and tell you what's in it.",
+            vec![row("Keep an activity log", switch, cx)],
+            cx,
+        ));
         if let Some(on) = settings.keep_awake {
             let switch = self.switch("settings-keep-awake", on, "Stop your Mac sleeping on its own while a thread is working", cx, |this, on, cx| this.update(json!({ "keepAwake": on }), cx));
             sections.push(section(
@@ -671,7 +686,7 @@ impl SettingsWindow {
         let volume = h_flex()
             .gap(px(8.))
             .items_center()
-            .child(div().id("settings-ding-volume").test_support().aria_label("How loud the ding is").w(px(180.)).tooltip(|window, cx| Tooltip::new("How loud the ding is").build(window, cx)).child(Slider::new(&self.volume).horizontal()))
+            .child(div().id("settings-ding-volume").test_support().aria_label("How loud the ding is").w(px(180.)).tip("How loud the ding is").child(Slider::new(&self.volume).horizontal()))
             .child(self.button("settings-ding-play", "Play", "Hear the ding", cx, |this, _, cx| {
                 if let Some(app) = this.app.upgrade() {
                     let s = &app.read(cx).settings;
@@ -876,7 +891,7 @@ impl SettingsWindow {
             .id(SharedString::from(format!("{id}-holder")))
             .test_support()
             .aria_label(tip)
-            .tooltip(move |window, cx| Tooltip::new(shown.clone()).build(window, cx))
+            .tip(shown.clone())
             .flex_none()
             .child(crate::mac_switch::MacSwitch::new(SharedString::from(id), on).on_change(move |on, _, cx| {
                 let set = set.clone();
@@ -1010,7 +1025,8 @@ impl Render for SettingsWindow {
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
                 .child(sidebar)
-                .child(div().id("settings-pane").flex_1().min_w_0().h_full().child(page));
+                .child(div().id("settings-pane").flex_1().min_w_0().h_full().child(page))
+                .child(crate::tips::window_presses());
         }
         let mut sections = match self.tab {
             Tab::General => self.render_general(settings.as_ref(), window, cx),
@@ -1048,6 +1064,8 @@ impl Render for SettingsWindow {
                     h_flex().w_full().justify_center().child(v_flex().w_full().max_w(px(700.)).px(px(20.)).pt(px(20.)).pb(px(24.)).gap(px(30.)).children(sections)),
                 ),
             )
+            // Last: every press in the window, for the activity log (tips.rs).
+            .child(crate::tips::window_presses())
     }
 }
 

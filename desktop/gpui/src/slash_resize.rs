@@ -11,11 +11,11 @@
 use crate::composer::Composer;
 use crate::style;
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use std::cell::{Cell, RefCell};
 use threadbear_core::slash::{PaletteEdge, PaletteLayout};
+use crate::tips::Tip as _;
 
 /// The bands' width (PaletteFrame.band) and the palette's corners.
 const BAND: f32 = 10.;
@@ -211,7 +211,7 @@ pub(crate) fn edges(size: (f64, f64), cx: &mut Context<Composer>) -> Vec<AnyElem
                 LIT.set(*on);
                 window.refresh();
             })
-            .tooltip(|window, cx| Tooltip::new(EDGE_TIP).build(window, cx))
+            .tip(EDGE_TIP)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |_, event: &MouseDownEvent, _, cx| {
@@ -248,7 +248,7 @@ pub(crate) fn column_rule(which: usize, width: f64, others: f64, total: f64, cx:
         .justify_center()
         .cursor(CursorStyle::ResizeLeftRight)
         .child(div().w(gpui_kit::px(1.)).h_full().bg(line).group_hover(group, move |s| s.bg(accent)))
-        .tooltip(move |window, cx| Tooltip::new(COLUMN_TIPS[which]).build(window, cx))
+        .tip(COLUMN_TIPS[which])
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, event: &MouseDownEvent, _, cx| {

@@ -11,6 +11,7 @@ use gpui_kit::*;
 use crate::style::px;
 use std::path::PathBuf;
 use threadbear_core::reducer::{ImageRef, Row};
+use crate::tips::Tip as _;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Frame {
@@ -106,7 +107,7 @@ impl ThreadPane {
                     .rounded(px(8.))
                     .overflow_hidden()
                     .cursor_pointer()
-                    .tooltip(super::tip(crate::viewer::TILE_TIP))
+                    .tip(crate::viewer::TILE_TIP)
                     // The in-app viewer, not the file's default app: only a
                     // real picture opens, and nothing is ever run (viewer.rs).
                     .on_click(move |_, window, cx| crate::viewer::open_from_tile(&tile_images, i, window, cx))

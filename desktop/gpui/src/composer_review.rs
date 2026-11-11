@@ -7,13 +7,13 @@
 use crate::composer::Composer;
 use crate::style::{self, size};
 use gpui_kit::assets::IconName;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
 use crate::style::px;
 use threadbear_core::reducer::{LabReview, ReviewFinding};
+use crate::tips::Tip as _;
 
 /// A finding's mark (SF's checkmark.circle, exclamationmark.bubble,
 /// person.crop.circle and circle, as Lucide draws them), its word and its
@@ -75,7 +75,7 @@ impl Composer {
                 s.cursor_pointer()
                     .text_color(style::accent(cx))
                     .hover(|s| s.opacity(0.8))
-                    .tooltip(|window, cx| Tooltip::new("Open the review's thread").build(window, cx))
+                    .tip("Open the review's thread")
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         if let Some(pane) = this.pane.upgrade() {
                             let url = format!("thread:{thread}");

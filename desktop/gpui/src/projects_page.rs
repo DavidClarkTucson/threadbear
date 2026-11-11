@@ -9,7 +9,6 @@ use crate::style::{self, px};
 use crate::{icons, now_ms};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -17,6 +16,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 use threadbear_core::projects::{self as rules, CardPart, CardStatus, Project, Sections};
+use crate::tips::Tip as _;
 
 /// Cards are this wide at least and at most (`GridItem(.adaptive(minimum:
 /// 240, maximum: 340))`), this far apart across and down.
@@ -141,7 +141,7 @@ impl Threadbear {
         let clear = search.clone();
         div()
             .id("projects-search")
-            .tooltip(|window, cx| Tooltip::new("Search projects").build(window, cx))
+            .tip("Search projects")
             .flex_shrink(1.)
             .min_w(px(120.))
             .w(px(240.))

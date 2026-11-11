@@ -60,6 +60,9 @@ pub struct Saved {
     pub completion_sound_volume: Option<f64>,
     /// `askBeforeQuitting` (QuitPrompt): None is yes.
     pub ask_before_quitting: Option<bool>,
+    /// `activityLog` (ActivityRecorder): Settings > General's Keep an
+    /// activity log (activity.rs). Off until it's turned on.
+    pub activity_log: Option<bool>,
     /// `runnersPanelOpen`: the runners whose details are open in the Runners
     /// panel, their ids with commas between.
     pub runners_panel_open: Option<String>,

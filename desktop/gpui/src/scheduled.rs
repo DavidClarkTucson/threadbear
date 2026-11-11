@@ -16,7 +16,6 @@ use crate::{call, icons, now_ms, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -27,6 +26,7 @@ use std::collections::HashSet;
 use threadbear_core::chrono::Local;
 use threadbear_core::highlights::Schedule;
 use threadbear_core::schedules::{self as rules, ScheduleSection};
+use crate::tips::Tip as _;
 
 
 /// The Scheduled view's own state; the app holds one (`Threadbear::scheduled`).
@@ -404,7 +404,7 @@ impl Threadbear {
                     .text_size(px(style::size::SIDEBAR_META))
                     .line_height(px(14.))
                     .text_color(faint)
-                    .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                    .tip(full.clone())
                     .child(next)
                     .into_any_element()
             })
@@ -433,7 +433,7 @@ impl Threadbear {
                     .max_w(px(100.))
                     .gap(px(3.))
                     .items_center()
-                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .tip(tip.clone())
                     .child(icon(self.schedule_runner_symbol(schedule), style::size::SIDEBAR_META, secondary))
                     .child(div().min_w_0().truncate().child(away)),
             );
@@ -456,7 +456,7 @@ impl Threadbear {
                 .text_size(px(style::size::SIDEBAR_META))
                 .line_height(px(14.))
                 .text_color(color)
-                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                .tip(tip.clone())
                 .child(text)
         });
 
@@ -470,7 +470,7 @@ impl Threadbear {
             .test_support()
             // Named by its tip, as the Swift app's rows are found.
             .aria_label(tip.clone())
-            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .tip(tip.clone())
             .relative()
             .gap(px(3.))
             .pt(px(8.))

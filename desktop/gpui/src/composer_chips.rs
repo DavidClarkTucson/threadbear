@@ -9,7 +9,6 @@ use gpui_kit::assets::IconName;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Selectable, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -19,6 +18,7 @@ use serde_json::json;
 use threadbear_core::composer::{effort_porridge, effort_title, ContextMeter};
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::logins::{permission_help, permission_title, provider_title, ChipSettings, PickerRow, RunnerLogins};
+use crate::tips::Tip as _;
 
 /// What a chip row needs to know, read when it's drawn.
 pub(crate) struct ChipData {
@@ -250,11 +250,8 @@ impl Composer {
                 let problem = self.app.upgrade().and_then(|a| a.read(cx).new_thread.runner_problem.clone());
                 row = row.child(div().ml(px(-7.)).child(self.render_runs_on_chip(cx)));
                 row = match problem {
-                    Some(problem) => row.child(div().id("runner-problem").text_size(px(size::CHIP)).text_color(style::secondary_text(cx)).child(format!("Can't reach {}", away.name)).tooltip(move |window, cx| Tooltip::new(problem.clone()).build(window, cx))),
-                    None => row.child(div().id("runner-waiting").child(gpui_kit::component::spinner::Spinner::new().color(style::quiet_text(cx)).with_size(px(14.))).tooltip({
-                        let tip = format!("Connecting to {}", away.name);
-                        move |window, cx| Tooltip::new(tip.clone()).build(window, cx)
-                    })),
+                    Some(problem) => row.child(div().id("runner-problem").text_size(px(size::CHIP)).text_color(style::secondary_text(cx)).child(format!("Can't reach {}", away.name)).tip(problem.clone())),
+                    None => row.child(div().id("runner-waiting").child(gpui_kit::component::spinner::Spinner::new().color(style::quiet_text(cx)).with_size(px(14.))).tip(format!("Connecting to {}", away.name))),
                 };
                 return row.child(div().flex_1()).child(send_button).into_any_element();
             }
@@ -475,7 +472,7 @@ impl Composer {
                     .cursor_pointer()
                     .hover(|s| s.bg(style::chip_hover_fill(cx)))
                     .child(crate::icons::symbol(icon).with_size(px(size::CHIP - 1.)).text_color(style::faint_icon(cx)))
-                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .tip(tip.clone())
                     .on_click(move |ev: &ClickEvent, window, cx| {
                         if let Some(app) = app.upgrade() {
                             let at = ev.position();
@@ -540,7 +537,7 @@ impl RenderOnce for ChipTrigger {
         // Named for VoiceOver and the automation's `click`: its words, or its
         // tip when it's an icon alone.
         let label: SharedString = if self.title.is_empty() { self.tip.clone() } else { self.title.clone() };
-        let base = div().id(self.id).flex().items_center().cursor_pointer().test_support().aria_label(label).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
+        let base = div().id(self.id).flex().items_center().cursor_pointer().test_support().aria_label(label).tip(tip.clone());
         match self.kind {
             TriggerKind::Plus => base
                 .justify_center()
@@ -585,7 +582,7 @@ fn render_runner_chip(away: &AwayRunner, cx: &App) -> impl IntoElement {
         .px(px(7.))
         .child(crate::icons::symbol(away.icon).with_size(px(size::CHIP - 1.)).text_color(style::faint_icon(cx)))
         .child(div().text_size(px(size::CHIP)).text_color(style::quiet_text(cx)).whitespace_nowrap().child(away.name.clone()))
-        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .tip(tip.clone())
 }
 
 /// The ring for how full the context is (ContextRing): grey, orange near full,
@@ -779,7 +776,7 @@ impl Render for ModelPickerView {
                 .cursor_pointer()
                 .when(active, |s| s.bg(active_fill))
                 .when(!active, |s| s.hover(move |s| s.bg(hover_fill)))
-                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                .tip(tip.clone())
                 .on_click(move |_, _, cx| {
                     if let Some(this) = this.upgrade() {
                         this.update(cx, |this, cx| {
@@ -828,7 +825,7 @@ impl Render for ModelPickerView {
                     .text_color(if active { cx.theme().foreground } else { cx.theme().muted_foreground })
                     .hover(|s| s.bg(style::hover_fill(cx)))
                     .child(title)
-                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .tip(tip.clone())
                     .on_click(move |_, _, cx| {
                         if let Some(c) = composer.upgrade() {
                             c.update(cx, |c, cx| c.set_effort(level2.clone(), cx));
@@ -873,7 +870,7 @@ impl ModelPickerView {
                     .cursor_pointer()
                     .text_color(style::secondary_label(cx))
                     .hover(|s| s.text_color(style::label_text(cx)))
-                    .tooltip(|window, cx| Tooltip::new("Show this login's models").build(window, cx))
+                    .tip("Show this login's models")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.column = Some(PINNED_COLUMN.to_owned());
                         cx.notify();
@@ -887,7 +884,7 @@ impl ModelPickerView {
                     .cursor_pointer()
                     .text_color(style::label_text(cx))
                     .hover(|s| s.opacity(0.75))
-                    .tooltip(|window, cx| Tooltip::new("Let the pool pick the login again").build(window, cx))
+                    .tip("Let the pool pick the login again")
                     .on_click(move |_, window, cx| {
                         if let Some(c) = composer.upgrade() {
                             c.update(cx, |c, cx| c.unpin(cx));
