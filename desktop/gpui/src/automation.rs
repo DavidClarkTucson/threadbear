@@ -144,6 +144,11 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     if cmd["cmd"] == "review" {
         return crate::review_window::automation(&weak, window, cmd, cx).await;
     }
+    // A reply link's right-click menu (reply_links.rs): the kit builds it
+    // after the press, so it's read in a turn of its own.
+    if cmd["cmd"] == "peek" && ["menu", "click", "default"].iter().any(|k| cmd.get(*k).is_some()) {
+        return crate::reply_links::menu_command(&weak, window, cmd, cx).await;
+    }
     let Some(app) = app.upgrade() else { return Err("the app has gone".into()) };
     // `"settings": true`: in the Settings window, as the Swift app's `click`
     // and `shot --settings` reach it; `"review": id`, in that review's.
@@ -516,8 +521,16 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         }
         // A draft box's Copy in a reply (draft_boxes.rs), as the Swift app's `draft`.
         "draft" => crate::draft_boxes::automation(app, cmd, window, cx),
-        // The chips in Mike's messages and their cards (chips.rs), as the Swift app's `peek`.
-        "peek" => crate::chips::peek_command(app, cmd, window, cx),
+        // A reply's links and their cards and menus (reply_links.rs), else the
+        // chips in Mike's messages and their cards (chips.rs), as the Swift
+        // app's `peek`.
+        "peek" => crate::reply_links::peek_command(app, cmd, window, cx).unwrap_or_else(|| crate::chips::peek_command(app, cmd, window, cx)),
+        // Words selected in a reply, and the bar over them (selection_bar.rs),
+        // as the Swift app's; a follow-up in the Explain pane (explain_pane.rs).
+        "select-text" => crate::selection_bar::select_command(app, cmd, window, cx),
+        "explain" => crate::explain_pane::explain_command(app, cmd, window, cx),
+        // What the open gate would have opened, as a scripted app opens nothing.
+        "opened" => Ok(json!(format!("ok {}", serde_json::to_string(&crate::open_gate::take_opened()).unwrap_or_default()))),
         // Thread chips in a row's words, as the Swift app's `chip`.
         "chip" => crate::chips::chip_command(app, cmd, window, cx),
         // Quits as the app menu's Quit does once it's said yes (the quit

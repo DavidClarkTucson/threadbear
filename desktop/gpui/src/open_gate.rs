@@ -29,7 +29,37 @@ fn refuse(message: String, cx: &mut App) {
 
 /// The system's own opener. Only this file reaches it.
 fn system_open(url: &str, cx: &mut App) {
+    if scripted_opens(url) {
+        return;
+    }
     cx.open_url(url);
+}
+
+/// A script's app (the behaviour specs, an agent checking its work) opens
+/// nothing for real: its clicks would start apps and browsers on the machine
+/// running it. What would have opened is kept for the `opened` command, as
+/// the Swift app's scripted runs keep theirs.
+#[cfg(feature = "automation")]
+fn scripted_opens(what: &str) -> bool {
+    if std::env::var_os("THREADBEAR_AUTOMATION").is_none() {
+        return false;
+    }
+    SCRIPTED_OPENS.lock().unwrap_or_else(|e| e.into_inner()).push(what.to_owned());
+    true
+}
+
+#[cfg(not(feature = "automation"))]
+fn scripted_opens(_what: &str) -> bool {
+    false
+}
+
+#[cfg(feature = "automation")]
+static SCRIPTED_OPENS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// What would have opened since this was last asked, oldest first.
+#[cfg(feature = "automation")]
+pub(crate) fn take_opened() -> Vec<String> {
+    std::mem::take(&mut *SCRIPTED_OPENS.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 // ---------------------------------------------------------------- Threadbear's own
@@ -74,6 +104,79 @@ pub(crate) fn open_link(url: &str, origin: Origin, cwd: &str, cx: &mut App) {
     }
 }
 
+/// A web page in one of Chrome's profiles, for a web link's "Open in Chrome:
+/// <profile>" (ChromeProfiles.open). A second Chrome started with
+/// `--profile-directory` hands the page to the running one and quits, which
+/// is the only way in: Chrome has no scripting or URL scheme for picking a
+/// profile. Only a web address goes, as it's an argument Chrome acts on
+/// (`--some-flag` or a `file:` URL would be Chrome's to run); anything else
+/// is refused as `open_web` refuses it, and without Chrome the page goes to
+/// the default browser.
+pub(crate) fn open_in_chrome_profile(url: &str, directory: &str, cx: &mut App) {
+    let LinkKind::Web(web) = policy::link_kind(url) else {
+        open_web(url, cx);
+        return;
+    };
+    if scripted_opens(&format!("chrome {directory} {web}")) {
+        return;
+    }
+    if !start_chrome_profile(&web, directory) {
+        system_open(&web, cx);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn start_chrome_profile(web: &str, directory: &str) -> bool {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::NSString;
+    let Some(app) = NSWorkspace::sharedWorkspace().URLForApplicationWithBundleIdentifier(&NSString::from_str(threadbear_core::reply_links::CHROME_BUNDLE_ID)) else { return false };
+    let Some(app) = app.path().map(|p| p.to_string()) else { return false };
+    std::process::Command::new("/usr/bin/open").args(["-na", &app, "--args", &format!("--profile-directory={directory}"), web]).spawn().is_ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn start_chrome_profile(_web: &str, _directory: &str) -> bool {
+    false
+}
+
+/// The browser web pages open in, with its bundle id (`DefaultBrowser.current()`),
+/// for "Open in Google Chrome" and whether Chrome's profiles are worth
+/// offering. `default_browser` below is its name alone.
+#[cfg(target_os = "macos")]
+pub(crate) fn default_browser_app() -> Option<OpeningApp> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSString, NSURL};
+    let url = NSURL::URLWithString(&NSString::from_str("https://example.com"))?;
+    let app = NSWorkspace::sharedWorkspace().URLForApplicationToOpenURL(&url)?;
+    describe_app(&app)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn default_browser_app() -> Option<OpeningApp> {
+    None
+}
+
+/// The app the system opens a file in, by name ("Xcode"), for "Open in
+/// Xcode" in a file link's menu. Asking says nothing about whether it's
+/// safe to open: `open_file` decides that when it's chosen.
+pub(crate) fn opening_app(path: &str) -> Option<OpeningApp> {
+    app_for(Path::new(path))
+}
+
+/// Whether an app with this bundle id is running (NSRunningApplication):
+/// Chrome's profiles are offered only while it is.
+#[cfg(target_os = "macos")]
+pub(crate) fn is_running(bundle_id: &str) -> bool {
+    use objc2_app_kit::NSRunningApplication;
+    use objc2_foundation::NSString;
+    NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id)).count() > 0
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn is_running(_bundle_id: &str) -> bool {
+    false
+}
+
 /// A link that starts another app: only Threadbear's own isn't handed back,
 /// and the rest ask, naming the app.
 fn open_other(url: &str, cx: &mut App) {
@@ -101,13 +204,13 @@ fn open_other(url: &str, cx: &mut App) {
 /// sets its own `on_link_click` after, which replaces this one.
 pub(crate) fn text_view(state: &Entity<gpui_kit::base::TextViewState>, origin: Origin, base: &str) -> gpui_kit::base::TextView {
     let base = base.to_owned();
-    gpui_kit::base::TextView::new(state).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| open_link(url, origin, &base, cx))
+    gpui_kit::base::TextView::new(state).on_link_click(move |url: &SharedString, event: &ClickEvent, _: &mut Window, cx: &mut App| clicked(url, event, origin, &base, cx))
 }
 
 /// The same for the kit's markdown text made from a string.
 pub(crate) fn markdown_view(id: impl Into<ElementId>, text: impl Into<SharedString>, origin: Origin, base: &str) -> gpui_kit::component::text::TextView {
     let base = base.to_owned();
-    gpui_kit::component::text::TextView::markdown(id, text).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| open_link(url, origin, &base, cx))
+    gpui_kit::component::text::TextView::markdown(id, text).on_link_click(move |url: &SharedString, event: &ClickEvent, _: &mut Window, cx: &mut App| clicked(url, event, origin, &base, cx))
 }
 
 /// The base kit's markdown text made from a string, for text that takes the
@@ -115,7 +218,17 @@ pub(crate) fn markdown_view(id: impl Into<ElementId>, text: impl Into<SharedStri
 /// paragraphs do.
 pub(crate) fn reading_markdown_view(id: impl Into<ElementId>, text: impl Into<SharedString>, origin: Origin, base: &str) -> gpui_kit::base::TextView {
     let base = base.to_owned();
-    gpui_kit::base::TextView::markdown(id, text).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| open_link(url, origin, &base, cx))
+    gpui_kit::base::TextView::markdown(id, text).on_link_click(move |url: &SharedString, event: &ClickEvent, _: &mut Window, cx: &mut App| clicked(url, event, origin, &base, cx))
+}
+
+/// A link in one of those clicked. The kit hands over a release of any
+/// button on a link: a right click is the menu's, and a probe asking which
+/// link is under the pointer (reply_links.rs) only wants to know.
+fn clicked(url: &str, event: &ClickEvent, origin: Origin, base: &str, cx: &mut App) {
+    if crate::reply_links::noted_by_probe(url) || !crate::reply_links::follows(event) {
+        return;
+    }
+    open_link(url, origin, base, cx);
 }
 
 // ---------------------------------------------------------------- files
@@ -147,6 +260,9 @@ pub(crate) fn open_file(path: &str, origin: Origin, cx: &mut App) {
 pub(crate) fn reveal(path: &str, origin: Origin, cx: &mut App) {
     if origin == Origin::OtherMac {
         refuse(format!("{} is on another Mac.", threadbear_core::highlights::last_component(path)), cx);
+        return;
+    }
+    if scripted_opens(&format!("reveal {path}")) {
         return;
     }
     cx.reveal_path(Path::new(path));

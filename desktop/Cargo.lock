@@ -7402,6 +7402,7 @@ version = "0.1.0"
 dependencies = [
  "bzip2",
  "chrono",
+ "markdown",
  "qrcodegen",
  "serde",
  "serde_json",

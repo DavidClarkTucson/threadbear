@@ -196,6 +196,10 @@ pub(crate) enum MenuAction {
     // A Scheduled row's (`scheduleRow`).
     EditSchedule { id: String },
     ShowSchedules,
+    // A link row's (`LinkMenu`): a page in one of Chrome's profiles, and
+    // what a click on a web link does.
+    OpenInProfile { url: String, directory: String },
+    SetWebClick { action: threadbear_core::reply_links::WebLinkAction },
 }
 
 /// The app's window of files read so far and folders looked at lives in
@@ -232,6 +236,8 @@ pub(crate) struct SidePane {
     pub(crate) viewer: crate::viewer::ViewerState,
     /// How wide the pane was last drawn, for the folder list's columns.
     pub(crate) width: f32,
+    /// Words selected in a thread, explained (explain_pane.rs).
+    pub(crate) explain: crate::explain_pane::ExplainState,
     _subs: Vec<Subscription>,
 }
 
@@ -262,6 +268,7 @@ impl SidePane {
             panels: Default::default(),
             viewer: crate::viewer::ViewerState::new(cx),
             width: PANE_WIDTH,
+            explain: Default::default(),
             _subs: vec![],
         };
         // The pane follows the window's model: what's selected, and each
@@ -506,6 +513,15 @@ impl SidePane {
             return;
         }
         if core::is_web_page(url) {
+            // Where Default says, as a web link in a reply goes: the browser
+            // unless Mike picked the pane (`openLink`).
+            if crate::reply_links::web_click() == threadbear_core::reply_links::WebLinkAction::Panel {
+                if let Some(thread) = self.thread(cx) {
+                    let from = self.section_for(&thread);
+                    self.show_preview(PanePreview::new(Target::Page(url.to_owned()), core::text::address(url), from), &thread.id, cx);
+                    return;
+                }
+            }
             crate::files::open_web(url, cx);
         }
     }
@@ -536,6 +552,8 @@ impl SidePane {
     }
 
     pub(crate) fn show_preview(&mut self, mut preview: PanePreview, thread_id: &str, cx: &mut Context<Self>) {
+        // It takes an explanation's place, as a preview of its own would.
+        self.stop_explaining(thread_id);
         preview.opened = self.previews.get(thread_id).map_or(0, |p| p.opened) + 1;
         // A Markdown file opens as its bar's menu last left it, on this
         // runner's machine (`MarkdownView.opensRaw`).
@@ -669,6 +687,8 @@ impl SidePane {
             MenuAction::CopyPicture => {
                 self.copy_open_picture(cx);
             }
+            MenuAction::OpenInProfile { url, directory } => crate::open_gate::open_in_chrome_profile(&url, &directory, cx),
+            MenuAction::SetWebClick { action } => crate::reply_links::set_web_click(action),
             MenuAction::OpenFolderRow { key, entry } => self.run_folder_row_action(&key, entry, thread, cx),
             MenuAction::SortFolder { key, sort } => self.set_folder_sort(&key, sort, cx),
             MenuAction::FolderHidden { hidden } => self.set_folder_hidden(hidden, cx),
@@ -711,14 +731,42 @@ impl SidePane {
         items
     }
 
-    /// A link row's menu (`LinkMenu`). The browser's own item for now: the
-    /// Chrome profile list and the panel page are later work.
+    /// A link row's menu (`LinkMenu`): a file's Preview here and Open; a
+    /// page's browser, or one item per open Chrome profile, and the pane;
+    /// Copy link; and for a page Default, the same choice as a web link's
+    /// menu in a reply (reply_links.rs).
     pub(crate) fn link_menu(url: &str) -> Vec<MenuItem> {
-        let mut items = vec![MenuItem::action(crate::files::OPEN_IN_BROWSER, "safari", MenuAction::OpenUrl { url: url.to_owned() })];
-        if core::is_web_page(url) {
-            items.push(MenuItem::action("Open in Panel", "sidebar.right", MenuAction::PreviewPage { url: url.to_owned() }));
+        use threadbear_core::reply_links::WebLinkAction;
+        let mut items = Vec::new();
+        let browser = crate::reply_links::browser_name();
+        if let Some(path) = url.strip_prefix("file://") {
+            let path = crate::files::percent_decode(path);
+            items.push(MenuItem::action("Preview here", "sidebar.right", MenuAction::PreviewFile { path: path.clone(), title: core::last_component(&path).to_owned() }));
+            items.push(MenuItem::action("Open", "arrow.up.forward.app", MenuAction::OpenFile { path }));
+        } else {
+            let profiles = crate::reply_links::offered_profiles();
+            if profiles.is_empty() {
+                // The browser by name where the system says ("Open in Safari").
+                let title = if browser.is_some() { WebLinkAction::Browser.title(browser.as_deref()) } else { crate::files::OPEN_IN_BROWSER.to_owned() };
+                items.push(MenuItem::action(title, WebLinkAction::Browser.symbol(), MenuAction::OpenUrl { url: url.to_owned() }));
+            }
+            for profile in &profiles {
+                items.push(MenuItem::action(profile.title(), WebLinkAction::Browser.symbol(), MenuAction::OpenInProfile { url: url.to_owned(), directory: profile.directory.clone() }));
+            }
+            if core::is_web_page(url) {
+                items.push(MenuItem::action("Open in Panel", "sidebar.right", MenuAction::PreviewPage { url: url.to_owned() }));
+            }
         }
         items.push(MenuItem::action("Copy link", "link", MenuAction::Copy { text: url.to_owned() }));
+        if core::is_web_page(url) {
+            items.push(MenuItem::separator());
+            let click = crate::reply_links::web_click();
+            let choices = WebLinkAction::ALL
+                .into_iter()
+                .map(|action| MenuItem { title: action.title(browser.as_deref()), symbol: Some(action.symbol()), action: Some(MenuAction::SetWebClick { action }), checked: action == click, children: vec![] })
+                .collect();
+            items.push(MenuItem::submenu(threadbear_core::reply_links::DEFAULT_TITLE, threadbear_core::reply_links::DEFAULT_SYMBOL, choices));
+        }
         items
     }
 
@@ -1442,8 +1490,12 @@ impl Render for SidePane {
         // and the Swift pane has nothing between the two (PaneHeader is gone
         // from its panes); a second "Highlights" under the first looked off.
         let previewing = self.previews.get(&thread.id).is_some_and(|pv| pv.from == section);
-        let header = previewing.then(|| self.render_header(&thread, &section, cx).into_any_element());
-        let body = if let Some(preview) = self.previews.get(&thread.id).filter(|pv| pv.from == section).cloned() {
+        // Words explained show over the section, as a preview does (explain_pane.rs).
+        let explaining = self.explaining(&thread.id);
+        let header = if explaining { Some(self.render_explain_header(&thread, &section, cx)) } else { previewing.then(|| self.render_header(&thread, &section, cx).into_any_element()) };
+        let body = if explaining {
+            self.render_explain(&thread, window, cx)
+        } else if let Some(preview) = self.previews.get(&thread.id).filter(|pv| pv.from == section).cloned() {
             self.render_preview(&thread, &preview, window, cx)
         } else {
             match section.as_str() {
@@ -1510,7 +1562,7 @@ impl SidePane {
             let summary = thread.patches().iter().map(|p| if p.error.is_some() { format!("{} (error)", p.id) } else { p.id.clone() }).collect::<Vec<_>>().join(", ");
             items.push(json!({ "id": PATCHES, "title": "Patches", "kind": "patches", "note": summary, "active": section == PATCHES }));
         }
-        let preview = self.previews.get(&thread.id).map(|pv| self.preview_line(pv));
+        let preview = self.explain_line(&thread.id).or_else(|| self.previews.get(&thread.id).map(|pv| self.preview_line(pv)));
         json!({ "shown": true, "width": PANE_WIDTH as i64, "items": items, "preview": preview, "highlights": self.highlights_line(&thread.id), "pane": self.pane_dump(&thread, &section, cx) })
     }
 
@@ -1548,6 +1600,11 @@ impl SidePane {
         pane.insert("section".into(), json!(section));
         if let Some(folder) = self.folder_summary(thread, cx) {
             pane.insert("folder".into(), json!(folder));
+        }
+        // An explanation, as the Swift dump has it.
+        if self.explaining(&thread.id) {
+            pane.insert("previewKind".into(), json!("note"));
+            return Value::Object(pane);
         }
         if let Some(preview) = self.previews.get(&thread.id).filter(|pv| pv.from == section) {
             self.fill_preview_dump(&mut pane, preview, cx);

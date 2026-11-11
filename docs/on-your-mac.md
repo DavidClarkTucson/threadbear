@@ -43,7 +43,8 @@ File references are where to look.
   If you turn on the `gpuiApp` experiment and run
   `desktop/scripts/install-app.sh`, also `~/Applications/Threadbear GPUI.app`,
   which keeps its window and panel layout in `desktop-settings.json` and
-  `gpui-prefs.json` in the data folder.
+  `gpui-prefs.json` in the data folder, and what a click on a link in a
+  reply does (its menu's Default) in `desktop-links.json` there.
 - **The GPUI app's web runtime, only if you install it** (its Install web
   runtime button, or Settings > General > Web runtime; nothing is fetched
   until you press one): Chromium, as CEF's official minimal build 156.0.15,
@@ -383,6 +384,15 @@ BrowserBear's socket (`~/Library/Application Support/BrowserBear/browserbear.soc
 if you have BrowserBear, to ask whether an agent's Chrome tab is already
 on that page (`app/Sources/Threadbear/BrowserBear.swift`). Only the link
 goes there.
+
+When Google Chrome is your default browser and is running, a web link's
+right-click menu reads Chrome's `Local State`
+(`~/Library/Application Support/Google/Chrome/Local State`) for the
+profiles with a window open, their names and account pictures, so it can
+offer "Open in Chrome: <profile>". Choosing one runs
+`/usr/bin/open -na "Google Chrome" --args --profile-directory=<profile> <link>`,
+only ever for a web address (`app/Sources/Threadbear/Transcript/ChromeProfiles.swift`,
+`desktop/gpui/src/open_gate.rs`). Nothing else of Chrome's is read.
 
 The Browser panel also uses that private socket to list the pages agents
 associate with threads, ask for a small still of each and bring a page's real

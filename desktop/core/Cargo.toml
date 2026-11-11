@@ -27,3 +27,7 @@ tar = { version = "=0.4.46", default-features = false }
 # `pairing_qr`). Exactly this version: Project Nayuki's encoder, pure Rust with
 # no dependencies of its own, and the code a phone scans has to stay right.
 qrcodegen = "=1.8.0"
+# Selected words in a reply as HTML for the clipboard (selection_copy.rs):
+# the kit hands the selection over as Markdown. The version gpui-kit parses
+# with, already in the build.
+markdown = "=1.0.0"

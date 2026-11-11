@@ -30,17 +30,19 @@ you go.
   Open in browser (`panel.web`, `panel.convex`, `panel.bar`)
 - [ ] No Browser pane, so BrowserBear's handoffs don't show in the app
   (`browser.*`, `rich.browserbear`, `rail.right`)
-- [ ] A reply's links all go to the system browser: no "in a panel", Chrome
+- [x] A reply's links all go to the system browser: no "in a panel", Chrome
   profiles or Copy Link on right-click, no hover peek, ⌘-click isn't read
-  (`rich.webmenu`, `rich.filemenu`, `rich.linkpeek`, `rich.cmdclick`)
+  (`rich.webmenu`, `rich.filemenu`, `rich.linkpeek`, `rich.cmdclick`).
+  A page "in the panel" still opens in the browser, until the pane draws
+  pages through the web runtime.
 
 ### Reading and copying
-- [ ] Selecting text in a reply has no Explain, Quote or Copy bar, and no
+- [x] Selecting text in a reply has no Explain, Quote or Copy bar, and no
   Explain pane (`rich.selectionbar`, `rich.explain`)
-- [ ] ⌘C copies plain text only, without the links (`rich.copy`)
+- [x] ⌘C copies plain text only, without the links (`rich.copy`)
 - [ ] Tables stretch to the column's width rather than their natural widths,
   and list items sit a little closer than Swift's (`rich.table`, `rich.blocks`)
-- [ ] File names in replies don't find the files the thread's tools touched,
+- [x] File names in replies don't find the files the thread's tools touched,
   and this Mac's documents and pictures open in their app, not the pane
   (`rich.filerefs`, `file.host`)
 
@@ -92,8 +94,7 @@ you go.
 - [ ] The offer to continue a refused turn sits at the top, not just above the
   composer (`banner.refusal`)
 - [ ] No milestone toast (`toast.milestone`)
-- [ ] Highlights: no Notion board, and a link's menu has no Chrome profiles or
-  Default (`highlights.board`, `highlights.rowmenus`)
+- [ ] Highlights: no Notion board (`highlights.board`)
 - [ ] An image panel has no Open Simulator button; `.app`, `.icns` and PDF
   icons fall back to a symbol (`panel.image`, `patches.icons`,
   `rail.originbadge`)

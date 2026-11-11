@@ -27,6 +27,9 @@ enum Automation {
     private static var lastCommandAt = Date()
     /// A transcript cell drawn as hovered by `hover`, to clear later.
     static weak var hoveredCell: RowCellView?
+    /// What the open gate would have handed the Mac since `opened` last
+    /// asked, oldest first: nothing really opens in a scripted run.
+    static var opened: [String] = []
 
     /// The notification name and the private pasteboard's name for an
     /// instance (or the shared ones `drive.sh` uses).
@@ -91,6 +94,11 @@ enum Automation {
             AppLog.write("hang", "would report \(HangSample.deepestAppFrame(frames) ?? frames.last ?? "unknown")")
         }
         app.pasteboard = pasteboard
+        // A scripted app opens nothing for real: its clicks would start apps
+        // and browsers on the Mac running it. What would have opened is kept
+        // for `opened`, as the GPUI app's scripted runs keep theirs.
+        OpenGate.workspaceOpen = { url in MainActor.assumeIsolated { opened.append(url.absoluteString) } }
+        OpenGate.workspaceOpenWith = { url, _ in MainActor.assumeIsolated { opened.append(url.absoluteString) } }
         // A draft's Copy too, so a script's copies leave Mike's clipboard be.
         DraftBlockCell.pasteboard = pasteboard
         // And a ```mermaid or ```html box's Copy.
@@ -1761,6 +1769,11 @@ enum Automation {
             // This instance's pasteboard, where its Copy items went; `"type":
             // "html"` the HTML beside the words, as a draft's Copy puts it.
             return "ok " + json(pasteboard.string(forType: c["type"] as? String == "html" ? .html : .string) ?? "")
+        case "opened":
+            // What would have opened since the last ask (`startIfAsked`).
+            let list = opened
+            opened = []
+            return "ok " + json(list)
         case "mock":
             return await mock(c, app: app)
         case "quit":

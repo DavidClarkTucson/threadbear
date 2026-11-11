@@ -141,6 +141,9 @@ impl ThreadPane {
             .id(("row", ix))
             .w_full()
             .relative()
+            // Where a selection in a message starts, for the bar over it
+            // (selection_bar.rs). It doesn't take the press.
+            .on_mouse_down(MouseButton::Left, crate::selection_bar::pressed(self.summary.id.clone(), &row))
             .children(glow)
             .child(body)
             .context_menu(move |menu, _, cx| {
@@ -158,7 +161,7 @@ impl ThreadPane {
             return self.runner_note_row(message, cx);
         }
         if let Some(header) = message.agent_header() {
-            return self.agent_message_row(ix, &header, cx);
+            return self.agent_message_row(ix, row, &header, cx);
         }
         let bubble_bg = style::bubble_background(cx);
         let label = style::label_text(cx);
@@ -277,7 +280,7 @@ impl ThreadPane {
 
     /// `agentMessageText`: another thread's agent wrote this, so a card on the
     /// left that can't pass for Mike's bubble, headed by that thread.
-    fn agent_message_row(&mut self, ix: usize, header: &AgentHeader, cx: &mut Context<Self>) -> AnyElement {
+    fn agent_message_row(&mut self, ix: usize, row: &Row, header: &AgentHeader, cx: &mut Context<Self>) -> AnyElement {
         let (card_bg, border) = (style::card_background(cx), style::card_border(cx));
         // Its first line names the sending thread as a chip (chips.rs), and
         // thread ids in its words are chips too.
@@ -285,6 +288,11 @@ impl ThreadPane {
         let body = self.with_thread_chips(header.body.trim().to_owned(), cx);
         let doc = (!body.is_empty()).then(|| self.markdown_state(&format!("agent-{ix}"), &body, cx));
         let text_style = self.reading_style(cx);
+        // Its links' own menus and cards, as a reply's (reply_links.rs).
+        let text = doc.map(|doc| {
+            let text = self.linked_text(&doc, &format!("agent-{ix}"), cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);
+            crate::reply_links::link_aware(text, ix, row, &self.summary.id, cx)
+        });
         let card = v_flex()
             .p(px(CARD_PAD))
             .rounded(px(BUBBLE_RADIUS))
@@ -293,8 +301,8 @@ impl ThreadPane {
             .border_color(border)
             // 8 under the line when words follow it, as its paragraph spacing
             // is on the Mac: TextKit leaves a last paragraph's off.
-            .child(div().when(doc.is_some(), |d| d.mb(px(8.))).child(title))
-            .when_some(doc, |d, doc| d.child(div().text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(self.linked_text(&doc, &format!("agent-{ix}"), cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks))));
+            .child(div().when(text.is_some(), |d| d.mb(px(8.))).child(title))
+            .when_some(text, |d, text| d.child(div().text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(text)));
         h_flex().w_full().px(px(SIDE_INSET)).justify_center().child(div().w_full().max_w(px(MAX_CONTENT_WIDTH)).pt(px(USER_TOP)).pb(px(USER_BOTTOM)).child(card)).into_any_element()
     }
 
@@ -307,9 +315,17 @@ impl ThreadPane {
         let chips = crate::chips::ThreadChipPills { row: row_id.to_owned() };
         let row_id = row_id.to_owned();
         crate::open_gate::text_view(doc, self.origin(), &self.summary.cwd)
-            .on_link_click(move |url: &SharedString, _event: &ClickEvent, window: &mut Window, cx: &mut App| {
+            .on_link_click(move |url: &SharedString, event: &ClickEvent, window: &mut Window, cx: &mut App| {
+                // Asked which link is under the pointer (reply_links.rs), or
+                // a right click, which is the link's menu: nothing to follow.
+                if crate::reply_links::noted_by_probe(url) || !crate::reply_links::follows(event) {
+                    return;
+                }
+                // ⌘ (Control elsewhere) opens a file in its app and a page in
+                // the browser, whatever Default says.
+                let command = event.modifiers().secondary(cx);
                 let (url, row_id) = (url.to_string(), row_id.clone());
-                let _ = weak.update(cx, |this, cx| this.link_clicked(&url, &row_id, window, cx));
+                let _ = weak.update(cx, |this, cx| this.follow_link(&url, &row_id, command, window, cx));
             })
             // `[title](button:<id>)` as a pill that presses it.
             .plugin(crate::reply_buttons::Pills)
@@ -326,7 +342,7 @@ impl ThreadPane {
     /// The reading column's text: markdown, selectable, links going where they
     /// go. `row.rs`'s `TextItem::text` is the whole reply so far; `prepare`
     /// escapes work links and `set_text` appends what's new.
-    fn assistant_row(&mut self, _ix: usize, row: &Row, item: &TextItem, cx: &mut Context<Self>) -> AnyElement {
+    fn assistant_row(&mut self, ix: usize, row: &Row, item: &TextItem, cx: &mut Context<Self>) -> AnyElement {
         let source = markdown::prepare(&markdown::pictures(&item.text, self.summary.runner_id.is_none()));
         // Thread ids as chips (chips.rs).
         let source = self.with_thread_chips(source, cx);
@@ -338,6 +354,8 @@ impl ThreadPane {
         // TextKit leaves out the space over a text's first paragraph, so a
         // reply that opens with a heading starts without the heading's 6.
         let top = if markdown::starts_with_heading(&source) { ROW_TOP - 6. } else { ROW_TOP };
+        // Its links' own menus and cards (reply_links.rs).
+        let text = crate::reply_links::link_aware(text, ix, row, &self.summary.id, cx);
         row_wrap(row, div().pt(px(top)).pb(px(10.)).text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).text_color(style::label_text(cx)).child(text))
     }
 

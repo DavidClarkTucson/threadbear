@@ -618,9 +618,21 @@ extension Automation {
             guard cell.textView.debugMiddleClick(words) else { return "error no link with \(words) in \(row.id), or no middle-button event" }
             return "ok selection \(app.selection ?? "nothing")"
         }
-        if let words = c["words"] as? String, c["menu"] as? Bool == true || c["click"] != nil {
+        if let words = c["words"] as? String, c["follow"] as? Bool == true {
+            // A click on the link, ⌘ held for `"command": true`; `opened` says
+            // what a scripted app would have handed the Mac.
+            guard cell.textView.debugFollowLink(words, commandKey: c["command"] as? Bool == true) else { return "error no link with \(words) in \(row.id)" }
+            return "ok"
+        }
+        if let words = c["words"] as? String, c["menu"] as? Bool == true || c["click"] != nil || c["default"] != nil {
             guard let menu = cell.textView.debugLinkMenu(words) else { return "error no link with \(words) in \(row.id)" }
             let items = menu.items.filter { !$0.isSeparatorItem }
+            // `"default": title` picks one of Default's choices.
+            if let title = c["default"] as? String {
+                guard let item = items.first(where: { $0.title == "Default" })?.submenu?.items.first(where: { $0.title == title }), let action = item.action else { return "error no Default item \(title)" }
+                NSApp.sendAction(action, to: item.target, from: item)
+                return "ok"
+            }
             guard let title = c["click"] as? String else { return "ok " + json(items.map(\.title)) }
             guard let item = items.first(where: { $0.title == title }), let action = item.action else { return "error no item \(title)" }
             NSApp.sendAction(action, to: item.target, from: item)

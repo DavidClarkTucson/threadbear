@@ -2042,6 +2042,13 @@ function startStream(threadId, p) {
   setStatus(threadId, 'running');
   // Like a real turn, so the app shows it as running ("Working for 3s").
   persist(threadId, { type: 'turn.started', turnId }, turnId);
+  // `read`: the turn reads that file first, so a reply can name it by
+  // itself and the app find it among what the thread's tools touched.
+  if (typeof p.read === 'string' && p.read) {
+    const readId = 'c_read_' + crypto.randomBytes(2).toString('hex');
+    persist(threadId, { type: 'tool.call', itemId: readId, name: 'Read', kind: 'read', title: `Read ${path.basename(p.read)}`, input: { file_path: p.read } }, turnId);
+    persist(threadId, { type: 'tool.result', itemId: readId, ok: true, text: '', truncated: false, images: [] }, turnId);
+  }
   const started = Date.now();
   const finishText = () => {
     const text = t.inProgress.get(itemId)?.text ?? '';

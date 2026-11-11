@@ -246,6 +246,14 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         // The Librarian view's headings.
         "hourglass" => IconName::Hourglass,
         "clock.arrow.circlepath" => IconName::RotateCcwClock,
+        // A reply's links' menus (reply_links.rs), the selection bar and the
+        // Explain pane (selection_bar.rs, explain_pane.rs).
+        "wand.and.stars" => IconName::WandSparkles,
+        "questionmark.folder" => IconName::FileQuestionMark,
+        // Lucide has no magnifier with a sparkle in it: the plain one is nearest.
+        "sparkle.magnifyingglass" => IconName::Search,
+        "text.quote" => IconName::TextQuote,
+        "arrow.up.circle.fill" => IconName::CircleArrowUp,
         _ => return None,
     };
     Some(Icon::new(lucide))

@@ -222,6 +222,99 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 A reply's links, and words selected in it (`rich.filemenu`, `rich.webmenu`, `rich.linkpeek`, `rich.cmdclick`, `rich.filerefs`, `rich.selectionbar`, `rich.explain`, `rich.copy`, `highlights.rowmenus`)
+
+- A right-click on a link in a reply or an agent's message gives the
+  link's own menu in place of the row's, as FileLinks.swift has them. A
+  web link: Open in the default browser by its name, or, when Chrome is
+  the default and running with more than one profile open, one "Open in
+  Chrome: <profile>" each (read from Chrome's Local State each time, as
+  ChromeProfiles does); Open in Panel; Copy Link; and Default, the browser
+  or the panel, with the one in use ticked. A file link: Open in Panel,
+  Open in its app by name, Show in Finder, Copy Path, and Default
+  (documents and pictures in the pane and the rest in their app, the
+  pane, the app, Finder). A file that can't be found says so, greyed.
+  Highlights' link rows have the same profiles and Default.
+- What Default says is kept in `desktop-links.json` in the data folder,
+  under the Swift app's UserDefaults names. A plain click does what it
+  says; ⌘-click (Control elsewhere) opens a file in its app and a page in
+  the browser; a middle click follows the link too. A `.tandem` and the
+  like go to their app whatever Default says, as `opensInItsApp` has it.
+- Resting on a link for half a second shows its card (LinkPeekCard): a
+  page's words and address, or a file's first lines, or its picture
+  fitted to 276 by 170, with its folder and "Click to open". It goes 4
+  under the link's line, lined up with the link, or 4 over the line when
+  there's no room below, as ChipCardWindow places it. A press, a scroll
+  or the pointer leaving puts it away.
+- A file a reply names in a code span or a link with no folder is looked
+  for from the thread's folder, then among the files its tools read or
+  changed and the folders its commands went into (`transcriptLinkFile`,
+  FilePathRefs): `desktop/core/src/file_refs.rs`, with its tests. Another
+  Mac's paths are that Mac's, read into the pane through its runner.
+- Selecting words in a message brings up the bar over them: Explain,
+  Quote and Copy (SelectionBar). Quote puts them in the composer as a
+  quote, under what's there. Explain opens the pane beside
+  the thread with the words, the small model's answer, follow-ups and a
+  box to ask another, kept out of the thread (ExplainPane, `threads.explain`;
+  the session is `desktop/core/src/explain.rs`). Copy, and ⌘C on a
+  selection, put the words and HTML with their links, bold, italics and
+  code beside them, so a paste into Slack keeps its links (SelectionHTML,
+  `desktop/core/src/selection_copy.rs`, from the Markdown the kit gives
+  for a selection).
+- Not here: the profiles' and apps' own icons in the menus (symbols
+  instead); a PDF's or a film's card shows its symbol, not a Quick Look
+  picture; another Mac's file has no card; a page "in the panel" opens
+  in the browser until the pane draws pages through the web runtime; the
+  bar goes over where the press and the release were, as the kit says
+  what's selected but not where; a card chip in a selection doesn't copy
+  as its title; and the HTML copy is the Mac's only (plain words
+  elsewhere). The bar's dividers are half a point, as Swift's are, so a
+  1x screen barely shows them. The card and the
+  bar are the chips' flat popover colour, where the Swift ones are the
+  Mac's see-through material (lighter over a light desktop); and the kit
+  draws a faint line under every link, which the Swift replies don't.
+- Finding which link is under the pointer: the kit's text view only says
+  which link was clicked, so the app asks it with a release of the side
+  forward button at that spot, which the link handlers note rather than
+  follow (`link_at` in reply_links.rs). It's the kit's own hit test, so
+  it's right however the words wrap; asking up, down and along the line
+  finds where a card goes. It never asks while the left button's down or
+  something's being dragged, as GPUI would take the release for theirs
+  (a test with the gate's text view and a held button checks it).
+- Scripts: both apps' `peek` on a reply's link lists its menu, chooses an
+  item or a Default (through real clicks on the menu in the GPUI app),
+  follows it as a click or a ⌘-click, and shows its card; the new
+  `opened` says what would have opened. A scripted app of either kind
+  now opens nothing for real (the open gate's opens are kept for
+  `opened`), and the Swift app's Copy Path, Copy Link and the bar's Copy
+  go to the instance's own pasteboard. The GPUI app's `select-text`
+  selects a reply whole. The mock runner's `mock.stream` takes `read`, a
+  file the turn reads first.
+- Files: `desktop/core/src/{reply_links,file_refs,selection_copy,explain,lib}.rs`,
+  `desktop/gpui/src/{reply_links,selection_bar,explain_pane}.rs` (new),
+  `desktop/gpui/src/{open_gate,rows,rows/markdown,thread,highlights,chips,automation,icons,main}.rs`,
+  `app/Sources/Threadbear/{Automation,Automation+Commands}.swift`,
+  `app/Sources/Threadbear/Transcript/{TextKit,FileLinks}.swift`,
+  `app/Tools/mock-runner/server.mjs`, `features/reply-links.feature`,
+  `features/selected-words.feature` and their steps, `app/README.md`,
+  `docs/on-your-mac.md`.
+- Verification: on Tinker Desk, rebased on main: GPUI 70 of 70 across
+  reply-links, selected-words, highlights, message-chips, thread-chips,
+  reading-a-thread, file-previews, review and drafts (the eleven new
+  scenarios among them), and Swift 27 of 27 across reply-links,
+  selected-words (its ⌘C one pending there), highlights and
+  message-chips; GPUI 30 of 30 again on the last change; core's and the
+  client's tests; and the probe's test, with the gate's own text view in
+  a test window: the link found, its place on its line, and no early
+  click while the left button's held down (with that check taken out, it
+  fails on the early click). Pictures of both apps, dark
+  and light, of a reply with a page, a file and a picture link, each
+  link's card, the bar, and the GPUI app's menus and Explain pane, laid
+  over each other: the reply's words line up, and the bar's items and
+  spacing are the Swift bar's. The card covered its own link
+  when there was no room under it and sat under the pointer rather than
+  the link; both brought in.
+
 ### 2026-11-11 The Terminal after three Codex reviews, in both apps (`terminal.panel`, `terminal.putcommand`, `terminal.lifecycle`)
 
 - A paste that would run lines by itself asks first. When the program in the

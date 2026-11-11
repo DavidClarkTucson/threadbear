@@ -92,7 +92,7 @@ fn under_chip(card: AnyElement) -> AnyElement {
 
 /// The card's look: a small rounded window's (ChipCardWindow), 8 round with
 /// a hairline edge.
-fn card_frame(cx: &App) -> Div {
+pub(crate) fn card_frame(cx: &App) -> Div {
     div().rounded(px(8.)).bg(cx.theme().popover).border(gpui_kit::px(0.5)).border_color(style::card_border(cx)).shadow_lg()
 }
 

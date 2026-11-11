@@ -1211,6 +1211,23 @@ impl Render for ThreadPane {
         v_flex()
             .relative()
             .size_full()
+            // ⌘C on words selected in a reply: HTML with their links beside
+            // the words (selection_bar.rs). Ahead of the kit's own copy, which
+            // has the words alone.
+            .capture_action({
+                // Not a listener: the copy reads this pane, which a listener
+                // would hold for its own update.
+                let pane = cx.weak_entity();
+                move |_: &gpui_kit::component::input::Copy, window: &mut Window, cx: &mut App| {
+                    if pane.upgrade().is_some_and(|pane| crate::selection_bar::copy(&pane, window, cx)) {
+                        cx.stop_propagation();
+                    }
+                }
+            })
+            .child(crate::selection_bar::watch(cx.weak_entity()))
+            // Whether the left button's down, so asking which link is under
+            // the pointer never lands in a click (reply_links.rs).
+            .child(crate::reply_links::watch())
             .when_some(self.error.clone(), |s, e| s.child(div().px_7().py_1().text_sm().text_color(danger).child(e)))
             .when(!self.loaded && self.error.is_none() && self.load_failed.is_none(), |s| s.child(div().p_4().text_sm().text_center().text_color(muted).child("Loading…")))
             .map(|s| match self.load_failed.clone() {
@@ -1224,5 +1241,9 @@ impl Render for ThreadPane {
             // agent that started it.
             .when(self.subagent_id.is_none(), |s| s.child(self.composer.clone()))
             .children(drop_layer)
+            // The card of a link the pointer's resting on (reply_links.rs), and
+            // the bar over selected words (selection_bar.rs).
+            .children(crate::reply_links::peek_overlay(self, cx))
+            .children(crate::selection_bar::overlay(self, cx))
     }
 }

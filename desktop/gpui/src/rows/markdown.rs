@@ -3,9 +3,8 @@
 // app's, and sends links where they should go.
 use super::metrics::CODE_PAD;
 use crate::style::{self, size};
-use crate::open_gate::{self, Origin};
+use crate::open_gate::Origin;
 use crate::thread::ThreadPane;
-use threadbear_core::open_policy::{self, LinkKind};
 use gpui_kit::base::{TextViewState, TextViewStyle};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
@@ -410,29 +409,11 @@ impl ThreadPane {
         state
     }
 
-    /// Where a link goes. `work:`, `thread:` and `review:` links act here;
-    /// everything else goes through the open gate (open_gate.rs), which
-    /// opens a web page, asks before a program or another app, and never
-    /// opens another Mac's file here: that one shows in the pane, read
-    /// through its runner.
+    /// Where a link goes when it's clicked with no key held (a ⌘-click comes
+    /// through `linked_text`): reply_links.rs's `follow_link`, as it says
+    /// what each kind of link does.
     pub(crate) fn link_clicked(&mut self, url: &str, row_id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let scheme = url.split_once(':').map(|(s, _)| s).filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))).map(str::to_ascii_lowercase);
-        let rest = scheme.as_ref().map_or(url, |s| &url[s.len() + 1..]);
-        match scheme.as_deref() {
-            Some("work") => self.open_work_link(&percent_decode(rest), row_id, window, cx),
-            Some("thread") => self.open_thread_link(&percent_decode(rest), window, cx),
-            Some("review") => self.open_review_link(&percent_decode(rest), window, cx),
-            Some("tbpath") => {
-                let text = percent_decode(rest.strip_prefix("?p=").unwrap_or(rest));
-                self.open_thread_file(strip_line(split_query(&text).0), cx);
-            }
-            // `Foo.swift:12` reads as a scheme, but it's a file and a line.
-            Some(s) if s.contains('.') && strip_line(url) != url => self.open_thread_file(strip_line(url), cx),
-            _ => match open_policy::link_kind(url) {
-                LinkKind::File(path) => self.open_thread_file(strip_line(&path), cx),
-                _ => open_gate::open_link(url, self.origin(), &self.summary.cwd, cx),
-            },
-        }
+        self.follow_link(url, row_id, false, window, cx);
     }
 
     pub(crate) fn origin(&self) -> Origin {
@@ -443,25 +424,6 @@ impl ThreadPane {
         }
     }
 
-    /// A file a reply names, by a link or in inline code: the thread's
-    /// folder is where a relative one is from (`FilePathRefs.resolve`,
-    /// without its search of the files the thread's tools touched, which
-    /// comes with the file links' menus). This runner's opens in its app
-    /// through the gate; another runner's shows in the pane, read through
-    /// that runner, as nothing of it is on this Mac.
-    pub(crate) fn open_thread_file(&mut self, path: &str, cx: &mut Context<Self>) {
-        let home = threadbear_core::reducer::text::home_directory();
-        let Some(absolute) = open_policy::absolute(path, &self.summary.cwd, &home) else { return };
-        if self.summary.is_remote() {
-            let side = self.composer.read(cx).app.upgrade().map(|app| app.read(cx).side.clone());
-            let thread = self.summary.clone();
-            if let Some(side) = side {
-                side.update(cx, |side, cx| side.preview_path(&absolute, None, &thread, cx));
-            }
-            return;
-        }
-        open_gate::open_file(&absolute, Origin::ThisMac, cx);
-    }
 }
 
 /// How many row documents a thread keeps parsed.

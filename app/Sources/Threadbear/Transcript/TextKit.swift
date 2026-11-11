@@ -1245,6 +1245,33 @@ final class TranscriptTextView: NSTextView {
         return fileLinkMenu(atCharacter: range.location)
     }
 
+    /// The first link whose words have `words`, followed as a click on it
+    /// is, with ⌘ held or not (`followLink` reads the key from the event,
+    /// which a script's call has none of). False when there's no such link.
+    func debugFollowLink(_ words: String, commandKey: Bool) -> Bool {
+        guard let storage = textStorage else { return false }
+        let found = (storage.string as NSString).range(of: words)
+        guard found.location != NSNotFound, let link = storage.attribute(.link, at: found.location, effectiveRange: nil) else { return false }
+        forItsThread {
+            let app = AppModel.shared
+            if let url = link as? URL, let text = FilePathRefs.text(of: url) {
+                _ = app.openTranscriptPathRef(text, commandKey: commandKey)
+            } else if let url = link as? URL, url.isFileURL {
+                _ = app.openTranscriptFileLink(url, commandKey: commandKey)
+            } else if let web = webURL(link) {
+                // A real click hands a page for the browser to AppKit; the
+                // gate's open goes to the same browser, and a scripted app's
+                // gate opens nothing (`opened`).
+                if !commandKey, WebLinkAction.click == .panel { _ = app.openTranscriptWebLink(web, .panel) } else { app.openExternally(web) }
+            } else if let text = Self.relativeTarget(link) {
+                _ = app.openTranscriptPathRef(text, commandKey: commandKey)
+            } else {
+                openOtherLink(link)
+            }
+        }
+        return true
+    }
+
     /// Where each draft's header is (DraftBlockCell), in order.
     private func debugDraftHeaders() -> [Int] {
         guard let storage = textStorage else { return [] }
@@ -1414,7 +1441,8 @@ final class TranscriptTextView: NSTextView {
         case .copy:
             let range = selectedRange()
             guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return }
-            _ = Self.write(text, html: storage.attributedSubstring(from: range), to: .general)
+            // The app's pasteboard (a scripted run's own), as its Copy items use.
+            _ = Self.write(text, html: storage.attributedSubstring(from: range), to: app.pasteboard)
         }
     }
 
