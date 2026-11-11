@@ -1959,17 +1959,19 @@ export class Runner {
             // Any refusal after one it took, not just ALREADY_ENDED: a bad
             // snooze or waitFor on a repeat once turned an ask into Done.
             if (endTurnRefusedRepeat(ev) || (!ev.ok && (rt.turn.ended || rt.turn.tookEndTurn))) rt.turn.endTurn = rt.turn.endTurnBefore;
-            else if (endTurnTaken(ev)) rt.turn.tookEndTurn = true;
+            else if (endTurnTaken(ev)) {
+              rt.turn.tookEndTurn = true;
+              // Every taken one, Codex's older "Noted." too: one that isn't
+              // one-reply means text after it isn't the reply (from Codex's
+              // review). A "Done." after one took a full reply's place on
+              // 11 Nov 2026 (dcdc60a3).
+              rt.turn.replyAfter = endTurnWantsReply(ev);
+            }
             else if (endTurnAddedArchive(ev)) rt.turn.endTurn = { ...rt.turn.endTurnBefore, archive: true };
             else if (endTurnAddedSnooze(ev)) rt.turn.endTurn = { ...rt.turn.endTurnBefore, snooze: rt.turn.endTurn?.snooze };
           }
           if (ev.type === 'tool.result' && ev.itemId === rt.turn.endTurnCall && endTurnAccepted(ev)) {
             rt.turn.ended = true;
-            // Set either way: a second end_turn after a wake (or the Stop
-            // hook's nudge) that says the message above is the reply means
-            // what's written after it is dropped, not a new reply. A "Done."
-            // after one took a full reply's place on 11 Nov 2026 (dcdc60a3).
-            rt.turn.replyAfter = endTurnWantsReply(ev);
             const headline = typeof rt.turn.endTurn?.headline === 'string' ? rt.turn.endTurn.headline.trim() : '';
             if (headline) {
               rt.turn.headline = true;

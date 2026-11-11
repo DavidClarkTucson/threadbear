@@ -1891,3 +1891,27 @@ test('one reply: after a wake reopens the turn, text after a "message above is t
   assert.ok(texts.some((e) => e.type === 'assistant.text' && e.itemId === 'm2'), 'the report is kept');
   assert.ok(!texts.some((e) => e.type === 'assistant.text' && e.itemId === 'm3'), '"Done." is dropped');
 });
+
+// From Codex's review: an end_turn taken in the older form ("Noted.", as
+// Codex's bullets form answers) after a one-reply one, once a wake opened the
+// turn, means text after it isn't the reply.
+test('one reply: a later end_turn taken in the older form ends the reply that comes after', async () => {
+  const h = makeHarness();
+  const { thread, s } = start(h);
+  const { call } = tools(h, thread.id, undefined, () => true);
+  s.out({ kind: 'event', event: { type: 'system.note', text: 'Background command "Build" completed (exit code 0)', wake: true } });
+  const input = { needs: 'nothing' };
+  toolCall(s, 'e1', END_TURN, input);
+  const r = await call('end_turn', input);
+  s.out({ kind: 'event', event: { type: 'tool.result', itemId: 'e1', ok: true, text: r.text, truncated: false, images: [] } });
+  s.text('m1', 'The first reply.');
+  toolCall(s, 'b1', 'Bash', { command: 'cat build.log' });
+  toolResult(s, 'b1');
+  s.text('m2', 'The build passed, and here is everything it found.');
+  toolCall(s, 'e2', END_TURN, { summary: ['Built it.'], needs: 'nothing' });
+  s.out({ kind: 'event', event: { type: 'tool.result', itemId: 'e2', ok: true, text: 'Noted. Write a short final answer.', truncated: false, images: [] } });
+  s.text('m3', 'Done.');
+  s.result('completed');
+  await tick();
+  assert.ok(!h.events(thread.id).some((e) => e.type === 'assistant.text' && e.itemId === 'm3' && e.final === true), '"Done." is not the reply');
+});

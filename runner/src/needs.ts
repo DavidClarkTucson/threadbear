@@ -931,13 +931,14 @@ export class WakeRead {
   // to the model before it, so it waits for results of its own (from Codex's
   // review). At worst that opens the turn once more than needed.
   private next = false;
-  // It was handed over with an end_turn that said "Now write your reply": the
-  // text the agent writes next is that reply, not something it did about the
-  // notice, so only a tool call after it opens the turn. On 11 Nov 2026 an
+  // A result in the batch that hands it over (before or after the note) was
+  // an end_turn saying "Now write your reply": the text the agent writes next
+  // is that reply, not something it did about the notice, so only a tool call
+  // after it opens the turn. Cleared at each of the agent's steps otherwise. On 11 Nov 2026 an
   // ffmpeg job's exit came with that answer; the reply counted as reading it,
   // the Stop hook asked for end_turn again, and the "Done." written after the
   // second one took the reply's place (thread dcdc60a3).
-  private replyNext = false;
+  private batchReply = false;
   get handed(): boolean {
     return this.state === 'handed';
   }
@@ -947,19 +948,20 @@ export class WakeRead {
       else this.state = 'unread';
       return false;
     }
-    const wantsReply = e.type === 'tool.result' && typeof e.text === 'string' && endTurnWantsReply({ ok: e.ok === true, text: e.text });
-    if (e.type === 'tool.result' && this.state === 'unread') {
-      this.state = 'handed';
-      this.replyNext = wantsReply;
-    }
-    // The rest of the batch it came with.
-    else if (e.type === 'tool.result' && this.state === 'handed') this.replyNext ||= wantsReply;
+    // Any result in the batch, before the note as well as after it (from
+    // Codex's review).
+    if (e.type === 'tool.result' && typeof e.text === 'string' && endTurnWantsReply({ ok: e.ok === true, text: e.text })) this.batchReply = true;
+    if (e.type === 'tool.result' && this.state === 'unread') this.state = 'handed';
     // A Codex child's items (<child>/<id>) aren't the agent's own steps.
-    else if (this.state === 'handed' && (e.type === 'assistant.text' || e.type === 'reasoning' || e.type === 'tool.call') && !e.itemId?.includes('/')) {
-      if (this.replyNext && e.type !== 'tool.call') return false;
+    else if ((e.type === 'assistant.text' || e.type === 'reasoning' || e.type === 'tool.call') && !e.itemId?.includes('/')) {
+      if (this.state !== 'handed') {
+        this.batchReply = false;
+        return false;
+      }
+      if (this.batchReply && e.type !== 'tool.call') return false;
+      this.batchReply = false;
       this.state = this.next ? 'unread' : 'none';
       this.next = false;
-      this.replyNext = false;
       return true;
     }
     return false;
@@ -967,7 +969,7 @@ export class WakeRead {
   reset(): void {
     this.state = 'none';
     this.next = false;
-    this.replyNext = false;
+    this.batchReply = false;
   }
 }
 
