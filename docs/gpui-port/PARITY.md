@@ -259,22 +259,35 @@ built parsers and gates with no launch of the app, which is the trap.)
   search field is Swift's 29 tall; the thread's bar title sits where Swift's
   does; Full access has SF's open lock and "+" SF's size; and the needs-you
   orange is systemOrange.
-- A thread is read only while its window is in front, as Swift's `isLooking`
-  has it: GPUI read one as soon as it opened, behind other windows too, which
-  moved it down the Inbox in the scripted pictures. The scripts' `focus` now
-  means "in front" in both apps.
+- A thread is read only while one of the app's windows is in front (the
+  main one, Settings or a panel's window of its own, each saying so from its
+  own activation), as Swift's `isLooking` has it: GPUI read one as soon as it
+  opened, behind other windows too, which moved it down the Inbox in the
+  scripted pictures. A click or key in a window counts as well, for an X
+  server that never says a window's in front, but nothing a script does
+  does, and the scripts' `focus` now means "in front" in both apps. GPUI's
+  own "active window" isn't used: on the Mac it's NSApp.mainWindow, which
+  stays set behind another app.
 - Left: gpui-kit puts list items 3.75 apart (a quarter of the text size,
   fixed in the kit) where Swift's are 6, and indents a nested list 21 where
   Swift's is 30, so a card with a list in its why is a few points shorter;
   that needs the kit to take an item gap. Reply buttons inside list items
   (pills in Swift) are still plain links here.
+- The reading styles (the transcript's, a file preview's, the card's) are
+  kept per zoom as well as per appearance, as their code sizes are zoomed
+  when they're built.
 - Files: `desktop/gpui/src/{composer_card,composer,composer_chips,icons,
-  style,rows,rows/markdown,rows/images,highlights,sidebar,header,thread,app,
-  automation,open_gate}.rs`, `features/tools/{compare.ts,pixel-overlay.swift}`.
+  style,rows,rows/markdown,highlights,sidebar,header,thread,app,shell,
+  settings_window,automation,open_gate,files}.rs`,
+  `desktop/dock/src/{content,windows}.rs` (`window_activation`),
+  `features/tools/{compare.ts,pixel-overlay.swift}`.
 - Verification: compare.ts on Tinker Desk, every demo thread in dark, with
   the rows tool after each change (the empty composer, the card on both
-  pages, the bubble, the Highlights rows); the GPUI specs on Linux and the
-  Mac.
+  pages, the bubble, the Highlights rows): the sidebar went from 10.8% of
+  its pixels apart to 2.1%, and the Highlights and main panel came down in
+  every thread. Codex's review, three rounds (read tracking, zoom, a "2."
+  ask's escape, floating windows, no window manager, every scripted input),
+  each finding fixed. The GPUI specs on Linux and the Mac.
 
 ### 2026-11-11 The Settings window, with General and Models (`settings.window`, `settings.general`, `settings.models`)
 
