@@ -4,7 +4,7 @@ name: Loose ends on the done card
 title: Loose ends on the done card: the runner checks a finished thread's branch, worktree, the threads it started and its check-ins, so Archive is safe without asking
 added: 2026-11-07
 on: false
-reminder: 7904a70e
+reminder: c7330a39
 ---
 
 ## What it does
