@@ -31,19 +31,31 @@ async function rowWithChip(world: ThreadbearWorld, label: string): Promise<Row> 
   return world.until(`my message with the chip "${label}"`, (d) => [...d.transcript.rows].reverse().find((r) => r.kind === 'user' && r.chips?.some((c) => c.endsWith(`: ${label}`))));
 }
 
+/** `peek` on my message with that chip. A message just sent is shown while
+ * it's on its way, then swapped for the runner's own row, so a row found a
+ * moment ago may have gone: it's looked for again. */
+async function peek(world: ThreadbearWorld, label: string, command: Record<string, unknown>): Promise<string> {
+  for (let attempt = 0; ; attempt += 1) {
+    const row = await rowWithChip(world, label);
+    try {
+      return await world.app.do({ cmd: 'peek', row: row.id, ...command });
+    } catch (error) {
+      if (attempt >= 5 || !/no (such )?row/.test(String(error))) throw error;
+      await new Promise((done) => setTimeout(done, 300));
+    }
+  }
+}
+
 // Both apps' `peek`: the card a chip shows after the pointer rests on it.
 Then('resting on the chip {string} in my message shows its card', async function (this: ThreadbearWorld, label: string) {
-  const row = await rowWithChip(this, label);
-  const out = await this.app.do({ cmd: 'peek', row: row.id, words: label });
-  assert.match(out, /ok window/);
-  await this.app.do({ cmd: 'peek', row: row.id, show: false });
+  assert.match(await peek(this, label, { words: label }), /ok window/);
+  await peek(this, label, { show: false });
 });
 
 // A press on a picture's chip opens it as a click on the pictures over the
 // words would: both apps say which of the message's pictures, of how many.
 Then('pressing the chip {string} in my message opens picture {int} of {int}', async function (this: ThreadbearWorld, label: string, number: number, count: number) {
-  const row = await rowWithChip(this, label);
-  const out = okValue(await this.app.do({ cmd: 'peek', row: row.id, words: label, press: true }));
+  const out = okValue(await peek(this, label, { words: label, press: true }));
   const found = /^quicklook (\d+) of (\[.*\])$/.exec(out);
   assert.ok(found, out);
   assert.equal(Number(found[1]) + 1, number, out);

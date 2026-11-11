@@ -1706,10 +1706,13 @@ struct AppDump: Encodable {
         }
     }
 
-    /// The chips Mike's bubble draws among its words, read off its text as
-    /// drawn (RowRenderer.userText): each one's picture, card or thread.
+    /// The chips a row draws among its words, read off its text as drawn:
+    /// Mike's bubble's pictures, cards and threads (RowRenderer.userText),
+    /// and the thread chips of an agent's message or a reply (ThreadChips).
     static func chips(_ row: TranscriptRow) -> [String]? {
-        guard case .user(let message) = row.content, !message.showsAsNote, message.agentHeader == nil else { return nil }
+        if case .assistant(let item) = row.content { return threadChips(MarkdownRenderer.render(item.text).string) }
+        guard case .user(let message) = row.content, !message.showsAsNote else { return nil }
+        if let header = message.agentHeader { return threadChips(RowRenderer.agentMessageText(header)) }
         let text = RowRenderer.userText(message)
         var found: [String] = []
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, _ in
@@ -1719,6 +1722,12 @@ struct AppDump: Encodable {
                 found.append("\((attributes[.link] as? URL)?.scheme == "thread" ? "thread" : "card"): \(title)")
             }
         }
+        return found.isEmpty ? nil : found
+    }
+
+    /// The thread chips in drawn text, each as its words ("thread: 85735a8f").
+    private static func threadChips(_ text: NSAttributedString) -> [String]? {
+        let found = ThreadChips.chips(in: text).map { "thread: \((text.string as NSString).substring(with: $0.range))" }
         return found.isEmpty ? nil : found
     }
 

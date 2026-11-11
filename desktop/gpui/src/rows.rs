@@ -278,14 +278,11 @@ impl ThreadPane {
     /// `agentMessageText`: another thread's agent wrote this, so a card on the
     /// left that can't pass for Mike's bubble, headed by that thread.
     fn agent_message_row(&mut self, ix: usize, header: &AgentHeader, cx: &mut Context<Self>) -> AnyElement {
-        let faint = style::faint_text(cx);
         let (card_bg, border) = (style::card_background(cx), style::card_border(cx));
-        let title = match &header.moved_to {
-            Some(folder) => format!("Left by this thread's agent when it moved to {folder}"),
-            None if header.title.is_empty() => format!("From the agent in {}", header.thread_id),
-            None => format!("From the agent in {}", header.title),
-        };
-        let body = header.body.trim().to_owned();
+        // Its first line names the sending thread as a chip (chips.rs), and
+        // thread ids in its words are chips too.
+        let title = self.agent_header_line(&format!("agent-{ix}"), header, cx);
+        let body = self.with_thread_chips(header.body.trim().to_owned(), cx);
         let doc = (!body.is_empty()).then(|| self.markdown_state(&format!("agent-{ix}"), &body, cx));
         let text_style = self.reading_style(cx);
         let card = v_flex()
@@ -294,7 +291,9 @@ impl ThreadPane {
             .bg(card_bg)
             .border_1()
             .border_color(border)
-            .child(div().mb(px(8.)).text_size(px(size::SMALL)).line_height(px(17.)).text_color(faint).child(title))
+            // 8 under the line when words follow it, as its paragraph spacing
+            // is on the Mac: TextKit leaves a last paragraph's off.
+            .child(div().when(doc.is_some(), |d| d.mb(px(8.))).child(title))
             .when_some(doc, |d, doc| d.child(div().text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).child(self.linked_text(&doc, &format!("agent-{ix}"), cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks))));
         h_flex().w_full().px(px(SIDE_INSET)).justify_center().child(div().w_full().max_w(px(MAX_CONTENT_WIDTH)).pt(px(USER_TOP)).pb(px(USER_BOTTOM)).child(card)).into_any_element()
     }
@@ -305,6 +304,7 @@ impl ThreadPane {
     pub(crate) fn linked_text(&self, doc: &Entity<gpui_kit::base::TextViewState>, row_id: &str, cx: &mut Context<Self>) -> TextView {
         let weak = cx.weak_entity();
         let drafts = crate::draft_boxes::DraftBoxes { origin: self.origin(), cwd: self.summary.cwd.clone(), row: row_id.to_owned() };
+        let chips = crate::chips::ThreadChipPills { row: row_id.to_owned() };
         let row_id = row_id.to_owned();
         crate::open_gate::text_view(doc, self.origin(), &self.summary.cwd)
             .on_link_click(move |url: &SharedString, _event: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -317,6 +317,8 @@ impl ThreadPane {
             .image_source(markdown::picture_source)
             // A closed ```slack, ```email or ```draft fence as the draft's box.
             .plugin(drafts)
+            // A thread's id as its chip (`with_thread_chips`).
+            .plugin(chips)
     }
 
     /// The reading column's text: markdown, selectable, links going where they
@@ -324,6 +326,8 @@ impl ThreadPane {
     /// escapes work links and `set_text` appends what's new.
     fn assistant_row(&mut self, _ix: usize, row: &Row, item: &TextItem, cx: &mut Context<Self>) -> AnyElement {
         let source = markdown::prepare(&markdown::pictures(&item.text, self.summary.runner_id.is_none()));
+        // Thread ids as chips (chips.rs).
+        let source = self.with_thread_chips(source, cx);
         let doc = self.markdown_state(&item.item_id, &source, cx);
         let text_style = self.reading_style(cx);
         let text = self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);

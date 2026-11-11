@@ -496,6 +496,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "draft" => crate::draft_boxes::automation(app, cmd, window, cx),
         // The chips in Mike's messages and their cards (chips.rs), as the Swift app's `peek`.
         "peek" => crate::chips::peek_command(app, cmd, window, cx),
+        // Thread chips in a row's words, as the Swift app's `chip`.
+        "chip" => crate::chips::chip_command(app, cmd, window, cx),
         // As if the window had come to the front: both apps read a thread
         // only while it is, and a scripted one never is.
         "focus" => {

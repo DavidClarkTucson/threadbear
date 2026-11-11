@@ -222,6 +222,49 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Thread chips in replies and agents' messages (`rich.threadchips`, `transcript.reply`, `transcript.agentmessage`)
+
+- A thread's id in a reply (its first 8 characters or the whole id, as `tb
+  status` prints them) that names a thread this app knows is a chip, as
+  ThreadChips draws it: the id in the accent on the accent's faint pill,
+  reaching into the spaces either side. Resting the pointer on it shows the
+  thread's card (its title, where it is and what it's doing, "Click to
+  open"), and a click opens the thread. Only in the reply's words as the
+  parser reads them: not in a code block, a link or an autolink; a code span
+  that's just an id is the chip instead, in the code's font; an id in longer
+  code stays code. A thread gone since shows its id as words.
+- A message from another thread's agent is headed, as the Swift card is, by
+  the turned arrow, "From the agent in" and that thread as a chip with its
+  title and card, which opens it; a thread this app doesn't know is its
+  title alone. Ids in the message's words are chips too. The line has room
+  under it only when words follow, as on the Mac, so a message of just its
+  header is no taller than the Swift one.
+- Which words are ids is `desktop/core/src/chips.rs` (ThreadRefs: the shape,
+  the index of full ids and unique prefixes, the card's line); where they
+  sit in a reply is the kit's own parser, so code and links are left alone
+  (`chips.rs` in the app, with its tests). The pill is the kit's inline
+  plugin, as the reply buttons' are.
+- Not here: an id inside a longer code span as a chip (a reply's code is the
+  kit's own text), and a link's hover peek, which comes with
+  `rich.linkpeek`.
+- Both apps' dumps give a reply's and an agent message's `chips` ("thread:
+  4f9c2e7a"); the GPUI app takes the Swift app's `chip` (list a row's thread
+  chips, show one's card, press one through a real click). The mock runner's
+  `mock.thread` makes a thread with an id of the runner's shape, as the demo
+  threads' aren't.
+- Files: `desktop/gpui/src/{chips,rows,thread,automation,icons}.rs`,
+  `app/Sources/Threadbear/AppDump.swift`, `app/Tools/mock-runner/server.mjs`,
+  `features/thread-chips.feature` and its steps, and the retry in
+  `features/steps/message-chips.steps.ts` for a message's row being swapped
+  for the runner's own.
+- Verification: on Tinker Desk, `@rich.threadchips` and
+  `@transcript.agentmessage`, GPUI 3 of 3 and Swift 3 of 3, with the drafts'
+  and message chips' scenarios again; the chips' tests in the app and core.
+  Pictures of both apps with a reply naming a thread by its id and in a code
+  span and an agent's message headed by its thread, dark and light, laid
+  over each other: the pills, their words and the header line sit where the
+  Swift ones do (the header-only card was 8 points taller, brought in).
+
 ### 2026-11-11 Chips in Mike's messages (`rich.picturechips`, `rich.cardchips`, `transcript.user`)
 
 - In Mike's bubble a "[Picture N]" that places one of the message's

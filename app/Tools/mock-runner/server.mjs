@@ -1665,6 +1665,23 @@ async function dispatch(client, method, p) {
       return { clis };
     case 'mock.stream':
       return startStream(need(p.threadId).summary.id, p);
+    // A thread with the id and title given, idle with nothing in it, for a
+    // spec that needs one an agent can name by its id (a thread chip): the
+    // demo threads' ids aren't the shape the runner's are.
+    case 'mock.thread': {
+      const threadId = typeof p.id === 'string' && p.id ? p.id : crypto.randomUUID();
+      const now = iso();
+      const accountId = defaults.accountId;
+      const provider = providerOf(accountId);
+      const summary = {
+        id: threadId, title: p.title ?? 'A thread', cwd: p.cwd ?? defaults.cwd, accountId, provider,
+        model: defaults.models[provider], effort: defaults.efforts[provider], permissionMode: 'full', status: 'idle', live: false,
+        needsYou: false, createdAt: now, updatedAt: now, lastActivityAt: now, preview: '', lastSeq: 0, lastSeenSeq: 0,
+      };
+      threads.set(threadId, { summary, events: [], inProgress: new Map(), timers: [] });
+      broadcastSummary(threadId);
+      return { thread: summary };
+    }
     case 'mock.review': {
       // As an agent's show_options would: {threadId, review: { id?, title,
       // note?, recommended?, options }}, the options as DesignReview has them

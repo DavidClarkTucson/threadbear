@@ -1,13 +1,16 @@
 // Chips among a message's words (rich.picturechips, rich.cardchips,
 // rich.threadchips): in Mike's bubble a "[Picture N]" is a chip for that
 // picture, a Notion card's or another thread's link a chip with its title
-// (RowRenderer.userText, PictureChips.swift, CardChips.swift). Where they go
-// is threadbear_core::chips; this draws them, lays the bubble's lines out
-// round them, and shows a chip's card while the pointer rests on it
-// (TextKit's hoverChip and ChipCardWindow).
+// (RowRenderer.userText, PictureChips.swift, CardChips.swift); in a reply a
+// thread's id is a chip, and a message from another thread's agent names
+// that thread as one (ThreadChips.swift, RowRenderer.agentMessageText).
+// Where they go is threadbear_core::chips; this draws them, lays the
+// bubble's lines out round them, and shows a chip's card while the pointer
+// rests on it (TextKit's hoverChip and ChipCardWindow).
 use crate::open_gate::{self, Origin};
 use crate::style::{self, size};
 use crate::thread::ThreadPane;
+use gpui_kit::base::text::{InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin};
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
 use gpui_kit::prelude::*;
@@ -15,10 +18,11 @@ use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
 use crate::style::px;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use threadbear_core::chips::{self as found, Mention, MentionKind, Piece};
+use threadbear_core::chips::{self as found, Mention, MentionKind, Piece, ThreadIndex};
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::reducer::{ImageRef, UserMessage};
 
@@ -510,4 +514,390 @@ pub(crate) fn peek_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_jso
     window.refresh();
     window.render_frame(cx);
     Ok(json!("ok window 0"))
+}
+
+// ---------------------------------------------------------------- the thread list
+
+/// Thread ids by their full id and 8-character prefix, from the app's
+/// thread list (ThreadChips.update). Made again when the list changes
+/// size, or a couple of seconds on, as a thread gone while another comes
+/// leaves the size the same.
+static INDEX: LazyLock<Mutex<Option<(usize, Instant, Arc<ThreadIndex>)>>> = LazyLock::new(|| Mutex::new(None));
+
+pub(crate) fn thread_index(threads: &HashMap<String, ThreadSummary>) -> Arc<ThreadIndex> {
+    let mut cached = INDEX.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((count, at, index)) = cached.as_ref() {
+        if *count == threads.len() && at.elapsed() < Duration::from_secs(2) {
+            return index.clone();
+        }
+    }
+    let index = Arc::new(ThreadIndex::new(threads.keys().map(String::as_str)));
+    *cached = Some((threads.len(), Instant::now(), index.clone()));
+    index
+}
+
+// ---------------------------------------------------------------- a reply's thread ids
+
+/// The link a reply's thread chip is written as for the markdown view:
+/// `[85735a8f](tbchip:<the thread's id>)`, `?code` after the id for one that
+/// was a code span. Threadbear's own, so an agent's own `thread:` links stay
+/// links, as they are on the Mac.
+const CHIP_SCHEME: &str = "tbchip:";
+
+/// A reply's markdown with each thread id that names a thread as a chip's
+/// link, and those chips' words and threads, in order (MarkdownRenderer.
+/// markThreadRefs, ThreadChips). Only in its words as the parser reads
+/// them: not in a code block, a link or an autolink, as a link keeps its
+/// own destination. A code span that's just an id is the chip instead, as
+/// the Mac draws its chip in place of the code's pill; an id inside longer
+/// code stays code.
+pub(crate) fn link_thread_ids<'a>(text: &'a str, resolve: &dyn Fn(&str) -> Option<String>) -> (std::borrow::Cow<'a, str>, Vec<(String, String)>) {
+    use std::borrow::Cow;
+    let mut chips = Vec::new();
+    if !found::thread_ref_candidates(text).into_iter().any(|r| resolve(&text[r]).is_some()) {
+        return (Cow::Borrowed(text), chips);
+    }
+    let Ok(root) = markdown::to_mdast(text, &markdown::ParseOptions::gfm()) else { return (Cow::Borrowed(text), chips) };
+    let mut ids: Vec<(Range<usize>, String, String, bool)> = Vec::new();
+    collect_ids(&root, text, resolve, &mut ids);
+    ids.sort_by_key(|(range, ..)| range.start);
+    let mut out = String::with_capacity(text.len() + ids.len() * 56);
+    let mut at = 0;
+    for (range, word, id, code) in ids {
+        if range.start < at {
+            continue;
+        }
+        out.push_str(&text[at..range.start]);
+        out.push_str(&format!("[{word}]({CHIP_SCHEME}{id}{})", if code { "?code" } else { "" }));
+        chips.push((word, id));
+        at = range.end;
+    }
+    out.push_str(&text[at..]);
+    (Cow::Owned(out), chips)
+}
+
+/// The ids in the reply's words, where they are in its text, and whether
+/// each was a code span of its own.
+fn collect_ids(node: &markdown::mdast::Node, text: &str, resolve: &dyn Fn(&str) -> Option<String>, out: &mut Vec<(Range<usize>, String, String, bool)>) {
+    use markdown::mdast::Node;
+    match node {
+        Node::Text(words) => {
+            let Some(at) = words.position.as_ref() else { return };
+            let Some(source) = text.get(at.start.offset..at.end.offset) else { return };
+            for found in found::thread_ref_candidates(source) {
+                if let Some(id) = resolve(&source[found.clone()]) {
+                    out.push((at.start.offset + found.start..at.start.offset + found.end, source[found].to_owned(), id, false));
+                }
+            }
+        }
+        Node::InlineCode(code) => {
+            let Some(at) = code.position.as_ref() else { return };
+            let whole = found::thread_ref_candidates(&code.value).first().is_some_and(|r| r.start == 0 && r.end == code.value.len());
+            if let Some(id) = whole.then(|| resolve(&code.value)).flatten() {
+                out.push((at.start.offset..at.end.offset, code.value.clone(), id, true));
+            }
+        }
+        // A link keeps its own destination; code blocks and the rest aren't words.
+        Node::Link(_) | Node::LinkReference(_) | Node::Code(_) | Node::Html(_) | Node::Image(_) | Node::ImageReference(_) | Node::Definition(_) => {}
+        _ => {
+            for child in node.children().into_iter().flatten() {
+                collect_ids(child, text, resolve, out);
+            }
+        }
+    }
+}
+
+/// The accent's faint fill behind a thread chip, and its words in the accent
+/// (Theme.chipBackground, chipText).
+fn chip_colours(cx: &App) -> (Hsla, Hsla) {
+    let accent = style::control_accent(cx);
+    (accent.opacity(if cx.theme().is_dark() { 0.2 } else { 0.12 }), accent)
+}
+
+/// Opens a thread by its id from a chip, as a `thread:` link in the
+/// transcript does (the app's own handling of OpenThreadRequest).
+fn open_thread(id: &str, window: &mut Window, cx: &mut App) {
+    let Some(app) = cx.try_global::<crate::open_gate::GateNotices>().and_then(|n| n.0.upgrade()) else { return };
+    let id = id.to_owned();
+    app.update(cx, |t, cx| {
+        if t.threads.contains_key(&id) {
+            t.open(id, window, cx);
+        }
+    });
+}
+
+/// A thread chip's pill (BackgroundLayoutManager.drawPill): the accent's
+/// fill reaching 2.5 past its words on each side into the spaces round it,
+/// its words in the accent.
+fn chip_pill(key: SharedString, word: String, height: f32, cx: &App) -> Stateful<Div> {
+    let (fill, accent) = chip_colours(cx);
+    div()
+        .id(ElementId::Name(key))
+        .relative()
+        .flex_none()
+        .h(px(height))
+        .line_height(px(height))
+        .px(px(2.5))
+        .mx(px(-2.5))
+        .rounded(px(3.5))
+        .bg(fill)
+        .text_color(accent)
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .child(word)
+}
+
+/// The markdown plugin that draws `[85735a8f](tbchip:<id>)` as the thread's
+/// chip: its card after a moment, and a click opens the thread.
+pub(crate) struct ThreadChipPills {
+    /// The row it's in, so each chip's hover is its own and a script can
+    /// find it.
+    pub(crate) row: String,
+}
+
+#[derive(Clone)]
+struct ChipRef {
+    word: String,
+    id: String,
+    code: bool,
+}
+
+impl MarkdownPlugin for ThreadChipPills {
+    fn name(&self) -> &str {
+        "thread-chip"
+    }
+
+    fn parse(&self, node: &markdown::mdast::Node, _cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let markdown::mdast::Node::Link(link) = node else { return None };
+        let target = link.url.strip_prefix(CHIP_SCHEME)?;
+        let (id, code) = match target.strip_suffix("?code") {
+            Some(id) => (id, true),
+            None => (target, false),
+        };
+        let word = node.to_string();
+        // Copied, it's the id as the agent wrote it.
+        Some(MarkdownNode::new("thread-chip", ChipRef { word: word.clone(), id: id.to_owned(), code }).text(word.clone()).markdown(if code { format!("`{word}`") } else { word }))
+    }
+
+    fn render_inline(&self, node: &MarkdownNode, _context: &InlineRenderContext, _window: &mut Window, cx: &mut App) -> Option<InlineElement> {
+        let chip = node.data::<ChipRef>()?.clone();
+        let app = cx.try_global::<crate::open_gate::GateNotices>().and_then(|n| n.0.upgrade());
+        // A thread that's gone since shows its words.
+        if !app.as_ref().is_some_and(|a| a.read(cx).threads.contains_key(&chip.id)) {
+            return Some(InlineElement::new(div().child(chip.word)));
+        }
+        let key = SharedString::from(format!("reply-chip-{}-{}", self.row, node.source_range().map_or(0, |r| r.start)));
+        // Its words' own font: the body's, or the code's for an id that was
+        // a code span, with the pill 1.5 past the glyphs above and below.
+        let (font, height, baseline) = if chip.code { (size::CODE, 18.5, 13.9) } else { (size::BODY, 21., 15.85) };
+        let card = card_shown(&key, QUICK).then(|| app.as_ref().and_then(|a| thread_card(&chip.id, &a.read(cx).threads, &a.read(cx).logins.accounts, cx))).flatten().map(|card| under(height, card));
+        let (hover_key, id) = (key.clone(), chip.id.clone());
+        let pill = chip_pill(key, chip.word.clone(), height, cx)
+            .text_size(px(font))
+            .when(chip.code, |d| d.font_family(cx.theme().mono_font_family.clone()))
+            .on_hover(move |on, window, cx| hover(&hover_key, *on, QUICK, window, cx))
+            // Not the start of a selection in the reply round it.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(move |_, window, cx| open_thread(&id, window, cx))
+            .children(card);
+        Some(InlineElement::new(pill.test_support().aria_label(chip.word)).with_baseline(px(baseline)))
+    }
+}
+
+impl ThreadPane {
+    /// The app's thread ids, for telling which id-shaped words are threads.
+    pub(crate) fn thread_ids(&self, cx: &App) -> Arc<ThreadIndex> {
+        match self.composer.read(cx).app.upgrade() {
+            Some(app) => thread_index(&app.read(cx).threads),
+            None => Arc::new(ThreadIndex::default()),
+        }
+    }
+
+    /// A reply's markdown with its thread ids as chips' links.
+    pub(crate) fn with_thread_chips(&self, text: String, cx: &App) -> String {
+        let index = self.thread_ids(cx);
+        if index.is_empty() {
+            return text;
+        }
+        let resolve = |word: &str| index.resolve(word).map(str::to_owned);
+        match link_thread_ids(&text, &resolve).0 {
+            std::borrow::Cow::Owned(linked) => linked,
+            std::borrow::Cow::Borrowed(_) => text,
+        }
+    }
+
+    /// `agentMessageText`'s first line: where the message came from, small
+    /// and faint, the sending thread as a chip that opens it while it's
+    /// still there (a move's note names the folder instead).
+    pub(crate) fn agent_header_line(&self, row: &str, header: &threadbear_core::reducer::AgentHeader, cx: &mut Context<Self>) -> AnyElement {
+        let faint = style::faint_text(cx);
+        let symbol = |name: &str| div().flex_none().mr(px(3.)).child(crate::icons::symbol(name).size(px(size::SMALL)).text_color(faint));
+        let line = h_flex().min_h(px(17.)).items_center().text_size(px(size::SMALL)).line_height(px(17.)).text_color(faint);
+        if let Some(folder) = &header.moved_to {
+            let home = threadbear_core::reducer::text::home_directory();
+            let folder = threadbear_core::new_thread::abbreviate_home(folder, &home);
+            return line.child(symbol("folder")).child(format!("Left by this thread's agent when it moved to {folder}")).into_any_element();
+        }
+        let name = if header.title.is_empty() { header.thread_id.clone() } else { header.title.clone() };
+        let line = line.child(symbol("arrow.turn.down.right")).child(div().flex_none().whitespace_nowrap().child("From the agent in "));
+        let known = self.composer.read(cx).app.upgrade().is_some_and(|a| a.read(cx).threads.contains_key(&header.thread_id));
+        if !known {
+            return line.child(div().min_w_0().truncate().child(name)).into_any_element();
+        }
+        let key = SharedString::from(format!("agent-chip-{row}"));
+        let card = card_shown(&key, QUICK).then(|| self.thread_card_for(&header.thread_id, cx)).flatten().map(|card| under(16., card));
+        let (hover_key, id) = (key.clone(), header.thread_id.clone());
+        let pill = chip_pill(key, name.clone(), 16., cx)
+            .min_w_0()
+            .truncate()
+            .on_hover(move |on, window, cx| hover(&hover_key, *on, QUICK, window, cx))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_thread_link(&id, window, cx)))
+            .children(card);
+        line.child(pill.test_support().aria_label(name)).into_any_element()
+    }
+
+    /// The thread chips a row draws, each one's words and thread: the
+    /// sending thread's at the head of an agent's message and the ids in
+    /// its words, or the ids in a reply.
+    fn thread_chips_of(&self, row: &threadbear_core::reducer::Row, cx: &App) -> Vec<(String, String)> {
+        use threadbear_core::reducer::RowContent;
+        let index = self.thread_ids(cx);
+        let resolve = |word: &str| index.resolve(word).map(str::to_owned);
+        // The text as the row draws it (rows.rs).
+        match &row.content {
+            RowContent::Assistant(item) => {
+                use crate::rows::markdown::{pictures, prepare};
+                link_thread_ids(&prepare(&pictures(&item.text, self.summary.runner_id.is_none())), &resolve).1
+            }
+            RowContent::User(message) => match message.agent_header() {
+                Some(header) => {
+                    let mut chips = Vec::new();
+                    if header.moved_to.is_none() && index.resolve(&header.thread_id).is_some() {
+                        chips.push((if header.title.is_empty() { header.thread_id.clone() } else { header.title.clone() }, header.thread_id.clone()));
+                    }
+                    chips.extend(link_thread_ids(header.body.trim(), &resolve).1);
+                    chips
+                }
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------- scripts
+
+/// The chips a row draws among its words, for the dump (both apps'
+/// `chips`): Mike's bubble's, the thread an agent's message came from, and
+/// the thread ids in a reply ("thread: 85735a8f").
+#[cfg(feature = "automation")]
+pub(crate) fn row_chips(pane: &ThreadPane, row: &threadbear_core::reducer::Row, cx: &App) -> Option<Vec<String>> {
+    use threadbear_core::reducer::RowContent;
+    if let RowContent::User(message) = &row.content {
+        if let Some(chips) = described(message) {
+            return Some(chips);
+        }
+    }
+    let chips: Vec<String> = pane.thread_chips_of(row, cx).into_iter().map(|(word, _)| format!("thread: {word}")).collect();
+    (!chips.is_empty()).then_some(chips)
+}
+
+/// `chip`, as the Swift app's: `{"row": id}` lists a row's thread chips
+/// ("word=thread id"); with `word`, `show: true` shows that chip's card as
+/// resting the pointer on it would ("ok window 0"), `false` closes it, and
+/// `click: true` clicks it through real pointer events and says what
+/// opened ("ok opened <id>").
+#[cfg(feature = "automation")]
+pub(crate) fn chip_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_json::Value, window: &mut Window, cx: &mut App) -> Result<serde_json::Value, String> {
+    use gpui_kit::test::{TestEventExt as _, TestQueryExt as _, TestWindowExt as _};
+    use serde_json::json;
+    use threadbear_core::reducer::RowContent;
+    let prefix = cmd["row"].as_str().ok_or("row is required")?;
+    let pane = app.read(cx).pane.clone().ok_or("no thread open")?;
+    let (ix, row) = {
+        let rows = pane.read(cx).feed.model().rows();
+        let ix = rows.iter().position(|r| r.id.starts_with(prefix)).ok_or_else(|| format!("no row starting {prefix:?}"))?;
+        (ix, rows[ix].clone())
+    };
+    let chips = pane.read(cx).thread_chips_of(&row, cx);
+    let Some(word) = cmd["word"].as_str() else {
+        let listed: Vec<String> = chips.iter().map(|(word, id)| format!("{word}={id}")).collect();
+        return Ok(json!(if listed.is_empty() { "ok none".to_owned() } else { format!("ok {}", listed.join(" ")) }));
+    };
+    if !chips.iter().any(|(w, _)| w == word) {
+        return Err(format!("{word} isn't a chip in {}", row.id));
+    }
+    if cmd["show"].as_bool() == Some(false) {
+        show_card(None);
+        window.refresh();
+        return Ok(json!("ok"));
+    }
+    // On screen first, as a person would see it.
+    pane.update(cx, |p, cx| p.scroll_command(None, Some(&row.id), 120., cx))?;
+    window.render_frame(cx);
+    // A reply's chips carry its row's id; an agent's message is drawn by its place.
+    let agent = matches!(&row.content, RowContent::User(m) if m.agent_header().is_some());
+    let mine = if agent { vec![format!("reply-chip-agent-{ix}-"), format!("agent-chip-agent-{ix}")] } else { vec![format!("reply-chip-{}-", row.id)] };
+    let element = window
+        .find_all_by_label(word)
+        .into_iter()
+        .find(|e| e.visible() && e.path().iter().any(|id| matches!(id, ElementId::Name(n) if mine.iter().any(|m| n.starts_with(m.as_str())))))
+        .ok_or_else(|| format!("the chip {word} isn't on screen"))?;
+    if cmd["click"].as_bool() == Some(true) {
+        let at = element.bounds().center();
+        window.pointer_move(at, None, cx);
+        window.pointer_down(at, MouseButton::Left, cx);
+        window.pointer_up(at, MouseButton::Left, cx);
+        return Ok(json!(format!("ok opened {}", app.read(cx).selected.clone().unwrap_or_else(|| "nothing".into()))));
+    }
+    let key = element.path().iter().rev().find_map(|id| match id {
+        ElementId::Name(n) if mine.iter().any(|m| n.starts_with(m.as_str())) => Some(n.to_string()),
+        _ => None,
+    });
+    show_card(key.as_deref());
+    window.refresh();
+    window.render_frame(cx);
+    Ok(json!("ok window 0"))
+}
+
+#[cfg(test)]
+mod tests {
+    // By name: the kit's prelude has a `test` of its own.
+    use super::link_thread_ids;
+
+    fn linked(text: &str) -> (String, Vec<(String, String)>) {
+        let resolve = |word: &str| match word {
+            "85735a8f" | "85735a8f-0000-4000-8000-000000000001" => Some("85735a8f-0000-4000-8000-000000000001".to_owned()),
+            _ => None,
+        };
+        let (text, chips) = link_thread_ids(text, &resolve);
+        (text.into_owned(), chips)
+    }
+
+    #[test]
+    fn a_thread_id_in_a_replys_words_is_a_chip() {
+        let id = "85735a8f-0000-4000-8000-000000000001";
+        let (text, chips) = linked("See 85735a8f, and **85735a8f-0000-4000-8000-000000000001** too.");
+        assert_eq!(text, format!("See [85735a8f](tbchip:{id}), and **[{id}](tbchip:{id})** too."));
+        assert_eq!(chips.iter().map(|(w, _)| w.as_str()).collect::<Vec<_>>(), ["85735a8f", id]);
+        // A code span that's just the id is the chip, kept looking like code.
+        assert_eq!(linked("in `85735a8f`").0, format!("in [85735a8f](tbchip:{id}?code)"));
+    }
+
+    #[test]
+    fn code_links_and_other_ids_stay_as_they_are() {
+        for text in [
+            "```\nsee 85735a8f\n```",
+            "[the thread 85735a8f](https://x.dev/85735a8f)",
+            "<https://x.dev/t/85735a8f>",
+            "`tb show 85735a8f`",
+            "a commit 1d827b8c, a path app/85735a8f, and 85735A8F",
+            "    85735a8f in an indented block",
+        ] {
+            let (out, chips) = linked(text);
+            assert_eq!(out, text, "{text:?}");
+            assert!(chips.is_empty(), "{text:?}");
+        }
+    }
 }

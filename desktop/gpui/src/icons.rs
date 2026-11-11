@@ -121,6 +121,8 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "bubble.left" => IconName::MessageSquare,
         // A Notion card's chip in Mike's message (CardChip).
         "square.text.square" => IconName::SquareMenu,
+        // A message from another thread's agent (agentMessageText).
+        "arrow.turn.down.right" => IconName::CornerDownRight,
         "plus" => IconName::Plus,
         "desktopcomputer" => IconName::Monitor,
         "macmini" => IconName::Server,
