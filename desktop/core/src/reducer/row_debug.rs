@@ -171,7 +171,10 @@ pub fn info(thread_id: &str, row: &Row, seqs: &[i64], runner_version: &str, sour
     // The command that prints those events, ready to run.
     if let (Some(first), Some(last)) = (seqs.iter().min(), seqs.iter().max()) {
         lines.push(match source {
-            EventsSource::Tb(tb) => format!("see: {tb} events {thread_id} --from {first} --to {last}"),
+            // The id quoted as one word: another runner's ids are what it
+            // wrote to the backend, and this line is meant to be pasted
+            // into a shell.
+            EventsSource::Tb(tb) => format!("see: {tb} events {} --from {first} --to {last}", shell_word(thread_id)),
             EventsSource::Fixture => {
                 let range = if first == last { format!("line {first}") } else { format!("lines {first}-{last}") };
                 format!("see: {range} of events.ndjson in the thread's fixture folder (line N is seq N)")
@@ -179,6 +182,17 @@ pub fn info(thread_id: &str, row: &Row, seqs: &[i64], runner_version: &str, sour
         });
     }
     lines.join("\n") + "\n"
+}
+
+/// `text` as one word a shell takes as it is: bare when it's only safe
+/// characters, in single quotes otherwise (the default data folder has a
+/// space; another runner's thread id could have anything).
+pub fn shell_word(text: &str) -> String {
+    if !text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c)) {
+        text.to_owned()
+    } else {
+        crate::sign_in::quoted(text)
+    }
 }
 
 /// "3, 7-9, 12": runs of seqs written as ranges, so a big group's events

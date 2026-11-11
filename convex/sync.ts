@@ -12,7 +12,7 @@ import { actAs, checkRunnerId, forbidden, hasLiveKey, pageLimit, readRunnerOrder
 import { scrubDoc, scrubEveryString, SCRUB_RULES_VERSION, HELD_BACK } from './redaction';
 import { dropHead, seedHeads, syncHead, syncHeads } from './projectHeads';
 import { dropNotes, putNotes, syncNotes } from './projectNotes';
-import { badRunnerStats, cutBytes, docBytes, fitUsage, holdThreadTimes, impossibleUsage, isIsoTime, LOGIN_EMAIL, LOGIN_PROVIDER, loginKey, mayClaim, NAME_CHARS, mayFinish, mayTake, mayTouch, mayUseStorage, mayWrite, nameSkeleton, normalName, ownsCard, SCHEDULE_ID, utf8Bytes, wholeIn, type Caller, type UsageDoc } from './runnerAccess';
+import { badRunnerStats, cutBytes, docBytes, fitUsage, holdThreadTimes, impossibleUsage, isIsoTime, LOGIN_EMAIL, LOGIN_PROVIDER, loginKey, isThreadId, mayClaim, NAME_CHARS, mayFinish, mayTake, mayTouch, mayUseStorage, mayWrite, nameSkeleton, normalName, ownsCard, SCHEDULE_ID, utf8Bytes, wholeIn, type Caller, type UsageDoc } from './runnerAccess';
 import { dropWake, seedWakes, syncWake } from './wakes';
 import { pushFailing, pushOff } from './pushHealth';
 import { issueToken as makeToken, listTokens as allTokens, revokeToken as revokeOne, tokenInfo, tokenKind, MAX_DAYS } from './tokens';
@@ -79,6 +79,8 @@ async function ownThread(ctx: QueryCtx | MutationCtx, caller: Caller, threadId: 
 // (runnerAccess.ts mayClaim).
 async function claimable(ctx: QueryCtx | MutationCtx, caller: Caller, threadId: string): Promise<boolean> {
   if (caller.owner) return true;
+  // Only an id of a thread id's shape (runnerAccess.ts isThreadId).
+  if (!isThreadId(threadId)) return false;
   const row = await threadRow(ctx, threadId);
   if (row) return row.runnerId === caller.runnerId;
   const claimedBy: string[] = [];

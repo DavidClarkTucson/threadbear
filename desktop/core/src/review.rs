@@ -1389,10 +1389,19 @@ struct InlineStyle {
 }
 
 /// The runs a note draws as, next to each other with the same look merged.
+///
+/// Each delimiter's search for its closer is bounded: a backtick run looks
+/// only at the starts of runs, and a search that found nothing isn't made
+/// again for the same delimiter further on (anything after it is in what was
+/// searched); links' brackets and parentheses are matched once up front; and
+/// emphasis and links nest at most `INLINE_DEPTH` deep. Notes are drawn on
+/// every render of the review window, and unmatched backticks made the first
+/// version take seconds over one long note (Daybreak 93, 11 Nov 2026).
 pub fn inline_markdown(source: &str) -> Vec<InlineRun> {
     let chars: Vec<char> = source.chars().collect();
+    let marks = Marks::new(&chars);
     let mut out: Vec<InlineRun> = Vec::new();
-    inline_runs(&chars, 0, chars.len(), InlineStyle::default(), None, &mut out);
+    inline_runs(&chars, &marks, 0, chars.len(), InlineStyle::default(), None, 0, &mut out);
     let mut merged: Vec<InlineRun> = Vec::new();
     for run in out.into_iter().filter(|r| !r.text.is_empty()) {
         match merged.last_mut() {
@@ -1401,6 +1410,41 @@ pub fn inline_markdown(source: &str) -> Vec<InlineRun> {
         }
     }
     merged
+}
+
+/// How deep emphasis and links nest before the rest is taken as words.
+const INLINE_DEPTH: usize = 8;
+
+/// A note's brackets and parentheses, found once (`inline_link`).
+struct Marks {
+    /// For each `[`, the `]` that closes it, as a scan counting depth finds.
+    bracket_close: Vec<Option<usize>>,
+    /// For each place, the first `)` there or after it (the note's length
+    /// for none).
+    next_paren: Vec<usize>,
+}
+
+impl Marks {
+    fn new(c: &[char]) -> Marks {
+        let mut bracket_close = vec![None; c.len()];
+        let mut open: Vec<usize> = Vec::new();
+        for (j, ch) in c.iter().enumerate() {
+            match ch {
+                '[' => open.push(j),
+                ']' => {
+                    if let Some(at) = open.pop() {
+                        bracket_close[at] = Some(j);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut next_paren = vec![c.len(); c.len() + 1];
+        for j in (0..c.len()).rev() {
+            next_paren[j] = if c[j] == ')' { j } else { next_paren[j + 1] };
+        }
+        Marks { bracket_close, next_paren }
+    }
 }
 
 fn inline_push(out: &mut Vec<InlineRun>, text: &mut String, style: InlineStyle, code: bool, link: Option<&str>) {
@@ -1427,8 +1471,32 @@ fn can_close(c: &[char], at: usize, len: usize, end: usize) -> bool {
     before.is_some_and(|b| !b.is_whitespace()) && (c[at] == '*' || after.is_none_or(|a| !a.is_alphanumeric()))
 }
 
-fn inline_runs(c: &[char], mut i: usize, end: usize, style: InlineStyle, link: Option<&str>, out: &mut Vec<InlineRun>) {
+/// The start of the next run of exactly `ticks` backticks from `from`, up
+/// to `end`, looking only at where runs start.
+fn closing_ticks(c: &[char], from: usize, end: usize, ticks: usize) -> Option<usize> {
+    let mut j = from;
+    while j < end {
+        if c[j] != '`' {
+            j += 1;
+            continue;
+        }
+        let len = run_length(c, j, end, '`');
+        if len == ticks && (j == 0 || c[j - 1] != '`') {
+            return Some(j);
+        }
+        j += len;
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inline_runs(c: &[char], marks: &Marks, mut i: usize, end: usize, style: InlineStyle, link: Option<&str>, depth: usize, out: &mut Vec<InlineRun>) {
     let mut plain = String::new();
+    // Delimiters whose closer wasn't found from somewhere in this range:
+    // none is found from further on either.
+    let mut unclosed_ticks: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut unclosed_marks: std::collections::HashSet<(char, usize)> = std::collections::HashSet::new();
+    let nests = depth < INLINE_DEPTH;
     while i < end {
         let ch = c[i];
         // A backslash keeps the punctuation after it as it is.
@@ -1439,7 +1507,7 @@ fn inline_runs(c: &[char], mut i: usize, end: usize, style: InlineStyle, link: O
         }
         if ch == '`' {
             let ticks = run_length(c, i, end, '`');
-            let close = (i + ticks..end).find(|&j| c[j] == '`' && run_length(c, j, end, '`') == ticks && (j == 0 || c[j - 1] != '`'));
+            let close = if unclosed_ticks.contains(&ticks) { None } else { closing_ticks(c, i + ticks, end, ticks) };
             if let Some(close) = close {
                 inline_push(out, &mut plain, style, false, link);
                 let mut code: String = c[i + ticks..close].iter().collect();
@@ -1451,28 +1519,34 @@ fn inline_runs(c: &[char], mut i: usize, end: usize, style: InlineStyle, link: O
                 i = close + ticks;
                 continue;
             }
+            unclosed_ticks.insert(ticks);
             plain.extend(&c[i..i + ticks]);
             i += ticks;
             continue;
         }
-        if ch == '[' && link.is_none() {
-            if let Some((text_end, url, after)) = inline_link(c, i, end) {
+        if ch == '[' && link.is_none() && nests {
+            if let Some((text_end, url, after)) = inline_link(c, marks, i, end) {
                 inline_push(out, &mut plain, style, false, link);
-                inline_runs(c, i + 1, text_end, style, Some(&url), out);
+                inline_runs(c, marks, i + 1, text_end, style, Some(&url), depth + 1, out);
                 i = after;
                 continue;
             }
         }
-        if (ch == '*' || ch == '_') && can_open(c, i, run_length(c, i, end, ch).min(3), end) {
+        if (ch == '*' || ch == '_') && nests && can_open(c, i, run_length(c, i, end, ch).min(3), end) {
             let len = run_length(c, i, end, ch).min(3);
-            let close = (i + len..end).find(|&j| c[j] == ch && (j == 0 || c[j - 1] != ch) && run_length(c, j, end, ch) >= len && can_close(c, j, len, end));
+            let close = if unclosed_marks.contains(&(ch, len)) {
+                None
+            } else {
+                (i + len..end).find(|&j| c[j] == ch && (j == 0 || c[j - 1] != ch) && run_length(c, j, end, ch) >= len && can_close(c, j, len, end))
+            };
             if let Some(close) = close {
                 inline_push(out, &mut plain, style, false, link);
                 let inner = InlineStyle { bold: style.bold || len >= 2, italic: style.italic || len != 2 };
-                inline_runs(c, i + len, close, inner, link, out);
+                inline_runs(c, marks, i + len, close, inner, link, depth + 1, out);
                 i = close + len;
                 continue;
             }
+            unclosed_marks.insert((ch, len));
         }
         plain.push(ch);
         i += 1;
@@ -1481,28 +1555,12 @@ fn inline_runs(c: &[char], mut i: usize, end: usize, style: InlineStyle, link: O
 }
 
 /// `[words](address)`: where its words end, the address, and where it ends.
-fn inline_link(c: &[char], at: usize, end: usize) -> Option<(usize, String, usize)> {
-    let mut depth = 0;
-    let mut close = None;
-    for j in at..end {
-        match c[j] {
-            '\\' => continue,
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    close = Some(j);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let close = close?;
+fn inline_link(c: &[char], marks: &Marks, at: usize, end: usize) -> Option<(usize, String, usize)> {
+    let close = marks.bracket_close[at].filter(|&j| j < end)?;
     if close + 1 >= end || c[close + 1] != '(' {
         return None;
     }
-    let stop = (close + 2..end).find(|&j| c[j] == ')')?;
+    let stop = Some(marks.next_paren[close + 2]).filter(|&j| j < end)?;
     let url: String = c[close + 2..stop].iter().collect::<String>().trim().to_owned();
     (!url.is_empty() && !url.contains(char::is_whitespace)).then_some((close, url, stop + 1))
 }
@@ -2260,5 +2318,228 @@ mod tests {
         assert_eq!(inline_markdown("an [unfinished](link"), vec![plain("an [unfinished](link")]);
         assert_eq!(inline_markdown("***both***")[0], InlineRun { text: "both".into(), bold: true, italic: true, ..Default::default() });
         assert_eq!(inline_markdown("line one\n\nline two"), vec![plain("line one\n\nline two")]);
+    }
+
+    /// The parser as it was before Daybreak 93, to check the bounded one
+    /// reads every short note the same.
+    /// The runs a note draws as, next to each other with the same look merged.
+    fn old_inline_markdown(source: &str) -> Vec<InlineRun> {
+        let chars: Vec<char> = source.chars().collect();
+        let mut out: Vec<InlineRun> = Vec::new();
+        old_inline_runs(&chars, 0, chars.len(), InlineStyle::default(), None, &mut out);
+        let mut merged: Vec<InlineRun> = Vec::new();
+        for run in out.into_iter().filter(|r| !r.text.is_empty()) {
+            match merged.last_mut() {
+                Some(last) if (last.bold, last.italic, last.code, &last.link) == (run.bold, run.italic, run.code, &run.link) => last.text.push_str(&run.text),
+                _ => merged.push(run),
+            }
+        }
+        merged
+    }
+
+    fn old_inline_push(out: &mut Vec<InlineRun>, text: &mut String, style: InlineStyle, code: bool, link: Option<&str>) {
+        if !text.is_empty() {
+            out.push(InlineRun { text: std::mem::take(text), bold: style.bold, italic: style.italic, code, link: link.map(str::to_owned) });
+        }
+    }
+
+    fn old_run_length(c: &[char], at: usize, end: usize, ch: char) -> usize {
+        c[at..end].iter().take_while(|&&x| x == ch).count()
+    }
+
+    /// A delimiter run can open emphasis when what follows it isn't a space, and
+    /// `_` only at the start of a word, so snake_case stays as it is.
+    fn old_can_open(c: &[char], at: usize, len: usize, end: usize) -> bool {
+        let next = c.get(at + len).filter(|_| at + len < end);
+        let before = at.checked_sub(1).map(|i| c[i]);
+        next.is_some_and(|n| !n.is_whitespace()) && (c[at] == '*' || before.is_none_or(|b| !b.is_alphanumeric()))
+    }
+
+    fn old_can_close(c: &[char], at: usize, len: usize, end: usize) -> bool {
+        let before = at.checked_sub(1).map(|i| c[i]);
+        let after = c.get(at + len).filter(|_| at + len < end);
+        before.is_some_and(|b| !b.is_whitespace()) && (c[at] == '*' || after.is_none_or(|a| !a.is_alphanumeric()))
+    }
+
+    fn old_inline_runs(c: &[char], mut i: usize, end: usize, style: InlineStyle, link: Option<&str>, out: &mut Vec<InlineRun>) {
+        let mut plain = String::new();
+        while i < end {
+            let ch = c[i];
+            // A backslash keeps the punctuation after it as it is.
+            if ch == '\\' && i + 1 < end && c[i + 1].is_ascii_punctuation() {
+                plain.push(c[i + 1]);
+                i += 2;
+                continue;
+            }
+            if ch == '`' {
+                let ticks = old_run_length(c, i, end, '`');
+                let close = (i + ticks..end).find(|&j| c[j] == '`' && old_run_length(c, j, end, '`') == ticks && (j == 0 || c[j - 1] != '`'));
+                if let Some(close) = close {
+                    old_inline_push(out, &mut plain, style, false, link);
+                    let mut code: String = c[i + ticks..close].iter().collect();
+                    // One space either side is how a code span holds a backtick.
+                    if code.len() > 2 && code.starts_with(' ') && code.ends_with(' ') {
+                        code = code[1..code.len() - 1].to_owned();
+                    }
+                    old_inline_push(out, &mut code, style, true, link);
+                    i = close + ticks;
+                    continue;
+                }
+                plain.extend(&c[i..i + ticks]);
+                i += ticks;
+                continue;
+            }
+            if ch == '[' && link.is_none() {
+                if let Some((text_end, url, after)) = old_inline_link(c, i, end) {
+                    old_inline_push(out, &mut plain, style, false, link);
+                    old_inline_runs(c, i + 1, text_end, style, Some(&url), out);
+                    i = after;
+                    continue;
+                }
+            }
+            if (ch == '*' || ch == '_') && old_can_open(c, i, old_run_length(c, i, end, ch).min(3), end) {
+                let len = old_run_length(c, i, end, ch).min(3);
+                let close = (i + len..end).find(|&j| c[j] == ch && (j == 0 || c[j - 1] != ch) && old_run_length(c, j, end, ch) >= len && old_can_close(c, j, len, end));
+                if let Some(close) = close {
+                    old_inline_push(out, &mut plain, style, false, link);
+                    let inner = InlineStyle { bold: style.bold || len >= 2, italic: style.italic || len != 2 };
+                    old_inline_runs(c, i + len, close, inner, link, out);
+                    i = close + len;
+                    continue;
+                }
+            }
+            plain.push(ch);
+            i += 1;
+        }
+        old_inline_push(out, &mut plain, style, false, link);
+    }
+
+    /// `[words](address)`: where its words end, the address, and where it ends.
+    fn old_inline_link(c: &[char], at: usize, end: usize) -> Option<(usize, String, usize)> {
+        let mut depth = 0;
+        let mut close = None;
+        for j in at..end {
+            match c[j] {
+                '\\' => continue,
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(j);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let close = close?;
+        if close + 1 >= end || c[close + 1] != '(' {
+            return None;
+        }
+        let stop = (close + 2..end).find(|&j| c[j] == ')')?;
+        let url: String = c[close + 2..stop].iter().collect::<String>().trim().to_owned();
+        (!url.is_empty() && !url.contains(char::is_whitespace)).then_some((close, url, stop + 1))
+    }
+
+
+    /// This thread's CPU time: the M5 is often busy, so wall time would
+    /// say more about the machine than the parser.
+    fn thread_cpu() -> std::time::Duration {
+        #[repr(C)]
+        struct Timespec {
+            sec: i64,
+            nsec: i64,
+        }
+        extern "C" {
+            fn clock_gettime(clock: i32, at: *mut Timespec) -> i32;
+        }
+        #[cfg(target_os = "macos")]
+        const THREAD_CPU: i32 = 16;
+        #[cfg(not(target_os = "macos"))]
+        const THREAD_CPU: i32 = 3;
+        let mut at = Timespec { sec: 0, nsec: 0 };
+        // SAFETY: clock_gettime only writes the struct it's given.
+        assert_eq!(unsafe { clock_gettime(THREAD_CPU, &mut at) }, 0);
+        std::time::Duration::new(at.sec as u64, at.nsec as u32)
+    }
+
+    fn cpu_time_of(source: &str) -> std::time::Duration {
+        let start = thread_cpu();
+        std::hint::black_box(inline_markdown(std::hint::black_box(source)));
+        thread_cpu() - start
+    }
+
+    /// Daybreak 93's notes: backtick runs of every length from 1 up, each
+    /// followed by an x, padded with backticks (20,000 characters took 7.5
+    /// seconds), and the same for the other delimiters that searched to the
+    /// end: unclosed emphasis, unclosed brackets, brackets with no `)`.
+    #[test]
+    fn a_crafted_note_parses_in_well_under_100ms() {
+        let mut ticks = String::new();
+        for n in 1..=90 {
+            ticks.push_str(&"`".repeat(n));
+            ticks.push('x');
+        }
+        while ticks.len() < 20_000 {
+            ticks.push('`');
+        }
+        let notes = [
+            ticks,
+            "*a ".repeat(7000),
+            "_a ".repeat(7000),
+            "**a ".repeat(5000),
+            "[".repeat(20_000),
+            "[a](".repeat(5000),
+            "[a]".repeat(7000),
+            "*_".repeat(10_000) + "x",
+            format!("{}x{}", "*a _a ".repeat(1500), " a_ a*".repeat(1500)),
+        ];
+        for note in &notes {
+            let took = cpu_time_of(note);
+            assert!(took < std::time::Duration::from_millis(100), "{} characters starting {:?} took {took:?}", note.len(), &note[..12]);
+        }
+        // Words come back as written.
+        assert_eq!(inline_markdown(&"[".repeat(20_000)), vec![plain(&"[".repeat(20_000))]);
+    }
+
+    /// Every short note over the delimiters reads as it did before.
+    #[test]
+    fn the_bounded_parser_reads_short_notes_as_the_old_one_did() {
+        let alphabet: Vec<char> = "`*_[]()\\ ax".chars().collect();
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        for _ in 0..200_000 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let len = (seed % 15) as usize;
+            let mut x = seed;
+            let note: String = (0..len)
+                .map(|_| {
+                    x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    alphabet[(x >> 33) as usize % alphabet.len()]
+                })
+                .collect();
+            assert_eq!(inline_markdown(&note), old_inline_markdown(&note), "{note:?}");
+        }
+        for note in ["a `b` c ``d`` e", "**a _b_ c**", "[x *y*](u) `[z](w)`", "``a`b``", "*a **b** c*", "\\`x` [a]b(c)"] {
+            assert_eq!(inline_markdown(note), old_inline_markdown(note), "{note:?}");
+        }
+    }
+
+    /// A review a moved thread brought is cut to what show_options takes.
+    #[test]
+    fn a_reviews_words_are_cut_to_what_show_options_takes() {
+        use crate::reducer::DesignReview;
+        let option = serde_json::json!({ "id": "a", "title": "t".repeat(300), "note": "n".repeat(20_000), "image": { "path": "/x/a.png", "mediaType": "image/png" } });
+        let review = serde_json::json!({ "id": "r", "title": "T".repeat(300), "note": "`".repeat(20_000), "status": "pending", "revision": 1, "options": vec![option; 20] });
+        let review = DesignReview::decode(&review).expect("a review");
+        assert_eq!(review.title.chars().count(), 200);
+        assert_eq!(review.note.as_deref().map(|n| n.chars().count()), Some(4000));
+        assert_eq!(review.options.len(), 12);
+        assert!(review.options.iter().all(|o| o.note.as_deref().map(str::len) == Some(4000) && o.title.len() == 200));
+        // Within the limits nothing changes, in characters, not bytes.
+        let short = serde_json::json!({ "id": "r", "title": "é".repeat(200), "note": "ü".repeat(4000), "status": "pending", "revision": 1, "options": [] });
+        let short = DesignReview::decode(&short).expect("a review");
+        assert_eq!((short.title, short.note), ("é".repeat(200), Some("ü".repeat(4000))));
     }
 }

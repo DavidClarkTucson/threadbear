@@ -1204,3 +1204,26 @@ test("a runner key's thread and schedule times are ones the apps can read", asyn
   await call(s.ctx, sync.scheduleRan, { key: BRUCE_KEY, scheduleId: UUID(8), holder: 'h', lastRun: { at: 'a', outcome: 'sent' }, sent: true, expectUpdatedAt: 'u', nextRunAt: far });
   assert.equal(s.rows('scheduleWakes').find((w) => w.scheduleId === UUID(8))!.nextRunAt, undefined);
 });
+
+// ------------------------------------------------------------ Daybreak 87 and 102 (11 Nov 2026)
+
+// A thread id goes into a shell line (Copy debug info), a chip's link and
+// the main Mac's paths, so a runner key makes rows only under ids of a
+// thread id's shape. The owner's own runner is trusted as before.
+test("Bruce's key can't make a thread or a sidebar row under an id with shell or markdown in it", async () => {
+  const s = await setup();
+  const bad = ['remote$(printf TB_ID_EXECUTED >&2)', 'deadbeef) ![local](/tmp/private.png', 'decafbad) # heading', '../../etc', 'a b', 'x'.repeat(65)];
+  for (const id of bad) {
+    assert.equal(await outcome(s.bruce.upsert(thread(id, BRUCE))), 'forbidden', id);
+    await call(s.ctx, sync.setThreadIndex, { key: BRUCE_KEY, runnerId: BRUCE, rows: [indexRow(id)], removed: [] });
+    await s.bruce.append(id, 'x');
+  }
+  assert.deepEqual(s.rows('threads').map((r) => r.threadId), []);
+  assert.deepEqual(s.rows('threadIndex').map((r) => r.threadId), []);
+  assert.deepEqual(s.rows('messages'), []);
+  // A runner's own ids still go in.
+  await s.bruce.upsert(thread(UUID(7), BRUCE), thread('demo_upload', BRUCE));
+  await call(s.ctx, sync.setThreadIndex, { key: BRUCE_KEY, runnerId: BRUCE, rows: [indexRow(UUID(7))], removed: [] });
+  assert.deepEqual(s.rows('threads').map((r) => r.threadId).sort(), [UUID(7), 'demo_upload']);
+  assert.deepEqual(s.rows('threadIndex').map((r) => r.threadId), [UUID(7)]);
+});

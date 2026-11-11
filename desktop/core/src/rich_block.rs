@@ -253,6 +253,95 @@ pub fn picture_size(kind: RichKind, natural: (f32, f32), room: f32, max_body: f3
     }
 }
 
+/// Drawn blocks' pictures kept in memory, by what they take up rather than
+/// how many there are (RichBlocks.pictureBytes): past the budget the least
+/// recently used go, and are read back from disk when drawn again. A count
+/// let 120 tall, noisy pages hold gigabytes (the Swift app's cross-lab
+/// review, 6 Nov; Daybreak 92 found the GPUI app's count, 11 Nov 2026).
+pub struct PictureBudget<V> {
+    budget: usize,
+    used: usize,
+    /// Oldest first, with each one's cost.
+    entries: std::collections::VecDeque<(String, V, usize)>,
+}
+
+impl<V: Clone> PictureBudget<V> {
+    /// The Swift app's 160 MiB.
+    pub const BYTES: usize = 160 * 1024 * 1024;
+
+    pub fn new(budget: usize) -> PictureBudget<V> {
+        PictureBudget { budget, used: 0, entries: std::collections::VecDeque::new() }
+    }
+
+    /// Keeps `value` as the newest, and gives back what had to go to fit it
+    /// (the caller frees their decoded copies). The newest is always kept,
+    /// even alone over the budget, as it's what's being drawn.
+    pub fn keep(&mut self, key: String, value: V, cost: usize) -> Vec<V> {
+        let mut gone = Vec::new();
+        if let Some(at) = self.entries.iter().position(|(k, ..)| *k == key) {
+            let (_, old, old_cost) = self.entries.remove(at).expect("there");
+            self.used -= old_cost;
+            gone.push(old);
+        }
+        self.entries.push_back((key, value, cost));
+        self.used += cost;
+        while self.used > self.budget && self.entries.len() > 1 {
+            let (_, old, old_cost) = self.entries.pop_front().expect("more than one");
+            self.used -= old_cost;
+            gone.push(old);
+        }
+        gone
+    }
+
+    /// The pictures kept for `key`, now the most recently used.
+    pub fn get(&mut self, key: &str) -> Option<V> {
+        let at = self.entries.iter().position(|(k, ..)| k == key)?;
+        let entry = self.entries.remove(at).expect("there");
+        let value = entry.1.clone();
+        self.entries.push_back(entry);
+        Some(value)
+    }
+
+    /// Takes `key`'s pictures out, giving them back to be freed.
+    pub fn remove(&mut self, key: &str) -> Option<V> {
+        let at = self.entries.iter().position(|(k, ..)| k == key)?;
+        let (_, value, cost) = self.entries.remove(at).expect("there");
+        self.used -= cost;
+        Some(value)
+    }
+
+    pub fn used(&self) -> usize {
+        self.used
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.entries.iter().map(|(_, value, _)| value)
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// What a PNG takes up in memory once drawn: its bytes, which the image
+/// keeps, and its pixels decoded at four bytes each, read from its header.
+/// Bytes that aren't a PNG count as four times their length.
+pub fn png_cost(bytes: &[u8]) -> usize {
+    const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+    let decoded = if bytes.len() >= 24 && bytes.starts_with(SIGNATURE) && &bytes[12..16] == b"IHDR" {
+        let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]) as usize;
+        let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]) as usize;
+        width.saturating_mul(height).saturating_mul(4)
+    } else {
+        bytes.len().saturating_mul(4)
+    };
+    bytes.len().saturating_add(decoded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,5 +423,55 @@ mod tests {
         assert_eq!(picture_size(RichKind::Mermaid, (1352., 400.), 700., 560., 12.), (676., 200.));
         // A page fills the width.
         assert_eq!(picture_size(RichKind::Html, (720., 1000.), 640., 560., 12.), (640., 889.));
+    }
+
+    fn png(width: u32, height: u32, extra: usize) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        bytes.extend(width.to_be_bytes());
+        bytes.extend(height.to_be_bytes());
+        bytes.resize(bytes.len() + extra, 0);
+        bytes
+    }
+
+    #[test]
+    fn a_pngs_cost_is_its_bytes_and_its_pixels() {
+        let tall = png(1440, 3200, 1000);
+        assert_eq!(png_cost(&tall), tall.len() + 1440 * 3200 * 4);
+        assert_eq!(png_cost(b"not a png"), 9 * 5);
+        assert_eq!(png_cost(&png(u32::MAX, u32::MAX, 0)), usize::MAX, "a header can't overflow it");
+    }
+
+    /// Daybreak 92: 121 distinct tall, noisy pages (two 1440 by 3200 looks
+    /// of about 18 MB each) kept in memory at once, about 4 GiB by count.
+    #[test]
+    fn pictures_are_kept_by_what_they_take_up_not_how_many() {
+        let budget = PictureBudget::<u32>::BYTES;
+        let mut kept = PictureBudget::new(budget);
+        let pair = 2 * (18_435_306 + 1440 * 3200 * 4);
+        let mut gone = 0;
+        for n in 0..121u32 {
+            gone += kept.keep(format!("block-{n}"), n, pair).len();
+            assert!(kept.used() <= budget, "over the budget after {n}");
+        }
+        assert_eq!(kept.len(), budget / pair);
+        assert_eq!(gone, 121 - kept.len());
+        // The newest are what's kept, and one used again stays.
+        assert_eq!(kept.get("block-120"), Some(120));
+        assert_eq!(kept.get("block-0"), None);
+    }
+
+    #[test]
+    fn the_least_recently_used_go_first_and_the_newest_always_stays() {
+        let mut kept = PictureBudget::new(100);
+        assert!(kept.keep("a".into(), 'a', 40).is_empty());
+        assert!(kept.keep("b".into(), 'b', 40).is_empty());
+        assert_eq!(kept.get("a"), Some('a'));
+        assert_eq!(kept.keep("c".into(), 'c', 40), ['b'], "b was used longest ago");
+        assert_eq!(kept.keep("c".into(), 'C', 10), ['c'], "the same key again replaces it");
+        assert_eq!(kept.used(), 50);
+        assert_eq!(kept.keep("huge".into(), 'h', 500), ['a', 'C']);
+        assert_eq!((kept.len(), kept.get("huge")), (1, Some('h')));
+        assert_eq!(kept.remove("huge"), Some('h'));
+        assert_eq!((kept.len(), kept.used(), kept.remove("huge")), (0, 0, None));
     }
 }

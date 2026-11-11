@@ -77,6 +77,20 @@ export function mayTouch(c: Caller, existingRunnerId: string | undefined): boole
 }
 
 /**
+ * A thread id's shape: 1 to 64 letters, digits, `-` and `_` (a runner's are
+ * UUIDs). The apps put an id into a shell line (Copy debug info) and a
+ * chip's link, and the main Mac's runner into paths, so a runner key may
+ * only make rows under ids of this shape (sync.ts claimable; Daybreak 87
+ * and 102, 11 Nov 2026). The Mac, GPUI and runner sides check the same
+ * (ThreadIds.isValid, thread_link::is_thread_id, runner/src/thread-id.ts),
+ * as rows made before this are still there.
+ */
+export const THREAD_ID = /^[A-Za-z0-9_-]{1,64}$/;
+export function isThreadId(id: unknown): id is string {
+  return typeof id === 'string' && THREAD_ID.test(id);
+}
+
+/**
  * Making a row under a thread id nobody has a row for. `claimedBy` is every
  * runner that has had the id (a deleted thread's tombstone, a sidebar row);
  * `leftovers` whether anything is still stored under it (messages,

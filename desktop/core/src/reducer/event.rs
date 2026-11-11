@@ -403,12 +403,26 @@ pub struct ReviewOption {
     pub url: Option<String>,
 }
 
+/// What show_options takes (runner/src/reviews.ts reviewInput): a title of
+/// 200 characters, a note of 4,000 and 12 options. The runner counts UTF-16
+/// units, which are never fewer than characters, so nothing it took is cut.
+pub const REVIEW_TITLE_MAX: usize = 200;
+pub const REVIEW_NOTE_MAX: usize = 4000;
+pub const REVIEW_OPTIONS_MAX: usize = 12;
+
+fn review_text(text: String, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((cut, _)) => text[..cut].to_owned(),
+        None => text,
+    }
+}
+
 impl ReviewOption {
     fn decode(v: &Value) -> Option<ReviewOption> {
         let c = v.as_object()?;
         let id = c.get("id")?.as_str()?.to_owned();
-        let title = string_strict(c, "title").ok()?.unwrap_or_else(|| id.clone());
-        let note = string_strict(c, "note").ok()?;
+        let title = review_text(string_strict(c, "title").ok()?.unwrap_or_else(|| id.clone()), REVIEW_TITLE_MAX);
+        let note = string_strict(c, "note").ok()?.map(|n| review_text(n, REVIEW_NOTE_MAX));
         let reference = boolean(c, "reference").unwrap_or(false);
         let image = ImageRef::decode(c.get("image")?)?;
         // Only a web page (LinkPolicy.web): a runner, maybe another Mac's,
@@ -462,13 +476,19 @@ impl DesignReview {
         self.status == "pending"
     }
 
+    /// A review as the runner keeps it. Its words are cut to what show_options
+    /// takes (runner/src/reviews.ts reviewInput) wherever it came from: a
+    /// thread moved from another runner brings its reviews as that runner
+    /// wrote them, and the window draws the notes on every render
+    /// (Daybreak 93).
     pub fn decode(v: &Value) -> Option<DesignReview> {
         let c = v.as_object()?;
         let id = c.get("id")?.as_str()?.to_owned();
-        let title = string_strict(c, "title").ok()?.unwrap_or_else(|| "Design options".to_owned());
-        let note = string_strict(c, "note").ok()?;
+        let title = review_text(string_strict(c, "title").ok()?.unwrap_or_else(|| "Design options".to_owned()), REVIEW_TITLE_MAX);
+        let note = string_strict(c, "note").ok()?.map(|n| review_text(n, REVIEW_NOTE_MAX));
         let recommended = string(c, "recommended");
-        let options = lossy(c, "options", ReviewOption::decode);
+        let mut options = lossy(c, "options", ReviewOption::decode);
+        options.truncate(REVIEW_OPTIONS_MAX);
         let status = string_strict(c, "status").ok()?.unwrap_or_else(|| "unknown".to_owned());
         let revision = lenient_int(c, "revision").unwrap_or(0);
         let created_at = string_strict(c, "createdAt").ok()?.unwrap_or_default();

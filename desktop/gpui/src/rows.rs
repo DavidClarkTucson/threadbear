@@ -285,7 +285,10 @@ impl ThreadPane {
         // Its first line names the sending thread as a chip (chips.rs), and
         // thread ids in its words are chips too.
         let title = self.agent_header_line(&format!("agent-{ix}"), header, cx);
-        let body = self.with_thread_chips(header.body.trim().to_owned(), cx);
+        // Its pictures as a reply's: another Mac's thread draws none from
+        // this Mac, and only picture files are drawn (`markdown::pictures`).
+        let body = markdown::pictures(header.body.trim(), self.summary.runner_id.is_none()).into_owned();
+        let body = self.with_thread_chips(body, cx);
         let doc = (!body.is_empty()).then(|| self.markdown_state(&format!("agent-{ix}"), &body, cx));
         let text_style = self.reading_style(cx);
         // Its links' own menus and cards, as a reply's (reply_links.rs).
@@ -314,6 +317,7 @@ impl ThreadPane {
         let drafts = crate::draft_boxes::DraftBoxes { origin: self.origin(), cwd: self.summary.cwd.clone(), row: row_id.to_owned() };
         let chips = crate::chips::ThreadChipPills { row: row_id.to_owned() };
         let row_id = row_id.to_owned();
+        let local = self.summary.runner_id.is_none();
         crate::open_gate::text_view(doc, self.origin(), &self.summary.cwd)
             .on_link_click(move |url: &SharedString, event: &ClickEvent, window: &mut Window, cx: &mut App| {
                 // Asked which link is under the pointer (reply_links.rs), or
@@ -329,8 +333,9 @@ impl ThreadPane {
             })
             // `[title](button:<id>)` as a pill that presses it.
             .plugin(crate::reply_buttons::Pills)
-            // Pictures from files on this Mac (`markdown::pictures`).
-            .image_source(markdown::picture_source)
+            // Pictures from files on this Mac, in this Mac's threads only
+            // (`markdown::picture_source`).
+            .image_source(move |uri| markdown::picture_source(uri, local))
             // A closed ```slack, ```email or ```draft fence as the draft's box.
             .plugin(drafts)
             // A thread's id as its chip (`with_thread_chips`).

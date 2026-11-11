@@ -153,16 +153,28 @@ pub(crate) fn picture_path(url: &str) -> Option<std::path::PathBuf> {
     url.starts_with('/').then(|| url.into())
 }
 
-/// A picture the app can draw, there now.
+/// The biggest picture file a reply draws: the image loader reads a file
+/// whole into memory.
+const PICTURE_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+/// A picture the app can draw, there now: a regular file (not a device
+/// like /dev/zero, a pipe or a folder; a link is followed to what it
+/// names) with a picture's extension and at most PICTURE_MAX_BYTES.
 fn is_picture_file(path: &std::path::Path) -> bool {
     let kind = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
-    matches!(kind.as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff")) && path.is_file()
+    matches!(kind.as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff"))
+        && std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() <= PICTURE_MAX_BYTES)
 }
 
-/// The text view's pictures: only files on this Mac reach it (`pictures`
-/// turned the rest into links), and anything else draws nothing.
-pub(crate) fn picture_source(uri: &gpui_kit::SharedUri) -> gpui_kit::ImageSource {
-    let path = picture_path(uri.as_ref()).unwrap_or_default();
+/// The text view's pictures (`linked_text` gives every row's text view
+/// this, a reply's, an agent's message's and a plan's alike). `local` is
+/// whether the thread is this runner's: another Mac's draws no file from
+/// this one. The checks `pictures` made are made again here, as this is
+/// what the image loader reads, and text that never went through
+/// `pictures` (an agent's message, a plan, a chip's link) reaches it too
+/// (Daybreak 95 and 102, 11 Nov 2026). Anything else draws nothing.
+pub(crate) fn picture_source(uri: &gpui_kit::SharedUri, local: bool) -> gpui_kit::ImageSource {
+    let path = picture_path(uri.as_ref()).filter(|path| local && is_picture_file(path)).unwrap_or_default();
     gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(std::sync::Arc::from(path.as_path())))
 }
 
@@ -446,6 +458,45 @@ mod tests {
         let reply = format!("![shot]({})", shot.display());
         assert_eq!(pictures(&reply, true), reply, "a picture on this Mac is drawn");
         assert!(pictures(&reply, false).starts_with("[\\[shot\\]]"), "another Mac's thread draws none from here");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the image loader is handed for a picture's address: the file,
+    /// or the empty path that draws nothing.
+    fn source_path(url: &str, local: bool) -> String {
+        match super::picture_source(&url.to_owned().into(), local) {
+            gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(path)) => path.to_string_lossy().into_owned(),
+            _ => panic!("a path"),
+        }
+    }
+
+    /// Daybreak 95: an agent's message never went through `pictures`, so
+    /// the image loader's own source checks the thread and the file.
+    #[test]
+    fn the_image_loader_only_gets_a_picture_file_on_this_macs_thread() {
+        let dir = std::env::temp_dir().join(format!("tb-picture-source-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shot = dir.join("shot.png");
+        std::fs::write(&shot, b"a png's bytes").unwrap();
+        let shown = shot.to_string_lossy().into_owned();
+        assert_eq!(source_path(&shown, true), shown, "a picture on this Mac's thread");
+        assert_eq!(source_path(&format!("file://{shown}"), true), shown);
+        assert_eq!(source_path(&shown, false), "", "another Mac's thread names no file here");
+        for url in ["file:///dev/zero", "/dev/zero", "/dev/urandom", "file:///etc/passwd", "/tmp", "https://x.y/c.png"] {
+            assert_eq!(source_path(url, true), "", "{url}");
+        }
+        // A link to a device with a picture's name, a folder with one, and
+        // a file too big to read whole.
+        let device = dir.join("zero.png");
+        let _ = std::fs::remove_file(&device);
+        std::os::unix::fs::symlink("/dev/zero", &device).unwrap();
+        assert_eq!(source_path(&device.to_string_lossy(), true), "");
+        let folder = dir.join("folder.png");
+        std::fs::create_dir_all(&folder).unwrap();
+        assert_eq!(source_path(&folder.to_string_lossy(), true), "");
+        let big = dir.join("big.png");
+        std::fs::File::create(&big).unwrap().set_len(super::PICTURE_MAX_BYTES + 1).unwrap();
+        assert_eq!(source_path(&big.to_string_lossy(), true), "");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

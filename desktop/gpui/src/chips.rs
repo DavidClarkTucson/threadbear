@@ -564,7 +564,12 @@ pub(crate) fn link_thread_ids<'a>(text: &'a str, resolve: &dyn Fn(&str) -> Optio
     let mut out = String::with_capacity(text.len() + ids.len() * 56);
     let mut at = 0;
     for (range, word, id, code) in ids {
-        if range.start < at {
+        // The id goes into the link's destination as it is, so only one of
+        // a thread id's characters: an id another runner made up with a `)`
+        // in it would end the link and write markdown of its own after it
+        // (Daybreak 102). The index only holds such ids, but this is where
+        // it's written.
+        if range.start < at || !threadbear_core::thread_link::is_thread_id(&id) {
             continue;
         }
         out.push_str(&text[at..range.start]);
@@ -776,7 +781,8 @@ impl ThreadPane {
                     if header.moved_to.is_none() && index.resolve(&header.thread_id).is_some() {
                         chips.push((if header.title.is_empty() { header.thread_id.clone() } else { header.title.clone() }, header.thread_id.clone()));
                     }
-                    chips.extend(link_thread_ids(header.body.trim(), &resolve).1);
+                    let body = crate::rows::markdown::pictures(header.body.trim(), self.summary.runner_id.is_none());
+                    chips.extend(link_thread_ids(&body, &resolve).1);
                     chips
                 }
                 None => Vec::new(),
@@ -883,6 +889,17 @@ mod tests {
         assert_eq!(chips.iter().map(|(w, _)| w.as_str()).collect::<Vec<_>>(), ["85735a8f", id]);
         // A code span that's just the id is the chip, kept looking like code.
         assert_eq!(linked("in `85735a8f`").0, format!("in [85735a8f](tbchip:{id}?code)"));
+    }
+
+    /// Daybreak 102: an id another runner made up, found by its hex
+    /// prefix, is never written into the link (the index leaves it out
+    /// too: threadbear_core's remote_ids_tests).
+    #[test]
+    fn an_id_that_isnt_a_thread_ids_shape_writes_no_markdown() {
+        let resolve = |word: &str| (word == "deadbeef").then(|| "deadbeef) ![local](/tmp/private.png".to_owned());
+        let (text, chips) = link_thread_ids("see deadbeef here", &resolve);
+        assert_eq!(text, "see deadbeef here");
+        assert!(chips.is_empty());
     }
 
     #[test]

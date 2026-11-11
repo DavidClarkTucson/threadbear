@@ -32,10 +32,22 @@ pub fn thread_id(url: &str) -> Option<String> {
     }
     let id = crate::open_policy::percent_decode(path.trim_start_matches('/').split('/').next().unwrap_or(""));
     // Thread ids are UUIDs and the like: nothing that could be a path.
-    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if !is_thread_id(&id) {
         return None;
     }
     Some(id)
+}
+
+/// Whether `id` is shaped like a thread id: 1 to 64 letters, digits, `-`
+/// and `_` (a runner's are UUIDs; the mock's and fixtures' are words). The
+/// same rule as the backend's `isThreadId` (convex/runnerAccess.ts) and the
+/// runner's (runner/src/thread-id.ts). Another runner's ids come through
+/// the backend, and a compromised extra Mac can write any string there, so
+/// an id from outside this runner is checked with this before it's kept:
+/// one with a quote, a space, a `)` or a `$(` would otherwise end up in a
+/// shell line (Copy debug info) or markdown (a thread chip).
+pub fn is_thread_id(id: &str) -> bool {
+    (1..=64).contains(&id.len()) && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
 }
 
 /// The last thread among links the system handed over at once, as the Swift

@@ -299,9 +299,5 @@ fn events_source(runner_version: &str) -> threadbear_core::reducer::row_debug::E
 
 /// As a shell would need it typed: the default data folder has a space.
 fn shell_quoted(text: &str) -> String {
-    if !text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c)) {
-        text.to_owned()
-    } else {
-        threadbear_core::sign_in::quoted(text)
-    }
+    threadbear_core::reducer::row_debug::shell_word(text)
 }

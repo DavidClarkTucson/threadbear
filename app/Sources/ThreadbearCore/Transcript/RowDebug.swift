@@ -93,6 +93,13 @@ public enum RowDebug {
         case fixture
     }
 
+    /// `text` as one word a shell takes as it is: bare when it's only safe
+    /// characters, in single quotes otherwise.
+    public static func shellWord(_ text: String) -> String {
+        if text.range(of: #"^[A-Za-z0-9_@%+=:,./-]+$"#, options: .regularExpression) != nil { return text }
+        return "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+    }
+
     /// "Copy debug info": one `key: value` per line, so it reads well
     /// pasted into a message and an agent can pick it apart.
     public static func info(threadId: String, row: TranscriptRow, seqs: [Int], runnerVersion: String, source: EventsSource = .tb("tb")) -> String {
@@ -114,7 +121,9 @@ public enum RowDebug {
         if let first = seqs.min(), let last = seqs.max() {
             switch source {
             case .tb(let tb):
-                lines.append("see: \(tb) events \(threadId) --from \(first) --to \(last)")
+                // The id quoted as one word: another runner's ids are what it
+                // wrote to the backend, and this line is meant for a shell.
+                lines.append("see: \(tb) events \(shellWord(threadId)) --from \(first) --to \(last)")
             case .fixture:
                 let range = first == last ? "line \(first)" : "lines \(first)-\(last)"
                 lines.append("see: \(range) of events.ndjson in the thread's fixture folder (line N is seq N)")

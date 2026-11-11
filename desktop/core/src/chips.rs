@@ -263,7 +263,9 @@ impl ThreadIndex {
         let mut ids = HashMap::new();
         // Two threads sharing a prefix: the prefix names neither.
         let mut prefixes: HashMap<String, Option<String>> = HashMap::new();
-        for id in thread_ids {
+        // Only ids of a thread id's shape: a chip's link is written with the
+        // whole id in it, and another runner's ids are its own word.
+        for id in thread_ids.into_iter().filter(|id| crate::thread_link::is_thread_id(id)) {
             ids.insert(id.to_owned(), id.to_owned());
             let prefix: String = id.chars().take(8).collect();
             prefixes.entry(prefix).and_modify(|seen| *seen = None).or_insert_with(|| Some(id.to_owned()));

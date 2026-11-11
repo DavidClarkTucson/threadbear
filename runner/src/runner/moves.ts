@@ -27,6 +27,8 @@ import { isPatchFile, patchHash } from '../patch-trust.ts';
 import { claudeCommands } from '../claude-trust.ts';
 import { untrustedGit } from '../safe-git.ts';
 import { isPermissionMode } from '../protocol.ts';
+import { isThreadIdShape } from '../thread-id.ts';
+import { fitReview } from '../reviews.ts';
 import { cleanUpWorktree, makeWorktree, MAIN, parseCheckouts, realpath, type WorktreeRecord } from '../worktrees.ts';
 
 // What T placed for a move, so adopting after a restart and throwing it
@@ -86,6 +88,20 @@ function dropMovedPowers(rec: Record<string, any>): boolean {
   return changed;
 }
 
+// The moved record's reviews (show_options) cut to what show_options takes
+// here (reviews.ts fitReview): they're the other runner's word, and the
+// review window draws their notes on every render, so a note of megabytes
+// would stall it (Daybreak 93, 11 Nov 2026). One that isn't a review at
+// all goes. True if it changed.
+function fitMovedReviews(rec: Record<string, any>): boolean {
+  if (rec.reviews === undefined) return false;
+  const before = JSON.stringify(rec.reviews);
+  const fitted = Array.isArray(rec.reviews) ? rec.reviews.flatMap((r: unknown) => fitReview(r) ?? []) : [];
+  if (fitted.length) rec.reviews = fitted;
+  else delete rec.reviews;
+  return JSON.stringify(rec.reviews) !== before;
+}
+
 // On the main Mac, a thread from another runner arrives with at most Ask
 // (Mike, 10 Nov 2026): its mode is that runner's word, an extra Mac may be
 // compromised, and the main Mac's sidebar never showed what mode the
@@ -131,6 +147,7 @@ function sanitizeMoved(rec: Record<string, any>, atMostAsk: boolean, from: strin
   // expects, press notes well formed and bounded (store.ts normaliseRecord).
   let changed = normaliseRecord(rec);
   changed = dropMovedPowers(rec) || changed;
+  changed = fitMovedReviews(rec) || changed;
   if (atMostAsk) {
     const capped = capMovedMode(rec);
     if (capped.was && !notes.some((n) => n.includes('so it asks before tools run here'))) notes.push(cappedNote(capped.was, from));
@@ -644,6 +661,9 @@ export const movesPart = {
   // T: everything in place but the thread itself, which waits in staging
   // until the switch. Throws (after undoing what it made) to fail the move.
   async placeMove(this: Runner, row: MoveRow, entries: PackEntry[]): Promise<void> {
+    // The id names the thread's folder here, and the apps put it in shell
+    // lines and links: only a thread id's shape (thread-id.ts).
+    if (!isThreadIdShape(row.threadId)) throw new Error("The moved thread's id isn't a thread id.");
     const plan = row.plan!;
     const stage = stageOf(this.cfg.home, row.moveId);
     fs.rmSync(stage, { recursive: true, force: true });

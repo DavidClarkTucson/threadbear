@@ -502,6 +502,39 @@ built parsers and gates with no launch of the app, which is the trap.)
   with a thread in its own panel beside the main one, and with the note: the
   panels split the room the same, the bars' titles, Share and ... line up,
   and the note's words and buttons sit in the same place.
+### 2026-11-11 Daybreak's render findings: thread ids, pictures, the rich cache and review notes (`rich.threadchips`, `transcript.agentmessage`, `rich.html`, `review.window`, `highlights.rowmenus`)
+
+- Another runner's thread ids are checked for a thread id's shape (1 to 64
+  letters, digits, `-` and `_`, core's `thread_link::is_thread_id`) before
+  the sidebar or the chips' index keep them, and Copy debug info quotes the
+  id in its `tb events` line. The Swift app does both too (`ThreadLink.isThreadId`,
+  `RowDebug.shellWord`), the runner leaves such rows out of `remoteThreads`,
+  and the backend refuses them from a runner key (Daybreak 87, 102).
+- A thread chip's link is only written for an id of that shape, so an id
+  can't end the link and write markdown after it (102). The Swift app's
+  chips are attributes, never re-parsed, so it never had this.
+- `picture_source`, the image loader's source for every row's text, checks
+  the thread is this Mac's and the file a picture file of at most 50 MB
+  (never a device or a folder), and an agent's message goes through
+  `pictures` as a reply does (95). The Swift app already drew no pictures
+  for another Mac's thread in any row.
+- Rich blocks' pictures are kept by what they take up (160 MiB, the Swift
+  app's `pictureBytes`; core's `PictureBudget`), not 120 by count, and the
+  ones that leave go from gpui's caches too: decoded pixels and textures
+  (92).
+- The review rail's inline markdown no longer searches to the end for each
+  unmatched delimiter (93): 20,000 characters of backtick runs took 7.5 s
+  and now take under 100 ms of CPU, with the same runs as before for every
+  short note (a test checks 200,000 against the old parser). A review's
+  words are cut to what show_options takes as it's decoded, and the runner
+  cuts a moved thread's reviews as they arrive.
+- Files: `desktop/core/src/{thread_link,remote,chips,review,rich_block}.rs`,
+  `desktop/core/src/reducer/{row_debug,event}.rs`, `desktop/core/tests/remote_ids_tests.rs`,
+  `desktop/gpui/src/{chips,rich_boxes,rows}.rs`, `desktop/gpui/src/rows/{markdown,export}.rs`,
+  `app/Sources/ThreadbearCore/{ThreadLink,Protocol/RemoteThreads,Transcript/RowDebug}.swift`,
+  `convex/{runnerAccess,sync,relay}.ts`, `runner/src/{thread-id,thread-index,reviews}.ts`,
+  `runner/src/runner/moves.ts`.
+- Verification: VERIFICATION_PENDING
 
 ### 2026-11-11 View > Collapse Threads, and threadbear:// links from outside (`menu.view`, `nav.deeplink`)
 

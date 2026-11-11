@@ -43,7 +43,10 @@ impl RemoteRunner {
 /// unread one gets 1 and 0, which is all the rows look at.
 fn summary(row: &Value) -> Option<ThreadSummary> {
     let runner_id = row["runnerId"].as_str().filter(|s| !s.is_empty())?.to_owned();
-    let id = row["threadId"].as_str().filter(|s| !s.is_empty())?.to_owned();
+    // The backend takes any string a runner writes, and an extra Mac may be
+    // compromised: a row whose id isn't a thread id's shape is left out, as
+    // the id goes into shell lines and links (thread_link::is_thread_id).
+    let id = row["threadId"].as_str().filter(|s| crate::thread_link::is_thread_id(s))?.to_owned();
     let text = |key: &str| row[key].as_str().unwrap_or("").to_owned();
     let unread = row["unread"].as_bool().unwrap_or(false);
     let created = row["createdAt"].as_str().and_then(parse_ms).unwrap_or(0);

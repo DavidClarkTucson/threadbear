@@ -5134,6 +5134,13 @@ runner itself. Runners never talk to each other.
   gives way before a live one; a backend before API 54 dropped a runner
   key's archived rows, and a runner sends those again once on first
   hearing 54 (its sync cache's `index.archived` says it has).
+- **Thread ids.** A thread id is 1 to 64 letters, digits, `-` and `_` (a
+  runner makes UUIDs). The backend lets a runner key make a thread or a
+  sidebar row only under an id of that shape (`isThreadId`), and the
+  runner's `remoteThreads.list` and `remoteThreads.updated`, both Mac apps'
+  sidebars and a move leave out any other, as the apps put ids into a
+  shell line (Copy debug info) and a reply's thread chips. The main key's
+  own ids aren't checked by the backend.
 - **Watching the others.** The runner subscribes to
   `sync:otherRunnersThreads` (every runner but itself, with its threads)
   and gives the result to clients as `remoteThreads.list` and

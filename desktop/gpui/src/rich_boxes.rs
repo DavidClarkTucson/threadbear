@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use threadbear_core::rich_block::{self as rich, RichBlock, RichKind};
+use threadbear_core::rich_block::{self as rich, png_cost, PictureBudget, RichBlock, RichKind};
 use threadbear_core::web_runtime::State;
 
 /// What the kit calls the box's nodes.
@@ -41,9 +41,12 @@ const MAX_BODY: f32 = 560.;
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// How long Copy shows its tick.
 const COPIED_FOR: Duration = Duration::from_millis(1500);
-/// Blocks' states kept in memory (sizes only), and pictures.
+/// Blocks' states kept in memory (sizes only). Their pictures are kept by
+/// what they take up (`PictureBudget`).
 const STATES_KEPT: usize = 2000;
-const PICTURES_KEPT: usize = 120;
+/// The biggest picture file read back from the disk cache: a page's look is
+/// at most 1440 by 3200 pixels, under 20 MB even as noise.
+const PICTURE_FILE_MAX: u64 = 40 * 1024 * 1024;
 
 /// The buttons' tips (RichBlockCell.Action.tip), which scripts find them by.
 pub(crate) fn drawn_tip(block: &RichBlock) -> &'static str {
@@ -142,8 +145,14 @@ pub(crate) struct RichStore {
     state_order: VecDeque<String>,
     /// Blocks showing their source, by id (RichBlocks.showingSource).
     showing_source: HashSet<String>,
-    pictures: HashMap<String, (Arc<Image>, Arc<Image>)>,
-    picture_order: VecDeque<String>,
+    pictures: PictureBudget<(Arc<Image>, Arc<Image>)>,
+    /// Pictures that left `pictures`, for the next box drawn to take out of
+    /// gpui's caches (`free_pictures`): its decoded copies are kept until
+    /// they're taken out.
+    let_go: Vec<Arc<Image>>,
+    /// The pictures handed to a box to draw, by image id: only those can
+    /// have a texture to drop.
+    drawn: HashSet<u64>,
     queue: VecDeque<(String, RichBlock, u32)>,
     /// Asked for while the runtime couldn't draw them: asked again once it can.
     asked: HashSet<String>,
@@ -184,8 +193,9 @@ pub(crate) fn init(cx: &mut App) {
             states: HashMap::new(),
             state_order: VecDeque::new(),
             showing_source: HashSet::new(),
-            pictures: HashMap::new(),
-            picture_order: VecDeque::new(),
+            pictures: PictureBudget::new(PictureBudget::<(Arc<Image>, Arc<Image>)>::BYTES),
+            let_go: Vec::new(),
+            drawn: HashSet::new(),
             queue: VecDeque::new(),
             asked: HashSet::new(),
             busy: false,
@@ -214,7 +224,9 @@ impl RichStore {
                 break;
             }
             self.states.remove(&oldest);
-            self.pictures.remove(&oldest);
+            if let Some((dark, light)) = self.pictures.remove(&oldest) {
+                self.let_go.extend([dark, light]);
+            }
         }
     }
 
@@ -306,24 +318,39 @@ impl RichStore {
     }
 
     fn keep_pictures(&mut self, key: String, pictures: (Arc<Image>, Arc<Image>)) {
-        self.picture_order.retain(|k| *k != key);
-        self.picture_order.push_back(key.clone());
-        self.pictures.insert(key, pictures);
-        while self.picture_order.len() > PICTURES_KEPT {
-            if let Some(oldest) = self.picture_order.pop_front() {
-                self.pictures.remove(&oldest);
-            }
+        let cost = png_cost(&pictures.0.bytes).saturating_add(png_cost(&pictures.1.bytes));
+        for (dark, light) in self.pictures.keep(key, pictures, cost) {
+            self.let_go.extend([dark, light]);
         }
     }
 
     /// A drawn block's pictures, read back from disk if they've left memory.
     fn pictures(&mut self, key: &str) -> Option<(Arc<Image>, Arc<Image>)> {
         if let Some(found) = self.pictures.get(key) {
-            return Some(found.clone());
+            return Some(found);
         }
         let loaded = disk::load_pictures(key)?;
         self.keep_pictures(key.to_owned(), loaded.clone());
         Some(loaded)
+    }
+
+    /// Takes the pictures that left memory out of gpui's caches: their
+    /// decoded pixels (gpui keeps an image's until it's removed) and, for
+    /// one that was drawn, its texture in every window.
+    fn free_pictures(&mut self, window: &mut Window, cx: &mut App) {
+        for picture in std::mem::take(&mut self.let_go) {
+            // Still kept under another key (two blocks drawn the same):
+            // still wanted.
+            if self.pictures.values().any(|(dark, light)| dark.id() == picture.id() || light.id() == picture.id()) {
+                continue;
+            }
+            if self.drawn.remove(&picture.id()) {
+                if let Some(texture) = picture.clone().get_render_image(window, cx) {
+                    cx.drop_image(texture, Some(window));
+                }
+            }
+            picture.remove_asset(cx);
+        }
     }
 
     fn copy(&mut self, block: &RichBlock, cx: &mut Context<Self>) {
@@ -405,7 +432,14 @@ mod disk {
 
     pub(super) fn load_pictures(key: &str) -> Option<(Arc<Image>, Arc<Image>)> {
         let dir = folder()?;
-        let read = |look: &str| std::fs::read(dir.join(format!("{key}-{look}.png"))).ok().map(|bytes| Arc::new(Image::from_bytes(ImageFormat::Png, bytes)));
+        // Only a file no bigger than a page's look can be: the Swift app
+        // shares the folder, and it's read whole.
+        let read = |look: &str| {
+            let file = dir.join(format!("{key}-{look}.png"));
+            let meta = std::fs::metadata(&file).ok()?;
+            (meta.is_file() && meta.len() <= super::PICTURE_FILE_MAX).then_some(())?;
+            std::fs::read(&file).ok().map(|bytes| Arc::new(Image::from_bytes(ImageFormat::Png, bytes)))
+        };
         Some((read("dark")?, read("light")?))
     }
 
@@ -499,7 +533,7 @@ fn orange(cx: &App) -> Hsla {
 
 /// The box (RichBlockCell): a header with the language, the switch, Copy and
 /// full size, and under it the picture or the source.
-fn rich_box(block: &RichBlock, _window: &mut Window, cx: &mut App) -> AnyElement {
+fn rich_box(block: &RichBlock, window: &mut Window, cx: &mut App) -> AnyElement {
     let Some(store) = store(cx) else { return div().child(block.source.clone()).into_any_element() };
     let zoom = style::zoom_percent();
     let key = block.key(zoom);
@@ -512,6 +546,9 @@ fn rich_box(block: &RichBlock, _window: &mut Window, cx: &mut App) -> AnyElement
         let (store, block) = (store.clone(), block.clone());
         cx.defer(move |cx| store.update(cx, |s, cx| s.want(block, zoom, cx)));
     }
+    // Pictures that left memory since the last box was drawn go from gpui's
+    // caches too.
+    store.update(cx, |s, cx| s.free_pictures(window, cx));
     let pictures = match (&state, shows_source) {
         (Some(Drawing::Drawn { .. }), false) => store.update(cx, |s, _| s.pictures(&key)),
         _ => None,
@@ -539,6 +576,7 @@ fn rich_box(block: &RichBlock, _window: &mut Window, cx: &mut App) -> AnyElement
     let body = match (&state, pictures) {
         (Some(Drawing::Drawn { width, height, clipped }), Some((dark_picture, light_picture))) => {
             let picture = if dark(cx) { dark_picture } else { light_picture };
+            store.update(cx, |s, _| s.drawn.insert(picture.id()));
             picture_body(block, (*width, *height), *clipped, picture, cx)
         }
         _ => source_body(block, &state, cx),

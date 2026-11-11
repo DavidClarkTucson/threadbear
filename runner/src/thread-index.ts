@@ -17,6 +17,7 @@ import type { ThreadSummary } from './protocol.ts';
 import type { Notification } from './runner.ts';
 import { digest } from './sync-cache.ts';
 import { forbiddenText, type Post, type Subscribe } from './sync.ts';
+import { isThreadIdShape } from './thread-id.ts';
 
 export type IndexRow = {
   threadId: string;
@@ -529,7 +530,10 @@ export class ThreadIndex {
           ...(r.rpcUrl ? { rpcUrl: r.rpcUrl } : {}),
           ...(r.followProblem ? { followProblem: r.followProblem } : {}),
         })),
-      threads: value?.threads ?? [],
+      // Only ids of a thread id's shape reach the apps and the agent tools
+      // (thread-id.ts): the backend kept whatever a runner wrote before it
+      // checked, and an extra Mac may be compromised.
+      threads: (value?.threads ?? []).filter((t) => isThreadIdShape(t?.threadId)),
       ...(this.order ? { order: this.order } : {}),
     };
     this.deps.publish?.({ method: 'remoteThreads.updated', params: this.withTokens(this.remote) });

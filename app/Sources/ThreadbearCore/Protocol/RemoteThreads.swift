@@ -22,7 +22,9 @@ public struct RemoteThreads: Sendable, Hashable, Decodable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         runners = c.lossyArray(RemoteRunner.self, forKey: .runners)
-        threads = c.lossyArray(RemoteThread.self, forKey: .threads)
+        // A row whose id isn't a thread id's shape is left out: an extra Mac
+        // may be compromised, and ids go into shell lines (ThreadLink.isThreadId).
+        threads = c.lossyArray(RemoteThread.self, forKey: .threads).filter { ThreadLink.isThreadId($0.threadId) }
         order = try? c.decodeIfPresent([String].self, forKey: .order)
     }
 
