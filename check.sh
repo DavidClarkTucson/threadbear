@@ -344,10 +344,10 @@ cargo_step() {
     local old="$LOGS/desktop-sums-old" inputs=(desktop) d
     for d in "${DESKTOP_BUILT_IN[@]}"; do [ ! -d "$ROOT/$d" ] || inputs+=("$d"); done
     if [ -f "$record" ]; then mv "$record" "$old"; else : >"$old"; fi
-    if ! (cd "$ROOT" && find "${inputs[@]}" -type f -not -path 'desktop/target/*' -print0 | xargs -0 shasum -a 256 | LC_ALL=C sort) >"$sums" \
+    if ! (cd "$ROOT" && find "${inputs[@]}" \( -type f -o -type l \) -not -path 'desktop/target/*' -print0 | xargs -0 shasum -a 256 | LC_ALL=C sort) >"$sums" \
       || ! LC_ALL=C comm -23 "$sums" "$old" | sed -E 's/^[0-9a-f]+  //' | (cd "$ROOT" && while IFS= read -r f; do touch "$f" || exit 1; done); then
       # Couldn't tell what changed: everything is new, and no record is kept.
-      (cd "$ROOT" && find "${inputs[@]}" -type f -not -path 'desktop/target/*' -exec touch {} +)
+      (cd "$ROOT" && find "${inputs[@]}" \( -type f -o -type l \) -not -path 'desktop/target/*' -exec touch {} +)
       record=""
     fi
   fi
@@ -357,10 +357,23 @@ cargo_step() {
 if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
   if ! needed "$DESKTOP_NEEDS"; then
     skip "desktop core tests" "nothing desktop/ reads changed"
-  elif [ "$FALLBACK" = 1 ]; then
-    # No check host could take the run, and Rust builds stay off the Mac
-    # someone's working on (AGENTS.md): desktop/scripts/remote.sh runs them.
-    printf 'skip  %-20s (no check host could take it; desktop/scripts/remote.sh <host> -- bash -c "cd desktop && cargo test -p threadbear-core -p threadbear-client")\n' "desktop core tests"
+  elif [ "$FALLBACK" = 1 ] || { [ "$E2E" = 1 ] && [ "$LOCAL" = 0 ]; }; then
+    # This is the Mac someone's working on (no check host could take the run,
+    # or --e2e, which runs here for the claude login), and Rust builds stay
+    # off it (AGENTS.md): desktop/scripts/remote.sh runs them. A landing that
+    # changes desktop/ fails rather than go in unchecked; one that only
+    # touches the runner code the mock imports doesn't wait for a host.
+    why="Rust builds stay off this Mac; desktop/scripts/remote.sh <host> -- bash -c 'cd desktop && cargo test -p threadbear-core -p threadbear-client'"
+    # (Not `needed`: on main, with nothing changed, it says yes to everything.)
+    if [ "$FALLBACK" = 1 ] && printf '%s\n' "$CHANGED" | grep -q '^desktop/'; then
+      log="$LOGS/desktop-core-tests.log"
+      echo "No check host could take this run. $why" >"$log"
+      printf 'FAIL  %-20s       %s\n' "desktop core tests" "$log"
+      FAILED="${FAILED}desktop core tests|$log
+"
+    else
+      printf 'skip  %-20s (%s)\n' "desktop core tests" "$why"
+    fi
   else
     CARGO="$(command -v cargo || true)"
     [ -n "$CARGO" ] || [ ! -x "$HOME/.cargo/bin/cargo" ] || CARGO="$HOME/.cargo/bin/cargo"
