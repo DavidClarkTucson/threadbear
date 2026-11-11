@@ -242,7 +242,7 @@ class AppModel(context: Context, private val scope: CoroutineScope) {
     private fun pairingChanged(forget: Boolean) {
         // Another server (or none): its notifications come down and any being
         // opened are dropped, before anything else of the new pairing's.
-        Push.pairingChanged(appContext, clear = forget)
+        Push.pairingChanged(appContext, forget = forget)
         pairingEpoch++
         _pushToken.value = null
         shell.pushToken.value = null
