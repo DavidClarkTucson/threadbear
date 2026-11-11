@@ -37,6 +37,7 @@ mod quit_prompt;
 mod rails;
 mod remote;
 mod reply_buttons;
+mod review_window;
 mod rows;
 mod runner_launcher;
 mod runners_panel;

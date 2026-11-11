@@ -642,6 +642,9 @@ impl Threadbear {
                 "runner.updates" => self.runner_updates_changed(&params),
                 "connectors.updated" => self.connectors_updated(&params),
                 "thread.event" => {
+                    // An open review window hears its review change whichever
+                    // thread is open here (review_window.rs).
+                    crate::review_window::receive_event(&params, cx);
                     if let Some(pane) = &self.pane {
                         pane.update(cx, |p, cx| p.event(&params, cx));
                     }
@@ -1003,6 +1006,8 @@ impl Threadbear {
             "scheduleEditor": self.schedule_editor.as_ref().map_or(Value::Null, |e| e.read(cx).dump(cx)),
             // The Settings window while it's open, and what it shows.
             "settingsWindow": self.settings_window.as_ref().map_or(Value::Null, |(_, view)| view.read(cx).dump(cx)),
+            // The review windows open, and where each has got to.
+            "reviewWindows": crate::review_window::dump(cx),
             // The page in the main panel in place of a thread (`showsHomePage`).
             "homePage": match self.home_page() {
                 Some(SidebarMode::Scheduled) => self.scheduled_home_dump(),

@@ -424,6 +424,8 @@ struct AppDump: Encodable {
         var backTip: String
         var forwardTip: String
         var shared: Bool
+        /// The bar over the thread with reviews waiting (PendingReviewsButton).
+        var pendingReviews: String?
     }
 
     /// The activity bar's and right rail's buttons, as those views draw them.
@@ -473,7 +475,8 @@ struct AppDump: Encodable {
         return Header(title: thread.title.isEmpty ? "Untitled" : thread.title, renaming: app.renamingThread == thread.id,
                       backTip: HistoryText.tip(back: true, to: app.canGoBack ? app.destination(back: true) : nil, shortcut: AppShortcuts.shared.display(.back)),
                       forwardTip: HistoryText.tip(back: false, to: app.canGoForward ? app.destination(back: false) : nil, shortcut: AppShortcuts.shared.display(.forward)),
-                      shared: thread.share?.isOn == true)
+                      shared: thread.share?.isOn == true,
+                      pendingReviews: thread.hasPendingReviews ? "Review design options (\(thread.pendingReviews ?? 0))" : nil)
     }
 
     struct ProjectInfo: Encodable {

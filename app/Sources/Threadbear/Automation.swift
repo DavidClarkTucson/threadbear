@@ -607,9 +607,12 @@ enum Automation {
                 // ("Archive (⌘E)"), which differs from one Mac to another.
                 let prefix = c["tipPrefix"] != nil
                 // The slash palette has a window of its own (SlashPalettePanel),
-                // looked in after the main window's controls.
-                let windows = c["settings"] as? Bool == true ? [SettingsWindow.current].compactMap { $0 }
-                    : [mainWindow?.attachedSheet ?? mainWindow].compactMap { $0 } + NSApp.windows.filter { $0 is SlashPalettePanel && $0.isVisible }
+                // looked in after the main window's controls. {"review": id}:
+                // in that review's own window.
+                let reviewWindow = (c["review"] as? String).flatMap { id in app.reviewWindows.values.first { $0.session.review.id == id }?.window }
+                if c["review"] != nil, reviewWindow == nil { return "error that review isn't open" }
+                let windows = reviewWindow.map { [$0] } ?? (c["settings"] as? Bool == true ? [SettingsWindow.current].compactMap { $0 }
+                    : [mainWindow?.attachedSheet ?? mainWindow].compactMap { $0 } + NSApp.windows.filter { $0 is SlashPalettePanel && $0.isVisible })
                 var found: (window: NSWindow, anchor: TipAnchorView)?
                 for candidate in windows {
                     guard let content = candidate.contentView,

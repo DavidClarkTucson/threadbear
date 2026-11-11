@@ -20,6 +20,7 @@ pub mod panel_requests;
 pub mod pools;
 pub mod remote;
 pub mod reply_buttons;
+pub mod review;
 pub mod runner_settings;
 pub mod runners;
 pub mod schedules;

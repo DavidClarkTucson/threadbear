@@ -530,6 +530,55 @@ built parsers and gates with no launch of the app, which is the trap.)
   the new choice at once. Left as they are, as they're the whole app's: every
   panel sits 2 points higher under the dock's bar, bruce's Mac mini is the
   icon set's server, and GPUI's text draws a little lighter.
+### 2026-11-11 The design review window: answering an agent's options (`review.window`, `review.picks`, `transcript.review`, `header.pendingreviews`)
+
+- An agent's `show_options` can be answered here now. The review card's
+  button, a `review:` link in a reply or on an ask, and the bar over a
+  thread with reviews waiting ("Review design options (N)", its list from
+  `reviews.list`, older reviews too) open the review in a window of its own,
+  90% of the screen and centred, as the Swift one: a waiting review opens on
+  its first option one at a time, one that's over on all of them.
+- Down the right, the agent's lead and each option with its reasons, a tick
+  for as many as Mike wants (a reference has none), the agent's pick starred
+  with "Recommended", one reply box, None and Send. Send says what will go
+  ("Send B + C", "Send none of them"), spins and takes no second press while
+  it goes, and closes the window once it's sent. The draft is kept on this
+  computer at each change (`desktop-review-drafts.json` in the runner's
+  folder, as the Swift app's defaults) and saved to the runner half a second
+  after the last one; closing the window keeps it. A save or send against a
+  stale revision reloads, keeps what's typed and says so, with Save my draft;
+  calls ride out a runner that's restarting for 20 seconds. Answered,
+  cancelled and superseded reviews are read-only, with what was sent and
+  Done. The title bar's ... has Cancel review, asked first.
+- The stage, its arrows, the marks for every shot of every option, the grid
+  of all of them and the shot's zoom are drawn too; their specs come with a
+  later entry.
+- The rules are `threadbear_core::review` (the session and its save races,
+  the walkthrough, the grid's columns, the zoom and minimap), with the Swift
+  tests ported. The Swift minimap is bottom right, whatever its comment says,
+  so this one is too.
+- Left: the rail's notes are the kit's markdown, whose lines don't take the
+  rail's height, so a reason's lines are 16 apart where SwiftUI's are 16.5
+  (1 or 2 points a row), and its inline code has a box. An unknown review in
+  a `review:` link says so in the error bar rather than beeping.
+- Both apps' automation: `review` answers `focused`, `sendLabel`, `editable`
+  and `minimap` too, takes `browse` and `open: false`; `click` takes
+  `"review": id` for a control in that window, and the header dump has
+  `pendingReviews`. `features/tools/review-shot.ts` takes both apps' review
+  window in eight states and lays each pair over each other.
+- Files: `desktop/core/src/review.rs`, `desktop/gpui/src/review_window.rs`
+  and `review_window/{stage,rail}.rs`, the hooks in `rows/cards.rs`,
+  `rows/markdown.rs`, `header.rs`, `app.rs` and `automation.rs`;
+  `app/Sources/Threadbear/{Automation,Automation+Waiting,AppDump}.swift`;
+  `features/review.feature`, `features/steps/review.steps.ts`,
+  `features/tools/review-shot.ts`.
+- Verification: `features/review.feature` on Tinker Desk, GPUI 8 of 8, Swift
+  7 of 7 (the bar's list is a Swift popover the scripts can't reach). The
+  core's 42 review tests. review-shot.ts in dark, both apps, overlaid: the
+  stage, the grid, the row under it, the title bar and the footer land on
+  the Swift window's points; the zoomed shot is 7 off only because Tinker
+  Desk's Swift scroll view shows a legacy scroll bar.
+
 ### 2026-11-11 Point for point with the Swift app: the composer, its card, and what's round them
 
 - Mike: "can you do like a pixel by pixel comparison ... this decision panel

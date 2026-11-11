@@ -98,10 +98,16 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     // its id, as the Swift command does, for `tb show` and the like.
     let from_new = cmd["cmd"] == "send" && app.read_with(cx, |t, _| t.selected.is_none()).map_err(|e| e.to_string())?;
     let weak = app.clone();
+    // A design review's window (review_window.rs), as the Swift command.
+    if cmd["cmd"] == "review" {
+        return crate::review_window::automation(&weak, window, cmd, cx).await;
+    }
     let Some(app) = app.upgrade() else { return Err("the app has gone".into()) };
     // `"settings": true`: in the Settings window, as the Swift app's `click`
-    // and `shot --settings` reach it.
-    let window = if cmd["settings"].as_bool() == Some(true) && cmd["cmd"] != "settings" {
+    // and `shot --settings` reach it; `"review": id`, in that review's.
+    let window = if let Some(id) = cmd["review"].as_str() {
+        cx.update(|cx| crate::review_window::window_for(id, cx)).ok_or("that review isn't open")?
+    } else if cmd["settings"].as_bool() == Some(true) && cmd["cmd"] != "settings" {
         app.read_with(cx, |t, _| t.settings_window.as_ref().map(|(handle, _)| *handle)).ok_or("the Settings window isn't open")?
     } else {
         window

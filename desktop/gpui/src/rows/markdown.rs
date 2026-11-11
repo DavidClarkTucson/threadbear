@@ -421,7 +421,7 @@ impl ThreadPane {
         match scheme.as_deref() {
             Some("work") => self.open_work_link(&percent_decode(rest), row_id, window, cx),
             Some("thread") => self.open_thread_link(&percent_decode(rest), window, cx),
-            Some("review") => {}
+            Some("review") => self.open_review_link(&percent_decode(rest), window, cx),
             Some("tbpath") => {
                 let text = percent_decode(rest.strip_prefix("?p=").unwrap_or(rest));
                 self.open_thread_file(strip_line(split_query(&text).0), cx);

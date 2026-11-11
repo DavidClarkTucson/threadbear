@@ -519,6 +519,10 @@ impl Threadbear {
             if let Some((account, title)) = self.refusal_target(thread, cx) {
                 column = column.child(self.render_refusal_offer(thread, account, title, cx));
             }
+            // Reviews waiting, older ones too (review_window.rs).
+            if let Some(bar) = self.pending_reviews_bar(thread, cx) {
+                column = column.child(bar);
+            }
         }
         column.into_any_element()
     }
@@ -1099,6 +1103,8 @@ impl Threadbear {
             "backTip": history_tip(true, back_to.as_deref(), back_key.as_deref()),
             "forwardTip": history_tip(false, forward_to.as_deref(), forward_key.as_deref()),
             "shared": share_is_on(t),
+            // The bar over the thread with reviews waiting (review_window.rs).
+            "pendingReviews": t.pending_reviews.filter(|n| *n > 0).map(threadbear_core::review::pending_button_title),
         }))
     }
 

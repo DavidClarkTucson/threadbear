@@ -767,12 +767,13 @@ impl ThreadPane {
         };
         let detail = format!("{} images · {state}", review.options.len());
         let open_title = if review.is_pending() { format!("Compare {} images", review.options.len()) } else { "Open review".to_owned() };
+        let open_tip = if review.is_pending() { "Open the images side by side to pick and reply" } else { "Open the review to look at the images and what was sent" };
+        let opened = review.clone();
         let content = v_flex()
             .child(h_flex().items_center().gap(px(6.)).child(div().flex_none().w(px(18.)).child(icon("rectangle.on.rectangle", 14., secondary))).child(div().min_w_0().truncate().text_size(px(size::WORK)).line_height(px(22.)).font_weight(FontWeight::SEMIBOLD).text_color(label).child(review.title.clone())))
             .child(div().mt(px(4.)).text_size(px(size::DETAIL)).line_height(px(20.)).text_color(quiet).child(detail))
-            // The window that compares the images isn't ported yet, so this
-            // doesn't pretend it opens one (options window, stage 2).
-            .child(h_flex().mt(px(10.)).child(pill(("open-review", ix), &open_title, false, false, None, cx).min_w(px(140.)).tooltip(tip("Comparing images isn't ported to this app yet; use the Swift app's review window"))));
+            // Its window (review_window.rs).
+            .child(h_flex().mt(px(10.)).child(pill(("open-review", ix), &open_title, false, true, None, cx).min_w(px(140.)).tooltip(tip(open_tip)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_review(opened.clone(), window, cx))).test_support()));
         row_wrap(row, div().py(px(ROW_TOP)).child(card_frame(content, accent, cx)))
     }
 }
