@@ -20,11 +20,12 @@ use threadbear_core::swift_import::{self as rules, Plist};
 /// the drafts. The note that says what came across, if anything did.
 ///
 /// In three parts, each done once: the settings, the drafts and the small
-/// files. One that went isn't done again when another fails and is tried
-/// next launch, so a draft sent since, or a setting changed back since, stays
-/// as it is (Codex's second look, 12 Nov). A part that failed (a file there
-/// that couldn't be read, a write that didn't go, `defaults` failing) is
-/// tried again at the next launch.
+/// files. Each part reads first, then saves the record that it's done, then
+/// writes: a read or a record that fails leaves the part for the next launch
+/// with nothing written, and a write that fails once the record is in isn't
+/// tried again (the Swift app still has what it had). So a draft brought
+/// across and then sent never comes back, as the record of it was saved
+/// before it was ever there to send (Codex's reviews, 12 Nov).
 pub(crate) fn run_once(settings: &mut Settings, cx: &App) -> Option<String> {
     if settings.saved.swift_import.is_some() {
         return None;
@@ -34,58 +35,80 @@ pub(crate) fn run_once(settings: &mut Settings, cx: &App) -> Option<String> {
         return None;
     }
     let done = |settings: &Settings, part: &str| settings.saved.swift_import_parts.iter().any(|p| p == part);
-    let mut failed = None;
+    let mut retry = None;
     let defaults = match read_defaults(stand_in.as_deref()) {
         Ok(defaults) => Some(defaults),
         Err(e) => {
-            failed = Some(e);
+            retry = Some(e);
             None
         }
     };
     let mut filled = Vec::new();
-    if let Some(defaults) = &defaults {
-        if !done(settings, "settings") {
-            // AppKit's frames are measured up from the bottom of the main screen.
-            let screen = cx.primary_display().map_or(900., |d| f64::from(d.bounds().size.height));
-            let mut current = serde_json::to_value(&settings.saved).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default();
-            filled = rules::fill_missing(&mut current, rules::settings(defaults, screen));
-            if let Ok(saved) = serde_json::from_value(Value::Object(current)) {
-                settings.saved = saved;
+    if let (Some(defaults), false) = (&defaults, done(settings, "settings")) {
+        // The settings and the record that they came go in the one file, together.
+        let before = settings.saved.clone();
+        // AppKit's frames are measured up from the bottom of the main screen.
+        let screen = cx.primary_display().map_or(900., |d| f64::from(d.bounds().size.height));
+        let mut current = serde_json::to_value(&settings.saved).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        let came = rules::fill_missing(&mut current, rules::settings(defaults, screen));
+        if let Ok(saved) = serde_json::from_value(Value::Object(current)) {
+            settings.saved = saved;
+        }
+        settings.saved.swift_import_parts.push("settings".into());
+        match settings.save_checked() {
+            Ok(()) => filled = came,
+            Err(e) => {
+                settings.saved = before;
+                retry = Some(e);
             }
-            settings.saved.swift_import_parts.push("settings".into());
         }
     }
     let mut drafts = 0;
     if let Some(home) = settings.path().parent().map(Path::to_path_buf) {
         if !done(settings, "drafts") {
-            match bring_drafts(&home) {
-                Ok(count) => {
-                    drafts = count;
-                    settings.saved.swift_import_parts.push("drafts".into());
+            match read_drafts(&home) {
+                Ok(plan) => {
+                    if record(settings, "drafts", &mut retry) {
+                        match plan.map(|(path, data, count)| threadbear_core::private_file::write(&path, &data).map(|_| count)) {
+                            Some(Ok(count)) => drafts = count,
+                            Some(Err(e)) => eprintln!("threadbear: the Swift app's drafts couldn't be brought across: {e}"),
+                            None => {}
+                        }
+                    }
                 }
-                Err(e) => failed = Some(e),
+                Err(e) => retry = Some(e),
             }
         }
         if let (Some(defaults), false) = (&defaults, done(settings, "files")) {
-            match bring_side_files(&home, defaults) {
-                Ok(keys) => {
-                    filled.extend(keys);
-                    settings.saved.swift_import_parts.push("files".into());
-                }
-                Err(e) => failed = Some(e),
+            if record(settings, "files", &mut retry) {
+                filled.extend(bring_side_files(&home, defaults));
             }
         }
     }
-    match failed {
+    match retry {
         None if ["settings", "drafts", "files"].iter().all(|p| done(settings, p)) => {
             settings.saved.swift_import = Some(threadbear_core::inbox::iso_time(crate::now_ms()));
             settings.saved.swift_import_parts.clear();
+            settings.save();
         }
         None => {}
         Some(e) => eprintln!("threadbear: bringing the rest of the Swift app's settings across will try again next launch: {e}"),
     }
-    settings.save();
     rules::note(&filled, drafts)
+}
+
+/// Saves the record that `part` is done, before its writes: false (and the
+/// part left for next time) if the record didn't stick.
+fn record(settings: &mut Settings, part: &str, retry: &mut Option<String>) -> bool {
+    settings.saved.swift_import_parts.push(part.into());
+    match settings.save_checked() {
+        Ok(()) => true,
+        Err(e) => {
+            settings.saved.swift_import_parts.retain(|p| p != part);
+            *retry = Some(e);
+            false
+        }
+    }
 }
 
 /// The most of a file or of the Swift app's settings that's read: anything
@@ -135,43 +158,50 @@ fn export() -> Result<Option<String>, String> {
     Ok(None)
 }
 
-/// The Swift app's `app-drafts.json` into this app's `desktop-drafts.json`,
-/// where a box is empty here, written as drafts.rs writes it (core's
-/// private_file.rs: whole, and only Mike's account can read it). A drafts
-/// file here that can't be read as drafts (too big, not JSON) is left alone,
-/// never written over with only the Swift app's (Codex's second look).
-fn bring_drafts(home: &Path) -> Result<usize, String> {
+/// The Swift app's `app-drafts.json` merged into this app's
+/// `desktop-drafts.json`, where a box is empty here: the file to write, its
+/// bytes and how many drafts came, or None when there's nothing to bring.
+/// Written as drafts.rs writes it (core's private_file.rs: whole, and only
+/// Mike's account can read it). A drafts file here that can't be read as
+/// drafts (too big, not JSON) is left alone, never written over with only the
+/// Swift app's (Codex's second look). An error when a file there couldn't be
+/// read, so the part is tried again.
+fn read_drafts(home: &Path) -> Result<Option<(std::path::PathBuf, Vec<u8>, usize)>, String> {
     // A file that isn't JSON won't be by next time, so it's nothing to bring.
-    let Some(swift) = read_some(&home.join("app-drafts.json"))?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()) else { return Ok(0) };
+    let Some(swift) = read_some(&home.join("app-drafts.json"))?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()) else { return Ok(None) };
     let path = home.join("desktop-drafts.json");
     let mut current = if path.exists() {
-        let Some(map) = read_some(&path)?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()).and_then(|v| v.as_object().cloned()) else { return Ok(0) };
+        let Some(map) = read_some(&path)?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()).and_then(|v| v.as_object().cloned()) else { return Ok(None) };
         map
     } else {
         Default::default()
     };
     let count = rules::fill_drafts(&mut current, &swift);
-    if count > 0 {
-        let data = serde_json::to_vec(&Value::Object(current)).map_err(|e| e.to_string())?;
-        threadbear_core::private_file::write(&path, &data).map_err(|e| format!("couldn't bring the Swift app's drafts across: {e}"))?;
+    if count == 0 {
+        return Ok(None);
     }
-    Ok(count)
+    let data = serde_json::to_vec(&Value::Object(current)).map_err(|e| e.to_string())?;
+    Ok(Some((path, data, count)))
 }
 
 /// The small files this app keeps the rest in, made from the Swift app's
-/// defaults when this app hasn't one yet. Says the keys that came.
-fn bring_side_files(home: &Path, defaults: &std::collections::BTreeMap<String, Plist>) -> Result<Vec<String>, String> {
+/// defaults when this app hasn't one yet. Says the keys that came. After its
+/// record is saved, so one that fails isn't tried again: the Swift app still
+/// has the setting.
+fn bring_side_files(home: &Path, defaults: &std::collections::BTreeMap<String, Plist>) -> Vec<String> {
     let mut filled = Vec::new();
     for (file, value, key) in rules::side_files(defaults) {
         let path = home.join(file);
         if path.exists() {
             continue;
         }
-        let text = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
-        threadbear_core::private_file::write(&path, text.as_bytes()).map_err(|e| format!("couldn't write {}: {e}", path.display()))?;
-        filled.push(key.to_owned());
+        let written = serde_json::to_string_pretty(&value).map_err(|e| e.to_string()).and_then(|text| threadbear_core::private_file::write(&path, text.as_bytes()).map_err(|e| e.to_string()));
+        match written {
+            Ok(()) => filled.push(key.to_owned()),
+            Err(e) => eprintln!("threadbear: couldn't write {}: {e}", path.display()),
+        }
     }
-    Ok(filled)
+    filled
 }
 
 impl Threadbear {

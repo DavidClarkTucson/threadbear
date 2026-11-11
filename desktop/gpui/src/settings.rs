@@ -130,8 +130,14 @@ impl Settings {
     /// half a file (the same as shortcuts.json's atomic write in the Swift app),
     /// and only this user's, as everything in the data folder is.
     pub fn save(&self) {
-        let Ok(text) = serde_json::to_string_pretty(&self.saved) else { return };
-        let _ = threadbear_core::private_file::write(&self.path, text.as_bytes());
+        let _ = self.save_checked();
+    }
+
+    /// `save`, saying whether it went, for a record that mustn't be lost
+    /// (swift_import.rs).
+    pub fn save_checked(&self) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(&self.saved).map_err(|e| e.to_string())?;
+        threadbear_core::private_file::write(&self.path, text.as_bytes()).map_err(|e| format!("couldn't save {}: {e}", self.path.display()))
     }
 
     pub fn zoom_percent(&self) -> u32 {

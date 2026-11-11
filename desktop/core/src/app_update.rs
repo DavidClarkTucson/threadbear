@@ -179,13 +179,19 @@ pub fn apply_staged(install: &Path, next: &Path, old: &Path, swapping: &Path, ru
     }
     // A swap cut short. If what's at `next` isn't the build it was putting
     // in, the exchange happened and that's the old bundle: it goes, rather
-    // than back in. If it is, the exchange never happened: on as usual.
-    if let Ok(incoming) = std::fs::read_to_string(swapping) {
-        let at_next = BuildInfo::read(next).map(|b| b.app_tree);
-        if next.exists() && at_next.as_deref() != Some(incoming.trim()) {
-            let _ = std::fs::rename(next, old);
+    // than back in. If it is, the exchange never happened: on as usual. The
+    // note goes only once that's sorted, and a note that can't be read, or a
+    // move that fails, stops here, so a later launch still knows (Codex, 12 Nov).
+    match std::fs::read_to_string(swapping) {
+        Ok(incoming) => {
+            let at_next = BuildInfo::read(next).map(|b| b.app_tree);
+            if next.exists() && at_next.as_deref() != Some(incoming.trim()) {
+                std::fs::rename(next, old).map_err(|e| format!("couldn't move the old bundle left by a swap cut short out of the way: {e}"))?;
+            }
+            std::fs::remove_file(swapping).map_err(|e| format!("couldn't clear the note of a swap cut short: {e}"))?;
         }
-        let _ = std::fs::remove_file(swapping);
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("couldn't read the note of a swap cut short: {e}")),
     }
     if !next.exists() {
         return Ok(None);
@@ -365,6 +371,23 @@ mod tests {
         assert_eq!(apply_staged(&install, &next, &old, &swapping, Some(&build("aaa", "t1"))).unwrap().map(|b| b.short), Some("bbb".to_owned()));
         assert_eq!(marker(&install).as_deref(), Some("bbb"));
         assert!(!swapping.exists());
+        // Cut short after the exchange, and the old one can't be moved out of
+        // the way (a file where .old goes): the note stays, nothing goes in.
+        let install = bundle(&dir, "Threadbear GPUI.app", &build("ddd", "t4"));
+        let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("ccc", "t3"));
+        let _ = std::fs::remove_dir_all(&old);
+        std::fs::create_dir_all(old.join("in-the-way")).unwrap();
+        std::fs::write(old.join("in-the-way").join("x"), "x").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o500)).unwrap();
+            std::fs::write(&swapping, "t4").unwrap();
+            assert!(apply_staged(&install, &next, &old, &swapping, Some(&build("ddd", "t4"))).is_err());
+            assert!(swapping.exists(), "the note stays until it's sorted");
+            assert_eq!(marker(&install).as_deref(), Some("ddd"));
+            std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
