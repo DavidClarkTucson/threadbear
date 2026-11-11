@@ -1603,12 +1603,13 @@ export class Runner {
   // whether he's still at the Mac, so the agent doesn't hand him a Mac-only
   // step while he's out and keeps the reply short. It goes on every phone
   // message rather than once, as he moves between the two. The transcript
-  // keeps what he typed.
+  // keeps what he typed. "Phone app", not "iPhone app": the origin doesn't say
+  // which, and an Android phone (android-native/, or Keith's) sends the same.
   forAgent(msg: { text: string; origin?: MessageOrigin }): string {
     if (msg.origin !== 'phone') return msg.text;
     const atMac = this.atMac?.();
     const where = atMac === true ? ', at the Mac' : atMac === false ? ', away from the Mac' : '';
-    return `[Sent from the iPhone app${where}]\n${msg.text}`;
+    return `[Sent from the phone app${where}]\n${msg.text}`;
   }
 
   // Writes the turn's first events before changing any state, so if the

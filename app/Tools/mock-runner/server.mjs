@@ -2285,7 +2285,7 @@ function addRemoteDemo() {
   }], { unread: true, needsYou: true });
   make('bruce_media', 'Tidy the media drive', '/Volumes/CannMedia', 300, 'idle', [{
     ask: 'Find duplicate videos on the media drive.',
-    // Sent from the iPhone app, so the transcript shows its phone mark.
+    // Sent from the phone app, so the transcript shows its phone mark.
     origin: 'phone',
     // Output past the runner's cut, kept whole in a blob on bruce.
     tools: [{ command: 'fdupes -r /Volumes/CannMedia/Footage', text: bruceFile(BRUCE_FILES.blob).slice(0, 600), blobPath: BRUCE_FILES.blob }],

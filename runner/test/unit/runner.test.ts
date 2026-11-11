@@ -148,12 +148,12 @@ test('a message from the phone tells the agent so, and where Mike is; the transc
   const { thread, turnId } = create(h, { origin: 'phone' });
   const s = h.adapter.last;
   // Presence not checked yet: just where it came from.
-  assert.deepEqual(s.sent, [{ id: turnId, text: '[Sent from the iPhone app]\nFix the tests\nmore detail here', images: [] }]);
+  assert.deepEqual(s.sent, [{ id: turnId, text: '[Sent from the phone app]\nFix the tests\nmore detail here', images: [] }]);
   s.init();
   // Steered into the running turn, while he's away.
   atMac = false;
   h.runner.send(thread.id, 'on the bus', [], { origin: 'phone' });
-  assert.equal(s.sent[1].text, '[Sent from the iPhone app, away from the Mac]\non the bus');
+  assert.equal(s.sent[1].text, '[Sent from the phone app, away from the Mac]\non the bus');
   // Typed at the Mac: nothing added.
   h.runner.send(thread.id, 'back at my desk');
   assert.equal(s.sent[2].text, 'back at my desk');
@@ -163,7 +163,7 @@ test('a message from the phone tells the agent so, and where Mike is; the transc
   atMac = true;
   h.runner.send(thread.id, 'from the couch', [], { origin: 'phone' });
   await tick();
-  assert.equal(h.adapter.last.sent.at(-1)?.text, '[Sent from the iPhone app, at the Mac]\nfrom the couch');
+  assert.equal(h.adapter.last.sent.at(-1)?.text, '[Sent from the phone app, at the Mac]\nfrom the couch');
   const typed = h.events(thread.id).filter((e) => e.type === 'user.message').map((e) => e.text);
   assert.deepEqual(typed, ['Fix the tests\nmore detail here', 'on the bus', 'back at my desk', 'from the couch']);
 });
