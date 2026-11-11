@@ -22,3 +22,15 @@ Feature: Editing a message
     And I press Return
     Then the composer isn't editing
     And the transcript has my message "Only the calendar, please"
+
+  # Daybreak finding 86 (11 Nov): with one approval waiting, Return in an
+  # empty box allows it, and the GPUI app did that mid-edit too.
+  @transcript.edit @composer.editing @transcript.approval
+  Scenario: Return in an emptied edit allows nothing
+    When I open the thread "Make uploads resume after a crash"
+    Then an approval card asks to run "rm -rf .build DerivedData"
+    When I edit my first message
+    And I replace what's in the composer with ""
+    And I press Return
+    Then the composer is still editing my first message
+    And the approval for "rm -rf .build DerivedData" is still waiting

@@ -330,8 +330,16 @@ impl Composer {
     }
 
     /// ComposerView.returnWhenEmpty: Return with nothing typed allows the
-    /// sole waiting approval (the ⏎ its Allow button shows).
+    /// sole waiting approval (the ⏎ its Allow button shows). Not while a
+    /// message is being edited: the box is the edit then, an empty one
+    /// sends nothing, and Return there is about that message, never a card
+    /// that may be off screen (Daybreak, 11 Nov: pencil, clear, Return
+    /// allowed a waiting tool). Pictures are chips in the text, so an edit
+    /// with only pictures left isn't empty and goes to `send`.
     fn return_when_empty(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.editing.is_some() {
+            return true;
+        }
         if self.return_with_picks(window, cx) {
             return true;
         }
