@@ -80,11 +80,12 @@ you go.
 - [ ] No "Open in New Panel" (a thread in a panel of its own), or panels that
   close with their thread (`dock.threadpanel`, `dock.openelsewhere`,
   `dock.contexttabs`)
-- [ ] No View > Collapse Threads (⌘/) (`menu.view`)
+- [x] No View > Collapse Threads (⌘/) (`menu.view`)
 - [ ] No trackpad swipe back and forward, and no key hints while ⌘ is held
   (`nav.swipe`, `nav.hints`)
-- [ ] `threadbear://` links (BrowserBear's pill on an agent's tab) don't open
-  this app (`nav.deeplink`)
+- [x] `threadbear://` links (BrowserBear's pill on an agent's tab) don't open
+  this app (`nav.deeplink`). They open the GPUI app once install-app.sh has
+  run; `desktop/scripts/thread-links.sh swift` gives them back
 - [ ] Threads, files and pictures can't be dragged out of the app, and the
   card's Something else box takes no drops (`drag.*`, `highlights.dragout`,
   `file.picture`, `transcript.images`)

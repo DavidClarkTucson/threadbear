@@ -1392,7 +1392,9 @@ your Convex deployment as they are, so nothing can scrub a secret from one, and
 `"sync": { "pastedPictures": false }` in `runner.json` keeps them on the Mac. A tool line opens to what the tool did if its runner has full sync on (`"sync": { "full": true }` in that runner's `runner.json`; off by default, and docs/on-your-mac.md says what it sends), and its screenshots show when you tap them. The pencil beside the search starts a new
 thread on a runner's default folder and login. On your Mac,
 `threadbear://thread/<id>` opens a thread in the app instead (the Open
-thread button on a tab BrowserBear has marked for an agent uses it).
+thread button on a tab BrowserBear has marked for an agent uses it). With
+the new desktop app installed beside the Mac app, those links open the new
+one; `desktop/scripts/thread-links.sh swift` sends them back to the Mac app.
 
 To let someone else read a thread, click the share button beside a
 thread's ... menu (or Share with others in that menu's Share submenu) and

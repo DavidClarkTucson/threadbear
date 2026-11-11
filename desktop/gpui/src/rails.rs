@@ -137,22 +137,34 @@ impl Threadbear {
         let mut button = RailButton::new("rail-threads", "bubble.left.and.bubble.right", "Threads", mode == SidebarMode::Inbox);
         button.tip = self.shortcut_tip("Threads", ShortcutCommand::ShowInbox);
         button.badge = Some(inbox_count);
-        views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Inbox, cx), cx));
+        views.push(rail_button(button, |this, _, cx| {
+            this.unfold_threads(cx);
+            this.set_mode(SidebarMode::Inbox, cx)
+        }, cx));
         if self.schedules_supported {
             let mut button = RailButton::new("rail-scheduled", "clock", "Scheduled", mode == SidebarMode::Scheduled);
             button.tip = self.shortcut_tip("Scheduled", ShortcutCommand::ShowScheduled);
             button.badge = Some(self.scheduled.active_count());
-            views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Scheduled, cx), cx));
+            views.push(rail_button(button, |this, _, cx| {
+                this.unfold_threads(cx);
+                this.set_mode(SidebarMode::Scheduled, cx)
+            }, cx));
         }
         if self.projects_supported {
             let mut button = RailButton::new("rail-projects", "square.stack.3d.up", "Projects", mode == SidebarMode::Projects);
             button.tip = self.shortcut_tip("Projects", ShortcutCommand::ShowProjects);
-            views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Projects, cx), cx));
+            views.push(rail_button(button, |this, _, cx| {
+                this.unfold_threads(cx);
+                this.set_mode(SidebarMode::Projects, cx)
+            }, cx));
             let mut button = RailButton::new("rail-librarian", "books.vertical", "Librarian", mode == SidebarMode::Librarian);
             button.tip = self.shortcut_tip("Librarian", ShortcutCommand::ShowLibrarian);
             // The look under way and the ones waiting (`pendingCount`).
             button.badge = self.librarian.status.as_ref().map(|s| s.pending_count());
-            views.push(rail_button(button, |this, _, cx| this.set_mode(SidebarMode::Librarian, cx), cx));
+            views.push(rail_button(button, |this, _, cx| {
+                this.unfold_threads(cx);
+                this.set_mode(SidebarMode::Librarian, cx)
+            }, cx));
         }
         // Connectors, Runners and Updates at the foot (activity_panels.rs),
         // each with its dot: the accent when only Mike can do something, grey

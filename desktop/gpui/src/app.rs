@@ -1098,6 +1098,8 @@ impl Threadbear {
             "limit": self.limit_dump(cx),
             "error": self.error_message.clone(),
             "dock": dock,
+            // Folded away with ⌘/ or closed, it isn't on screen (thread_panels.rs).
+            "threadsShowing": self.threads_showing(cx),
             "zoom": crate::style::zoom_percent(),
             "archivedNote": self.archived_note.as_ref().map(|n| n.thread.clone()),
             "inboxEndNote": self.inbox_end_note.as_ref().map(|n| if n.empty { "empty" } else { "end" }),

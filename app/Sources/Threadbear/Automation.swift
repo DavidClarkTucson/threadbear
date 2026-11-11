@@ -306,6 +306,14 @@ enum Automation {
             // A beat for the table to lay out and draw.
             try? await Task.sleep(for: .milliseconds(150))
             return "ok \(id) \(session.displayCount) rows"
+        case "open-url":
+            // A threadbear:// link handed over as macOS hands one to the app
+            // (`application(_:open:)`), without bringing the window forward.
+            guard let text = c["url"] as? String, let url = URL(string: text) else { return "error url is the link" }
+            guard ThreadLink.threadId(from: url) != nil else { return "ok not a thread link" }
+            AppDelegate.current?.openLinks([url], activate: false)
+            try? await Task.sleep(for: .milliseconds(200))
+            return "ok"
         case "refusal":
             guard let id = app.selection, let thread = app.threads[id] else { return "error no thread selected" }
             guard let account = app.refusalTarget(for: thread) else { return "ok none" }

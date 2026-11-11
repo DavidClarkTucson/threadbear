@@ -254,6 +254,7 @@ actions!(
         TogglePanels,
         ToggleTerminal,
         ResetPanelLayout,
+        CollapseThreads,
         ToggleFrameRate,
         AboutApp,
         TakeTheTour,
@@ -330,6 +331,7 @@ commands!(
     (TogglePanels, TogglePanels, Some(ShortcutCommand::TogglePanels)),
     (ToggleTerminal, ToggleTerminal, Some(ShortcutCommand::ToggleTerminal)),
     (ResetPanelLayout, ResetPanelLayout, Some(ShortcutCommand::ResetPanelLayout)),
+    (CollapseThreads, CollapseThreads, Some(ShortcutCommand::CollapseThreads)),
     (ToggleFrameRate, ToggleFrameRate, None),
     (About, AboutApp, None),
     (TakeTheTour, TakeTheTour, None),
@@ -416,6 +418,11 @@ impl Threadbear {
     /// `available` in `RootView.content`: Highlights, Files and a thread's own
     /// panels for a thread that has them; the rest always.
     pub(crate) fn panel_available(&self, panel: &str) -> bool {
+        // Folded away with ⌘/: the main panel takes its room, and it comes
+        // back at the same width (thread_panels.rs).
+        if panel == THREADS {
+            return !self.threads_collapsed();
+        }
         if !Self::is_pane_section(panel) {
             return true;
         }
@@ -470,15 +477,18 @@ impl Threadbear {
         self.dock.update(cx, |m, cx| m.show(panel, &near, under, cx));
     }
 
+    /// Hide or Show Threads (`toggleThreadsPanel`): closed, or opened down
+    /// the left of the window; folded away with ⌘/ counts as hidden.
     fn toggle_threads_panel(&mut self, cx: &mut Context<Self>) {
         let contains = self.dock.read(cx).layout().contains(THREADS);
-        self.dock.update(cx, |m, cx| {
-            if contains {
-                m.close(THREADS, cx);
-            } else {
-                m.open(THREADS, DockDrop::window(DockEdge::Left), cx);
-            }
-        });
+        if contains && !self.threads_collapsed() {
+            self.dock.update(cx, |m, cx| m.close(THREADS, cx));
+            return;
+        }
+        self.set_threads_collapsed(false, cx);
+        if !contains {
+            self.dock.update(cx, |m, cx| m.open(THREADS, DockDrop::window(DockEdge::Left), cx));
+        }
     }
 
     /// `panelsShown.toggle()`: the pane sections go away, remembered, and
@@ -613,12 +623,18 @@ impl Threadbear {
             Command::Back => self.go_back(window, cx),
             Command::Forward => self.go_forward(window, cx),
             Command::NextInboxThread => self.next_inbox_thread(window, cx),
-            Command::ShowInbox => self.set_mode(SidebarMode::Inbox, cx),
-            Command::ShowScheduled => self.set_mode(SidebarMode::Scheduled, cx),
-            Command::ShowProjects => self.set_mode(SidebarMode::Projects, cx),
-            Command::ShowLibrarian => self.set_mode(SidebarMode::Librarian, cx),
-            Command::ShowHibernating => self.show_folded_section("hibernating", cx),
-            Command::ShowArchived => self.show_folded_section("archived", cx),
+            // Each brings the Threads panel back if ⌘/ folded it away.
+            Command::ShowInbox | Command::ShowScheduled | Command::ShowProjects | Command::ShowLibrarian | Command::ShowHibernating | Command::ShowArchived => {
+                self.unfold_threads(cx);
+                match command {
+                    Command::ShowScheduled => self.set_mode(SidebarMode::Scheduled, cx),
+                    Command::ShowProjects => self.set_mode(SidebarMode::Projects, cx),
+                    Command::ShowLibrarian => self.set_mode(SidebarMode::Librarian, cx),
+                    Command::ShowHibernating => self.show_folded_section("hibernating", cx),
+                    Command::ShowArchived => self.show_folded_section("archived", cx),
+                    _ => self.set_mode(SidebarMode::Inbox, cx),
+                }
+            }
             Command::Settings => self.open_settings(None, cx),
             Command::ZoomIn => self.zoom_in(window, cx),
             Command::ZoomOut => self.zoom_out(window, cx),
@@ -627,6 +643,7 @@ impl Threadbear {
             Command::TogglePanels => self.toggle_panels(cx),
             Command::ToggleTerminal => crate::terminal::toggle(self, window, cx),
             Command::ResetPanelLayout => self.reset_panel_layout(cx),
+            Command::CollapseThreads => self.toggle_threads_collapsed(cx),
             Command::ToggleFrameRate => self.toggle_frame_rate(window, cx),
             Command::About => window.push_notification("Threadbear (GPUI)", cx),
             Command::TakeTheTour | Command::FinishSettingUp => window.push_notification("That isn't in this app yet.", cx),
@@ -1030,7 +1047,7 @@ impl Threadbear {
         let has_thread = t.is_some();
         let zoom_now = style::zoom_percent();
         let panels_shown = !self.open_panes(cx).is_empty();
-        let threads_contains = self.dock.read(cx).layout().contains(THREADS);
+        let threads_showing = self.threads_showing(cx);
         let terminal_shown = self.is_panel_showing(TERMINAL, cx);
         let archived = t.is_some_and(|t| t.is_archived());
         let busy = t.is_some_and(|t| t.busy());
@@ -1059,7 +1076,9 @@ impl Threadbear {
                     item("Zoom Out", Command::ZoomOut).enabled(zoom::can_zoom_out(zoom_now)),
                     item("Actual Size", Command::ActualSize).enabled(zoom_now != zoom::DEFAULT_PERCENT),
                     Separator,
-                    item(if threads_contains { "Hide Threads" } else { "Show Threads" }, Command::ToggleThreads),
+                    item(if threads_showing { "Hide Threads" } else { "Show Threads" }, Command::ToggleThreads),
+                    // Folds the panel away and back as it was; the activity bar stays.
+                    item(if threads_showing { "Collapse Threads" } else { "Expand Threads" }, Command::CollapseThreads),
                     item(if panels_shown { "Hide Panels" } else { "Show Panels" }, Command::TogglePanels),
                     item(if terminal_shown { "Hide Terminal" } else { "Show Terminal" }, Command::ToggleTerminal),
                     item("Reset Panel Layout", Command::ResetPanelLayout),

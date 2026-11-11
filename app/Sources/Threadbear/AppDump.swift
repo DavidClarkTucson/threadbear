@@ -424,6 +424,9 @@ struct AppDump: Encodable {
     var pools: [PoolInfo] = []
     /// The window's panels and where they are (WindowDock), in one line.
     var dock: String = ""
+    /// The Threads panel is on screen: in the layout and not folded away
+    /// with ⌘/ (`threadsShowing`).
+    var threadsShowing: Bool = true
     /// The window's zoom, in percent (TextZoom).
     var zoom: Int = 100
     /// "end" or "empty" while the end-of-inbox note is up (InboxEndToast).
@@ -869,6 +872,7 @@ struct AppDump: Encodable {
                          rail: Pools.railSubtitle(pool, accounts: app.accounts), status: Pools.statusLine(pool, accounts: app.accounts, now: app.now))
             } : [],
             dock: app.dock.layout.summary.replacingOccurrences(of: "threadbear.", with: ""),
+            threadsShowing: app.threadsShowing,
             zoom: TextZoom.shared.percent,
             inboxEndNote: app.inboxEndNote.map { $0.empty ? "empty" : "end" },
             rails: rails(app),

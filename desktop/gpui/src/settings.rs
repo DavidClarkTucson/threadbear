@@ -75,6 +75,9 @@ pub struct Saved {
     /// a project.
     #[serde(rename = "projectsList.openRows")]
     pub projects_open_rows: Option<Vec<String>>,
+    /// `threadsCollapsed`: ⌘/ folded the Threads panel away (thread_panels.rs).
+    /// None is no.
+    pub threads_collapsed: Option<bool>,
 }
 
 /// The settings file: where it is and what's in it. Reading is at launch only;

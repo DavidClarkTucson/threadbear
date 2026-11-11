@@ -52,7 +52,7 @@ pub fn group(command: ShortcutCommand) -> Group {
     match command {
         NewThread | Archive | Hibernate | Stop | CopyTranscript => Group::Threads,
         Back | Forward | NextInboxThread | ShowInbox | ShowScheduled | ShowProjects | ShowLibrarian | ShowHibernating | ShowArchived | Settings => Group::Go,
-        ZoomIn | ZoomOut | ActualSize | ToggleThreads | TogglePanels | ToggleTerminal | ResetPanelLayout => Group::View,
+        ZoomIn | ZoomOut | ActualSize | ToggleThreads | TogglePanels | ToggleTerminal | ResetPanelLayout | CollapseThreads => Group::View,
     }
 }
 
@@ -397,6 +397,7 @@ mod tests {
         assert_eq!(titles(Group::Go)[..3], ["Back", "Forward", "Next Inbox Thread"]);
         assert_eq!(titles(Group::Go).last(), Some(&"Settings…"));
         assert_eq!(titles(Group::View).first(), Some(&"Zoom In"));
+        assert_eq!(titles(Group::View).last(), Some(&"Collapse Threads"));
         let all: usize = Group::ALL.iter().map(|g| g.commands().len()).sum();
         assert_eq!(all, ShortcutCommand::ALL.len(), "every command is under a heading");
         assert!(Group::View.about().starts_with("The keys for what's in the View menu."));
@@ -529,10 +530,11 @@ mod tests {
         reset_all(&mut b);
         assert!(!any_changed(&b));
         assert_eq!(b.json(), None, "the file goes");
-        // Lines for commands this app doesn't have stay.
-        let mut kept = ShortcutBindings::parse(r#"{"collapseThreads": "cmd+k", "archive": "cmd+j"}"#).unwrap();
+        // Lines for commands this app doesn't have stay (the Swift app's
+        // Quit, which here is the standard key).
+        let mut kept = ShortcutBindings::parse(r#"{"quit": "cmd+k", "archive": "cmd+j"}"#).unwrap();
         reset_all(&mut kept);
-        assert!(kept.json().unwrap().contains("collapseThreads"));
+        assert!(kept.json().unwrap().contains("quit"));
         assert!(!kept.json().unwrap().contains("archive"));
     }
 

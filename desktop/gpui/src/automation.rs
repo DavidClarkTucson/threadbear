@@ -235,6 +235,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // that name a section, a row or a tip; the others fall through below.
         "hover" | "sort" | "archive-more" | "star" | "unstar" | "unarchive" | "realMenu" | "menu-popover" => crate::sidebar::automation(app, cmd, window, cx),
         "new" | "options" => crate::new_thread::automation(app, cmd, window, cx),
+        // A threadbear:// link handed over as macOS hands one (deep_links.rs).
+        "open-url" => crate::deep_links::automation(app, cmd, window.window_handle(), cx),
         // The activity bar's panels, as the Swift app's commands of these names.
         "runners" => crate::runners_panel::automation(app, cmd, window, cx),
         "updates" => crate::updates_panel::automation(app, cmd, cx),

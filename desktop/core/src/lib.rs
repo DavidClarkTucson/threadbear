@@ -41,6 +41,7 @@ pub mod sidebar;
 pub mod slash;
 pub mod terminal;
 pub mod text_file;
+pub mod thread_link;
 pub mod transcript;
 pub mod updates;
 pub mod usage;

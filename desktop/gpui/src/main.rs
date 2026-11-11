@@ -15,6 +15,7 @@ mod composer;
 mod composer_card;
 mod composer_chips;
 mod connectors_panel;
+mod deep_links;
 mod ding;
 mod draft_boxes;
 mod drafts;
@@ -72,6 +73,7 @@ mod style;
 mod terminal;
 mod terminal_element;
 mod thread;
+mod thread_panels;
 mod updates_panel;
 mod usage;
 mod viewer;
@@ -138,7 +140,11 @@ fn initial_bounds(settings: &Settings, cx: &App) -> Bounds<Pixels> {
 fn main() {
     // All of Lucide (about 1 MB), so `icons.rs` can name any icon; the default
     // `Assets` has only gpui-kit's own hundred.
-    gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(|cx| {
+    let application = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
+    // threadbear://thread/<id> links from outside (deep_links.rs), queued from
+    // now: macOS can hand one over before the window's made.
+    let links = deep_links::receive(&application);
+    application.run(|cx| {
         gpui_kit::init(cx);
         // Whether the web runtime is installed; nothing starts until a page needs it.
         web_runtime::init(cx);
@@ -146,7 +152,7 @@ fn main() {
         rich_boxes::init(cx);
         let settings = Settings::load();
         let bounds = initial_bounds(&settings, cx);
-        gpui_kit::open_window(
+        let (window, app) = gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 // No title bar: the panels' bars are the top of the window,
@@ -163,5 +169,6 @@ fn main() {
             move |window, cx| cx.new(|cx| Threadbear::new(settings, window, cx)),
         )
         .expect("failed to open the window");
+        deep_links::listen(links, app.downgrade(), window, cx);
     });
 }

@@ -93,6 +93,8 @@ export type Dump = {
   error?: string | null;
   /** The window's panels, in one line ("row[threads (no title) 29% | thread 47% | ...]"). */
   dock?: string;
+  /** The Threads panel is on screen: in the layout and not folded away with ⌘/. */
+  threadsShowing?: boolean;
   /** The window's zoom, in percent. */
   zoom?: number;
   /** The thread the Archived note names, while it's up. */

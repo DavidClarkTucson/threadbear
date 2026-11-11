@@ -222,6 +222,52 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 View > Collapse Threads, and threadbear:// links from outside (`menu.view`, `nav.deeplink`)
+
+- View > Collapse Threads (⌘/) folds the Threads panel away and Expand
+  Threads brings it back where it was and as wide, as the Swift app's
+  `threadsCollapsed` does: the panel stays in the layout with nothing to show
+  (the dock's `available`), so the main panel takes its room and the traffic
+  lights move to its bar. Hide Threads and Show Threads go by whether it's on
+  screen, folded counting as hidden. The activity bar's four views and the
+  Thread menu's Show items bring it back. It's remembered across launches
+  (`threadsCollapsed` in desktop-settings.json, the Swift app's name), and
+  `collapseThreads` is a key in shortcuts.json and on Settings › Keyboard's
+  View heading, as in the Swift app.
+- `threadbear://thread/<id>` links open their thread in the window, as the
+  Swift app's `application(_:open:)` does: the app and window come forward,
+  the sidebar goes to the Inbox view and the thread opens, or once the list
+  has loaded if the link started the app. A link is only ever read for a
+  thread id (letters, digits, `-` and `_`); anything else under the scheme
+  (the phone's pairing link) does nothing. A link to a thread that isn't in
+  the sidebar says so in the error bar, where the Swift app shows nothing.
+  The parsing is core's `thread_link.rs`, with its tests.
+- Which app gets the links while both are installed: the GPUI app. Both
+  bundles claim the scheme, and with no default set macOS picks one by
+  itself, which can change as the Swift app rebuilds itself. The GPUI app is
+  the one Mike's moving to, so `install-app.sh` makes it the default
+  (`--keep-links` leaves them be), and `desktop/scripts/thread-links.sh
+  swift` hands them back (with no argument it says which app has them). The
+  app doesn't take them back by itself at launch, so that choice sticks.
+- Scripts: both apps take `open-url`, a link handed over as macOS hands one
+  (without bringing a scripted window forward), and both dumps have
+  `threadsShowing`.
+- Not here: the menu items' icons (GPUI's menus have none).
+- Files: `desktop/gpui/src/{thread_panels,deep_links}.rs` (new),
+  `desktop/core/src/thread_link.rs` (new), `desktop/core/src/{shortcuts,keyboard,lib}.rs`,
+  `desktop/gpui/src/{shell,rails,settings,main,app,automation}.rs`,
+  `desktop/scripts/install-app.sh`, `desktop/scripts/thread-links.sh` (new),
+  `app/Sources/Threadbear/{ThreadbearApp,Automation,AppDump}.swift`,
+  `features/{thread-panels,deep-links}.feature` and their steps,
+  `docs/guide.md`, `docs/on-your-mac.md`.
+- Verification: on Tinker Desk, `@menu.view or @nav.deeplink`: GPUI 8 of 8,
+  Swift 7 of 7 (the View menu's changing titles are `@swift-pending`, as a
+  scripted Swift app's menu titles go stale until the menu's opened); core's
+  tests. Pictures of both apps in dark with the list folded away: the main
+  panel and Highlights take the room in the same shares, the title in the
+  same place after the traffic lights. thread-links.sh's Swift typechecked
+  and run on Tinker Desk (it has no Threadbear, so "open nothing").
+
 ### 2026-11-11 A reply's links, and words selected in it (`rich.filemenu`, `rich.webmenu`, `rich.linkpeek`, `rich.cmdclick`, `rich.filerefs`, `rich.selectionbar`, `rich.explain`, `rich.copy`, `highlights.rowmenus`)
 
 - A right-click on a link in a reply or an agent's message gives the

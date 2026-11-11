@@ -4,16 +4,28 @@
 # (runner/src/experiments/gpuiApp.md): this refuses unless runner.json says
 # "experiments": { "gpuiApp": true }.
 #
-#   desktop/scripts/install-app.sh [--build-on <ssh host>]
+#   desktop/scripts/install-app.sh [--build-on <ssh host>] [--keep-links]
 #
 # With --build-on it builds there (desktop/scripts/remote.sh) and copies the
 # result here, for a Mac that shouldn't do a 10-minute Rust build. Otherwise it
 # builds on this machine, at low priority.
+#
+# threadbear://thread/<id> links (BrowserBear's Open thread pill) open this app
+# afterwards: both apps claim the scheme, so it's made the default for it
+# (desktop/scripts/thread-links.sh, which gives them back to the Swift app).
+# --keep-links leaves them with whichever app has them.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 build_on=""
-if [ "${1:-}" = "--build-on" ]; then build_on="${2:?--build-on needs an ssh host}"; fi
+links=gpui
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --build-on) build_on="${2:?--build-on needs an ssh host}"; shift 2 ;;
+    --keep-links) links=""; shift ;;
+    *) echo "usage: install-app.sh [--build-on <ssh host>] [--keep-links]" >&2; exit 2 ;;
+  esac
+done
 
 [ "$(uname -s)" = Darwin ] || { echo "Only for a Mac so far: on Linux, run target/release/threadbear-gpui." >&2; exit 2; }
 
@@ -66,6 +78,16 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- threadbear://thread/<id> opens a thread (desktop/gpui/src/deep_links.rs),
+         as the Swift app's app/Resources/Info.plist claims it too. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>com.mikerosoft.threadbear.desktop.thread-link</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>threadbear</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST
@@ -86,3 +108,11 @@ target="$HOME/Applications/Threadbear GPUI.app"
 rm -rf "$target"
 ditto "$bundle" "$target"
 echo "Installed $target"
+if [ -n "$links" ]; then
+  # Not fatal: the app's in, and the links can be moved later.
+  if "$root/desktop/scripts/thread-links.sh" gpui; then
+    echo "desktop/scripts/thread-links.sh swift gives them back to the Swift app."
+  else
+    echo "threadbear:// links weren't moved to this app; desktop/scripts/thread-links.sh gpui tries again." >&2
+  fi
+fi
