@@ -753,8 +753,17 @@ export class Librarian {
     };
     // A new project, when nothing fits.
     const fresh = readNew(a.new);
-    if (fresh && !wanted.length) {
-      const folders = fresh.folders.map((f) => this.expand(f)).filter((f) => this.isProjectFolder(f));
+    const proposed = fresh ? fresh.folders.map((f) => this.expand(f)) : [];
+    const folders = proposed.filter((f) => this.freeFolder(f));
+    // Every repo it gave is another project's: the thread is that
+    // project's work, not a new one (Threadbear Android app, a second
+    // project on the Threadbear repo, 10 Nov). Left unfiled, a later look
+    // can put it there; a project with no folders at all (a house job)
+    // still gets made.
+    const othersOnly = !folders.length && proposed.some((f) => this.isProjectFolder(f));
+    if (fresh && !wanted.length && othersOnly) {
+      this.log.info('librarian did not make a project on folders other projects have', { threadId: rec.id, title: fresh.title, folders: proposed.map((f) => this.tilde(f)) });
+    } else if (fresh && !wanted.length) {
       try {
         const p = this.projects.create({ title: fresh.title, folders, goals: fresh.goals, state: fresh.state, by: 'librarian', byThread: rec.id });
         this.projects.changeMembership(rec.id, { add: [p.id], by: 'librarian', why: fresh.why ? { [p.id]: fresh.why } : undefined });
@@ -817,7 +826,7 @@ export class Librarian {
         const add = folders
           .filter((f): f is string => typeof f === 'string')
           .map((f) => this.expand(f))
-          .filter((f) => this.isProjectFolder(f) && !p.folders.includes(f));
+          .filter((f) => this.freeFolder(f, pid) && !p.folders.includes(f));
         if (!add.length) continue;
         this.projects.update(pid, { folders: [...p.folders, ...add] });
         said.push(`Added ${add.map((f) => this.tilde(f)).join(', ')} to ${p.title}`);
@@ -1246,12 +1255,29 @@ export class Librarian {
   private isProjectFolder(dir: string): boolean {
     if (dir === this.home || !isInside(dir, this.home)) return false;
     if (mainCheckout(dir) !== dir) return false;
+    // Nor a folder inside a git worktree: Threadbear got
+    // `threadbear-threads/slot-4/ios` this way, a path that's another
+    // thread's tomorrow. Its main checkout's copy is the one to give.
+    const repo = findUp(dir, this.home, (d) => fs.existsSync(path.join(d, '.git')));
+    if (repo && mainCheckout(repo) !== repo) return false;
     try {
       if (!fs.statSync(dir).isDirectory()) return false;
     } catch {
       return false;
     }
     return PROJECT_MARKERS.some((m) => fs.existsSync(path.join(dir, m))) || fs.readdirSync(dir).some((n) => n.endsWith('.xcodeproj') || n.endsWith('.tandem'));
+  }
+
+  // A folder the librarian may give a project (a new one, or addFolders):
+  // a project folder that no other live project has, sits inside or holds.
+  // Its guesses gave BrowserBear the Threadbear repo, Convex social posting
+  // all of convex-videos (which holds a dozen videos' folders) and the
+  // Sentry project Agent Archive's repo, and each then pulled in threads
+  // about something else (review of 11 Nov). Mike and agents can still
+  // share a folder between projects on purpose; this only bounds guesses.
+  private freeFolder(dir: string, forProject?: string): boolean {
+    if (!this.isProjectFolder(dir)) return false;
+    return !this.projects.list().some((p) => p.id !== forProject && p.folders.some((f) => isInside(dir, f) || isInside(f, dir)));
   }
 
   // "~/x" against the home the librarian was given (a test's fake one).
@@ -1403,7 +1429,7 @@ export function pocketChanges(
 
 export const SYSTEM = `You are the librarian in Threadbear, an app where the user runs AI coding agents in threads. ${userLine()}You keep their projects: groupings above folders that carry goals, state and notes from thread to thread. A project is a body of work they'll come back to (an app, a library, a video, a house job, an ongoing chore), never a single task. One project can span several repos, and a thread can be in several projects.
 
-Given the project list and one thread, decide which projects the thread belongs in, and say why in a few plain words the user will see beside each project. A thread belongs in a project when it's about that project: building, fixing, planning, ideas, research or questions for it. A thread whose folder is a project's repo almost always belongs in that project. Prefer existing projects. Make a new one when the thread is about a body of work that fits none of them (its own repo is a strong sign); a one-off question, a quick chore or a throwaway test belongs in none. Never put a thread back in one it says never to.
+Given the project list and one thread, decide which projects the thread belongs in, and say why in a few plain words the user will see beside each project. A thread belongs in a project when it's about that project: building, fixing, planning, ideas, research or questions for it. A thread whose folder is a project's repo almost always belongs in that project. Prefer existing projects. Make a new one when the thread is about a body of work that fits none of them (its own repo is a strong sign); a one-off question, a quick chore or a throwaway test belongs in none. Nor is work this one thread will finish a project (picking and sending some photos, uploading a batch of Shorts, one speed-up pass on a site): a project goes on past the thread. Never put a thread back in one it says never to.
 
 Most threads in a catch-all folder belong in no project: errands, personal admin, bookings, one-off questions. Put a thread in a project only when its own messages are about that project's work and you can say what it does there. A project having a folder inside the same catch-all folder isn't enough, and nor is the thread using a tool that is one of the projects (a browser tool, Threadbear itself) or starting a thread to fix one. When nothing clearly fits, projects is [] and new is null: an empty answer is right far more often than a guess.
 
@@ -1413,7 +1439,7 @@ Reply with JSON only, no prose and no code fence:
  "leave": {"<project id>": "why the thread isn't about it"} for a project it's currently in (not pinned) that it turns out not to be about, else {},
  "new": null or {"title": "short name, as the user would say it", "folders": ["~/path of its repo(s)"], "goals": "one or two sentences: what it's for", "state": "one or two sentences: where it's up to", "why": "why the thread belongs there"},
  "state": {"<project id>": "the project's new state"} only when this thread changed where the whole project stands (shipped or finished something, made a decision, hit a blocker), else {},
- "addFolders": {"<project id>": ["~/path"]} for repos this thread shows belong to a project it's in, else {},
+ "addFolders": {"<project id>": ["~/path"]} for repos this thread shows belong to a project it's in and no other project has, else {},
  "links": {"<project id>": [{"title": "Live site", "url": "https://..."}]} for lasting places of a project it's in that the messages give and the project doesn't list yet, else {},
  "thread": "where this thread itself is up to, as two or three short bullets, one per line, each starting \"- \": what it did or found, and what it's waiting on or doing next, and who that's on. About the work, never about how the thread was filed or renamed",
  "title": null, or a new title when the thread's title no longer says what it's about (see below),
@@ -1425,7 +1451,7 @@ Reply with JSON only, no prose and no code fence:
 
 A reason is under 12 words, about this thread, in the user's plain words: "Edits the podcast app's repo", "Shortlists photos for the calendar entry", "Asks how the librarian picks projects". Leaving a project out of projects doesn't take the thread out of it; only leave does. Use leave when the thread clearly isn't about that project: the earlier guess was wrong, or the work has gone elsewhere for good. A thread that has only paused that work stays.
 
-Folders are repos the work lives in (the thread's folder when it's a repo, the repos it edited, and the ones it ran commands in when the work was about them, not a look at something else), never a catch-all folder. A project with no folders that this thread worked on in a repo should get that repo through addFolders. State is two to four plain sentences about the whole project, not this thread: what's done, what's next, what's blocked. Start from the current state, keep what's still true and fold the change in; don't replace it with this thread's details. Ideas and plans that aren't built yet don't change the state.
+Folders are repos the work lives in (the thread's folder when it's a repo, the repos it edited, and the ones it ran commands in when the work was about them, not a look at something else), never a catch-all folder, a folder holding other projects' folders (a folder of many videos or apps) or a worktree. A repo another project already has is that project's: a thread working there belongs in it, not in a new project. A project with no folders that this thread worked on in a repo should get that repo through addFolders. State is two to four plain sentences about the whole project, not this thread: what's done, what's next, what's blocked. Start from the current state, keep what's still true and fold the change in; don't replace it with this thread's details. Ideas and plans that aren't built yet don't change the state.
 
 Links are the few places the user keeps going back to for a project: its live site, admin page, dashboard, store listing. Copy the url exactly from the messages and give it a short title ("Live site", "Admin", "App Store"). Never a pull request, commit, issue, docs page, localhost, file or one-off page.
 

@@ -835,6 +835,61 @@ test('a git worktree counts as its main checkout, never as a folder of its own',
   assert.equal(librarian.status().queue[0].reason, 'catch-up');
 });
 
+test("the librarian never gives a project another project's repo, a folder holding others, or a worktree's subfolder", async () => {
+  let answer: unknown = {};
+  const s = setup({ models: () => reply(answer) });
+  const { h, repo, root, create, finish, librarian, projects } = s;
+  const tb = repo('dev/threadbear');
+  const videos = repo('dev/videos');
+  const interview = repo('dev/videos/interview');
+  const fresh = repo('dev/browserbear');
+  const wtMain = repo('dev/app');
+  const wt = path.join(root, 'dev/app-wt');
+  fs.mkdirSync(path.join(wtMain, '.git/worktrees/wt'), { recursive: true });
+  fs.mkdirSync(path.join(wt, 'ios'), { recursive: true });
+  fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(wtMain, '.git/worktrees/wt')}\n`);
+  fs.writeFileSync(path.join(wt, 'ios/Package.swift'), '');
+  const threadbear = projects.create({ title: 'Threadbear', folders: [tb], by: 'mike' });
+  projects.create({ title: 'Interview', folders: [interview], by: 'mike' });
+  // A new project on another project's repo alone isn't made: the thread is
+  // that project's (Threadbear Android app, 10 Nov).
+  answer = { projects: [], new: { title: 'Threadbear Android', folders: ['~/dev/threadbear'], goals: 'x', state: 'y' } };
+  const one = create('Build the Android client').thread;
+  await finish(one.id);
+  h.clock.advance(SETTLE_MS);
+  await tick(8);
+  assert.equal(projects.list().length, 2);
+  assert.equal(h.runner.get(one.id).projects, undefined);
+  // One with a free repo is made, keeping only that: not the other
+  // project's repo, nor the folder holding Interview's.
+  answer = { projects: [], new: { title: 'BrowserBear', folders: ['~/dev/browserbear', '~/dev/threadbear', '~/dev/videos'], goals: 'x', state: 'y' } };
+  const two = create('A Chrome extension').thread;
+  await finish(two.id);
+  h.clock.advance(SETTLE_MS);
+  await tick(8);
+  const bb = projects.list().find((p) => p.title === 'BrowserBear')!;
+  assert.deepEqual(bb.folders, [fresh]);
+  // A project with no folders at all (a house job) is still made.
+  answer = { projects: [], new: { title: 'Crypto', folders: [], goals: 'x', state: 'y' } };
+  const three = create('Move the crypto').thread;
+  await finish(three.id);
+  h.clock.advance(SETTLE_MS);
+  await tick(8);
+  assert.ok(projects.list().some((p) => p.title === 'Crypto'));
+  // addFolders: the same three are refused, its own repo's subfolder is
+  // nobody else's and a free repo is added.
+  const free = repo('dev/sentry-watch');
+  answer = { projects: [bb.id], reasons: { [bb.id]: 'Works on the extension' }, addFolders: { [bb.id]: ['~/dev/threadbear', '~/dev/videos', '~/dev/app-wt/ios', '~/dev/sentry-watch'] } };
+  h.runner.send(two.id, 'more');
+  await tick();
+  await finish(two.id, [path.join(fresh, 'x.ts')]);
+  h.clock.advance(CATCH_UP_MS + SETTLE_MS);
+  await tick(8);
+  assert.deepEqual(projects.record(bb.id)?.folders, [fresh, free]);
+  assert.deepEqual(projects.record(threadbear.id)?.folders, [tb]);
+  assert.ok(librarian.status().recent.some((e) => e.text.includes('Added ~/dev/sentry-watch to BrowserBear')));
+});
+
 test('the librarian keeps its line on where the thread is up to as the thread\'s brief', async () => {
   const s = setup({ models: () => reply({ projects: [], new: null, state: {}, thread: 'Waiting on Mike to pick a layout.', why: 'A one-off' }) });
   const { h, create, finish, librarian } = s;

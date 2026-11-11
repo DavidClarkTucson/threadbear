@@ -4643,6 +4643,14 @@ A project the thread isn't in yet needs a reason that says it fits: an
 id with no reason, or one like "Not that; ignore", is dropped and
 logged, and a thread nothing clearly fits stays unfiled.
 
+The folders it gives a project (a new one's, or `addFolders`) are only
+repos no other project has, sits inside or holds, and never a folder in
+a git worktree: a guessed folder pulls in every later thread that works
+there. A new project whose repos all belong to other projects isn't made
+(the thread is that project's work), though one with no folders at all
+(a house job) still is. Mike and agents can still share a folder between
+projects on purpose.
+
 Leaving a project out of its answer doesn't take the thread out of it, so
 it doesn't flap from turn to turn. A look takes the thread out of one of
 its own guesses when its answer says to (`leave`, with why: "Took it out
