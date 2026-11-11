@@ -10,7 +10,8 @@
 // automation commands to run once the thread's open, after " | ", each a JSON
 // object, for a state the thread doesn't open in (a card's second page:
 // 'Ship the beta to TestFlight | {"cmd":"ask","row":"$card","action":"page:1"}',
-// "$card" standing for the open card's row). It writes
+// "$card" standing for the open card's row, "$thread" for the thread's id, and
+// {"sleep":500} for a pause). It writes
 // <out folder>/index.html; copy the folder back and open that.
 // TB_APPEARANCE=light or dark sets both apps' look (the desktop's otherwise).
 //
@@ -19,6 +20,7 @@
 // and what's a few points off shows as coloured fringes. `pixel-overlay edges`
 // then gives the numbers (Mike, 11 Nov: "a pixel by pixel comparison").
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,7 +33,13 @@ if (!outArg) throw new Error('usage: compare.ts <out folder> [thread title ...]'
 const out = path.resolve(outArg);
 fs.mkdirSync(out, { recursive: true });
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+// A scene's file name: its thread's title, and a short hash of any commands
+// after it, which can make a name longer than a file system allows.
+const slug = (s: string) => {
+  const [title, ...steps] = s.split(' | ');
+  const name = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return steps.length ? `${name}-${createHash('sha1').update(steps.join(' | ')).digest('hex').slice(0, 8)}` : name;
+};
 
 async function shoot(name: 'swift' | 'gpui', app: Driver, titles: string[] | null): Promise<string[]> {
   await app.start();
@@ -58,7 +66,12 @@ async function shoot(name: 'swift' | 'gpui', app: Driver, titles: string[] | nul
         await sleep(50);
       }
       for (const step of steps) {
-        const command = JSON.parse(step);
+        // "$thread" is the open thread's id, for a `mock` command about it.
+        const command = JSON.parse(step.replaceAll('"$thread"', JSON.stringify(thread.id)));
+        if (typeof command.sleep === 'number') {
+          await sleep(command.sleep);
+          continue;
+        }
         // "$card" is the open card's row, which the ask command wants.
         if (command.row === '$card') command.row = (await app.dump()).transcript.rows.find((r) => r.kind === 'asks')?.id;
         await app.do(command);

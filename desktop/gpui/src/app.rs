@@ -236,6 +236,7 @@ impl Threadbear {
         let side = cx.new(|cx| SidePane::new(weak_app, side_client, window, cx));
         crate::viewer::viewer_handle_global(side.downgrade(), cx);
         crate::open_gate::install(cx.entity().downgrade(), cx);
+        crate::terminal::install(&cx.entity(), cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
         // The filter is worked out at render, so a change only needs a redraw.
         let searching = cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
@@ -622,10 +623,12 @@ impl Threadbear {
                         if t.panel_request.is_some() && self.selected.as_deref() == Some(t.id.as_str()) {
                             self.serve_panel_request(cx);
                         }
+                        crate::terminal::thread_updated(&t, cx);
                     }
                 }
                 "thread.deleted" => {
                     let id = params["threadId"].as_str().unwrap_or("");
+                    crate::terminal::thread_deleted(id, cx);
                     self.threads.remove(id);
                     self.failed_on_account.remove(id);
                     self.refresh_dock_badge();
@@ -737,6 +740,7 @@ impl Threadbear {
                         let list: Vec<ThreadSummary> = serde_json::from_value(v["threads"].clone()).unwrap_or_default();
                         let before = std::mem::take(&mut this.threads);
                         this.threads = list.into_iter().map(|t| (t.id.clone(), t)).collect();
+                        crate::terminal::list_loaded(&this.threads, cx);
                         this.note_failed_accounts(&before);
                         // Other runners' rows stay listed beside these.
                         this.apply_remote_index(cx);
@@ -1104,6 +1108,7 @@ impl Threadbear {
             "header": self.header_dump(),
             "panels": self.side.read(cx).dump(cx),
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
+            "terminal": crate::terminal::dump(self, cx),
         })
     }
 

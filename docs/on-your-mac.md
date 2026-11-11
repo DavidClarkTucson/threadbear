@@ -56,6 +56,10 @@ File references are where to look.
   it on, in that thread's folder. They're its own child processes: a
   thread's shell stops when the thread is archived or deleted, and all of
   them stop when the app quits (`app/Sources/Threadbear/Views/TerminalPanel.swift`).
+  The GPUI app does the same (`desktop/gpui/src/terminal.rs`), starting it
+  as `/usr/bin/env -u THREADBEAR_THREAD_ID ... $SHELL -l` so it never
+  inherits a thread's id, with a reader thread per shell; a program in it
+  can put text on the clipboard (OSC 52) but not read it.
 - **Files:** the data folder `~/Library/Application Support/Threadbear`
   (threads, settings, `secrets/`, runner releases, the pinned release key
   `upstream-signers`, the Mac app's `app-drafts.json`, what's typed but not

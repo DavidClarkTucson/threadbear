@@ -1588,6 +1588,39 @@ async function dispatch(client, method, p) {
       }
       return { count };
     }
+    case 'mock.terminal': {
+      // A thread for the Terminal's specs: `cwd` makes its folder a real one
+      // (a temp folder the spec made, as the demo threads' are Mike's), and
+      // a finished turn after it with a reply holding a ```bash block of
+      // `block`, or a card whose ask carries `run`, a command to run from it
+      // (docs/protocol.md, "Run on the card").
+      const t = need(p.threadId);
+      const id = t.summary.id;
+      if (p.cwd) t.summary.cwd = p.cwd;
+      if (p.block || p.run) {
+        const turnId = 'turn_' + crypto.randomBytes(4).toString('hex');
+        persist(id, { type: 'user.message', text: p.ask ?? 'What do I run?', images: [] }, turnId);
+        persist(id, { type: 'turn.started', turnId }, turnId);
+        if (p.block) persist(id, { type: 'assistant.text', itemId: 'term_' + crypto.randomBytes(4).toString('hex'), text: `Run this in the repo:\n\n\`\`\`bash\n${p.block}\n\`\`\`\n` }, turnId);
+        if (p.run) {
+          const buttonId = crypto.randomBytes(6).toString('base64').replace(/[^a-z0-9]/gi, '').toLowerCase().padEnd(8, 'x').slice(0, 8);
+          const run = { command: p.run, cwd: t.summary.cwd };
+          const button = { id: buttonId, title: 'Run', createdAt: iso(), turnId, run };
+          t.buttons ??= new Map();
+          t.buttons.set(buttonId, button);
+          persist(id, { type: 'button.updated', button }, turnId);
+          const asks = [{ action: p.action ?? 'Run the migration on the dev database', why: 'It needs your database password, so I can\'t run it myself.', run: { ...run, buttonId } }];
+          persist(id, { type: 'turn.completed', turnId, outcome: 'completed', durationMs: 1200, needs: 'you', asks }, turnId);
+          setStatus(id, 'idle', true);
+        } else {
+          persist(id, { type: 'turn.completed', turnId, outcome: 'completed', durationMs: 1200 }, turnId);
+          setStatus(id, 'idle');
+        }
+      } else {
+        broadcastSummary(id);
+      }
+      return { thread: t.summary };
+    }
     case 'mock.background': {
       // What a thread's CLI is running in the background, as the real
       // runner reports it between turns: `tasks` is the summary's

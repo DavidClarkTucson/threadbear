@@ -28,6 +28,7 @@ pub mod schedules;
 pub mod sign_in;
 pub mod sidebar;
 pub mod slash;
+pub mod terminal;
 pub mod transcript;
 pub mod updates;
 pub mod usage;

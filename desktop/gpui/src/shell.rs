@@ -472,15 +472,6 @@ impl Threadbear {
         self.dock.update(cx, |m, cx| m.show(panel, &near, under, cx));
     }
 
-    fn toggle_terminal(&mut self, cx: &mut Context<Self>) {
-        if self.is_panel_showing(TERMINAL, cx) {
-            self.dock.update(cx, |m, cx| m.close(TERMINAL, cx));
-            return;
-        }
-        let drop = self.dock.read(cx).layout().group_containing(MAIN).map(|g| DockDrop::edge(g.id, DockEdge::Bottom)).unwrap_or(DockDrop::window(DockEdge::Bottom));
-        self.dock.update(cx, |m, cx| m.show(TERMINAL, &[], drop, cx));
-    }
-
     fn toggle_threads_panel(&mut self, cx: &mut Context<Self>) {
         let contains = self.dock.read(cx).layout().contains(THREADS);
         self.dock.update(cx, |m, cx| {
@@ -636,7 +627,7 @@ impl Threadbear {
             Command::ActualSize => self.set_zoom(zoom::DEFAULT_PERCENT, window, cx),
             Command::ToggleThreads => self.toggle_threads_panel(cx),
             Command::TogglePanels => self.toggle_panels(cx),
-            Command::ToggleTerminal => self.toggle_terminal(cx),
+            Command::ToggleTerminal => crate::terminal::toggle(self, window, cx),
             Command::ResetPanelLayout => self.reset_panel_layout(cx),
             Command::ToggleFrameRate => self.toggle_frame_rate(window, cx),
             Command::About => window.push_notification("Threadbear (GPUI)", cx),
@@ -1239,6 +1230,10 @@ impl Threadbear {
             UPDATES => self.activity_panel_view(UPDATES, ghost, window, cx),
             CONNECTORS => self.activity_panel_view(CONNECTORS, ghost, window, cx),
             USAGE => self.usage_panel(ghost, window, cx),
+            // The Terminal (terminal.rs): the open thread's shell. A drag's
+            // ghost is the empty panel: the shell's view is drawn in one place.
+            TERMINAL if ghost => div().size_full().into_any_element(),
+            TERMINAL => crate::terminal::panel_view(cx),
             // Highlights, Files, Patches and a patch's own panels are sections of
             // the one pane beside the thread (highlights.rs), each its own panel
             // in the dock, as in the Swift app.

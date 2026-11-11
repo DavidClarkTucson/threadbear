@@ -1492,10 +1492,37 @@ enum Automation {
             // showing and every shell's folder. SwiftTerm doesn't take in
             // output while the window is behind others, so look with `shot`
             // after `front` (ask Mike first).
+            // {"show": true} brings the panel up with nothing started in it,
+            // {"keys": "ls"} and {"press": "enter"} type as `type` does (the
+            // GPUI app sends them through its keyboard), {"scroll": -5}
+            // scrolls back five lines (on, positive), and {"select": "all"},
+            // {"copy": true} and {"paste": "text"} are the terminal's own
+            // Select All, Copy and Paste; the dump's `terminal` says what it
+            // shows (the GPUI app takes the same).
             if c["toggle"] as? Bool == true { app.toggleTerminal() }
+            if c["show"] as? Bool == true, !app.terminalShown { app.showTerminalPanel() }
             let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
             if let text = c["type"] as? String { Terminals.shared.open(target).type(text) }
+            if let text = c["keys"] as? String { Terminals.shared.open(target).type(text) }
+            if let key = c["press"] as? String {
+                let named = ["enter": "\r", "tab": "\t", "escape": "\u{1b}", "ctrl-c": "\u{3}", "ctrl-u": "\u{15}", "up": "\u{1b}[A", "down": "\u{1b}[B"]
+                guard let bytes = named[key] else { return "error press takes \(named.keys.sorted().joined(separator: ", "))" }
+                Terminals.shared.open(target).type(bytes)
+            }
             if let command = c["put"] as? String { app.putInTerminal(ShellBlock(command: command), from: app.selection) { _ in } }
+            if let session = Terminals.shared.existing(for: target) {
+                if c["select"] as? String == "all" { session.view.selectAll(nil) }
+                // What SwiftTerm's Copy and Paste do, on this instance's own
+                // pasteboard rather than the Mac's (theirs is always .general).
+                if c["copy"] as? Bool == true, let text = session.view.getSelection() {
+                    app.pasteboard.clearContents()
+                    app.pasteboard.setString(text, forType: .string)
+                }
+                if let text = c["paste"] as? String { session.view.pasteText(text) }
+                if let lines = c["scroll"] as? Int {
+                    if lines < 0 { session.view.scrollUp(lines: -lines) } else { session.view.scrollDown(lines: lines) }
+                }
+            }
             if let ms = c["wait"] as? Int { try? await Task.sleep(for: .milliseconds(ms)) }
             let focused = (NSApp.mainWindow?.firstResponder as? NSView).map { String(describing: type(of: $0)) } ?? "none"
             return "ok shown=\(app.terminalShown) focus=\(focused) cwd=\(target.cwd) shells=\(Terminals.shared.debugSummary)"

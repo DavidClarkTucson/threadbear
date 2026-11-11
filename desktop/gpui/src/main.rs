@@ -54,6 +54,8 @@ mod shell;
 mod sidebar;
 mod slash_palette;
 mod style;
+mod terminal;
+mod terminal_element;
 mod thread;
 mod updates_panel;
 mod usage;

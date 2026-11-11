@@ -14,6 +14,8 @@ const OPENERS: &[&str] = &[
     ".reveal_path(",
     "open_with_system",
     "Command::new(",
+    // The terminal library's own way of starting a program in a pty.
+    "tty::new(",
     "NSWorkspace",
     "ShellExecute",
     "xdg-open",
@@ -26,11 +28,15 @@ const OPENERS: &[&str] = &[
     "EditorHost",
 ];
 
-/// The gate itself, a test helper that starts the mock runner, and the
+/// The gate itself, a test helper that starts the mock runner, the
 /// connection bar's Start runner, which runs launchctl on the runner's own
 /// LaunchAgent (and `id -u` for the user) with fixed arguments: nothing a link,
-/// a file or the runner names.
-const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs", "gpui/src/runner_launcher.rs"];
+/// a file or the runner names; and the Terminal panel, which starts your login
+/// shell (`$SHELL -l` through `env -u`, threadbear_core::terminal::launch) in a
+/// pty in a thread's folder or your home folder, as Terminal would, and runs
+/// nothing a reply, a link or a file says (a shell block's command is typed at
+/// its prompt for you to run, never run).
+const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs", "gpui/src/runner_launcher.rs", "gpui/src/terminal.rs"];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };

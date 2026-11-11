@@ -577,6 +577,78 @@ built parsers and gates with no launch of the app, which is the trap.)
 - Verification: the scenarios for each (`@sidebar.sections`, `@reply-buttons`,
   `@composer.textbox`, `@menu.app`, `@card.needsyou`) on Tinker Desk, as each
   slice landed.
+### 2026-11-11 The Terminal: a real shell per thread (`terminal.panel`, `terminal.lifecycle`)
+
+- ⌘J (and View > Show Terminal) brings the Terminal up under the thread with
+  a third of its height, as the Swift app does, starts the open thread's own
+  shell in its folder and gives it the keyboard; ⌘J again puts it away and
+  the shell keeps running. A thread on another machine, an archived one or
+  one whose folder has gone gets the home shell, with the Swift app's line
+  saying why over it. Nothing starts until it's asked for: the empty panel
+  says "Start a shell" (its tip names the folder), and New Shell starts
+  another once one has exited.
+- The emulator is `alacritty_terminal` 0.26.0 (Apache-2.0): its screen,
+  scrollback (10,000 lines), selection and escape codes, and its pty with a
+  reader thread per shell. The shell is your login shell, `$SHELL -l`,
+  started through `/usr/bin/env -u` so it never has a thread's id (the Swift
+  app's `TerminalSession.environment`), with `TERM=xterm-256color`,
+  `COLORTERM=truecolor` and `TERM_PROGRAM=Threadbear`. Each thread's shell
+  stops (SIGHUP, as closing a Terminal window does) once the runner says the
+  thread's archived or deleted, or its full list comes back without it, and
+  every shell stops when the app quits.
+- Drawn as an element of its own (`terminal_element.rs`): the grid in the
+  Mac's monospaced system font (SF Mono, `.AppleSystemUIFontMonospaced`, the
+  Swift app's `monospacedSystemFont`, one point over the transcript's code)
+  with SwiftTerm's cell size, the panel's own background and text colours in
+  each look, Terminal.app's 16 colours and SwiftTerm's 256 worked out from
+  them in Lab, bold in the bright colours as SwiftTerm draws it, the cursor as
+  an accent block (an outline when the terminal hasn't the keyboard, a bar or
+  underline when a program asks), the selection in the system's colour, and
+  an input method's text being composed at the cursor.
+- Keys as a terminal sends them (`threadbear_core::terminal::encode_key`,
+  with tests): arrows and Home/End in normal and application mode, xterm's
+  modifier forms, F1 to F12, Control's C0 codes, ⌥ as Meta (⌥B is ESC b,
+  ⌥← and ⌥→ go by words, as SwiftTerm has it), Page Up/Down scrolling back at
+  a prompt and going to a full-screen program otherwise. A plain character
+  goes through the input method, so accents, other languages and dictation
+  work. ⌘C copies the selection, ⌘V pastes (in brackets when the program
+  asked, with any ESC taken out so a paste can't close them), ⌘A selects
+  everything; drag, double-click (a word) and triple-click (a line) select,
+  Shift-click extends. The wheel scrolls back, or sends the arrow keys or the
+  wheel itself to a full-screen program that asked; clicks go to a program
+  that asked for the mouse (Shift to select instead). The grid follows the
+  panel's size and the pty tells the program.
+- Not here yet: a link the terminal shows (an OSC 8 hyperlink or a path)
+  can't be clicked to open it; the cursor doesn't blink. The Swift spec for
+  links stays `@manual @gpui-pending` in reading-a-thread.feature.
+- Both apps' dumps have `terminal` (whether it's up, the shell, its screen's
+  lines, its size, whether it has the keyboard, every shell), and both take
+  the `terminal` command with `show`, `keys`/`press`, `scroll`, `select`,
+  `copy` and `paste` as well as `toggle`, `type` and `put`; the GPUI app's
+  `keys` and `press` go through its real key handling and input method. The
+  mock's `mock.terminal` gives a thread a real folder (a temp one the spec
+  makes, as the demo threads' are Mike's).
+- Files: `desktop/core/src/terminal.rs`, `desktop/gpui/src/{terminal,
+  terminal_element}.rs`, the hooks in `app.rs`, `shell.rs`, `automation.rs`
+  and `main.rs`, `desktop/core/tests/open_gate_source.rs` (the terminal's
+  file is allowed to start a program; `tty::new(` now counts as starting
+  one anywhere else), `app/Sources/Threadbear/{AppDump,Automation}.swift`,
+  `Views/WindowDock.swift`, `app/Tools/mock-runner/server.mjs`,
+  `features/terminal.feature` and its steps, `features/tools/compare.ts`
+  (`$thread` and `{"sleep": ms}` in a scene, and short file names),
+  `docs/on-your-mac.md`.
+- Verification: on Tinker Desk, `@terminal.panel` and `@terminal.lifecycle`
+  (11 scenarios: ⌘J and the folder, `pwd`, colour output, scrolling back 300
+  lines of `seq`, select all and copy, paste, the grid and `tput cols`
+  following a wider window, the home shell's note, Start a shell, a shell per
+  thread, archive stopping it, New Shell), GPUI 11 of 11 and Swift 11 of 11;
+  core's tests (28 new). Pictures of both apps from `compare.ts` with the
+  windows in front (SwiftTerm draws nothing behind other windows), dark and
+  light, of a prompt, colours, bold and `ls -G`: the overlay is grey over the
+  whole grid, so the font, the cell size and the colours line up point for
+  point; the one difference it showed, bold cyan drawn as plain cyan, was
+  fixed to bold-as-bright.
+
 ### 2026-11-11 The Runners, Updates and Connectors panels, with their buttons and dots (`runners.panel`, `updates.panel`, `connectors.panel`, `rail.activity`, `rail.dots`)
 
 - Connectors, Runners and Updates are at the foot of the activity bar, above

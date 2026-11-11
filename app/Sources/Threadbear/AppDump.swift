@@ -397,6 +397,25 @@ struct AppDump: Encodable {
     var runners: PanelLines? = nil
     var updates: PanelLines? = nil
     var connectors: PanelLines? = nil
+    /// The Terminal panel: whether it's up, the open thread's shell and what
+    /// its screen says, and every shell (TerminalPanel.swift).
+    var terminal: TerminalInfo? = nil
+
+    struct TerminalInfo: Encodable {
+        var shown: Bool
+        var cwd: String
+        /// Said over the terminal when its folder isn't the thread's.
+        var note: String?
+        /// "running", "exited" or "none" (not started).
+        var shell: String
+        var waitingForReturn: Bool
+        var focused: Bool
+        var cols: Int?
+        var rows: Int?
+        /// The visible lines, trailing spaces gone.
+        var screen: [String]?
+        var shells: [String]
+    }
 
     struct RailButton: Encodable {
         var title: String
@@ -799,8 +818,28 @@ struct AppDump: Encodable {
             header: header(app),
             runners: PanelLines(shown: app.runnersShown, lines: runnersLines(app)),
             updates: PanelLines(shown: app.updatesShown, lines: updatesLines(app)),
-            connectors: PanelLines(shown: app.connectorsShown, lines: connectorsLines(app))
+            connectors: PanelLines(shown: app.connectorsShown, lines: connectorsLines(app)),
+            terminal: terminalInfo(app, window: window)
         )
+    }
+
+    /// The Terminal as the GPUI app's dump has it too.
+    @MainActor
+    static func terminalInfo(_ app: AppModel, window: NSWindow?) -> TerminalInfo {
+        let target = TerminalTarget.for(app.selectedThread) { app.runnerName(of: $0) }
+        let session = Terminals.shared.existing(for: target)
+        let snapshot = session?.view.terminalStateSnapshot()
+        let shell = session.map { $0.exited ? "exited" : "running" } ?? "none"
+        return TerminalInfo(shown: app.terminalShown, cwd: target.cwd, note: target.note, shell: shell,
+                            waitingForReturn: session?.waitingForReturn ?? false,
+                            focused: session.map { window?.firstResponder === $0.view } ?? false,
+                            cols: snapshot?.dimensions.cols, rows: snapshot?.dimensions.rows,
+                            screen: snapshot?.visibleRows.map { row in
+                                var text = row.text
+                                while text.last?.isWhitespace == true { text.removeLast() }
+                                return text
+                            },
+                            shells: Terminals.shared.debugSummary)
     }
 
     /// What the Runners panel draws (RunnersPanel), a line each: how many are

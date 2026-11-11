@@ -98,6 +98,19 @@ export type Dump = {
   runners?: PanelLines;
   updates?: PanelLines;
   connectors?: PanelLines;
+  /** The Terminal panel: whether it's up, the open thread's shell and its screen, and every shell ("thread:<id> running in <folder>"). */
+  terminal?: {
+    shown: boolean;
+    cwd: string;
+    note?: string | null;
+    shell: 'running' | 'exited' | 'none';
+    waitingForReturn: boolean;
+    focused: boolean;
+    cols?: number | null;
+    rows?: number | null;
+    screen?: string[] | null;
+    shells: string[];
+  } | null;
 };
 
 /** `dot` is the accent dot (something only you can do), `quietDot` the grey one. */
