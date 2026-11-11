@@ -37,8 +37,12 @@ final class PanelLinksTests: XCTestCase {
                 connection.start(queue: .global())
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
                     let line = data.flatMap { String(data: $0, encoding: .utf8)?.components(separatedBy: "\r\n").first } ?? ""
+                    // The other site's pages are plain, so one loaded in the
+                    // panel doesn't run the panel page's scripts again.
+                    let elsewhere = ["/watch", "/form", "/blank", "/popup"].contains { line.contains(" \($0)") }
                     let (type, body): (String, Data) = line.contains("/tone.wav")
-                        ? ("audio/wav", Self.tone) : ("text/html", Data((self?.page ?? "").utf8))
+                        ? ("audio/wav", Self.tone)
+                        : ("text/html", Data((elsewhere ? "<!doctype html><title>elsewhere</title>" : self?.page ?? "").utf8))
                     var reply = Data("HTTP/1.1 200 OK\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
                     reply.append(body)
                     connection.send(content: reply, completion: .contentProcessed { _ in connection.cancel() })
@@ -101,13 +105,18 @@ final class PanelLinksTests: XCTestCase {
         pool.setLeaving((home, { opened.append($0.absoluteString) }), for: view)
         try await waitFor("the page loads") { !view.isLoading && view.url == home }
 
+        // A second apart: a panel sends out one page a second at most.
+        let apart = Duration.milliseconds(1100)
         _ = try await js("document.getElementById('video').click()", in: view)
         try await waitFor("the video opens outside") { opened.contains("\(other)/watch") }
+        try await Task.sleep(for: apart)
         _ = try await js("document.getElementById('blank').click()", in: view)
         try await waitFor("the new-tab link opens outside") { opened.contains("\(other)/blank") }
+        try await Task.sleep(for: apart)
         // A button's window.open and a form to another site (Codex review).
         _ = try await js("window.open('\(other)/popup')", in: view)
         try await waitFor("window.open opens outside") { opened.contains("\(other)/popup") }
+        try await Task.sleep(for: apart)
         _ = try await js("document.getElementById('form').submit()", in: view)
         try await waitFor("the form opens outside") { opened.contains { $0.hasPrefix("\(other)/form") } }
         try await Task.sleep(for: .milliseconds(300))
@@ -158,5 +167,78 @@ final class PanelLinksTests: XCTestCase {
         let restarted = try await js("return document.getElementById('a').paused", in: view) as? Bool
         XCTAssertEqual(restarted, true, "the page started it again")
         window.close()
+    }
+
+    /// Codex review, 11 Nov: a page's own script could send tab after tab
+    /// to the browser, its `a.click()` reading as a click and its
+    /// `form.submit()` as a form. Only one a person clicked goes out, and
+    /// then one a second. (A script run from here counts as a click, as
+    /// WebKit runs it with a gesture; the page's own timers don't.)
+    func testOnlyAPersonsClickSendsAPageOutAndOneASecond() async throws {
+        XCTAssertTrue(WKNavigationAction.instancesRespond(to: NSSelectorFromString("_isUserInitiated")),
+                      "WebKit's record of a person's click is gone, so nothing would leave a panel")
+        let site = try Site()
+        try await site.start()
+        let home = URL(string: "http://127.0.0.1:\(site.port)/")!
+        let other = "http://localhost:\(site.port)"
+        func page(_ script: String) -> String {
+            """
+            <!doctype html><html><head><title>patch</title></head><body>
+            <a id="video" href="\(other)/watch">video</a>
+            <a id="blank" target="_blank" href="\(other)/blank">blank</a>
+            <form id="form" method="get" action="\(other)/form"><input name="q" value="x"></form>
+            <script>\(script)</script>
+            </body></html>
+            """
+        }
+        let pool = WebPanelPool(defaults: UserDefaults(suiteName: "PanelLinksTests.\(UUID().uuidString)")!)
+        var opened: [String] = []
+        // The page's own script, with no click behind it, each in a page of
+        // its own as the first two take the page away: a link and a form to
+        // another site (which load in the panel, as a sign-in's script
+        // would), a new-tab link and a window.open (which WebKit holds back).
+        for script in ["document.getElementById('video').click()", "document.getElementById('form').submit()",
+                       "document.getElementById('blank').click()", "window.open('\(other)/popup')"] {
+            site.page = page("setTimeout(() => \(script), 100);")
+            let url = URL(string: "\(home)?\(UUID().uuidString)")!
+            let view = pool.webView(for: url)
+            pool.setLeaving((url, { opened.append($0.absoluteString) }), for: view)
+            try await waitFor("the page loads") { !view.isLoading && view.url != nil }
+            try await Task.sleep(for: .milliseconds(600))
+        }
+        XCTAssertEqual(opened, [], "a page's own script opened something")
+
+        // Two clicks in a moment open one page, and one a second later another.
+        site.page = page("")
+        let view = pool.webView(for: home)
+        pool.setLeaving((home, { opened.append($0.absoluteString) }), for: view)
+        try await waitFor("the page loads") { !view.isLoading && view.url == home }
+        _ = try await js("document.getElementById('blank').click()", in: view)
+        _ = try await js("document.getElementById('video').click()", in: view)
+        try await waitFor("one opens") { opened.count == 1 }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(opened, ["\(other)/blank"], "the second click within a second opened too")
+        XCTAssertEqual(view.url, home, "the one too many still left the page where it was")
+        try await Task.sleep(for: .milliseconds(1000))
+        _ = try await js("document.getElementById('video').click()", in: view)
+        try await waitFor("a second later, another") { opened.count == 2 }
+    }
+
+    /// And only a web page loads as a panel's page: a script's blob: or
+    /// data: page doesn't (Codex review, 11 Nov).
+    func testOnlyAWebPageLoadsAsAPanelsPage() async throws {
+        let site = try Site()
+        try await site.start()
+        let home = URL(string: "http://127.0.0.1:\(site.port)/")!
+        site.page = "<!doctype html><title>patch</title><p>The patch's page.</p>"
+        let pool = WebPanelPool(defaults: UserDefaults(suiteName: "PanelLinksTests.\(UUID().uuidString)")!)
+        let view = pool.webView(for: home)
+        try await waitFor("the page loads") { !view.isLoading && view.url == home }
+        _ = try await js("location.href = URL.createObjectURL(new Blob(['<title>blob</title>'], { type: 'text/html' }))", in: view)
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertEqual(view.url, home, "a blob: page loaded in the panel")
+        _ = try await js("location.href = 'data:text/html,<title>data</title>'", in: view)
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertEqual(view.url, home, "a data: page loaded in the panel")
     }
 }

@@ -74,9 +74,11 @@ pub enum Browse {
 /// `gesture` is a person's click or key behind it, `redirect` a server's
 /// redirect.
 ///
-/// - Only a web address loads, or the panel's own page (a `data:` page a
-///   patch named) or a blank one: a file dropped on the page, or anything
-///   else Chromium would load by itself, is cancelled (Codex review, 11 Nov).
+/// - Only a web address loads as the panel's page, or its own (a `data:`
+///   page a patch named) or a blank one: a file dropped on the page, or
+///   anything else Chromium would load by itself, is cancelled (Codex
+///   review, 11 Nov). This is the panel's own frame; an iframe's are
+///   Chromium's to rule on, and it keeps files out of them.
 /// - On its own site it stays.
 /// - Another site, clicked: the browser, as WebPanelPool.leavesPanel has it.
 /// - Another site, not clicked: in a patch's panel it stays, so a sign-in

@@ -1044,10 +1044,10 @@ pub(crate) fn fill_pane_dump(pane: &mut serde_json::Map<String, Value>, thread: 
 /// `{"cmd":"webPanel","do":"eval"|"click"|"drop"|"focus"|"wait"|"choose", "key"?, "js"?, "selector"?, "times"?, "file"?, "title"?, "deployment"?, "wait"?}`:
 /// a script's way into a panel's page, the one shown last unless `key` names
 /// another. `eval` runs `js` in the page and answers its value; `click`
-/// clicks the element `selector` finds as a person would (a real mouse press
-/// through DevTools' Input domain, so the page sees a user's gesture, which
-/// is what decides whether a link leaves the panel; `times` clicks again
-/// straight after); `drop` drops the file at `file` on it as the Finder
+/// clicks the element `selector` finds with a person's gesture behind it
+/// (DevTools' `userGesture`, which is what decides whether a link leaves the
+/// panel; `times` clicks again straight after); `drop` drops the file at
+/// `file` on it as the Finder
 /// would; `focus` gives the page
 /// the keyboard, as a click in it does; `wait` waits until it's done loading
 /// (and has `title`, if given). Each answers the page's dump. `choose` picks
@@ -1101,18 +1101,21 @@ pub(crate) async fn automation(cmd: &Value, cx: &mut AsyncApp) -> Result<Value, 
         }
         "click" => {
             let selector = cmd["selector"].as_str().ok_or("click needs selector")?;
-            let find = format!(
-                "(() => {{ const e = document.querySelector({}); if (!e) return null; e.scrollIntoView({{ block: 'center' }}); const r = e.getBoundingClientRect(); return {{ x: r.left + r.width / 2, y: r.top + r.height / 2 }}; }})()",
+            // The element's own click, run with a person's gesture behind it
+            // (DevTools' `userGesture`), which is what the panel's rules go
+            // by. Mouse events posted through DevTools' Input domain went
+            // missing now and then on a busy check host (no new window was
+            // even asked for), and a gesture is all they'd add.
+            let click = format!(
+                "(() => {{ const e = document.querySelector({}); if (!e) return false; e.scrollIntoView({{ block: 'center' }}); e.click(); return true; }})()",
                 serde_json::to_string(selector).unwrap_or_default()
             );
-            let at = page.devtools("Runtime.evaluate", json!({ "expression": find, "returnByValue": true })).await.map_err(|_| "the page went away".to_owned())??;
-            let point = &at["result"]["value"];
-            let (Some(x), Some(y)) = (point["x"].as_f64(), point["y"].as_f64()) else { return Err(format!("nothing in the page matches {selector}")) };
-            // `times`: clicks one straight after another, as fast as DevTools
-            // takes them.
+            // `times`: clicks one straight after another, each a gesture of
+            // its own, as fast as DevTools takes them.
             for _ in 0..cmd["times"].as_u64().unwrap_or(1).clamp(1, 10) {
-                for kind in ["mousePressed", "mouseReleased"] {
-                    page.devtools("Input.dispatchMouseEvent", json!({ "type": kind, "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1 })).await.map_err(|_| "the page went away".to_owned())??;
+                let done = page.devtools("Runtime.evaluate", json!({ "expression": click, "returnByValue": true, "userGesture": true })).await.map_err(|_| "the page went away".to_owned())??;
+                if done["result"]["value"] != json!(true) {
+                    return Err(format!("nothing in the page matches {selector}"));
                 }
             }
         }

@@ -104,6 +104,7 @@ Feature: Web pages in a thread's panels
     Then the panel shows the page "Credentials for happy-otter-123 with a key"
     When the panel's page sends itself to the other site by itself
     And the panel's page opens a window to the other site by itself
+    And the panel's page clicks its own link "#docs" by itself
     Then nothing was opened in the browser
     And the panel shows the page "Credentials for happy-otter-123 with a key"
 

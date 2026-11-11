@@ -222,6 +222,43 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Web panels: what Codex found trying to break the fix (`panel.web`, `panel.convex`)
+
+- Codex tried to break the fix below (7c4bd75a) and found the Swift app
+  still let a page's own script send tab after tab to the browser: a
+  navigation's type isn't a click, as a script's `form.submit()` is
+  `.formSubmitted` and its `a.click()` `.linkActivated`. The Swift panels
+  now go by WebKit's own record of a person's click (`_isUserInitiated`,
+  which it doesn't publish; without it nothing goes out, and a test says
+  if it's gone), send at most one page a second from a panel, as the GPUI
+  app's gate does, and load only a web page as a panel's page: a script's
+  `blob:` or `data:` page is cancelled, and a new window only ever opens a
+  web page. The GPUI app was right on these already: Chromium's
+  `user_gesture` is the real thing, and its panels drop `blob:` pages.
+- The GPUI app's web-pages-only rule is for the panel's own page, not its
+  iframes, which are Chromium's to rule on: it keeps files out of them,
+  and a `data:`, `blob:` or `srcdoc` frame in a page is ordinary web
+  content. The entry below said "in a panel", which was more than the code
+  does; the comments and SECURITY.md now say what it does.
+- The GPUI scenarios' clicks are now the element's own click run with a
+  person's gesture (DevTools' `userGesture`) rather than mouse events
+  posted through DevTools: on a busy Tinker Desk those went missing now and
+  then (no new window was even asked for), and the gesture is what the
+  rules go by. The Convex scenario also has the page click its own link by
+  itself, which opens nothing.
+- Files: `PanelsView.swift` (`userInitiated`, `allowOut`, `ownURL`, and
+  the navigation and new-window rules), `PanelLinksTests.swift` (2 new,
+  and the old one's clicks a second apart); `web_panels.rs` (the click);
+  the comments in `panel.rs` and `panel_rules.rs`; the scenario's steps;
+  SECURITY.md.
+- Verification: the Swift app's PanelLinksTests, ConvexPanelTests and
+  LocalPreviewTests on Tinker Desk, 15 of 15; the two new tests, run
+  against the pool as 7c4bd75a landed it, failed as they should (the page's
+  own `a.click()` and `form.submit()` opened `/watch` and `/form`, a second
+  click within a second opened too, and a `blob:` page loaded). The GPUI
+  app's web-panels.feature, 13 of 13, twice in a row on Tinker Desk's
+  desktop; the web crate's tests.
+
 ### 2026-11-11 Web panels after Codex's review: only a click opens anything, and only web pages load (`panel.web`, `panel.convex`)
 
 - Only a person's click sends a page from a panel to the browser, or opens

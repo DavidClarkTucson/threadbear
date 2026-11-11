@@ -17,8 +17,9 @@
 //   otherwise open a browser tab a second).
 // - A same-site new window, clicked, loads in the same view: there's no
 //   other window to give it. The Convex dashboard's links out all leave.
-// - Only web addresses load: a file dropped on the page, or a file or data:
-//   page in a new window, doesn't.
+// - Only web addresses load as the panel's page: a file dropped on the page,
+//   or a file or data: page in a new window, doesn't. Its iframes are
+//   Chromium's to rule on (it keeps files out of them).
 // - Nothing downloads; Chromium's View Source isn't offered; what a page
 //   logs to its console stays out of Chromium's log.
 // - The app hears when it can go back, and when it's loading.

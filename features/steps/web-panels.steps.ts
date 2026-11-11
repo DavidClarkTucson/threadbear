@@ -70,9 +70,10 @@ Then('the panel shows the page {string} without loading it again', async functio
 });
 
 When("I click the panel page's link {string}", async function (this: ThreadbearWorld, selector: string) {
-  // A real press through DevTools' Input domain: the page sees a person's
-  // gesture, which is what decides whether a link leaves the panel.
-  await this.app.do({ cmd: 'webPanel', do: 'click', selector }, 30);
+  // With a person's gesture behind it (DevTools' userGesture), which is
+  // what decides whether a link leaves the panel.
+  const out = await this.app.do({ cmd: 'webPanel', do: 'click', selector }, 30);
+  assert.ok(!out.startsWith('error'), out);
 });
 
 /** What the app would have opened this scenario: a scripted app opens
@@ -118,12 +119,19 @@ When('the panel\'s page opens a window on its own site by itself', async functio
   await pageScript(this, "window.open(location.origin + '/second')");
 });
 
+When("the panel's page clicks its own link {string} by itself", async function (this: ThreadbearWorld, selector: string) {
+  // A script's click is a click event, not a person's: Chromium's gesture
+  // flag says so, which is what decides.
+  await pageScript(this, `document.querySelector(${JSON.stringify(selector)}).click()`);
+});
+
 When('the panel\'s page sends itself to the other site by itself', async function (this: ThreadbearWorld) {
   await pageScript(this, `location.href = ${JSON.stringify(`${sites().other}/by-itself`)}`);
 });
 
 When("I click the panel page's link {string} twice in a moment", async function (this: ThreadbearWorld, selector: string) {
-  await this.app.do({ cmd: 'webPanel', do: 'click', selector, times: 2 }, 30);
+  const out = await this.app.do({ cmd: 'webPanel', do: 'click', selector, times: 2 }, 30);
+  assert.ok(!out.startsWith('error'), out);
 });
 
 When("I drop a file from the Finder on the panel's page", async function (this: ThreadbearWorld) {
