@@ -32,19 +32,24 @@ key="$(printf '%s' "$root" | shasum | cut -c1-10)"
 src="$base/src-$key"
 target="$base/target-$key"
 
-# The turn is held here, for the copy and the run, and goes when this script
-# does, however it ends. lockf is macOS's, flock Linux's.
-if [ -z "${THREADBEAR_REMOTE_TURN:-}" ]; then
-  export THREADBEAR_REMOTE_TURN=1
-  lock="${TMPDIR:-/tmp}/threadbear-remote-$key-$(printf '%s' "$host" | tr -c 'A-Za-z0-9.-' _).lock"
-  if [ -x /usr/bin/lockf ]; then
-    # -k keeps the file, or a run waiting on it would lock a file already gone.
-    /usr/bin/lockf -k -s -t 0 "$lock" true 2>/dev/null || echo "Waiting for another remote.sh run from this checkout on $host to finish..." >&2
-    exec /usr/bin/lockf -k "$lock" "$0" "$host" $([ "$desk" = 1 ] && echo --desk) -- "$@"
-  elif command -v flock >/dev/null 2>&1; then
-    flock -n "$lock" true 2>/dev/null || echo "Waiting for another remote.sh run from this checkout on $host to finish..." >&2
-    exec flock "$lock" "$0" "$host" $([ "$desk" = 1 ] && echo --desk) -- "$@"
-  fi
+# The turn is a lock on a file this script holds open (fd 9), so it goes when
+# the script does, however it ends. Not lockf or flock running this script as
+# their child: kill that and the turn was free while this went on. ssh drops fd
+# 9 as it starts, so a kill can't end the script while ssh goes on: with the
+# trap, bash sees TERM or HUP only once the step it's waiting on has ended, and
+# exits then. (A KILL can't be held up; the run left behind can overlap the
+# next.) The folder is fixed, not TMPDIR, so every run from the checkout finds
+# the same file. perl for macOS, which has no flock command.
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+if [ "$(uname -s)" = Darwin ]; then turns="$HOME/Library/Caches/Threadbear"; else turns="${XDG_CACHE_HOME:-$HOME/.cache}/threadbear"; fi
+mkdir -p "$turns/remote"
+exec 9>>"$turns/remote/$key-$(printf '%s' "$host" | tr -c 'A-Za-z0-9.-' _).lock"
+waiting="Waiting for another remote.sh run from this checkout on $host to finish..."
+if command -v flock >/dev/null 2>&1; then
+  flock -n 9 || { echo "$waiting" >&2; flock 9; }
+else
+  WAITING="$waiting" perl -e 'use Fcntl ":flock"; open(my $f, ">&=", 9) or die "remote.sh: no lock file: $!\n"; flock($f, LOCK_EX | LOCK_NB) or do { print STDERR "$ENV{WAITING}\n"; flock($f, LOCK_EX) or die "remote.sh: lock: $!\n" }'
 fi
 
 # A checkout that hasn't been run for a few days gives its folders back: a
@@ -56,8 +61,15 @@ fi
 # A target with no .synced-by-content was built from copies made with rsync -a
 # (below), and may hold a build cargo wrongly calls fresh that a copy by content
 # would never fix, as nothing in it changes. Its sources are touched once, so
-# its own crates build again.
-ssh "$host" "mkdir -p $src $target; touch $src $target; [ -e $target/.synced-by-content ] || { find $src -type f -exec touch -c {} + && touch $target/.synced-by-content; }; find $base -mindepth 1 -maxdepth 1 \\( -name 'src-*' -o -name 'target-*' -o -name src -o -name target \\) -mtime +3 ! -name 'src-$key' ! -name 'target-$key' -exec rm -rf {} + 2>/dev/null; true"
+# its own crates build again, and a run that can't do that doesn't go on.
+# Exit 9 is that touch failing; any other failure here is let go, as before (a
+# marker not written, on a full disk, just means touching them again next time).
+rc=0
+ssh "$host" "mkdir -p $src $target; [ -e $target/.synced-by-content ] || { if [ -d $src ]; then find $src -type f -exec touch -c {} + || exit 9; fi; touch $target/.synced-by-content 2>/dev/null; }; touch $src $target; find $base -mindepth 1 -maxdepth 1 \\( -name 'src-*' -o -name 'target-*' -o -name src -o -name target \\) -mtime +3 ! -name 'src-$key' ! -name 'target-$key' -exec rm -rf {} + 2>/dev/null; true" || rc=$?
+if [ "$rc" = 9 ]; then
+  echo "Couldn't mark this checkout's copy on $host to build again, so it may hold a stale build. Not running." >&2
+  exit 1
+fi
 # And a host short of disk gets room back sooner, or refuses the run.
 ssh "$host" "cd $base && bash -s -- $key" <"$root/desktop/scripts/trim-remote-cache.sh"
 # Named by hand, not read from .gitignore: rsync takes those rules from the
