@@ -1791,9 +1791,8 @@ older runner's `openRouterKey`, `dailyBudgetUsd`, `spentTodayUsd` and
 
 ## Standing instructions
 
-Experiment `standingInstructions` (`runner/src/instructions.ts`), off unless
-`runner.json` has `"experiments": { "standingInstructions": true }`. After
-Wayne Sutton's PR (7 Nov 2026). Text Mike writes in Settings > General, given
+`runner/src/instructions.ts`. After Wayne Sutton's PR (7 Nov 2026); an
+experiment until 11 Nov, standard since. Text Mike writes in Settings > General, given
 to every session on every login, Claude and Codex alike, which a login's
 `CLAUDE.md` or `AGENTS.md` can't do.
 
@@ -1816,8 +1815,7 @@ type StandingInstructions = {
   message says what's current: after going back in the session, Claude's
   `/clear`, a session id already in use, or a turn that didn't complete after
   news went out in it), set once the CLI has taken the message, and absent while
-  it has never held any. With the experiment off, or nothing
-  ever set, nothing is added and the field isn't written.
+  it has never held any. With nothing ever set, nothing is added and the field isn't written.
 - **Where.** `instructions.md` in the data dir, and beside it
   `instructions.sig`: the hex HMAC-SHA-256 of the file's bytes, after the line
   `threadbear-standing-instructions-v1`, keyed by the runner's RPC token as
