@@ -9,6 +9,7 @@ mod alert;
 mod app;
 #[cfg(feature = "automation")]
 mod automation;
+mod chips;
 mod composer;
 mod composer_card;
 mod composer_chips;

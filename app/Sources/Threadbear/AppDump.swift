@@ -309,6 +309,10 @@ struct AppDump: Encodable {
         var drafts: [DraftInfo]? = nil
         /// Its closed ```bash blocks and their icons (`shellBlocks`).
         var shellBlocks: [String]? = nil
+        /// The chips it draws among its words: Mike's bubble's pictures,
+        /// cards and threads ("picture: Picture 1", "card: Fix the button",
+        /// "thread: Morning brief").
+        var chips: [String]? = nil
     }
 
     /// A draft's box as it's drawn: its label, each line (a Slack quote's
@@ -762,7 +766,8 @@ struct AppDump: Encodable {
                 return Row(id: row.id, kind: row.kind.rawValue, height: Int(table.rect(ofRow: index).height.rounded()),
                            expanded: opens(row) ? app.transcript.isExpanded(row) : nil, inGroup: row.inGroup,
                            onScreen: NSLocationInRange(index, visible), seq: row.seq, turn: row.turnId, text: RowDebug.excerpt(row),
-                           buttons: Self.buttons(row), drafts: Self.drafts(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId))
+                           buttons: Self.buttons(row), drafts: Self.drafts(row), shellBlocks: Self.shellBlocks(row, threadId: session.threadId),
+                           chips: Self.chips(row))
             }
             let state: String
             switch session.state {
@@ -1674,6 +1679,22 @@ struct AppDump: Encodable {
             let look = ReplyButtons.look(known.button, pressing: ReplyButtons.shared.isPressing(id))
             return "\(ReplyButtons.label(known.button, look: look)) [\(id), \(look.rawValue)]"
         }
+    }
+
+    /// The chips Mike's bubble draws among its words, read off its text as
+    /// drawn (RowRenderer.userText): each one's picture, card or thread.
+    static func chips(_ row: TranscriptRow) -> [String]? {
+        guard case .user(let message) = row.content, !message.showsAsNote, message.agentHeader == nil else { return nil }
+        let text = RowRenderer.userText(message)
+        var found: [String] = []
+        text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, _ in
+            if let index = attributes[.tbPictureChip] as? NSNumber {
+                found.append("picture: \(PictureChip.label(index.intValue + 1))")
+            } else if let title = attributes[.tbCardChip] as? String {
+                found.append("\((attributes[.link] as? URL)?.scheme == "thread" ? "thread" : "card"): \(title)")
+            }
+        }
+        return found.isEmpty ? nil : found
     }
 
     /// The drafts a reply draws as boxes, read off its rendered text: the

@@ -119,6 +119,8 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "square.on.square" => IconName::Copy,
         "arrow.triangle.merge" => IconName::Merge,
         "bubble.left" => IconName::MessageSquare,
+        // A Notion card's chip in Mike's message (CardChip).
+        "square.text.square" => IconName::SquareMenu,
         "plus" => IconName::Plus,
         "desktopcomputer" => IconName::Monitor,
         "macmini" => IconName::Server,

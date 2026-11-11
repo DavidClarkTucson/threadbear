@@ -222,6 +222,48 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Chips in Mike's messages (`rich.picturechips`, `rich.cardchips`, `transcript.user`)
+
+- In Mike's bubble a "[Picture N]" that places one of the message's
+  pictures is a chip, the photo symbol and "Picture N", as the Swift bubble
+  draws it. Resting the pointer on it shows that picture in a card under
+  it, fitted to a 276 by 170 box (this Mac's threads only: another Mac's
+  path names a file there); a click opens it in the in-app viewer, as the
+  pictures over the words do.
+- A Notion card's link in his words is a chip with the card's title (cut
+  short past 230 points) that opens the page through the open gate, with a
+  card after half a second saying its title and address, as LinkPeekCard
+  does. A `thread:` link is a chip with the thread's title and the speech
+  bubble, which opens the thread, with the thread's own card: its title,
+  where it is and what it's doing, and "Click to open" (ThreadChipCard).
+- A bubble with chips is laid out a line at a time round them, words
+  wrapping where they would, so it's as wide as its widest line, as the
+  Swift bubble is; its words stay selectable a run at a time. One with no
+  chips is the one selectable text it was.
+- Finding them is `desktop/core/src/chips.rs`: InlinePictures' markers and
+  CardMentions' forward scan, with their tests, and ThreadRefs (ids, the
+  index, the card's line) ready for replies.
+- Not here: a selection running across a chip from the words either side
+  (each run selects on its own), dragging a picture chip out and a chip's
+  right-click menu (`drag.fileout`, `rich.filemenu`), and chips in a
+  message that answered asks, which keeps its question and answer layout.
+- Both apps' dumps give a message's `chips` ("picture: Picture 1", "card:
+  Fix the share button", "thread: Tidy the imports"); the GPUI app takes
+  the Swift app's `peek` (list a row's chips, show one's card, press a
+  picture's chip through a real click and say what opened).
+- Files: `desktop/core/src/{chips,lib}.rs`,
+  `desktop/gpui/src/{chips,rows,thread,automation,icons,main}.rs`,
+  `app/Sources/Threadbear/AppDump.swift`, `features/message-chips.feature`
+  and its steps, `features/support/driver.ts`.
+- Verification: on Tinker Desk, `@rich.picturechips` and `@rich.cardchips`,
+  GPUI 2 of 2 and Swift 2 of 2, with `@transcript.user`, `@transcript.edit`
+  and `@composer.picturechips` on the GPUI app; core's tests. Pictures of
+  both apps' bubble with a picture, a card and a thread chip, dark and
+  light, laid over each other: the lines break at the same words, the chips
+  are the Swift ones' size and place (the symbol was small, and the edge
+  twice as strong on a 1x screen, both brought in); and the GPUI app's
+  three cards under their chips.
+
 ### 2026-11-11 A project page's own panels (`panel.projectpage`)
 
 - On a project's page the right rail and the pane beside it are the
@@ -247,7 +289,6 @@ built parsers and gates with no launch of the app, which is the trap.)
   the Walkies page with its Patches pane side by side with the Swift app's.
   After the two small things, projects-views and projects on the GPUI app
   (17 of 17).
-
 ### 2026-11-11 Decisions on a project's page, and the folded Projects view (`projects.decisions`)
 
 - With the projectDecisions experiment on, a project's page opens on its

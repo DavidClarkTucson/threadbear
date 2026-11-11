@@ -1071,6 +1071,12 @@ impl ThreadPane {
                         out["shellBlocks"] = json!(blocks);
                     }
                 }
+                if let Some(chips) = match &row.content {
+                    RowContent::User(message) => crate::chips::described(message),
+                    _ => None,
+                } {
+                    out["chips"] = json!(chips);
+                }
                 out
             })
             .collect();

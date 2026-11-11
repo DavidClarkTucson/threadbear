@@ -191,10 +191,14 @@ impl ThreadPane {
             let list = self.rows.list_width;
             let column = if list > 0. { (list - style::zoomed(SIDE_INSET) * 2.).min(style::zoomed(MAX_CONTENT_WIDTH)).max(0.) } else { style::zoomed(MAX_CONTENT_WIDTH) };
             let max_text = gpui_kit::px((column * BUBBLE_SHARE).floor()) - px(BUBBLE_PAD_H * 2.);
-            let fit = (!answered).then(|| widest_line(&text, max_text, window));
+            // Pictures, cards and threads among the words are chips, the
+            // lines laid out round them (chips.rs); the rest is one text.
+            let chips = if answered { None } else { self.chip_lines(ix, message, max_text, window, cx) };
+            let fit = (!answered && chips.is_none()).then(|| widest_line(&text, max_text, window));
             let bubble = div()
                 .max_w(relative(BUBBLE_SHARE))
                 .when_some(fit, |d, (ink, _)| d.w(ink + px(BUBBLE_PAD_H * 2.)))
+                .when_some(chips.as_ref().map(|c| c.0), |d, ink| d.w(ink + px(BUBBLE_PAD_H * 2.)))
                 .px(px(BUBBLE_PAD_H))
                 .py(px(BUBBLE_PAD_V))
                 .rounded(px(BUBBLE_RADIUS))
@@ -206,6 +210,7 @@ impl ThreadPane {
                 // A point over, as the layout rounds widths and a line that
                 // fits exactly would wrap.
                 .when_some(fit, |d, (ink, span)| d.child(div().w(span + px(1.)).mr(ink - span - px(1.)).child(SelectableText::new(("user-text", ix), text))))
+                .when_some(chips.map(|c| c.1), |d, lines| d.child(lines))
                 .when(answered, |d| d.child(answers_body(ix, message, cx)));
             // The pencil, left of the bubble and level with its last line, on
             // hover, as Codex and ChatGPT put theirs (`Cells.updateEdit`).

@@ -21,6 +21,9 @@ export type Row = {
   drafts?: { label: string; lines: string[]; styled: string[]; copy: string }[];
   /** A reply's closed ```bash blocks and their icons: "[put, copy] npm test", or "[copy] npm test". */
   shellBlocks?: string[];
+  /** The chips a row draws among its words: "picture: Picture 1", "card:
+   * Fix the button", "thread: Morning brief". */
+  chips?: string[];
 };
 
 export type Thread = {
