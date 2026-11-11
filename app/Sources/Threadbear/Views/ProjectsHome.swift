@@ -116,6 +116,16 @@ private struct ProjectCardView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     StatusLine(card: card, now: app.now)
+                    // Its parts are inside its card rather than cards of their
+                    // own (docs/protocol.md, Projects, "Parts"); its page lists
+                    // them with their state.
+                    if !card.parts.isEmpty {
+                        Label(card.parts.map(\.title).joined(separator: " · "), systemImage: "square.stack")
+                            .font(.system(size: TypeScale.sidebarMeta + 1))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .labelStyle(.titleAndIcon)
+                    }
                     if !card.project.state.isEmpty {
                         Text(Self.firstLines(card.project.state))
                             .font(.system(size: TypeScale.label))

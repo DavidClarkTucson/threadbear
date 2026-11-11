@@ -1021,6 +1021,7 @@ export function buildThreadbearTools(
   const projectFolder = (f: string): Promise<string> => lexicalFolder(f);
 
   const linksArg = z.array(z.object({ title: z.string().optional(), url: z.string() }));
+  const PARENT_HELP = 'Makes it a part of that project (id, prefix or title).';
   const LINKS_HELP =
     'The few places the user goes for this project, at most 8: its live site, admin page, dashboard, store listing, repo. Short titles ("Live site", "Admin"). Not one-off pages, PRs or docs.';
 
@@ -1033,14 +1034,19 @@ export function buildThreadbearTools(
         const mine = new Set(((await control.get(selfId)).projects ?? []).map((m) => m.id));
         const list = await mustProjects().list({ archived });
         if (!list.length) return 'No projects yet. create_project makes one.';
+        const line = (p: (typeof list)[number]) => {
+          const bits = [`${p.id} "${p.title}"${mine.has(p.id) ? ' (this thread is in it)' : ''}${p.archived ? ' (archived)' : ''}`, `${p.threadCount} thread${p.threadCount === 1 ? '' : 's'}`];
+          if (p.folders.length) bits.push(`folders ${p.folders.map(tilde).join(', ')}`);
+          const state = p.state.split('\n')[0];
+          if (state) bits.push(`state: ${clip(state, 160)}`);
+          return bits.join(' · ');
+        };
+        // Parts under their parent, indented (one listed without its parent,
+        // archived say, stands on its own).
+        const ids = new Set(list.map((p) => p.id));
         return list
-          .map((p) => {
-            const bits = [`${p.id} "${p.title}"${mine.has(p.id) ? ' (this thread is in it)' : ''}${p.archived ? ' (archived)' : ''}`, `${p.threadCount} thread${p.threadCount === 1 ? '' : 's'}`];
-            if (p.folders.length) bits.push(`folders ${p.folders.map(tilde).join(', ')}`);
-            const state = p.state.split('\n')[0];
-            if (state) bits.push(`state: ${clip(state, 160)}`);
-            return bits.join(' · ');
-          })
+          .filter((p) => !p.parentId || !ids.has(p.parentId))
+          .flatMap((p) => [line(p), ...list.filter((x) => x.parentId === p.id).map((x) => `  part: ${line(x)}`)])
           .join('\n');
       }),
     ),
@@ -1055,8 +1061,13 @@ export function buildThreadbearTools(
           const t = await Promise.resolve(control.get(id)).catch(() => undefined);
           threads.push(`- ${id.slice(0, 8)} "${t?.title ?? '?'}"${id === selfId ? ' (this thread)' : ''}`);
         }
+        const everyProject = await mustProjects().list({ archived: true });
+        const parent = p.parentId ? everyProject.find((x) => x.id === p.parentId) : undefined;
+        const parts = everyProject.filter((x) => x.parentId === p.id);
         return [
           `${p.title} (${p.id})${p.archived ? ', archived' : ''}`,
+          ...(parent ? [`Part of: ${parent.title} (${parent.id})`] : []),
+          ...(parts.length ? [`Parts: ${parts.map((x) => `${x.title} (${x.id})`).join(', ')}`] : []),
           `Folders: ${p.folders.map(tilde).join(', ') || 'none'}`,
           `Goals: ${p.goals || '(none yet)'}`,
           `State: ${p.state || '(none yet)'}`,
@@ -1083,8 +1094,9 @@ export function buildThreadbearTools(
         notes: z.string().optional().describe('Markdown: decisions, gotchas, commands, links.'),
         links: linksArg.optional().describe(LINKS_HELP),
         join: z.boolean().optional().describe('Put this thread in it. Default true.'),
+        parent: z.string().optional().describe(PARENT_HELP),
       },
-      handle(async ({ title, folders, goals, state, notes, links, join }) => {
+      handle(async ({ title, folders, goals, state, notes, links, join, parent }) => {
         const p = await mustProjects().create({
           title,
           folders: await Promise.all((folders ?? []).map(folder)),
@@ -1095,8 +1107,10 @@ export function buildThreadbearTools(
           by: 'agent',
           byThread: selfId,
           threadIds: join === false ? [] : [selfId],
+          ...(parent?.trim() ? { parent } : {}),
         });
-        return `Made the project "${p.title}" (${p.id})${join === false ? '' : ' and put this thread in it'}.`;
+        const above = p.parentId ? (await mustProjects().get(p.parentId)).project.title : undefined;
+        return `Made the project "${p.title}" (${p.id})${above ? `, a part of "${above}"` : ''}${join === false ? '' : ' and put this thread in it'}.`;
       }),
     ),
     tool(
@@ -1125,8 +1139,9 @@ export function buildThreadbearTools(
           .describe(
             "A Notion page (or database) with the project's task board on it: a database with a Status column (To do, Doing, Waiting, Done), Who, Due and Thread (the thread id working on it). The project page shows the board, read every few minutes. Empty takes it off.",
           ),
+        parent: z.string().optional().describe(PARENT_HELP + ' Empty undoes it.'),
       },
-      handle(async ({ project: q, title, mikeAsked, goals, state, notes, appendNote, links, addLinks, removeLinks, addFolders, removeFolders, icon, notion }, extra) => {
+      handle(async ({ project: q, title, mikeAsked, goals, state, notes, appendNote, links, addLinks, removeLinks, addFolders, removeFolders, icon, notion, parent }, extra) => {
         const pc = mustProjects();
         const p = await project(q);
         // Raising access (above): the brief its threads are told (title,
@@ -1137,9 +1152,13 @@ export function buildThreadbearTools(
         // the brief tells them to keep it moving.
         const caller = await restricted();
         const added = addFolders?.length ? await Promise.all(addFolders.map(folder)) : undefined;
-        if (caller && ([title, goals, state, notes, appendNote, notion, links].some((x) => x !== undefined) || addFolders?.length || addLinks?.length)) {
-          const listed = (await pc.get(p.id)).threadIds;
-          const threadIds = [...new Set([...listed, ...(await all()).filter((t) => t.projects?.some((m) => m.id === p.id)).map((t) => t.id)])];
+        // A parent changes the brief too: its threads hear the part's name,
+        // and the part's threads its goals, so the parent's threads count.
+        const newParent = parent?.trim() ? await project(parent) : undefined;
+        if (caller && ([title, goals, state, notes, appendNote, notion, links, parent].some((x) => x !== undefined) || addFolders?.length || addLinks?.length)) {
+          const told = [p.id, ...(newParent ? [newParent.id] : []), ...(p.parentId ? [p.parentId] : [])];
+          const listed = (await Promise.all(told.map(async (id) => (await pc.get(id)).threadIds))).flat();
+          const threadIds = [...new Set([...listed, ...(await all()).filter((t) => t.projects?.some((m) => told.includes(m.id))).map((t) => t.id)])];
           let top: { mode: PermissionMode; confined: boolean; title: string } | undefined;
           for (const id of threadIds) {
             if (id === selfId) continue;
@@ -1147,7 +1166,7 @@ export function buildThreadbearTools(
             if (above(t, caller) && (!top || raises(t.mode, top.mode))) top = t;
           }
           if (top) {
-            const fields = Object.fromEntries(Object.entries({ title, goals, state, notes, appendNote, addFolders: added, notion, links, addLinks }).filter(([, v]) => v !== undefined));
+            const fields = Object.fromEntries(Object.entries({ title, goals, state, notes, appendNote, addFolders: added, notion, links, addLinks, parent: newParent ? `${newParent.title} (${newParent.id})` : parent }).filter(([, v]) => v !== undefined));
             await confirm('update_project', [`Change the brief of the project "${p.title}", which "${top.title}" (${accessName(top, caller)}) is told`], { project: p.id, ...fields }, extra?.signal);
             if (addFolders?.length) for (const [i, f] of addFolders.entries()) await sameFolder(f, added![i]!);
           }
@@ -1158,7 +1177,7 @@ export function buildThreadbearTools(
           const add = added ?? [];
           folders = [...p.folders.filter((f) => !drop.has(f)), ...add.filter((f) => !p.folders.includes(f))];
         }
-        let out = await pc.update(p.id, { title, goals, state, notes, links, folders, notion, by: mikeAsked ? 'mike' : 'agent' });
+        let out = await pc.update(p.id, { title, goals, state, notes, links, folders, notion, ...(parent !== undefined ? { parent: newParent?.id ?? '' } : {}), by: mikeAsked ? 'mike' : 'agent' });
         if (appendNote?.trim()) out = await pc.appendNote(p.id, appendNote);
         if (addLinks?.length || removeLinks?.length) {
           if (!pc.addLinks || !pc.removeLinks) throw new Error("This runner can't change project links yet.");

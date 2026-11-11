@@ -16,8 +16,10 @@ struct DecisionsSection: View {
     let project: Project
 
     var body: some View {
-        let section = app.projectSections.sections.first { $0.id == project.id }
-        let threads = ProjectDecisions.threads(section?.threads ?? [])
+        let built = app.projectSections
+        let section = built.sections.first { $0.id == project.id }
+        // A parent's page gathers its parts' decisions too, as its row counts them.
+        let threads = ProjectDecisions.threads(section.map(built.threadsWithParts) ?? [])
         if !threads.isEmpty {
             VStack(alignment: .leading, spacing: zoomed(12)) {
                 PageHeading(title: "Decisions", detail: ProjectDecisions.heading(decisions: ProjectDecisions.count(threads), threads: threads.count))

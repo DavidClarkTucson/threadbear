@@ -94,6 +94,9 @@ Before(async function (this: ThreadbearWorld, { pickle }) {
   // and the projectDecisions experiment on in its hello.
   if (pickle.tags.some((t) => t.name === '@project-decisions')) process.env.TB_MOCK_DECISIONS = '1';
   else delete process.env.TB_MOCK_DECISIONS;
+  // Parts of a project: Photo sync as a part of Threadbear.
+  if (pickle.tags.some((t) => t.name === '@project-parts')) process.env.TB_MOCK_PARTS = '1';
+  else delete process.env.TB_MOCK_PARTS;
   await this.app.start();
 });
 

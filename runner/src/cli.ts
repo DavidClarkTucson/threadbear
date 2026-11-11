@@ -132,6 +132,7 @@ const HELP = `tb: talk to the Threadbear runner
   tb projects [--archived] [--json]  the projects, their folders and thread counts
   tb projects show <project>      one project: goals, state, notes, threads
   tb projects add|remove <threadId> <project>   puts a thread in a project or takes it out, as the user would
+  tb projects parent <project> <parent|none>   makes a project a part of another, or its own again
   tb librarian [--json]           what the librarian is doing, its queue and what it did
   tb librarian run [<threadId>]   a look at a thread now; with none, at every recent thread it hasn't seen
   tb librarian pause|resume
@@ -719,7 +720,14 @@ async function run(client: RunnerClient, cmd: string, args: string[], f: Flags):
         console.log(`${r.thread.title}: ${(r.thread.projects ?? []).map((p) => p.title).join(', ') || 'in no project'}`);
         return 0;
       }
-      throw new Error(`Unknown: tb projects ${action}. It's show, add or remove.`);
+      if (action === 'parent') {
+        if (!a || !b) throw new Error('tb projects parent <project> <parent|none>');
+        const parentId = b === 'none' ? '' : await projectId(client, b);
+        const r = await client.call<{ project: Project }>('projects.update', { projectId: await projectId(client, a), parentId });
+        console.log(r.project.parentId ? `${r.project.title} is a part of ${b} now.` : `${r.project.title} is a project of its own now.`);
+        return 0;
+      }
+      throw new Error(`Unknown: tb projects ${action}. It's show, add, remove or parent.`);
     }
     case 'librarian': {
       const [action, id] = args;
@@ -1090,6 +1098,7 @@ function projectLine(p: Project): string {
 
 function printProject(p: Project, threadIds: string[]): void {
   console.log(projectLine(p));
+  if (p.parentId) console.log(`Part of: ${p.parentId}`);
   console.log(`Goals: ${p.goals || '(none)'}`);
   console.log(`State: ${p.state || '(none)'}${p.stateUpdatedAt ? ` (${p.stateUpdatedAt})` : ''}`);
   if (p.notes) console.log(`\n${p.notes}`);

@@ -31,7 +31,10 @@ struct ProjectsList: View {
         // Each thread's first row that's drawn, for the arrow keys to scroll
         // to: one in a folded project isn't there to scroll to (Codex's review).
         var firstRow: [String: String] = [:]
-        for section in built.sections where shows(section.id) {
+        // As drawn: each project, then its parts under it, a part only while
+        // its parent is shown open.
+        let drawn = built.topLevel.flatMap { top in [top] + (shows(top.id) ? built.parts[top.id] ?? [] : []) }
+        for section in drawn where shows(section.id) {
             for thread in section.threads where firstRow[thread.id] == nil {
                 firstRow[thread.id] = SectionRow.id(section: section.id, thread: thread.id)
             }
@@ -40,7 +43,7 @@ struct ProjectsList: View {
             firstRow[thread.id] = SectionRow.id(section: Self.unfiledId, thread: thread.id)
         }
         return VStack(spacing: 0) {
-            ModeHeader(title: "Projects", count: built.sections.count)
+            ModeHeader(title: "Projects", count: built.topLevel.count)
             SidebarButtonRow(icon: "plus", title: "New project", tip: "Make a new project", busy: app.isBusy(BusyKey.newProject)) {
                 app.newProject(with: nil)
             }
@@ -49,15 +52,31 @@ struct ProjectsList: View {
                        layout: folding ? ProjectFolds.layout(built, open: open) : nil,
                        scrollID: { firstRow[$0] ?? $0 }) { select in
                 if app.threadsLoaded {
-                    ForEach(built.sections) { section in
+                    ForEach(built.topLevel) { section in
+                        // A parent's row counts its parts' threads and
+                        // decisions too (docs/protocol.md, Projects, "Parts").
+                        let all = built.threadsWithParts(section)
                         if folding {
                             ProjectFoldRow(id: section.id, title: section.project.title, project: section.project,
-                                           count: section.threads.count, decisions: ProjectDecisions.count(section.threads))
+                                           count: all.count, decisions: ProjectDecisions.count(all))
                         } else {
                             ProjectHeader(project: section.project, count: section.threads.count)
                         }
-                        if !folding || open.contains(section.id) {
+                        if shows(section.id) {
                             sectionThreads(section, select: select)
+                            // Its parts nest under it, indented, folding with it.
+                            ForEach(built.parts[section.id] ?? []) { part in
+                                if folding {
+                                    ProjectFoldRow(id: part.id, title: part.project.title, project: part.project,
+                                                   count: part.threads.count, decisions: ProjectDecisions.count(part.threads), isPart: true)
+                                } else {
+                                    ProjectHeader(project: part.project, count: part.threads.count, isPart: true)
+                                }
+                                if shows(part.id) {
+                                    sectionThreads(part, select: select)
+                                        .padding(.leading, Self.partIndent)
+                                }
+                            }
                         }
                     }
                     if !built.unfiled.isEmpty {
@@ -108,6 +127,8 @@ struct ProjectsList: View {
         }
     }
 
+    /// How far a part sits in under its parent, with its threads.
+    static var partIndent: CGFloat { zoomed(14) }
     static let unfiledId = "-"
     static let archivedSuffix = "/archived"
     /// Archived threads shown at a time.
@@ -173,6 +194,8 @@ private struct ProjectHeader: View {
     let project: Project
     /// Its open threads, listed under it.
     let count: Int
+    /// A part, drawn indented under its parent.
+    var isPart = false
     @State private var hovering = false
 
     private var isOpen: Bool { app.openProjectId == project.id }
@@ -206,6 +229,7 @@ private struct ProjectHeader: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .padding(.leading, isPart ? ProjectsList.partIndent : 0)
         // The same room above each group as the inbox's headings.
         .padding(.top, zoomed(12))
         .padding(.bottom, zoomed(2))
@@ -236,6 +260,8 @@ private struct ProjectFoldRow: View {
     let project: Project?
     let count: Int
     let decisions: Int
+    /// A part, drawn indented under its parent's row.
+    var isPart = false
     @State private var hovering = false
 
     private var open: Bool { app.openProjectRows.contains(id) }
@@ -301,6 +327,7 @@ private struct ProjectFoldRow: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .background(background, in: RoundedRectangle(cornerRadius: SidebarMetrics.corner))
+        .padding(.leading, isPart ? ProjectsList.partIndent : 0)
         .onHover { hovering = $0 }
         .padding(.top, zoomed(2))
         .iconContextMenu { if let project { ProjectMenu(project: project) } }
@@ -377,6 +404,23 @@ struct ProjectMenu: View {
         }
         Button(project.notion == nil ? "Add Notion Page…" : "Notion Page…", systemImage: "checklist") { app.linkProjectNotion(project.id) }
         let others = app.projects.filter { $0.id != project.id && !$0.archived }
+        // Parts (docs/protocol.md, Projects, "Parts"), one level: only a
+        // project with no parts of its own can be one, and only of a
+        // project that isn't a part itself. Shown at once (updateProject).
+        if project.parentId != nil {
+            Button("Make Its Own Project", systemImage: "square.on.square") {
+                app.updateProject(project.id, ProjectUpdate(parentId: ""))
+            }
+        } else if !app.projects.contains(where: { $0.parentId == project.id }) {
+            let parents = others.filter { $0.parentId == nil }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            if !parents.isEmpty {
+                IconMenu("Make a Part of", systemImage: "square.stack") {
+                    ForEach(parents) { other in
+                        Button(other.title, systemImage: "folder") { app.updateProject(project.id, ProjectUpdate(parentId: other.id)) }
+                    }
+                }
+            }
+        }
         if !others.isEmpty {
             IconMenu("Merge into", systemImage: "arrow.triangle.merge") {
                 ForEach(others) { other in

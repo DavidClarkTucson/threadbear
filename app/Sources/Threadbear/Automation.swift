@@ -1203,6 +1203,24 @@ enum Automation {
             return await pageSwipe(c, app: app)
         case "decide":
             return decide(c, app: app)
+        case "projectParent":
+            // {"cmd":"projectParent","title":"<project>","parent":"<project>"}
+            // makes it a part of that one, as the ... menu's Make a Part of
+            // does; "parent": "" makes it its own project again.
+            guard let title = c["title"] as? String, let project = app.projects.first(where: { $0.id == title || $0.title == title }) else {
+                return "error give a project's title or id as title"
+            }
+            let wanted = c["parent"] as? String ?? ""
+            let parentId: String
+            if wanted.isEmpty {
+                parentId = ""
+            } else {
+                guard let parent = app.projects.first(where: { $0.id == wanted || $0.title == wanted }) else { return "error no project \(wanted)" }
+                parentId = parent.id
+            }
+            app.updateProject(project.id, ProjectUpdate(parentId: parentId))
+            try? await Task.sleep(for: .milliseconds(300))
+            return "ok " + (app.project(project.id)?.parentId ?? "its own")
         case "decision":
             return decision(c, app: app)
         case "hints":

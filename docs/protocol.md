@@ -512,6 +512,9 @@ type Project = {
   stateUpdatedAt?: string
   archived?: boolean
   icon?: ProjectIcon    // absent until the librarian has found or picked one
+  parentId?: string     // the project it's a part of (see Projects,
+                        // "Parts"); absent for a project of its own, and
+                        // from a runner before parts
   threadCount: number   // threads in it, put away ones included
   lastActivityAt?: string // its newest thread's lastActivityAt
 }
@@ -1141,8 +1144,8 @@ the summary and then the reply.
 | `schedules.preview` | `{ cron?: string, at?: string, timezone?: string, count?: number }` | `{ whenText: string, runs: string[] }`, the next `count` (default 5, at most 20) times it would run, for an editor to show as someone types. `-32602` with the reason for a cron or zone it can't read |
 | `projects.list` | `{ archived?: boolean }` | `{ projects: Project[] }`, newest `lastActivityAt` first. Archived ones only with `archived: true` (then all of them) |
 | `projects.get` | `{ projectId }` | `{ project: Project, threadIds: string[] }`, its threads newest activity first, put away ones included |
-| `projects.create` | `{ title: string, folders?: string[], goals?, state?, notes?, links?: { title?, url }[], threadIds?: string[] }` | `{ project: Project }`, made by Mike (`createdBy: "mike"`). `threadIds` are put in it, pinned. Folders must exist (`-32602` otherwise) |
-| `projects.update` | `{ projectId, title?, folders?: string[], goals?, state?, notes?, links?: { title?, url }[], notion?: string, archived?: boolean }` | `{ project: Project }`. Replaces what's given. A new title is Mike's (`titleBy: "mike"`), so the librarian never renames it. A link that isn't http(s), or more than 8, is `-32602`. A change of folders reloads its threads' patches. `notion` is a Notion page or database address (notion.so, notion.site, notion.com, or a `collection://` data source), read straight away (see Project tasks); empty takes it off; anything else is `-32602` |
+| `projects.create` | `{ title: string, folders?: string[], goals?, state?, notes?, links?: { title?, url }[], threadIds?: string[], parentId?: string }` | `{ project: Project }`, made by Mike (`createdBy: "mike"`). `threadIds` are put in it, pinned. Folders must exist (`-32602` otherwise). `parentId` makes it a part of that project (Projects, "Parts") |
+| `projects.update` | `{ projectId, title?, folders?: string[], goals?, state?, notes?, links?: { title?, url }[], notion?: string, archived?: boolean }` | `{ project: Project }`. Replaces what's given. A new title is Mike's (`titleBy: "mike"`), so the librarian never renames it. A link that isn't http(s), or more than 8, is `-32602`. A change of folders reloads its threads' patches. `notion` is a Notion page or database address (notion.so, notion.site, notion.com, or a `collection://` data source), read straight away (see Project tasks); empty takes it off; anything else is `-32602`. `parentId` makes it a part of that project, or `""` (or `null`) its own project again (Projects, "Parts"); a parent that's itself or a part already, or a project that has parts of its own, is `-32602`, and one that doesn't exist `-32007` |
 | `projects.refreshTasks` | `{ projectId, force?: boolean }` | `{ project: Project }` once its Notion board has been read again, unless it was read in the last minute (`force` reads it anyway). The project page asks when it opens. `-32602` for a project with no `notion` |
 | `projects.setIcon` | `{ projectId, path?: string, symbol?: string }` | `{ project: Project }`. Mike's choice: `path` a picture on this Mac (PNG, JPEG, WebP, SVG, ICNS or ICO, copied in), or `symbol` an SF Symbol name; neither puts it back to automatic, and the librarian finds one again within seconds. `-32602` for a missing file or a name that isn't a symbol's |
 | `projects.merge` | `{ projectId, intoId }` | `{ project: Project }` (the one kept). Folders and threads move over, notes are joined, and `projectId` is deleted |
@@ -4704,6 +4707,19 @@ There's no request of its own: an answer there is the `threads.send` the
 thread's own card makes with an empty composer (the picked answers'
 `text` and `answers`), so the agent can't tell where it was answered.
 
+**Parts.** A project can be a part of another (`parentId`), for one
+body of work with separate strands (Threadbear, its GPUI port and its
+Android app), so each part keeps its own goals, state and notes rather
+than every thread being told all of them. One level only: a part can't
+have parts, and a project with parts can't become one. A thread in a part
+is told the parent's title and goals in its brief, then the part's own
+(see "The brief"); a thread in the parent is told the parts' names. The
+librarian doesn't set parents: Mike does, or an agent with `update_project`'s
+`parent`. Merging a project moves its parts to the kept one (or makes them
+projects of their own if that one is a part); deleting one makes its parts
+projects of their own. Parts go to Convex as projects of their own: the
+phone and the website list them flat, without `parentId`, for now.
+
 **Patches.** A thread loads patches from, in this order: `~/.threadbear/`,
 each folder of each of its projects (the built-in ones and the patch
 files found walking up from it, each folder once), then its own folder
@@ -4721,7 +4737,9 @@ gave every chip twice.
 A fresh session (a new thread, a move or account change that starts a new
 native session) gets the brief as instructions: each project's title,
 folders, goals and state, at most about 2,000 characters in all, and that
-`read_project` has the notes. Claude gets it appended to the system
+`read_project` has the notes. A part's block starts with its parent's
+title and goals (not the parent's state or notes); a parent's ends with a
+line naming its parts. Claude gets it appended to the system
 prompt, Codex as developer instructions. A live or resumed session (Claude
 Code ignores new instructions on a resume) hears about a project it hasn't
 been told about at the start of its next message, in a line beginning

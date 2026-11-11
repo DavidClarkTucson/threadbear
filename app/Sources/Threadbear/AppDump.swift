@@ -453,6 +453,9 @@ struct AppDump: Encodable {
     struct ProjectInfo: Encodable {
         var id: String
         var title: String
+        /// The project it's a part of, by title, and its own parts' titles.
+        var parent: String? = nil
+        var parts: [String] = []
         var folders: [String]
         var threads: [String]
         var patches: [String]
@@ -675,12 +678,16 @@ struct AppDump: Encodable {
             usage: Usage(shown: app.usageShown, lines: usageLines(app)),
             project: app.openProject.map { project in
                 let threads = ProjectSections.threads(in: project.id, from: app.threads.values)
-                return ProjectInfo(id: project.id, title: project.title, folders: project.folders, threads: threads.map(\.id),
+                return ProjectInfo(id: project.id, title: project.title,
+                                   parent: project.parentId.flatMap { app.project($0)?.title },
+                                   parts: (app.projectSections.parts[project.id] ?? []).map(\.project.title),
+                                   folders: project.folders, threads: threads.map(\.id),
                                    patches: PatchGroups.patches(of: project, in: threads).map(\.patch.id), archived: project.archived)
             },
             projectDecisions: app.openProject.flatMap { projectDecisionLines($0, app: app) },
             projectCards: app.openProject == nil && app.showsProjectsHome ? app.projectCards.map { card in
                 card.project.title + ": " + (card.status.isQuiet ? "quiet" : card.status.parts.map(\.text).joined(separator: " · "))
+                    + (card.parts.isEmpty ? "" : " (parts: " + card.parts.map(\.title).joined(separator: ", ") + ")")
             } : nil,
             homePage: homePageDump(app),
             scheduleEditor: app.scheduleEditor.map { ScheduleEditorInfo(isNew: $0.isNew, text: $0.text, once: $0.once, cron: $0.once ? nil : $0.repeatChoice.cron) },
@@ -1105,7 +1112,8 @@ struct AppDump: Encodable {
     /// The threads with decisions on a project's page, as it lists them.
     @MainActor
     static func projectDecisionThreads(_ project: Project, app: AppModel) -> [ThreadSummary] {
-        ProjectDecisions.threads(app.projectSections.sections.first { $0.id == project.id }?.threads ?? [])
+        let built = app.projectSections
+        return ProjectDecisions.threads(built.sections.first { $0.id == project.id }.map(built.threadsWithParts) ?? [])
     }
 
     @MainActor

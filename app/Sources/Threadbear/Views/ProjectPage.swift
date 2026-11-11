@@ -18,9 +18,19 @@ struct ProjectPage: View {
                     IconButton(project: project)
                     VStack(alignment: .leading, spacing: zoomed(6)) {
                         TitleField(project: project)
-                        Text(ProjectPage.madeBy(project, threads: threads.count, app: app))
-                            .font(.system(size: TypeScale.label))
-                            .foregroundStyle(Color(nsColor: Theme.faintText))
+                        HStack(spacing: zoomed(6)) {
+                            Text(ProjectPage.madeBy(project, threads: threads.count, app: app))
+                                .font(.system(size: TypeScale.label))
+                                .foregroundStyle(Color(nsColor: Theme.faintText))
+                            // A part says whose, and goes up to it.
+                            if let parent = project.parentId.flatMap({ app.project($0) }) {
+                                Text("·").foregroundStyle(Color(nsColor: Theme.faintText))
+                                Button("Part of \(parent.title)") { app.openProjectPage(parent.id) }
+                                    .buttonStyle(.link)
+                                    .font(.system(size: TypeScale.label))
+                                    .tip("Open \(parent.title)")
+                            }
+                        }
                     }
                     Spacer(minLength: zoomed(12))
                     Button { app.newThread(in: project) } label: {
@@ -34,6 +44,7 @@ struct ProjectPage: View {
                 if app.projectDecisionsOn {
                     DecisionsSection(project: project)
                 }
+                PartsSection(project: project)
                 TextSection(project: project, field: .goals)
                 TextSection(project: project, field: .state)
                 TasksSection(project: project)
@@ -135,6 +146,72 @@ private struct TitleField: View {
         let title = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { draft = project.title; return }
         if title != project.title { app.updateProject(project.id, ProjectUpdate(title: title)) }
+    }
+}
+
+/// A parent project's parts (docs/protocol.md, Projects, "Parts"): each
+/// with its state's first line, and its decisions (with the projectDecisions
+/// experiment) or how many threads it has. A row opens the part's page.
+private struct PartsSection: View {
+    @Environment(AppModel.self) private var app
+    let project: Project
+
+    var body: some View {
+        let built = app.projectSections
+        let parts = built.parts[project.id] ?? []
+        if !parts.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                PageHeading(title: "Parts", detail: "\(parts.count)")
+                ForEach(parts) { part in
+                    PartRow(part: part, decisions: app.projectDecisionsOn ? ProjectDecisions.count(part.threads) : 0)
+                }
+            }
+        }
+    }
+}
+
+private struct PartRow: View {
+    @Environment(AppModel.self) private var app
+    let part: ProjectSection
+    let decisions: Int
+    @State private var hovering = false
+
+    var body: some View {
+        Button { app.openProjectPage(part.project.id) } label: {
+            HStack(alignment: .center, spacing: zoomed(10)) {
+                ProjectIconView(project: part.project, size: 20)
+                VStack(alignment: .leading, spacing: zoomed(2)) {
+                    Text(part.project.title)
+                        .font(.system(size: TypeScale.label, weight: .semibold))
+                        .lineLimit(1)
+                    if let line = part.project.state.split(whereSeparator: \.isNewline).first {
+                        Text(String(line))
+                            .font(.system(size: TypeScale.detail))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: zoomed(8))
+                Group {
+                    if decisions > 0 {
+                        Text(ProjectDecisions.label(decisions)).foregroundStyle(Color(nsColor: Theme.needsYou))
+                    } else {
+                        Text(part.threads.count == 1 ? "1 thread" : "\(part.threads.count) threads")
+                            .foregroundStyle(Color(nsColor: Theme.faintText))
+                    }
+                }
+                .font(.system(size: TypeScale.detail, weight: .medium))
+                .monospacedDigit()
+            }
+            .padding(.horizontal, zoomed(8))
+            .padding(.vertical, zoomed(7))
+            .background(hovering ? SidebarMetrics.hover : .clear, in: RoundedRectangle(cornerRadius: zoomed(6)))
+            .padding(.horizontal, -zoomed(8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .tip("Open \(part.project.title)")
     }
 }
 

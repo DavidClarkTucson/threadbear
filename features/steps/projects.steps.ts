@@ -54,3 +54,23 @@ Then('the sidebar lists {string} under {string}', async function (this: Threadbe
   await this.until(`"${thread}" under "${title}"`, (d) =>
     d.sidebar.sections.some((s) => s.name === title && s.collapsed === false && s.threads.some((t) => t.title === thread)));
 });
+
+// Parts (docs/protocol.md, Projects, "Parts"): the open page's `project`
+// in the dump names its parent and parts by title.
+type WithPage = Dump & { project?: { title: string; parent?: string | null; parts?: string[] } | null };
+
+Then('the project page says it\'s a part of {string}', async function (this: ThreadbearWorld, parent: string) {
+  await this.until(`the page a part of "${parent}"`, (d) => (d as WithPage).project?.parent === parent);
+});
+
+Then('the project page says it\'s a part of nothing', async function (this: ThreadbearWorld) {
+  await this.until('the page a project of its own', (d) => Boolean((d as WithPage).project) && !(d as WithPage).project?.parent);
+});
+
+Then('the project page lists the part {string}', async function (this: ThreadbearWorld, part: string) {
+  await this.until(`the part "${part}" listed`, (d) => ((d as WithPage).project?.parts ?? []).includes(part));
+});
+
+When('I make the project {string} its own project', async function (this: ThreadbearWorld, title: string) {
+  await this.app.do({ cmd: 'projectParent', title, parent: '' });
+});

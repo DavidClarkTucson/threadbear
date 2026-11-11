@@ -41,3 +41,18 @@ Feature: Decisions on the Projects page
     Then the sidebar lists "Rename the Settings tabs" under "Threadbear"
     When I fold the sidebar's project "Threadbear"
     Then the sidebar's project "Threadbear" is folded with 4 threads
+
+  @projects.parts @project-parts @gpui-pending
+  Scenario: A part shows inside its parent's card and says whose it is
+    When I show the Projects page
+    Then the project card "Threadbear" says "(parts: Photo sync)"
+    When I open the project "Photo sync"
+    Then the project page says it's a part of "Threadbear"
+    When I open the project "Threadbear"
+    Then the project page lists the part "Photo sync"
+
+  @projects.parts @project-parts @gpui-pending
+  Scenario: A project can be made its own again
+    When I open the project "Photo sync"
+    And I make the project "Photo sync" its own project
+    Then the project page says it's a part of nothing
