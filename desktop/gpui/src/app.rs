@@ -1113,6 +1113,8 @@ impl Threadbear {
                 out["runner"] = json!(away.name);
             }
             out["chip"] = json!(crate::composer_chips::model_chip_text(&data));
+            // The seq of the message being edited, as the Swift dump has it.
+            out["editing"] = json!(composer.editing.as_ref().map(|e| e.seq));
             out["chipBadge"] = json!(crate::composer_chips::model_chip_badge_text(&data));
             if let Some(card) = composer.card_lines(cx) {
                 out["card"] = json!(card);

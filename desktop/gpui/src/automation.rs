@@ -252,7 +252,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         }
         // The window shell (shell.rs, rails.rs, header.rs), the Swift
         // app's commands of the same names.
-        "dock-move" | "panel" | "float" | "mode" | "zoom" | "rename" | "undo-archive" | "open-archived" | "error" | "mouse-button" | "copy-thread-id" | "menus" | "menu-item" | "app-menu" | "data-dir" | "share" | "signin" | "refusal" | "appearance" | "resize" => shell_step(app, cmd, window, cx),
+        "dock-move" | "panel" | "float" | "mode" | "zoom" | "rename" | "undo-archive" | "open-archived" | "error" | "mouse-button" | "copy-thread-id" | "menus" | "menu-item" | "app-menu" | "data-dir" | "share" | "signin" | "edit-message" | "refusal" | "appearance" | "resize" => shell_step(app, cmd, window, cx),
         "search" => {
             let words = text(cmd, "text").to_string();
             let search = app.read(cx).search.clone();
@@ -701,6 +701,16 @@ fn shell_step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &m
                 });
             }
             Ok(json!(app.read(cx).share_status()))
+        }
+        // The pencil by one of Mike's messages, as a click on it does:
+        // {"row": the row's id or its start}.
+        "edit-message" => {
+            let prefix = text(cmd, "row").to_owned();
+            let pane = app.read(cx).pane.clone().ok_or("no thread open")?;
+            let row = pane.read(cx).feed.model().rows().iter().find(|r| r.id.starts_with(&prefix)).map(|r| r.id.clone()).ok_or_else(|| format!("no row starting {prefix:?}"))?;
+            pane.update(cx, |p, cx| p.edit_message(&row, window, cx));
+            let editing = app.read(cx).composer(cx).is_some_and(|c| c.read(cx).editing.is_some());
+            Ok(json!(if editing { "ok editing" } else { "error that message can't be edited" }))
         }
         "signin" => {
             if cmd["sendAgain"].as_bool() == Some(true) {

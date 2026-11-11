@@ -208,6 +208,18 @@ impl ThreadPane {
         (self.loaded, self.subagent_missing, self.load_failed.clone(), self.feed.model().rows().len())
     }
 
+    /// The pencil by one of Mike's messages (`editMessage`): its words and
+    /// pictures go into the composer, and sending replaces it.
+    pub(crate) fn edit_message(&mut self, row_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(row) = self.feed.model().item(row_id).cloned() else { return };
+        let RowContent::User(message) = &row.content else { return };
+        if !message.editable || !threadbear_core::composer::can_rewind(&self.summary.provider) {
+            return;
+        }
+        let (seq, text, images) = (row.seq, message.text.clone(), message.images.clone());
+        self.composer.update(cx, |c, cx| c.start_editing(seq, &text, &images, window, cx));
+    }
+
     /// Its entry in the thread's list of sub-agents, as the summary has it now.
     pub(crate) fn subagent_entry(&self) -> Option<threadbear_core::sidebar::Subagent> {
         let id = self.subagent_id.as_deref()?;

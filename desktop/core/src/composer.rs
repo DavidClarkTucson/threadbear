@@ -184,6 +184,65 @@ pub fn sent_text(text: &str, first: usize) -> String {
     message_text(text, first)
 }
 
+/// `InlinePictures.markers`: the `[Picture N]` markers in a message that
+/// place one of its `image_count` pictures, in the order they come, the
+/// first naming each, as the runner reads them; one naming no picture, or one
+/// already placed, is words. Byte ranges, with the picture's index.
+pub fn picture_markers(text: &str, image_count: usize) -> Vec<(std::ops::Range<usize>, usize)> {
+    const OPEN: &str = "[Picture ";
+    let mut found = Vec::new();
+    if image_count == 0 || !text.contains(OPEN) {
+        return found;
+    }
+    let mut placed = std::collections::HashSet::new();
+    let mut at = 0;
+    while let Some(i) = text[at..].find(OPEN) {
+        let start = at + i;
+        let digits_at = start + OPEN.len();
+        let digits = text[digits_at..].chars().take_while(|c| c.is_ascii_digit()).count();
+        let end = digits_at + digits;
+        if (1..=3).contains(&digits) && text[end..].starts_with(']') {
+            let index = text[digits_at..end].parse::<usize>().unwrap_or(0).wrapping_sub(1);
+            if index < image_count && placed.insert(index) {
+                found.push((start..end + 1, index));
+            }
+            at = end + 1;
+        } else {
+            at = digits_at;
+        }
+    }
+    found
+}
+
+/// `InlinePictures.draft`: a message's words and pictures back in the box, to
+/// edit it. Each picture a marker placed goes back as a mark where its marker
+/// was; one no marker placed went before the words, so its mark goes at the
+/// start. The draft's text, and the order its pictures go in, as indexes into
+/// the message's.
+pub fn edit_draft(text: &str, image_count: usize) -> (String, Vec<usize>) {
+    // A mark already in a message's words would stand for the wrong picture.
+    let text: String = text.chars().filter(|c| *c != PICTURE_MARK).collect();
+    let found = picture_markers(&text, image_count);
+    let mut words = text.clone();
+    for (range, _) in found.iter().rev() {
+        words.replace_range(range.clone(), PICTURE_MARK_STR);
+    }
+    let placed: std::collections::HashSet<usize> = found.iter().map(|(_, i)| *i).collect();
+    let first: Vec<usize> = (0..image_count).filter(|i| !placed.contains(i)).collect();
+    if !first.is_empty() {
+        let marks: String = std::iter::repeat_n(PICTURE_MARK, first.len()).collect();
+        words = if words.is_empty() { marks } else { format!("{marks} {words}") };
+    }
+    let order = first.into_iter().chain(found.into_iter().map(|(_, i)| i)).collect();
+    (words, order)
+}
+
+/// Whether a provider's threads can go back to an earlier message
+/// (`ProviderInfo.rewind`): Claude's and Codex's can; the other agents' can't.
+pub fn can_rewind(provider: &str) -> bool {
+    matches!(provider, "claude" | "codex" | "")
+}
+
 /// InlinePictures.messageText: a draft's text with its k-th mark as
 /// `[Picture first+k]`.
 pub fn message_text(text: &str, first: usize) -> String {
@@ -609,6 +668,20 @@ mod tests {
 
     fn newline(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
         list_newline(text, caret..caret).map(|e| (e.range, e.text))
+    }
+
+    #[test]
+    fn an_edited_message_puts_its_pictures_back_where_they_were() {
+        let (text, order) = edit_draft("see [Picture 2] and [Picture 1] then [Picture 2] again", 3);
+        assert_eq!(text, "\u{FFFC} see \u{FFFC} and \u{FFFC} then [Picture 2] again", "an unplaced one first, a repeat stays words");
+        assert_eq!(order, vec![2, 1, 0]);
+        let (text, order) = edit_draft("", 2);
+        assert_eq!(text, "\u{FFFC}\u{FFFC}");
+        assert_eq!(order, vec![0, 1]);
+        let (text, order) = edit_draft("no pictures, [Picture 9] stays", 1);
+        assert_eq!(text, "\u{FFFC} no pictures, [Picture 9] stays");
+        assert_eq!(order, vec![0]);
+        assert!(can_rewind("codex") && !can_rewind("opencode"));
     }
 
     #[test]

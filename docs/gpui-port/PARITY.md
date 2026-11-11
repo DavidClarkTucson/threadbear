@@ -277,6 +277,35 @@ built parsers and gates with no launch of the app, which is the trap.)
   minute on as the clock moved between runs). The drip, in a build with the
   pot slowed tenfold, as the debug build's pictures come too slowly to catch
   it.
+### 2026-11-11 Editing a message (`transcript.edit`, `composer.editing`)
+
+- Hovering one of Mike's messages that can be edited (his own, from this
+  app, in a thread whose agent can go back: Claude's and Codex's) shows a
+  pencil left of the bubble, level with its last line. It puts the message
+  in the box, pictures as chips where their markers were (core's
+  `edit_draft`, from InlinePictures.draft), with the banner "Editing a
+  message. Sending cuts the thread back to it and undoes the agent's file
+  changes since." and Cancel (or Esc), which puts back what was in the box.
+  The open card waits while an edit is under way, and the box says "Your
+  message…".
+- Sending it calls `threads.edit`; the banner says "Cutting the thread back to
+  this message…" with a spinner until the new turn has started, and an error
+  leaves it there to try again. When the thread has background work running
+  (-32050), an alert asks first: "Stop the background work?", Stop It and Go
+  Back or Cancel (`alert.rs`, an NSAlert as the Swift app's).
+- Both apps' dumps give the seq being edited (`composer.editing`), and both
+  apps take `edit-message` with a row, as a click on its pencil.
+- Files: `desktop/core/src/composer.rs`, `desktop/gpui/src/{composer,rows,
+  thread,app,automation,alert,main}.rs`,
+  `app/Sources/Threadbear/Automation.swift`, `features/editing.feature` and
+  its steps.
+- Verification: on Tinker Desk, `@transcript.edit` passes on both apps (2 of
+  2: the message in the box and Esc leaving it; an edit sent replaces the
+  message and the thread carries on from it), with `@composer.send` and
+  `@transcript.user` on GPUI; core's test for the draft an edit puts back.
+  Pictures of the box mid-edit in both apps, dark: the banner's words, Cancel
+  and the box under it match.
+
 ### 2026-11-11 A sub-agent's own transcript (`header.subagent`, `sidebar.subagents`, `highlights.subagents`)
 
 - A click on a sub-agent, under its thread in the sidebar or in Highlights,

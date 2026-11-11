@@ -303,6 +303,12 @@ enum Automation {
                 return "ok sent again for \(account.id)"
             }
             return "ok \(account.id) \(account.provider)"
+        case "edit-message":
+            // The pencil by one of Mike's messages, as a click on it does:
+            // {"row": the row's id or its start}.
+            guard let row = displayedRow(c["row"] as? String, app) else { return "error no such row" }
+            app.transcript.editMessage(rowId: row.id)
+            return app.selection.flatMap { app.editing[$0] } != nil ? "ok editing" : "error that message can't be edited"
         case "subagent":
             // Show a sub-agent's transcript, as a click on its sidebar row
             // does: {"thread": id or prefix, "id": the sub-agent's id}.

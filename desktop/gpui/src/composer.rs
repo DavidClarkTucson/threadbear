@@ -82,7 +82,21 @@ pub struct Composer {
     pub(crate) palette_scroll: ScrollHandle,
     /// The box's width at the last paint, for the palette's columns.
     pub(crate) card_width: Rc<Cell<f32>>,
+    /// One of Mike's messages being edited (`AppModel.editing`): sending
+    /// replaces it and carries on from there.
+    pub(crate) editing: Option<MessageEdit>,
+    /// What the box is to hold at the next render (an edit sent puts back
+    /// what was in it before; that needs the window).
+    pending_box: Option<(String, Vec<ImageRef>)>,
     _subs: Vec<Subscription>,
+}
+
+/// An edit under way: the message's seq, what was in the box before, and
+/// whether it's on its way.
+pub(crate) struct MessageEdit {
+    pub(crate) seq: i64,
+    before: (String, Vec<ImageRef>),
+    sending: bool,
 }
 
 /// What a refused send gives back: the words and pictures, and the picks that
@@ -138,6 +152,8 @@ impl Composer {
             card: CardState::default(),
             card_style: None,
             shown_placeholder: "Message",
+            editing: None,
+            pending_box: None,
             palette: PaletteState::default(),
             palette_asked: false,
             palette_scroll: ScrollHandle::new(),
@@ -364,6 +380,9 @@ impl Composer {
         if self.thread_id.is_none() {
             return self.send_new_thread(window, cx);
         }
+        if self.editing.is_some() {
+            return self.send_edit(cx);
+        }
         let (draft_text, images) = self.draft(cx);
         // Pictures from the asks' boxes come first, numbered as the answers
         // say, then the box's own chips, whose markers go after them.
@@ -424,6 +443,135 @@ impl Composer {
     /// A send the runner refused: what was typed goes back in the box
     /// (AppModel.restoreDraft), unless something new has been typed since.
     /// At the next render, where there's a window to do it with.
+    /// The pencil by one of Mike's messages (`startEditing`): its words and
+    /// pictures go in the box, chips where their markers were, and what was
+    /// in the box comes back if the edit's left.
+    pub(crate) fn start_editing(&mut self, seq: i64, text: &str, images: &[ImageRef], window: &mut Window, cx: &mut Context<Self>) {
+        let before = match self.editing.take() {
+            Some(edit) => edit.before,
+            None => self.draft(cx),
+        };
+        let (words, order) = composer::edit_draft(text, images.len());
+        let pictures = order.iter().filter_map(|i| images.get(*i).cloned()).collect();
+        self.set_box(words, pictures, window, cx);
+        self.editing = Some(MessageEdit { seq, before, sending: false });
+        self.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Leaves the edit (`cancelEditing`): the box gets back what was in it.
+    pub(crate) fn cancel_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(edit) = self.editing.take() else { return };
+        let (text, images) = edit.before;
+        self.set_box(text, images, window, cx);
+        cx.notify();
+    }
+
+    /// The box holding exactly `text`, its marks as chips of `images`.
+    fn set_box(&mut self, text: String, images: Vec<ImageRef>, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |s, cx| s.set_value("", window, cx));
+        self.pictures.clear();
+        self.apply_restore(RestoreDraft { text, images, card: None }, window, cx);
+    }
+
+    /// Sends the edited message (`sendEdit`): the box keeps it, its banner
+    /// saying it's on its way, until the runner has started the new turn;
+    /// an error leaves it there to try again. Going back would stop work the
+    /// agent left running, so that's asked first.
+    fn send_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(seq) = self.editing.as_ref().filter(|e| !e.sending).map(|e| e.seq) else { return };
+        let Some(thread_id) = self.thread_id.clone() else { return };
+        let (draft_text, images) = self.draft(cx);
+        let text = composer::sent_text(&draft_text, 1).trim().to_string();
+        if text.is_empty() && images.is_empty() {
+            return;
+        }
+        if let Some(edit) = self.editing.as_mut() {
+            edit.sending = true;
+        }
+        cx.notify();
+        let client = self.client.clone();
+        let images_json: Vec<Value> = images.iter().map(image_ref_json).collect();
+        cx.spawn(async move |this, cx| {
+            let mut stop_background = false;
+            loop {
+                let mut params = json!({ "threadId": thread_id, "seq": seq, "text": text, "stopBackground": stop_background });
+                if !images_json.is_empty() {
+                    params["images"] = json!(images_json);
+                }
+                match crate::call(client.clone(), "threads.edit", params).await {
+                    Ok(_) => {
+                        this.update(cx, |this, cx| {
+                            // Done with: the box gets back what was in it before,
+                            // at the next render, which has the window.
+                            if let Some(edit) = this.editing.take() {
+                                this.pending_box = Some(edit.before);
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                    Err(e) if e.code == -32050 && !stop_background => {
+                        // An upload was lost that way (4 Nov): asked first.
+                        let detail = format!("{}\n\nCancel keeps it running; you can send your change as a new message instead.", e.message);
+                        if crate::alert::confirm("Stop the background work?", &detail, "Stop It and Go Back", "Cancel") {
+                            stop_background = true;
+                            continue;
+                        }
+                        this.update(cx, |this, cx| {
+                            if let Some(edit) = this.editing.as_mut() {
+                                edit.sending = false;
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                    Err(e) => {
+                        this.update(cx, |this, cx| {
+                            if let Some(edit) = this.editing.as_mut() {
+                                edit.sending = false;
+                            }
+                            if let Some(pane) = this.pane() {
+                                pane.update(cx, |p, cx| p.show_error(e.message, cx));
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                }
+                return;
+            }
+        })
+        .detach();
+    }
+
+    /// `EditingBanner`: what sending will do, and Cancel (Esc); while it's
+    /// on its way, that it's cutting back, with a spinner.
+    fn render_editing_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let edit = self.editing.as_ref()?;
+        let secondary = style::secondary_text(cx);
+        let text = if edit.sending { "Cutting the thread back to this message…" } else { "Editing a message. Sending cuts the thread back to it and undoes the agent's file changes since." };
+        let size = px(style::size::SIDEBAR_META + 1.);
+        let end: AnyElement = if edit.sending {
+            Spinner::new().color(secondary).with_size(px(12.)).into_any_element()
+        } else {
+            crate::highlights::tipped(div().id("edit-cancel").flex_none().cursor_pointer().text_size(size).text_color(style::accent(cx)), "Stop editing and put back what was in the box (Esc)".to_owned())
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_editing(window, cx)))
+                .child("Cancel")
+                .into_any_element()
+        };
+        Some(
+            h_flex()
+                .w_full()
+                .gap(px(6.))
+                .items_start()
+                .child(div().flex_none().pt(px(2.)).child(crate::icons::symbol("pencil").with_size(px(style::size::SIDEBAR_META)).text_color(secondary)))
+                .child(div().flex_1().min_w_0().text_size(size).line_height(px(style::natural_line(style::size::SIDEBAR_META + 1.))).text_color(secondary).child(text))
+                .child(end)
+                .into_any_element(),
+        )
+    }
+
     pub fn restore_draft(&mut self, draft: RestoreDraft, cx: &mut Context<Self>) {
         self.restore = Some(draft);
         cx.notify();
@@ -849,6 +997,10 @@ impl Composer {
             .capture_action(cx.listener(|this, _: &Escape, window, cx| {
                 if this.palette_key(PaletteKey::Escape, window, cx) {
                     cx.stop_propagation();
+                } else if this.editing.as_ref().is_some_and(|e| !e.sending) {
+                    // Esc while editing a message leaves the edit.
+                    this.cancel_editing(window, cx);
+                    cx.stop_propagation();
                 }
             }))
             .on_drop(move |paths: &ExternalPaths, window, cx| {
@@ -896,10 +1048,13 @@ impl Render for Composer {
         if let Some(restore) = self.restore.take() {
             self.apply_restore(restore, window, cx);
         }
+        if let Some((text, images)) = self.pending_box.take() {
+            self.set_box(text, images, window, cx);
+        }
         self.renumber_chips(cx);
         // With answers picked the box is for anything else; under asks with
         // none picked it's the way to answer in other words.
-        let placeholder = self.card_placeholder(cx);
+        let placeholder = if self.editing.is_some() { "Your message…" } else { self.card_placeholder(cx) };
         if self.shown_placeholder != placeholder {
             self.shown_placeholder = placeholder;
             self.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
@@ -915,7 +1070,9 @@ impl Render for Composer {
         // The box: the limit box and the open card, each over a line, then
         // the message.
         let limit = self.render_limit_box(cx);
-        let card = self.render_card(window, cx);
+        // An edit is a message of its own: the open card waits for after it.
+        let card = if self.editing.is_some() { None } else { self.render_card(window, cx) };
+        let editing_banner = self.render_editing_banner(cx);
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
         let palette = self.render_palette(window, cx);
         let width = self.card_width.clone();
@@ -927,7 +1084,7 @@ impl Render for Composer {
             let room = (self.card_width.get() - style::zoomed(style::COMPOSER_RADIUS) * 2.).max(0.);
             crate::viewer::action_chips(&summary, room, &icons, window, cx)
         });
-        let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(creating, cx)).child(controls);
+        let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).children(editing_banner).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(creating, cx)).child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.
         h_flex()

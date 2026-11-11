@@ -5,6 +5,7 @@
 // Read-outs that exist only for the scripted control (`automation.rs`).
 #![cfg_attr(not(feature = "automation"), allow(dead_code, unused_imports))]
 mod activity_panels;
+mod alert;
 mod app;
 #[cfg(feature = "automation")]
 mod automation;

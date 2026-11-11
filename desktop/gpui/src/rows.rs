@@ -207,6 +207,34 @@ impl ThreadPane {
                 // fits exactly would wrap.
                 .when_some(fit, |d, (ink, span)| d.child(div().w(span + px(1.)).mr(ink - span - px(1.)).child(SelectableText::new(("user-text", ix), text))))
                 .when(answered, |d| d.child(answers_body(ix, message, cx)));
+            // The pencil, left of the bubble and level with its last line, on
+            // hover, as Codex and ChatGPT put theirs (`Cells.updateEdit`).
+            let editable = message.editable && pending.is_none() && threadbear_core::composer::can_rewind(&self.summary.provider) && self.subagent_id.is_none();
+            if editable {
+                let (row_id, group) = (row.id.clone(), SharedString::from(format!("user-row-{ix}")));
+                let hover = style::primary_opacity(cx, 0.08);
+                line = line.child(
+                    crate::highlights::tipped(
+                        div()
+                            .id(("edit-message", ix))
+                            .flex_none()
+                            .size(px(22.))
+                            .mb(px(4.))
+                            .rounded(px(5.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .invisible()
+                            .group_hover(group.clone(), |s| s.visible())
+                            .hover(move |s| s.bg(hover)),
+                        "Edit this message: sending it goes back to here".to_owned(),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_message(&row_id, window, cx)))
+                    .child(work::icon("pencil", 12., quiet)),
+                );
+                col = col.group(group);
+            }
             col = col.child(line.child(bubble));
         }
         if pending == Some(Pending::WaitingForRunner) {
