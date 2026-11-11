@@ -243,7 +243,9 @@ Mac app does should get a spec in `features/` (Gherkin, driven against both apps
 `docs/gpui-port/PARITY.md`. A change to how the transcript folds has to keep both
 languages' golden tests happy (`desktop/core/tests/golden`). Rust builds and spec
 runs go elsewhere: `desktop/scripts/remote.sh cloud -- <command>`, or
-`tinker-desk --desk` for a window on a real Mac.
+`tinker-desk --desk` for a window on a real Mac. The installed GPUI app
+follows main as the Mac app does (`desktop/gpui/src/app_update.rs`, built on a
+check host), so `wait_for_app_restart` hears it restart onto a landed change.
 
 ## Other people's PRs
 

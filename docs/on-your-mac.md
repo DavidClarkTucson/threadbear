@@ -230,6 +230,26 @@ File references are where to look.
   only hear about it when it needs you (including a step its mode asks
   you about). A later failure goes to the same thread.
   `followMain: false` turns this off with the rest.
+  The GPUI app, once installed with `desktop/scripts/install-app.sh`,
+  follows the `main` of the checkout it was installed from in the same way
+  (`desktop/gpui/src/app_update.rs`): it reads main's `desktop/` tree with
+  `git rev-parse` 20 seconds after it opens, every 5 minutes and within
+  seconds of main changing, and when that differs from what it runs, it runs
+  `stage-update.sh` from its own bundle at background priority
+  (`desktop/scripts/stage-update.sh`). That clones the checkout into
+  `~/Library/Caches/Threadbear/update-desktop`, and with `checkHosts` in
+  `runner.json`, copies the clone's files (not its history) with rsync over
+  ssh to the first of them that's a Mac and answers, builds there under
+  `~/.cache/threadbear-check/gpui` and copies the two binaries back with scp
+  (`desktop/scripts/remote.sh`); with check hosts set but none answering it
+  waits and tries again later, and with none set it builds in that cache
+  folder here. The new app is put together and signed here as
+  `~/Applications/.Threadbear GPUI.app.next` and goes in when the app quits
+  or restarts, the old one kept as `.Threadbear GPUI.app.old` until the next
+  launch. The app restarts onto it by itself only while you're in another
+  app with nothing typed, and writes what it did and the build's output to
+  `~/Library/Logs/threadbear-desktop-update.log` (the one before it in
+  `.log.1` once that passes 2 MB). `followMain: false` stops it too.
 - **Following GitHub on a second machine** (`runner/src/follow-origin.ts`):
   only with `followOrigin: true` in that machine's `runner.json`, which
   nothing sets for you. Every 5 minutes the runner runs `git fetch origin
@@ -384,6 +404,7 @@ File references are where to look.
 | Your Convex deployment | yours | Thread titles and status, all message text (each message cut at 8,000 characters), one line per tool call, projects, schedules, your logins' emails and usage, whether you're at the Mac, whether this machine is low on memory or disk, and the pictures you paste into a message, up to 10 MB each, so your own website can show them. Those go up as they are, in your deployment's file storage: unlike text, nothing can scrub a secret out of a picture, so a screenshot of something sensitive goes too. `"sync": { "pastedPictures": false }` in `runner.json` keeps them on this Mac. While someone has the website's Runners view open, this machine's CPU, memory and disk use, its processor model, operating system and time since it started, every 10 seconds; with nobody looking, none of that is sent. Photos you send from the phone, and pictures you send from the Mac app to a thread on another of your Macs, deleted once that Mac has fetched them. Pictures and videos agents put in their replies or pin, at most 10 MB each, for the phone to show. Other images only for threads you share by link. Other tool output and files stay on the Mac, unless you move a thread to another of your machines (the `moveToRunner` experiment): then the whole thread, sealed so only that machine can open it, goes through for as long as the move takes. Text has known secrets taken out first: see below. |
 | Convex (the Convex panel) | yours | Only for a thread in a Convex project, when its Convex panel opens: the runner's Convex CLI asks api.convex.dev for the project's deployments and a deploy key, the runner asks the deployment whether a kept key still works (`/api/check_admin_key`), and the panel loads Convex's embedded dashboard (dashboard-embedded.convex.dev) with that key. Sign in to Convex goes to auth.convex.dev. (`runner/src/convex-keys.ts`) |
 | Your other Macs, over ssh | yours | Only when you run `tb runner add <name> --ssh <host>` or `tb runner check --ssh <host>` on your first Mac: it reads that Mac's Threadbear `runner.json`, writes its id and the deployment's address there if it hasn't them, writes its new key into that Mac's `secrets/convex-key`, and looks whether that Mac has a deploy key, Convex panel keys or a Convex login (names only, never a key), through your own ssh setup with agent and port forwarding off (`runner/src/runner-keys.ts`). `tb runner audit` asks this Mac's runner for its threads' last seqs and your deployment for what the main key made. `tb runner rotate-owner` sets env vars on your deployment with your deploy key, and, if you give it a Convex team access token for that run (`CONVEX_TEAM_TOKEN`, never kept), asks api.convex.dev for the deployment's deploy keys (their names and dates) before it rotates. |
+| Your check hosts, over ssh | yours | Only from the installed GPUI app, when `runner.json` has `checkHosts` and main's `desktop/` has changed: a copy of your main's files to build it from, rsynced to `~/.cache/threadbear-check/gpui` on the first one that's a Mac and answers, and the two built binaries copied back (`desktop/scripts/stage-update.sh`) |
 | GitHub | Mike's repo | Release tags fetched every 6 hours; the fork at setup |
 | cef-builds.spotifycdn.com | Spotify (CEF's official builds) | Only from the GPUI app, and only when you press Install web runtime: one download of the pinned build (135 MB), which nothing is sent with. Threadbear will publish its own signed copy later. Chromium itself then goes online only for the pages the GPUI app's web panels show; its own background requests are off (`--disable-background-networking`), and an agent's html and diagrams reach nothing (`desktop/web/src/mac/sealed.rs`). |
 | downloads.claude.ai, registry.npmjs.org | Anthropic, npm | CLI version checks and installs; `npm ci` |

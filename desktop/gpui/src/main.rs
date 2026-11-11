@@ -8,6 +8,7 @@ mod activity;
 mod activity_panels;
 mod alert;
 mod app;
+mod app_update;
 #[cfg(feature = "automation")]
 mod automation;
 mod card_run;
@@ -154,6 +155,14 @@ fn initial_bounds(settings: &Settings, cx: &App) -> Bounds<Pixels> {
 }
 
 fn main() {
+    // A build staged while the app last ran, put in place and the new app
+    // opened once this one's gone: before anything else (app_update.rs).
+    if app_update::apply_staged_at_launch() {
+        std::process::exit(0);
+    }
+    // What it was built from, for the runner to tell a thread waiting for
+    // the app to restart (docs/protocol.md, "App restarts").
+    app_update::announce_build();
     // Before anything else, to catch a panic at launch. Only the installed
     // release, and a scripted app into its own folder (crash_reporting.rs).
     crash_reporting::start();

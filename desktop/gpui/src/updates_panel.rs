@@ -25,8 +25,6 @@ use threadbear_core::new_thread::{Draft, NewThreadPicks};
 use threadbear_core::updates::{self as rules, AppSide, CliStatus, RunnerUpdates};
 use crate::tips::Tip as _;
 
-/// What the App section says, as this app doesn't update itself.
-const APP_LINE: &str = "This app doesn't update itself yet. A new build goes in with desktop/scripts/install-app.sh.";
 
 /// How long Copy says it copied.
 const COPIED_FOR: Duration = Duration::from_millis(1500);
@@ -105,9 +103,9 @@ impl Threadbear {
         self.updates_panel.runner = RunnerUpdates::decode(&params["updates"]);
     }
 
-    /// The app's side, which this app doesn't have yet.
+    /// The app's own update (app_update.rs).
     fn app_side(&self) -> AppSide {
-        AppSide::default()
+        self.app_update_side()
     }
 
     /// Something on its way for the runner or a CLI: the icon's grey dot.
@@ -286,7 +284,8 @@ impl Threadbear {
     pub(crate) fn render_updates_panel(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let fg = style::label_text(cx);
         let line = |text: String| text_line(text, 12., fg).into_any_element();
-        let mut sections = vec![section("App", vec![line(APP_LINE.to_owned())], cx)];
+        let app = self.render_app_update(cx);
+        let mut sections = vec![section("App", app, cx)];
         sections.push(section("Runner", self.render_runner_updates(cx), cx));
         let upstream = self.updates_panel.runner.as_ref().and_then(|r| r.upstream.clone());
         if let Some(text) = rules::upstream_line(upstream.as_ref()) {
@@ -300,6 +299,19 @@ impl Threadbear {
         // until 28 Oct; they're updates, not room.
         sections.push(section("CLIs", vec![self.render_clis(cx)], cx));
         panel_column("updates-panel", 14., sections)
+    }
+
+    /// The app's own update, as the Swift panel's App section: what's on its
+    /// way, with Restart to Update once it's ready, or the log once it failed.
+    fn render_app_update(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let side = self.app_side();
+        let mut out = vec![text_line(rules::app_line(&side), 12., style::label_text(cx)).into_any_element()];
+        if side.staged.is_some() {
+            out.push(h_flex().child(push_button("updates-restart", "Restart to Update", "Quit and reopen on the new version. Running threads carry on in the runner.", false, false, cx, |t, _, cx| t.restart_to_update(cx))).into_any_element());
+        } else if side.failed {
+            out.push(h_flex().child(push_button("updates-log", "Show the Log", "Open the update build's log, to see why it failed", false, false, cx, |_, _, cx| crate::open_gate::open_own(&crate::app_update::log_path(), cx))).into_any_element());
+        }
+        out
     }
 
     /// The runner's lines: not following main, its build, the threads still
@@ -474,7 +486,7 @@ impl Threadbear {
 
     /// What the panel says, a line each, in the Swift app's dump shape.
     pub(crate) fn updates_dump(&self, cx: &App) -> Value {
-        let mut lines = vec!["# App".to_owned(), APP_LINE.to_owned(), "# Runner".to_owned()];
+        let mut lines = vec!["# App".to_owned(), rules::app_line(&self.app_side()), "# Runner".to_owned()];
         match &self.updates_panel.runner {
             Some(runner) => {
                 let (build, old, launcher) = (rules::build_line(runner), rules::old_runners_line(runner), rules::launcher_line(runner));
@@ -533,12 +545,18 @@ fn section(title: &'static str, content: Vec<AnyElement>, cx: &App) -> AnyElemen
 
 /// The automation's `updates` (the Swift app's): `show` opens or closes the
 /// panel; with nothing, whether the icon has its dot, its tooltip, and what
-/// the panel says about the app and the runner. The Swift app's `preview`,
-/// `rightClick` and `popover` are about its own update, which this app
-/// doesn't do yet.
+/// the panel says about the app and the runner. `preview` makes up the app's
+/// own update first (`staged`, `building`, `failed`, `waiting` or `none`), as
+/// the Swift app's; this app has no right-click popover (`rightClick`).
 pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) -> Result<Value, String> {
-    if cmd.get("preview").is_some() || cmd.get("rightClick").is_some() || cmd.get("popover").is_some() {
-        return Err("this app doesn't update itself yet, so it has no update of its own to show".into());
+    if let Some(state) = cmd["preview"].as_str() {
+        if !["staged", "building", "failed", "waiting", "none"].contains(&state) {
+            return Err("preview is staged, building, failed, waiting or none".into());
+        }
+        app.update(cx, |t, cx| t.preview_update(state, cx));
+    }
+    if cmd.get("rightClick").is_some() || cmd.get("popover").is_some() {
+        return Err("this app has no update popover: its Updates panel and the app menu have Restart to Update".into());
     }
     if let Some(show) = cmd["show"].as_bool() {
         let shown = app.update(cx, |t, cx| {
@@ -556,7 +574,7 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) ->
     let t = app.read(cx);
     let side = t.app_side();
     let runner = t.updates_panel.runner.as_ref();
-    let mut lines = vec![format!("shown: {}", rules::shown(&side, runner)), format!("tip: {}", t.updates_tooltip().replace('\n', " / ")), APP_LINE.to_owned()];
+    let mut lines = vec![format!("shown: {}", rules::shown(&side, runner)), format!("tip: {}", t.updates_tooltip().replace('\n', " / ")), rules::app_line(&side)];
     lines.extend(rules::runner_lines(runner));
     Ok(json!(format!("ok {}", serde_json::to_string(&lines).unwrap_or_default())))
 }

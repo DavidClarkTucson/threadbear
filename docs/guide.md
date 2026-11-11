@@ -1667,6 +1667,18 @@ up to about 4 hours after the thread's last turn. If one goes on longer it's
 stopped, and the thread gets told and wakes by itself to check on it, so you'll
 see it pick back up rather than go quiet.
 
+The new desktop app (the `gpuiApp` experiment) follows `main` too, from the
+checkout you installed it from. Its build takes every core of a Mac for
+minutes, so it builds on one of your check hosts (`checkHosts` in
+`runner.json`) and only the finished app comes back. With none set it
+builds on this Mac in the background, and with them set but none
+answering, its Updates panel says it's waiting for a Mac and it tries again
+later. The new version goes in when you quit it, when you choose Restart to
+Update in its app menu or Updates panel, or by itself while you're in
+another app with nothing typed, and it opens again on the list and the
+thread you had. It has no handover yet, so its window goes for a moment and
+comes back.
+
 The Updates icon on the left-hand rail shows what's on its way for the app,
 the runner and the Claude Code and Codex tools. A grey dot means something
 is in progress and will sort itself out, and a coloured dot means it needs

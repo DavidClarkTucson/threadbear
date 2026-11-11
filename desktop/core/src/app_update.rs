@@ -70,12 +70,224 @@ pub fn bundle_of(exe: &Path) -> Option<PathBuf> {
     contents.parent().map(Path::to_path_buf)
 }
 
+// Following main (the Swift app's `AppUpdate`): what to build, and putting a
+// staged build in the installed one's place.
+
+/// `git rev-parse` for main's `desktop/` tree in a checkout: what a build of
+/// main would be made from. The build takes three files from the Swift app's
+/// folder too (two pictures and the diagram library): a change to only those
+/// comes in with the next change under desktop/, rather than every change to
+/// the Swift app's resources making a build.
+pub fn rev_parse_arguments(checkout: &str) -> Vec<String> {
+    ["-C", checkout, "rev-parse", "refs/heads/main:desktop"].map(String::from).to_vec()
+}
+
+/// The tree from `git rev-parse`'s output.
+pub fn tree_from_rev_parse(output: &str) -> String {
+    output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("+")
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Action {
+    Nothing,
+    /// Main's tree differs from what's running and nothing staged, being
+    /// built or known to fail matches it.
+    Build(String),
+    /// What's staged no longer matches main, and main is what's running
+    /// already: drop it.
+    DropStaged,
+}
+
+pub fn decide(main_tree: &str, running: &BuildInfo, staged: Option<&BuildInfo>, building: Option<&str>, failed: Option<&str>) -> Action {
+    if main_tree == running.app_tree {
+        return if staged.is_some() { Action::DropStaged } else { Action::Nothing };
+    }
+    if staged.is_some_and(|s| s.app_tree == main_tree) || building == Some(main_tree) || failed == Some(main_tree) {
+        return Action::Nothing;
+    }
+    Action::Build(main_tree.to_owned())
+}
+
+/// Puts the staged bundle in the installed one's place, in two renames so
+/// the app is gone for an instant and never half there. The old bundle (the
+/// running one, when this is done on quit) goes to `old`, to be deleted at
+/// the next launch.
+pub fn swap(install: &Path, next: &Path, old: &Path) -> std::io::Result<()> {
+    if old.exists() {
+        std::fs::remove_dir_all(old)?;
+    }
+    let had_one = install.exists();
+    if had_one {
+        std::fs::rename(install, old)?;
+    }
+    if let Err(e) = std::fs::rename(next, install) {
+        // The old one back, rather than no app at all to open.
+        if had_one {
+            let _ = std::fs::rename(old, install);
+        }
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Swaps a staged bundle in if it would change anything, and says what was
+/// swapped in. A staged bundle that matches what's running (a build that
+/// finished after the same tree went in another way), or that has no
+/// build.json, is dropped. Leftovers of an earlier swap go first.
+pub fn apply_staged(install: &Path, next: &Path, old: &Path, running: Option<&BuildInfo>) -> Result<Option<BuildInfo>, String> {
+    if old.exists() {
+        let _ = std::fs::remove_dir_all(old);
+    }
+    if !next.exists() {
+        return Ok(None);
+    }
+    let Some(staged) = BuildInfo::read(next).filter(|s| running.is_none_or(|r| r.app_tree != s.app_tree)) else {
+        let _ = std::fs::remove_dir_all(next);
+        return Ok(None);
+    };
+    swap(install, next, old).map_err(|e| format!("couldn't put {} in place: {e}", next.display()))?;
+    Ok(Some(staged))
+}
+
+/// The idle time, with the app in front, that counts as not using it.
+pub const AUTO_RESTART_IDLE_SECONDS: f64 = 5.;
+
+/// Whether to restart on its own to take a staged build: nothing typed would
+/// be lost, the threads are in, and Mike isn't in the app (another app is in
+/// front), or he hasn't touched it for a while and the restart wouldn't be
+/// seen (`in_place`: a handover with the window on screen). Running threads
+/// don't hold it up: the runner owns the turns and the app replays what it
+/// missed when it reconnects (`shouldAutoRestart`).
+pub fn should_auto_restart(staged: bool, loaded: bool, has_drafts: bool, active: bool, idle_for: f64, in_place: bool) -> bool {
+    if !staged || !loaded || has_drafts {
+        return false;
+    }
+    !active || (in_place && idle_for >= AUTO_RESTART_IDLE_SECONDS)
+}
+
+/// The update script's arguments, run at background priority (`taskpolicy
+/// -b`, as Mike asks of every build on his M5): throttled CPU and disk, off
+/// the cores he's using, inherited by everything it starts, the copy to a
+/// build host and back included.
+pub fn build_command(script: &str, checkout: &str, next: &str) -> (String, Vec<String>) {
+    ("/usr/sbin/taskpolicy".into(), ["-b", "/bin/bash", script, checkout, "--next", next].map(String::from).to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn info(origin: Option<&str>) -> BuildInfo {
         BuildInfo { origin: origin.map(str::to_owned), ..Default::default() }
+    }
+
+    fn build(short: &str, tree: &str) -> BuildInfo {
+        BuildInfo { commit: format!("{short}000"), short: short.into(), app_tree: tree.into(), configuration: "release".into(), ..Default::default() }
+    }
+
+    /// A bundle folder with a build.json and a marker file naming it.
+    fn bundle(dir: &Path, name: &str, info: &BuildInfo) -> PathBuf {
+        let url = dir.join(name);
+        std::fs::create_dir_all(url.join("Contents/Resources")).unwrap();
+        std::fs::write(BuildInfo::path_in(&url), serde_json::to_vec(info).unwrap()).unwrap();
+        std::fs::write(url.join("Contents/marker"), &info.short).unwrap();
+        url
+    }
+
+    fn marker(url: &Path) -> Option<String> {
+        std::fs::read_to_string(url.join("Contents/marker")).ok()
+    }
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tb-app-update-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_build_runs_at_background_priority() {
+        let (program, args) = build_command("/b/stage-update.sh", "/repo", "/next");
+        assert_eq!(program, "/usr/sbin/taskpolicy");
+        assert_eq!(args, ["-b", "/bin/bash", "/b/stage-update.sh", "/repo", "--next", "/next"]);
+    }
+
+    #[test]
+    fn decides_whether_to_build() {
+        let running = build("aaa", "t1");
+        assert_eq!(decide("t1", &running, None, None, None), Action::Nothing);
+        assert_eq!(decide("t2", &running, None, None, None), Action::Build("t2".into()));
+        // Already staged, being built or known to fail: leave it.
+        assert_eq!(decide("t2", &running, Some(&build("bbb", "t2")), None, None), Action::Nothing);
+        assert_eq!(decide("t2", &running, None, Some("t2"), None), Action::Nothing);
+        assert_eq!(decide("t2", &running, None, None, Some("t2")), Action::Nothing);
+        // Main moved on past a failed or staged tree: build the new one.
+        assert_eq!(decide("t3", &running, Some(&build("bbb", "t2")), None, Some("t2")), Action::Build("t3".into()));
+        // Main is back to what's running while something else is staged.
+        assert_eq!(decide("t1", &running, Some(&build("bbb", "t2")), None, None), Action::DropStaged);
+    }
+
+    #[test]
+    fn restarts_by_itself_only_when_nothing_would_be_interrupted() {
+        let idle = AUTO_RESTART_IDLE_SECONDS;
+        // Another app in front: straight away, handover or not.
+        assert!(should_auto_restart(true, true, false, false, 0., true));
+        assert!(should_auto_restart(true, true, false, false, 0., false));
+        // In front: only after a while with no input, and only unseen.
+        assert!(!should_auto_restart(true, true, false, true, idle - 1., true));
+        assert!(should_auto_restart(true, true, false, true, idle, true));
+        assert!(!should_auto_restart(true, true, false, true, idle * 100., false));
+        // Unsent words, no build or no thread list: never.
+        assert!(!should_auto_restart(true, true, true, false, idle, true));
+        assert!(!should_auto_restart(false, true, false, false, idle, true));
+        assert!(!should_auto_restart(true, false, false, false, idle, true));
+    }
+
+    #[test]
+    fn the_tree_is_desktops_from_rev_parse() {
+        assert_eq!(rev_parse_arguments("/repo"), ["-C", "/repo", "rev-parse", "refs/heads/main:desktop"]);
+        assert_eq!(tree_from_rev_parse("aaa111\n"), "aaa111");
+    }
+
+    #[test]
+    fn swap_puts_the_staged_bundle_in_place_and_keeps_the_old() {
+        let dir = temp("swap");
+        let install = bundle(&dir, "Threadbear GPUI.app", &build("aaa", "t1"));
+        let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("bbb", "t2"));
+        let old = dir.join(".Threadbear GPUI.app.old");
+        swap(&install, &next, &old).unwrap();
+        assert_eq!(marker(&install).as_deref(), Some("bbb"));
+        assert_eq!(marker(&old).as_deref(), Some("aaa"));
+        assert!(!next.exists());
+        // A swap that can't finish puts the installed one back.
+        assert!(swap(&install, &dir.join("gone.app"), &old).is_err());
+        assert_eq!(marker(&install).as_deref(), Some("bbb"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_staged_swaps_only_a_different_build() {
+        let dir = temp("apply");
+        let install = bundle(&dir, "Threadbear GPUI.app", &build("aaa", "t1"));
+        let old = dir.join(".Threadbear GPUI.app.old");
+        // The same tree as what's running: dropped, nothing swapped.
+        let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("aab", "t1"));
+        assert_eq!(apply_staged(&install, &next, &old, Some(&build("aaa", "t1"))), Ok(None));
+        assert!(!next.exists());
+        assert_eq!(marker(&install).as_deref(), Some("aaa"));
+        // A leftover from an earlier swap is cleared, and a new build goes in.
+        bundle(&dir, ".Threadbear GPUI.app.old", &build("zzz", "t0"));
+        let next = bundle(&dir, ".Threadbear GPUI.app.next", &build("bbb", "t2"));
+        assert_eq!(apply_staged(&install, &next, &old, Some(&build("aaa", "t1"))).unwrap().map(|b| b.short), Some("bbb".to_owned()));
+        assert_eq!(marker(&install).as_deref(), Some("bbb"));
+        assert_eq!(marker(&old).as_deref(), Some("aaa"));
+        // Nothing staged: nothing happens.
+        assert_eq!(apply_staged(&install, &next, &old, Some(&build("bbb", "t2"))), Ok(None));
+        // A staged folder with no build.json is dropped.
+        std::fs::create_dir_all(&next).unwrap();
+        assert_eq!(apply_staged(&install, &next, &old, Some(&build("bbb", "t2"))), Ok(None));
+        assert!(!next.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // Only a build of Mike's own repo reports to his Sentry.

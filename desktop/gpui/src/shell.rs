@@ -268,6 +268,7 @@ actions!(
         CollapseThreads,
         ToggleFrameRate,
         AboutApp,
+        RestartToUpdate,
         TakeTheTour,
         FinishSettingUp,
         HibernateHour,
@@ -347,6 +348,7 @@ commands!(
     (CollapseThreads, CollapseThreads, Some(ShortcutCommand::CollapseThreads)),
     (ToggleFrameRate, ToggleFrameRate, None),
     (About, AboutApp, None),
+    (RestartToUpdate, RestartToUpdate, None),
     (TakeTheTour, TakeTheTour, None),
     (FinishSettingUp, FinishSettingUp, None),
     (HibernateHour, HibernateHour, None),
@@ -671,6 +673,7 @@ impl Threadbear {
             Command::CollapseThreads => self.toggle_threads_collapsed(cx),
             Command::ToggleFrameRate => self.toggle_frame_rate(window, cx),
             Command::About => window.push_notification("Threadbear (GPUI)", cx),
+            Command::RestartToUpdate => self.restart_to_update(cx),
             Command::TakeTheTour | Command::FinishSettingUp => window.push_notification("That isn't in this app yet.", cx),
             Command::HibernateHour => self.hibernate_open("hour", window, cx),
             Command::HibernateEvening => self.hibernate_open("evening", window, cx),
@@ -1081,20 +1084,26 @@ impl Threadbear {
         let busy = t.is_some_and(|t| t.busy());
         use MenuEntry::*;
         let item = |title: &str, command: Command| MenuEntry::item(title, command);
+        // Restart to Update is there only while a newer build is staged
+        // (app_update.rs), under About, as the Swift app has it.
+        let restart = self.updater.staged.as_ref().map(|s| item(&format!("Restart to Update to {}", s.short), Command::RestartToUpdate));
         vec![
             TopMenu::new(
                 "Threadbear",
-                vec![
-                    item("About Threadbear", Command::About),
-                    Separator,
-                    item("Settings…", Command::Settings),
-                    Separator,
-                    item("Hide Threadbear", Command::Hide),
-                    item("Hide Others", Command::HideOthers),
-                    item("Show All", Command::ShowAll),
-                    Separator,
-                    item("Quit Threadbear", Command::Quit),
-                ],
+                [item("About Threadbear", Command::About)]
+                    .into_iter()
+                    .chain(restart)
+                    .chain([
+                        Separator,
+                        item("Settings…", Command::Settings),
+                        Separator,
+                        item("Hide Threadbear", Command::Hide),
+                        item("Hide Others", Command::HideOthers),
+                        item("Show All", Command::ShowAll),
+                        Separator,
+                        item("Quit Threadbear", Command::Quit),
+                    ])
+                    .collect(),
             ),
             TopMenu::new("File", vec![item("New Thread", Command::NewThread)]),
             TopMenu::new(

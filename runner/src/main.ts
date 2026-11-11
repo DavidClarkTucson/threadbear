@@ -972,7 +972,7 @@ async function main(): Promise<void> {
     gate: new CallerGate({ runner, remote: peers, schedules: scheduler }),
     callerOfPort: (port) => threadOfPort(port, { registry, known: (id) => runner.has(id) || peers.owns(id), log }),
     updates: () => (draining ? undefined : runnerUpdates()),
-    appHello: (build) => appRestarts.appHello(build),
+    appHello: (build, app) => appRestarts.appHello(build, app),
     helloNotices: () => {
       // Like a missing claude: said to every client, until it's there.
       const noCodex = missingCodex(updates.codexBinary(), cfg);

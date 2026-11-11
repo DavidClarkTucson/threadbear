@@ -258,6 +258,78 @@ built parsers and gates with no launch of the app, which is the trap.)
   click within a second opened too, and a `blob:` page loaded). The GPUI
   app's web-panels.feature, 13 of 13, twice in a row on Tinker Desk's
   desktop; the web crate's tests.
+### 2026-11-11 The app following main, built on a check host (`system.selfupdate`)
+
+- The installed app (the release build at `~/Applications/Threadbear
+  GPUI.app`, not scripted) follows the main of the checkout it was installed
+  from, as the Swift app's AppUpdater does: 20 seconds after launch, every 5
+  minutes, and 3 seconds after the checkout's refs change, it reads main's
+  `desktop/` tree, and when that isn't what's running (nor what's staged,
+  being built, or failed last time) it runs `stage-update.sh` from its own
+  bundle under `taskpolicy -b`. `followMain: false` stops it.
+- Where it builds, chosen for Mike's M5: the release build takes every core
+  for 6 to 10 minutes, so `desktop/scripts/stage-update.sh` builds on the
+  first of runner.json's `checkHosts` that's a Mac and answers (Tinker Desk
+  for Mike), through `remote.sh` as `install-app.sh --build-on` does, from a
+  clone of main under `~/Library/Caches/Threadbear/update-desktop` (only
+  what's committed on main, never a checkout's work in progress), copies the
+  two binaries back and makes the bundle here with `make-bundle.sh`, signed
+  with this Mac's identity, into `~/Applications/.Threadbear GPUI.app.next`.
+  With check hosts set and none answering (or the one building it going away
+  or short of disk) it builds nothing: the Updates panel says "waiting for a
+  Mac" and the next look tries again. Only with no check hosts at all (other
+  people's copies) does it build here, at background priority, as the Swift
+  app's update does. One build at a time; a lock left by a run that died is
+  taken over.
+- Swapping in, as the Swift app: quitting puts the staged bundle in place in
+  two renames (the old one back if the second fails), so the next launch is
+  the new app; a launch that finds one staged (the app was killed) swaps it
+  in and opens again. Restart to Update in the app menu (only while one is
+  staged, "Restart to Update to <short>") and in the Updates panel does it
+  now, and the app does it by itself once it's staged, the threads are in,
+  nothing's typed in a box or a schedule editor, and Mike is in another app:
+  it opens again behind his app (`open -g`) on the sidebar's view and the
+  thread he had. A swap that fails at launch stops it following main for
+  that run, rather than restarting into the same failure.
+- The Updates panel's App section says what's coming (building, ready with
+  Restart to Update, failed with Show the Log, waiting for a Mac) and why an
+  installed app isn't following (one installed before it could, which needs
+  `install-app.sh` once more). `updates` with `preview` makes one up, with
+  `waiting` too.
+- The app says its build in hello (`build`, desktop/'s tree), and the runner
+  now follows the two apps' builds apart (`runner/src/app-restarts.ts`), so
+  `wait_for_app_restart` hears "Threadbear GPUI app restarted" and the Swift
+  app reconnecting isn't taken for it.
+- Not the same: no handover (`system.handover`). The Swift app starts the
+  new build under its own window so nothing flickers; GPUI gives no hold of
+  its NSWindow's ordering and alpha, and the restore here is the sidebar's
+  view and the open thread, not the scroll place, so the window goes and
+  comes back. That's why it restarts by itself only while it isn't in front,
+  and never on a timer while Mike's in it. No right-click popover on the
+  Updates icon either: the panel and the app menu have Restart to Update.
+- Files: `desktop/core/src/app_update.rs` (the rules), `desktop/gpui/src/
+  app_update.rs` and `desktop/scripts/stage-update.sh` (new), `make-bundle.sh`
+  (the script goes in the bundle), a few lines each in `main.rs`, `app.rs`,
+  `settings.rs`, `shell.rs`, `updates_panel.rs`, core's `updates.rs` and
+  `open_gate_source.rs`, the client's `runner.rs` (hello's build), the
+  runner's `app-restarts.ts`, `rpc.ts` and `main.ts` with their tests,
+  `features/updates.feature`, `docs/protocol.md`, `docs/guide.md`,
+  `docs/on-your-mac.md`, `docs/forking.md`, `AGENTS.md`.
+- Verification: on Tinker Desk's desktop, a release build in a throwaway
+  bundle (THREADBEAR_GPUI_APP_DIR) following a made-up checkout, on the mock
+  runner, with a stand-in update script: launched in front it followed main
+  and, once main moved, built at background priority and staged without
+  restarting; with Finder in front it restarted by itself behind it, swapped
+  in at quit and opened again on the new build, following main again; once
+  more for main's third tree; and killed with a build staged, the next
+  launch swapped it in and opened again (the update log has each step). The
+  app menu's item couldn't be clicked there (System Events isn't allowed to
+  script Tinker Desk), so it's the spec: updates.feature's three
+  `@system.selfupdate` scenarios on the GPUI app (the panel's line, waiting
+  for a Mac, Restart to Update in the app menu) and the first on the Swift
+  app, with `@updates.panel` on both; core's tests (app_update 9, updates);
+  the runner's app-restarts tests (12, 3 new).
+
 ### 2026-11-11 The Swift app's settings and drafts, brought across once (`system.swiftimport`)
 
 - The first time the app opens on the real data folder, it reads the Swift

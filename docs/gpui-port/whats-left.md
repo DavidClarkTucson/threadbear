@@ -134,8 +134,10 @@ you go.
 
 ## Before other people move over
 
-- [ ] The app updating itself, and a seamless restart onto a new build
-  (`system.selfupdate`, `system.handover`)
+- [x] The app updating itself (`system.selfupdate`)
+- [ ] A seamless restart onto a new build (`system.handover`): the window
+  goes and comes back for now, so the app only restarts by itself while
+  it isn't in front
 - [x] Crash reports to Sentry, and the hang watch (`system.crash`,
   `system.hangwatch`)
 - [x] The activity log (`system.activitylog`, `foundation.tooltips`)

@@ -90,6 +90,11 @@ with open(path, "w") as f:
     }, f, indent=2)
 PY
 
+# The update script, so the app runs the copy it was built with
+# (desktop/gpui/src/app_update.rs).
+cp "$root/desktop/scripts/stage-update.sh" "$bundle/Contents/Resources/stage-update.sh"
+chmod +x "$bundle/Contents/Resources/stage-update.sh"
+
 # Signed with the first Apple Development identity, as the Swift app is, so
 # the app keeps the same identity from one build to the next and macOS's
 # privacy permissions stick. Ad hoc otherwise, with the designated

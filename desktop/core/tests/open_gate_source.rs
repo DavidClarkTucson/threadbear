@@ -44,10 +44,16 @@ const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs
 /// The hang watch runs macOS's `sample` on the app itself, inside
 /// `sandbox-exec` with core's fixed profile (hang_sample.rs), and nothing else.
 /// The first launch reads the Swift app's settings with `defaults export` of
-/// its own domain, once (swift_import.rs).
+/// its own domain, once (swift_import.rs). The self-update (app_update.rs)
+/// reads main's tree with git, runs the update script from the app's own
+/// bundle under `taskpolicy -b`, and opens the installed app again once this
+/// one has quit: fixed programs, on the app's own checkout and bundle.
 const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/src/terminal.rs", "let pty = tty::new(&options, self.size.window_size(), 0)?;", 1),
     ("gpui/src/hang_watch.rs", "let mut sample = Command::new(\"/usr/bin/sandbox-exec\");", 1),
+    ("gpui/src/app_update.rs", "let started = Command::new(\"/bin/sh\").arg(\"-c\").arg(wait).arg(\"sh\").args(open).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();", 1),
+    ("gpui/src/app_update.rs", "let out = Command::new(\"/usr/bin/git\").args(rules::rev_parse_arguments(checkout)).stdin(Stdio::null()).output().ok()?;", 1),
+    ("gpui/src/app_update.rs", "let child = Command::new(program).args(arguments).current_dir(installed::home_dir()).stdin(Stdio::null()).stdout(out).stderr(err).spawn();", 1),
     ("gpui/src/swift_import.rs", "let out = Command::new(\"/usr/bin/defaults\").args([\"export\", \"com.mikerosoft.threadbear\", \"-\"]).stderr(Stdio::null()).output().ok()?;", 1),
 ];
 

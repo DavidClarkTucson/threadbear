@@ -19,6 +19,16 @@ const CLIENT_NAME: &str = "threadbear-desktop";
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// What the app was built from, for hello's `build` (docs/protocol.md, "App
+/// restarts"): set once at launch by the installed app, so the runner can
+/// tell a thread waiting for the app to restart when it's back on a new
+/// build. Any other launch sends none.
+static HELLO_BUILD: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+
+pub fn set_hello_build(build: Value) {
+    let _ = HELLO_BUILD.set(build);
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Status {
@@ -215,7 +225,10 @@ impl Client {
         let me = self.clone();
         let url_owned = url.to_string();
         let hello = tokio::spawn(async move {
-            let params = json!({ "client": CLIENT_NAME, "version": env!("CARGO_PKG_VERSION") });
+            let mut params = json!({ "client": CLIENT_NAME, "version": env!("CARGO_PKG_VERSION") });
+            if let Some(build) = HELLO_BUILD.get() {
+                params["build"] = build.clone();
+            }
             match me.call("hello", params).await {
                 Ok(hello) => me.set_status(Status::Connected { url: url_owned, hello }),
                 Err(e) => eprintln!("hello failed: {}", e.message),

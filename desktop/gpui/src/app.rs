@@ -88,6 +88,8 @@ pub struct Threadbear {
     pub(crate) inbox_end_note: Option<InboxEndNote>,
     /// What came across from the Swift app, while its note's up (swift_import.rs).
     pub(crate) import_note: Option<String>,
+    /// Following main: what's running, staged, building (app_update.rs).
+    pub(crate) updater: crate::app_update::AppUpdater,
     pub(crate) note_counter: u64,
     pub(crate) note_task: Option<Task<()>>,
     pub(crate) archived_task: Option<Task<()>>,
@@ -296,6 +298,8 @@ impl Threadbear {
             }
             // The activity log's last line (activity.rs).
             crate::activity::quit();
+            // A staged build into the installed one's place (app_update.rs).
+            this.apply_update_at_quit();
             async {}
         });
         // A thread is read once Mike's looking at it (AppModel.isLooking,
@@ -368,6 +372,7 @@ impl Threadbear {
             archived_note: None,
             inbox_end_note: None,
             import_note: None,
+            updater: Default::default(),
             note_counter: 0,
             note_task: None,
             archived_task: None,
@@ -428,6 +433,10 @@ impl Threadbear {
         // Records nothing unless it's switched on in Settings (activity.rs).
         let showing = crate::activity::showing(this.dock.read(cx).layout());
         crate::activity::install(cx.entity().downgrade(), window.window_handle(), &RunnerConfig::from_env().home, this.settings.saved.activity_log == Some(true), showing, cx);
+        // Following main, and back to where it was after a restart the app
+        // made itself for an update (app_update.rs).
+        this.start_updater(cx);
+        this.restore_after_update(cx);
         // The window starts on the Inbox with nothing open (`noteNavigation`
         // on launch), so Back from the first thread comes back here.
         this.note_navigation();
