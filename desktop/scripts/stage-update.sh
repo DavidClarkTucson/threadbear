@@ -112,10 +112,15 @@ if [[ -n "$HOSTS" ]]; then
   # pipefail, so a failed build fails here rather than handing back the last
   # good build's binaries.
   rc=0
+  # This Mac's own id in the folders' key on the host (remote.sh): the clone's
+  # path is the same on every Mac with the same user name.
+  THREADBEAR_REMOTE_KEY="$(ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F'"' '/IOPlatformUUID/ { print $4; exit }')"
+  export THREADBEAR_REMOTE_KEY="${THREADBEAR_REMOTE_KEY:-$(hostname)}"
   "$SRC/desktop/scripts/remote.sh" "$HOST" -- bash -c "set -o pipefail; cd desktop && nice cargo build --release -p threadbear-gpui --features $FEATURES 2>&1 | tail -3" || rc=$?
   [[ "$rc" == 0 ]] || remote_failed "$rc"
-  # remote.sh keeps each checkout's target under its own key: this clone's.
-  key="$(printf '%s' "$(cd "$SRC" && pwd)" | shasum | cut -c1-10)"
+  # remote.sh keeps each checkout's target under its own key: this clone's,
+  # with this Mac's id, worked out as it does.
+  key="$(printf '%s%s' "$(cd "$SRC" && pwd)" "@$THREADBEAR_REMOTE_KEY" | shasum | cut -c1-10)"
   for bin in threadbear-gpui threadbear-web-helper; do
     scp -q "$HOST:.cache/threadbear-check/gpui/target-$key/release/$bin" "$BINS/$bin" || remote_failed "$?"
   done

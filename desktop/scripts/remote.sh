@@ -28,7 +28,12 @@ if [ "${1:-}" = "--desk" ]; then desk=1; shift; fi
 [ $# -gt 0 ] || { echo "no command given" >&2; exit 2; }
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 base=".cache/threadbear-check/gpui"
-key="$(printf '%s' "$root" | shasum | cut -c1-10)"
+# Each checkout's folders there are its own, by its path here. A caller whose
+# path is the same on every Mac (the app's update clone, under the same cache
+# folder for anyone with the same user name) adds THREADBEAR_REMOTE_KEY, this
+# Mac's own id, so two Macs sharing a host never build in each other's
+# folders (Codex's review, 12 Nov). stage-update.sh works out the same key.
+key="$(printf '%s%s' "$root" "${THREADBEAR_REMOTE_KEY:+@$THREADBEAR_REMOTE_KEY}" | shasum | cut -c1-10)"
 src="$base/src-$key"
 target="$base/target-$key"
 

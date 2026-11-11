@@ -108,26 +108,61 @@ pub fn decide(main_tree: &str, running: &BuildInfo, staged: Option<&BuildInfo>, 
     Action::Build(main_tree.to_owned())
 }
 
-/// Puts the staged bundle in the installed one's place, in two renames so
-/// the app is gone for an instant and never half there. The old bundle (the
-/// running one, when this is done on quit) goes to `old`, to be deleted at
-/// the next launch.
+/// Puts the staged bundle in the installed one's place in one exchange, so
+/// there's never a moment with no app there: two renames left none if the
+/// app was killed between them (Codex's review, 12 Nov). The old bundle (the
+/// running one, when this is done on quit) then goes to `old`, to be deleted
+/// at the next launch. Killed before that, the old one is left staged, and
+/// `apply_staged` won't put an older build back.
 pub fn swap(install: &Path, next: &Path, old: &Path) -> std::io::Result<()> {
     if old.exists() {
         std::fs::remove_dir_all(old)?;
     }
-    let had_one = install.exists();
-    if had_one {
-        std::fs::rename(install, old)?;
+    if !install.exists() {
+        return std::fs::rename(next, install);
     }
-    if let Err(e) = std::fs::rename(next, install) {
-        // The old one back, rather than no app at all to open.
-        if had_one {
-            let _ = std::fs::rename(old, install);
-        }
+    exchange(next, install)?;
+    std::fs::rename(next, old)
+}
+
+/// Swaps what two paths name, at once.
+#[cfg(target_os = "macos")]
+fn exchange(a: &Path, b: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let a = std::ffi::CString::new(a.as_os_str().as_bytes())?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: two NUL-terminated paths that live until the call returns.
+    if unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn exchange(a: &Path, b: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let a = std::ffi::CString::new(a.as_os_str().as_bytes())?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: two NUL-terminated paths that live until the call returns.
+    if unsafe { libc::renameat2(libc::AT_FDCWD, a.as_ptr(), libc::AT_FDCWD, b.as_ptr(), libc::RENAME_EXCHANGE) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Elsewhere (Windows has its own way in), two renames, putting the old one
+/// back if the second fails.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn exchange(a: &Path, b: &Path) -> std::io::Result<()> {
+    let aside = b.with_extension("swapping");
+    std::fs::rename(b, &aside)?;
+    if let Err(e) = std::fs::rename(a, b) {
+        let _ = std::fs::rename(&aside, b);
         return Err(e);
     }
-    Ok(())
+    std::fs::rename(&aside, a)
 }
 
 /// Swaps a staged bundle in if it would change anything, and says what was
@@ -141,12 +176,20 @@ pub fn apply_staged(install: &Path, next: &Path, old: &Path, running: Option<&Bu
     if !next.exists() {
         return Ok(None);
     }
-    let Some(staged) = BuildInfo::read(next).filter(|s| running.is_none_or(|r| r.app_tree != s.app_tree)) else {
+    // Not what's running, and not older than it: an old bundle can be left
+    // staged by a swap killed half done.
+    let Some(staged) = BuildInfo::read(next).filter(|s| running.is_none_or(|r| r.app_tree != s.app_tree && !older(s, r))) else {
         let _ = std::fs::remove_dir_all(next);
         return Ok(None);
     };
     swap(install, next, old).map_err(|e| format!("couldn't put {} in place: {e}", next.display()))?;
     Ok(Some(staged))
+}
+
+/// Built before `than`, by their `built_at` times (ISO, so they sort as
+/// strings); unknown either side counts as not older.
+fn older(build: &BuildInfo, than: &BuildInfo) -> bool {
+    !build.built_at.is_empty() && !than.built_at.is_empty() && build.built_at < than.built_at
 }
 
 /// The idle time, with the app in front, that counts as not using it.
@@ -259,7 +302,8 @@ mod tests {
         assert_eq!(marker(&install).as_deref(), Some("bbb"));
         assert_eq!(marker(&old).as_deref(), Some("aaa"));
         assert!(!next.exists());
-        // A swap that can't finish puts the installed one back.
+        // A swap that can't happen leaves the installed one where it is: the
+        // exchange is one step, done or not.
         assert!(swap(&install, &dir.join("gone.app"), &old).is_err());
         assert_eq!(marker(&install).as_deref(), Some("bbb"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -287,6 +331,16 @@ mod tests {
         std::fs::create_dir_all(&next).unwrap();
         assert_eq!(apply_staged(&install, &next, &old, Some(&build("bbb", "t2"))), Ok(None));
         assert!(!next.exists());
+        // An older build left staged (a swap killed after its exchange, before
+        // its last rename) isn't put back over a newer one.
+        let mut older = build("ccc", "t3");
+        older.built_at = "2026-11-11T10:00:00Z".into();
+        let mut newer = build("bbb", "t2");
+        newer.built_at = "2026-11-12T10:00:00Z".into();
+        let next = bundle(&dir, ".Threadbear GPUI.app.next", &older);
+        assert_eq!(apply_staged(&install, &next, &old, Some(&newer)), Ok(None));
+        assert!(!next.exists());
+        assert_eq!(marker(&install).as_deref(), Some("bbb"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

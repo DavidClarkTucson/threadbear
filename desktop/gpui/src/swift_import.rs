@@ -27,7 +27,7 @@ pub(crate) fn run_once(settings: &mut Settings, cx: &App) -> Option<String> {
         return None;
     }
     let xml = match &stand_in {
-        Some(file) => std::fs::read_to_string(file).ok(),
+        Some(file) => read_some(Path::new(file)).ok().flatten().map(|d| String::from_utf8_lossy(&d).into_owned()),
         None => export(),
     };
     let defaults = match xml.as_deref().and_then(rules::parse_plist) {
@@ -43,14 +43,41 @@ pub(crate) fn run_once(settings: &mut Settings, cx: &App) -> Option<String> {
     }
     let home = settings.path().parent().map(Path::to_path_buf);
     let mut drafts = 0;
+    let mut failed = None;
     if let Some(home) = &home {
-        drafts = bring_drafts(home);
-        filled.extend(bring_side_files(home, &defaults));
+        match bring_drafts(home) {
+            Ok(count) => drafts = count,
+            Err(e) => failed = Some(e),
+        }
+        match bring_side_files(home, &defaults) {
+            Ok(keys) => filled.extend(keys),
+            Err(e) => failed = Some(e),
+        }
     }
-    // Once: done, whatever came, so a setting changed here later stays.
-    settings.saved.swift_import = Some(threadbear_core::inbox::iso_time(crate::now_ms()));
+    // Once: done, so a setting changed here later stays. Not if something
+    // couldn't be read or written, as that may go next time; trying again
+    // only fills what's still missing, so it's safe to repeat.
+    match failed {
+        None => settings.saved.swift_import = Some(threadbear_core::inbox::iso_time(crate::now_ms())),
+        Some(e) => eprintln!("threadbear: bringing the Swift app's settings across will try again next launch: {e}"),
+    }
     settings.save();
     rules::note(&filled, drafts)
+}
+
+/// The most of a file or of the Swift app's settings that's read: anything
+/// bigger isn't something either app wrote, so it's left where it is.
+const MOST_BYTES: u64 = 8 * 1024 * 1024;
+
+/// `path`'s bytes, None when there's none or it's too big to be real, and an
+/// error when it's there but couldn't be read.
+fn read_some(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match std::fs::metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("couldn't look at {}: {e}", path.display())),
+        Ok(meta) if meta.len() > MOST_BYTES => Ok(None),
+        Ok(_) => std::fs::read(path).map(Some).map_err(|e| format!("couldn't read {}: {e}", path.display())),
+    }
 }
 
 /// The Swift app's settings as an XML property list, through cfprefsd, so
@@ -59,7 +86,7 @@ pub(crate) fn run_once(settings: &mut Settings, cx: &App) -> Option<String> {
 fn export() -> Option<String> {
     use std::process::{Command, Stdio};
     let out = Command::new("/usr/bin/defaults").args(["export", "com.mikerosoft.threadbear", "-"]).stderr(Stdio::null()).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    (out.status.success() && out.stdout.len() as u64 <= MOST_BYTES).then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -70,38 +97,33 @@ fn export() -> Option<String> {
 /// The Swift app's `app-drafts.json` into this app's `desktop-drafts.json`,
 /// where a box is empty here, written as drafts.rs writes it (core's
 /// private_file.rs: whole, and only Mike's account can read it).
-fn bring_drafts(home: &Path) -> usize {
-    let Some(swift) = std::fs::read(home.join("app-drafts.json")).ok().and_then(|d| serde_json::from_slice::<Value>(&d).ok()) else { return 0 };
+fn bring_drafts(home: &Path) -> Result<usize, String> {
+    // A file that isn't JSON won't be by next time, so it's nothing to bring.
+    let Some(swift) = read_some(&home.join("app-drafts.json"))?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()) else { return Ok(0) };
     let path = home.join("desktop-drafts.json");
-    let mut current = std::fs::read(&path).ok().and_then(|d| serde_json::from_slice::<Value>(&d).ok()).and_then(|v| v.as_object().cloned()).unwrap_or_default();
+    let mut current = read_some(&path)?.and_then(|d| serde_json::from_slice::<Value>(&d).ok()).and_then(|v| v.as_object().cloned()).unwrap_or_default();
     let count = rules::fill_drafts(&mut current, &swift);
     if count > 0 {
-        if let Ok(data) = serde_json::to_vec(&Value::Object(current)) {
-            if let Err(e) = threadbear_core::private_file::write(&path, &data) {
-                eprintln!("threadbear: couldn't bring the Swift app's drafts across: {e}");
-                return 0;
-            }
-        }
+        let data = serde_json::to_vec(&Value::Object(current)).map_err(|e| e.to_string())?;
+        threadbear_core::private_file::write(&path, &data).map_err(|e| format!("couldn't bring the Swift app's drafts across: {e}"))?;
     }
-    count
+    Ok(count)
 }
 
 /// The small files this app keeps the rest in, made from the Swift app's
 /// defaults when this app hasn't one yet. Says the keys that came.
-fn bring_side_files(home: &Path, defaults: &std::collections::BTreeMap<String, Plist>) -> Vec<String> {
+fn bring_side_files(home: &Path, defaults: &std::collections::BTreeMap<String, Plist>) -> Result<Vec<String>, String> {
     let mut filled = Vec::new();
     for (file, value, key) in rules::side_files(defaults) {
         let path = home.join(file);
         if path.exists() {
             continue;
         }
-        if let Ok(text) = serde_json::to_string_pretty(&value) {
-            if threadbear_core::private_file::write(&path, text.as_bytes()).is_ok() {
-                filled.push(key.to_owned());
-            }
-        }
+        let text = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+        threadbear_core::private_file::write(&path, text.as_bytes()).map_err(|e| format!("couldn't write {}: {e}", path.display()))?;
+        filled.push(key.to_owned());
     }
-    filled
+    Ok(filled)
 }
 
 impl Threadbear {

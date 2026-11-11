@@ -88,7 +88,7 @@ fn hook(info: &std::panic::PanicHookInfo<'_>) {
     let location = info.location().map(|l| format!("{}:{}:{}", report::clean_location(l.file()), l.line(), l.column())).unwrap_or_default();
     let main_thread = std::thread::current().name() == Some("main");
     let frames = report::backtrace_frames(&std::backtrace::Backtrace::force_capture().to_string());
-    let record = PanicRecord { at: threadbear_core::inbox::iso_time(crate::now_ms()), build: r.build.clone(), main_thread, message: report::scrub(&message), location, frames, reported: false };
+    let record = PanicRecord { at: threadbear_core::inbox::iso_time(crate::now_ms()), build: r.build.clone(), main_thread, message: report::safe_message(&message), location, frames, reported: false };
     let name = format!("panic-{}-{:03}", threadbear_core::chrono::Local::now().format("%Y-%m-%d-%H%M%S"), next_number());
     if write_record(&r.folder, &name, &record).is_ok() && !main_thread {
         // The app carries on: sent now rather than at the next launch.

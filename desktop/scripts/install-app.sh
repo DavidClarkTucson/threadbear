@@ -43,7 +43,10 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/threadbear-gpui-XXXX")"
 trap 'rm -rf "$work"' EXIT
 
 if [ -n "$build_on" ]; then
-  "$root/desktop/scripts/remote.sh" "$build_on" -- bash -c "cd desktop && nice cargo build --release -p threadbear-gpui --features $features 2>&1 | tail -2"
+  # pipefail, so a build that fails stops here rather than passing on tail's
+  # success and copying the last good build's binaries under this commit's
+  # name (Codex's review, 12 Nov).
+  "$root/desktop/scripts/remote.sh" "$build_on" -- bash -c "set -o pipefail; cd desktop && nice cargo build --release -p threadbear-gpui --features $features 2>&1 | tail -2"
   key="$(printf '%s' "$root" | shasum | cut -c1-10)"
   # The app and its web helper, which the same build makes (desktop/gpui/Cargo.toml).
   for bin in threadbear-gpui threadbear-web-helper; do

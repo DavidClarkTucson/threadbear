@@ -163,7 +163,7 @@ pub fn envelope(dsn: &str, event: &Value, sent_at: &str) -> Vec<u8> {
 
 /// A panic as the hook keeps it until it's sent, in the crashes folder, a
 /// file each (`panic-<time>.json`), with nothing in it that isn't safe to
-/// send: `message` is already scrubbed.
+/// send: `message` is already `safe_message`'s.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PanicRecord {
@@ -177,65 +177,71 @@ pub struct PanicRecord {
     pub reported: bool,
 }
 
-/// A panic's message, safe to send: anything in double quotes (a value's
-/// Debug text, a file's name) and anything that looks like a path goes, and
-/// it's cut at 300 characters. Numbers and the panic's own words stay: "index
-/// out of bounds: the len is 3 but the index is 5" says what went wrong.
-pub fn scrub(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        if c != '"' {
-            out.push(c);
-            continue;
-        }
-        let mut escaped = false;
-        for d in chars.by_ref() {
-            match (escaped, d) {
-                (true, _) => escaped = false,
-                (false, '\\') => escaped = true,
-                (false, '"') => break,
-                _ => {}
-            }
-        }
-        out.push_str("\"…\"");
+/// A panic's message, as much as is safe to send: Rust's own wording for
+/// the panics it raises itself, with their numbers, and "panic" for any
+/// other. A panic's text can hold anything the code put in it (a title, a
+/// path, a reply's words), and scrubbing free text can't be sure it got it
+/// all: "couldn't open /Users/mike/Secret Project/clients.csv" kept
+/// "Project/clients.csv" (Codex's review, 12 Nov). Where it happened, the
+/// location and the frames, says the rest.
+pub fn safe_message(text: &str) -> String {
+    let first = text.lines().next().unwrap_or("").trim();
+    // Fixed wording, kept up to where the panic's own values would start.
+    const FIXED: &[&str] = &[
+        "called `Option::unwrap()` on a `None` value",
+        "called `Result::unwrap()` on an `Err` value",
+        "called `Result::unwrap_err()` on an `Ok` value",
+        "called `Option::expect()` on a `None` value",
+        "attempt to add with overflow",
+        "attempt to subtract with overflow",
+        "attempt to multiply with overflow",
+        "attempt to divide by zero",
+        "attempt to divide with overflow",
+        "attempt to calculate the remainder with a divisor of zero",
+        "attempt to calculate the remainder with overflow",
+        "attempt to negate with overflow",
+        "attempt to shift left with overflow",
+        "attempt to shift right with overflow",
+        "already borrowed",
+        "already mutably borrowed",
+        "explicit panic",
+        "internal error: entered unreachable code",
+        "not yet implemented",
+        "not implemented",
+        "assertion `left == right` failed",
+        "assertion `left != right` failed",
+        "assertion failed",
+    ];
+    if let Some(fixed) = FIXED.iter().find(|f| first.starts_with(**f)) {
+        return (*fixed).to_owned();
     }
-    let out = scrub_paths(&out);
-    let mut cut: String = out.chars().take(300).collect();
-    if out.chars().count() > 300 {
-        cut.push('…');
-    }
-    cut
+    // Wording with numbers in it, where `#` is a number.
+    const NUMBERED: &[&str] = &[
+        "index out of bounds: the len is # but the index is #",
+        "range end index # out of range for slice of length #",
+        "range start index # out of range for slice of length #",
+        "slice index starts at # but ends at #",
+        "byte index # is not a char boundary",
+        "byte index # is out of bounds",
+    ];
+    NUMBERED.iter().find_map(|pattern| numbered_prefix(first, pattern)).unwrap_or_else(|| "panic".to_owned())
 }
 
-/// "/Users/me/dev/x.txt" and "~/x/y" to "<path>": a word that starts with a
-/// slash and has another one in it, or starts with "~/".
-fn scrub_paths(text: &str) -> String {
-    const STARTS: &[char] = &[' ', '\t', '\n', '(', '[', '{', '=', ':', ',', '\'', '`'];
-    const ENDS: &[char] = &[' ', '\t', '\n', ')', ']', '}', ',', '\'', '`', '"'];
-    let mut out = String::with_capacity(text.len());
+/// `text`'s start if it's `pattern` with a number at each `#`.
+fn numbered_prefix(text: &str, pattern: &str) -> Option<String> {
     let mut rest = text;
-    let mut at_start = true;
-    while let Some(c) = rest.chars().next() {
-        if at_start && (c == '/' || rest.starts_with("~/")) {
-            let mut end = rest.find(ENDS).unwrap_or(rest.len());
-            // A sentence's own stop or colon after the path stays.
-            while end > 1 && matches!(rest.as_bytes()[end - 1], b':' | b'.' | b';' | b'!' | b'?') {
-                end -= 1;
+    let mut parts = pattern.split('#').peekable();
+    while let Some(part) = parts.next() {
+        rest = rest.strip_prefix(part)?;
+        if parts.peek().is_some() {
+            let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+            if digits == 0 {
+                return None;
             }
-            let word = &rest[..end];
-            if word.starts_with("~/") || word[1..].contains('/') {
-                out.push_str("<path>");
-                rest = &rest[end..];
-                at_start = false;
-                continue;
-            }
+            rest = &rest[digits..];
         }
-        out.push(c);
-        at_start = STARTS.contains(&c);
-        rest = &rest[c.len_utf8()..];
     }
-    out
+    Some(text[..text.len() - rest.len()].to_owned())
 }
 
 /// Where a panic happened, without the build machine's folders: this repo's
@@ -400,18 +406,17 @@ mod tests {
     }
 
     #[test]
-    fn quoted_words_and_paths_never_go() {
-        assert_eq!(scrub("index out of bounds: the len is 3 but the index is 5"), "index out of bounds: the len is 3 but the index is 5");
-        assert_eq!(
-            scrub(r#"called `Result::unwrap()` on an `Err` value: Custom { kind: Other, error: "can't read \"Fix the share button\"" }"#),
-            r#"called `Result::unwrap()` on an `Err` value: Custom { kind: Other, error: "…" }"#
-        );
-        assert_eq!(scrub("couldn't open /Users/mike/dev/secret/plan.md: no such file"), "couldn't open <path>: no such file");
-        assert_eq!(scrub("no thread at ~/ThreadbearThreads/x"), "no thread at <path>");
-        // A slash on its own, or a ratio, isn't a path.
-        assert_eq!(scrub("3 / 4 done"), "3 / 4 done");
-        let long = "x".repeat(400);
-        assert_eq!(scrub(&long).chars().count(), 301);
+    fn only_rusts_own_wording_goes() {
+        assert_eq!(safe_message("index out of bounds: the len is 3 but the index is 5"), "index out of bounds: the len is 3 but the index is 5");
+        assert_eq!(safe_message(r#"called `Result::unwrap()` on an `Err` value: Custom { kind: Other, error: "can't read \"Fix the share button\"" }"#), "called `Result::unwrap()` on an `Err` value");
+        assert_eq!(safe_message("byte index 5 is not a char boundary; it is inside 'é' (bytes 4..6) of `Fix the share button`"), "byte index 5 is not a char boundary");
+        assert_eq!(safe_message("assertion `left == right` failed\n  left: \"secret\"\n right: \"other\""), "assertion `left == right` failed");
+        assert_eq!(safe_message("assertion failed: title.is_empty()"), "assertion failed");
+        // Anything else is someone's words, or might be.
+        assert_eq!(safe_message("couldn't open /Users/mike/Secret Project/clients.csv: denied"), "panic");
+        assert_eq!(safe_message("no thread called Fix the share button"), "panic");
+        assert_eq!(safe_message("index out of bounds: the len is x but the index is 5"), "panic");
+        assert_eq!(safe_message(""), "panic");
     }
 
     #[test]

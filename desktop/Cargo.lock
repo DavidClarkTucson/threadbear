@@ -7403,6 +7403,7 @@ dependencies = [
  "base64 0.22.1",
  "bzip2",
  "chrono",
+ "libc",
  "markdown",
  "qrcodegen",
  "roxmltree 0.21.2",

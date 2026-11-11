@@ -127,19 +127,26 @@ pub(crate) fn announce_build() {
 /// Opens the installed app again once this process has gone: a shell that
 /// waits for this pid, then `open`, `-g` for a restart Mike didn't ask for
 /// while he's in another app. Our own bundle, from its fixed place, with
-/// this run's data folder and install place when they were given (a copy
-/// tried somewhere else, installed.rs); the installed app has neither.
+/// every Threadbear setting this run was given (its data folder, its install
+/// place, Sentry off): `open` starts it with LaunchServices' environment, not
+/// ours, so one left out came back as if never set (Codex's review, 12 Nov:
+/// THREADBEAR_SENTRY=off and THREADBEAR_DATA_DIR were lost). Never a thread's
+/// identity, which the app may have inherited from a thread it was started
+/// in, nor the scripting switch, as a scripted app never restarts itself.
 fn relaunch_after_exit(bundle: &Path, in_background: bool) {
     let mut open: Vec<std::ffi::OsString> = Vec::new();
     if in_background {
         open.push("-g".into());
     }
-    for key in ["THREADBEAR_HOME", "THREADBEAR_GPUI_APP_DIR"] {
-        if let Some(value) = std::env::var_os(key) {
-            let mut pair = std::ffi::OsString::from(format!("{key}="));
-            pair.push(value);
-            open.extend(["--env".into(), pair]);
-        }
+    let mut settings: Vec<(String, std::ffi::OsString)> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value)))
+        .filter(|(key, _)| (key.starts_with("THREADBEAR_") || key.starts_with("THREADBARE_")) && !["_THREAD_ID", "_THREAD_KEY", "_AUTOMATION"].iter().any(|s| key.ends_with(s)))
+        .collect();
+    settings.sort();
+    for (key, value) in settings {
+        let mut pair = std::ffi::OsString::from(format!("{key}="));
+        pair.push(value);
+        open.extend(["--env".into(), pair]);
     }
     open.push(bundle.into());
     let wait = format!("while /bin/kill -0 {} 2>/dev/null; do /bin/sleep 0.2; done; exec /usr/bin/open \"$@\"", std::process::id());
@@ -396,7 +403,10 @@ impl Threadbear {
     /// next launch is the new app. The running one goes to `.old` until
     /// then. A build still going is stopped (only ever our own child).
     pub(crate) fn apply_update_at_quit(&mut self) {
-        if self.updater.running.is_none() {
+        // Only the installed app, following main for real: a scripted or
+        // debug app showing a made-up update (`preview_update`) must never
+        // swap or delete what's at the install place (Codex's review, 12 Nov).
+        if self.updater.running.is_none() || self.updater.preview || !installed::launch().installed {
             return;
         }
         #[cfg(unix)]

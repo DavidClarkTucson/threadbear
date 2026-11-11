@@ -69,7 +69,13 @@ pub fn append(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.append(true).create(true);
     #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+        // A link put there after the check above isn't followed either
+        // (Codex's review, 12 Nov): the open itself refuses one.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
     let file = options.open(path)?;
     // The file just opened, not the name, so it's the one being written.
     #[cfg(unix)]

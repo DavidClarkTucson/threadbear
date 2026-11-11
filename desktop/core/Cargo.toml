@@ -42,3 +42,8 @@ base64 = "=0.22.1"
 # the kit hands the selection over as Markdown. The version gpui-kit parses
 # with, already in the build.
 markdown = "=1.0.0"
+
+# renamex_np and renameat2 for swapping an update in at once, and O_NOFOLLOW
+# for private_file's appends.
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
