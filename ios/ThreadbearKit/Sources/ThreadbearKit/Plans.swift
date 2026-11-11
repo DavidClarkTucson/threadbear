@@ -17,6 +17,15 @@ public enum Plans {
     /// the newest plan, as the card can go up before its plan's row and an
     /// older plan's Go ahead would approve this one (Codex review, 11 Nov).
     /// Nil until that row is here, and for a card from an older runner.
+    /// Whether this plan can be sent back from its sheet: it's the newest
+    /// here, and no waiting card names a different one (whose row hasn't
+    /// come yet: a message now would send that one back, Codex review, 11 Nov).
+    public static func canSendBack(_ plan: PhoneMessage, pending: PendingApproval?, in messages: [PhoneMessage]) -> Bool {
+        guard latest(in: messages)?.seq == plan.seq else { return false }
+        if waiting(pending), case let .approval(_, _, _, _, _, planSeq?) = pending { return planSeq == plan.seq }
+        return true
+    }
+
     public static func plan(for pending: PendingApproval?, in messages: [PhoneMessage]) -> PhoneMessage? {
         guard waiting(pending), case let .approval(_, _, _, _, _, planSeq?) = pending else { return nil }
         return messages.last { $0.plan && $0.seq == planSeq }

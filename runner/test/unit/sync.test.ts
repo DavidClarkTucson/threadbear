@@ -427,7 +427,7 @@ test('the uploader never follows a redirect with the bytes, nor posts them in th
 // ------------------------------------------------------------ step 2 and 3
 
 import { BUTTONS_API_VERSION, MESSAGE_CHARS, PLAN_API_VERSION, PLAN_CHARS, toMessageDoc, toolLine, inputSummary, WokeRows, WOKE_BY_API_VERSION, type Command, type MessageDoc } from '../../src/sync.ts';
-import { REMOTE_ALLOW_REFUSED } from '../../src/tools.ts';
+import { REMOTE_ALLOW_REFUSED, remoteCardShowsAll } from '../../src/tools.ts';
 
 type Fake = { h: ReturnType<typeof makeHarness>; sync: ConvexSync; calls: Call[]; push: (value: unknown) => void; applied: string[]; landed: Call[] };
 
@@ -740,6 +740,8 @@ test('plans: the ExitPlanMode card names the plan row it waits on, from API 72',
     assert.equal(card.planSeq, named ? planSeq : undefined, `backend ${backend}`);
     // A plan's lines aren't one line a card shows whole: Go ahead stays on the Mac.
     assert.deepEqual(card.options, ['deny']);
+    // Nor a one-line plan: the phone's card shows only its title.
+    assert.equal(remoteCardShowsAll('ExitPlanMode', { plan: 'Run the migration; then drop the old table' }), false);
     await f.sync.stop();
   }
 });

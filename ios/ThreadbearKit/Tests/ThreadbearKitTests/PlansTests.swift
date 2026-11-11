@@ -44,6 +44,11 @@ import Testing
         let decoded = try JSONDecoder().decode(PendingApproval.self, from: Data(row.utf8))
         #expect(Plans.plan(for: decoded, in: messages)?.seq == 9)
         #expect(try JSONDecoder().decode(PendingApproval.self, from: JSONEncoder().encode(decoded)) == decoded)
+        // Sent back only from the newest plan, and not while a card names another.
+        #expect(Plans.canSendBack(messages[1], pending: card(9), in: messages))
+        #expect(!Plans.canSendBack(messages[1], pending: card(12), in: messages))
+        #expect(!Plans.canSendBack(messages[0], pending: nil, in: messages))
+        #expect(Plans.canSendBack(messages[1], pending: nil, in: messages))
     }
 
     @Test func rowsCarryThePlanMark() throws {

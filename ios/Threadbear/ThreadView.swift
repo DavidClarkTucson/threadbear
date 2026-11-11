@@ -273,11 +273,10 @@ struct ThreadView: View {
             .sheet(item: $workLink) { WorkingSheet(link: $0).environment(\.threadPictures, pictures) }
             .environment(\.openPlan) { planShown = $0 }
             .sheet(item: $planShown) { plan in
-                let newest = Plans.latest(in: messages)?.seq == plan.seq
                 let pending = thread.pendingApproval
                 // Go ahead only on the card that waits on this very plan, when it can be allowed from here.
                 let waitsOnIt = Plans.plan(for: pending, in: messages)?.seq == plan.seq
-                PlanSheet(plan: plan, approvalId: waitsOnIt && Plans.canGoAhead(pending) ? pending?.id : nil, canSendBack: newest) { approvalId in
+                PlanSheet(plan: plan, approvalId: waitsOnIt && Plans.canGoAhead(pending) ? pending?.id : nil, canSendBack: Plans.canSendBack(plan, pending: pending, in: messages)) { approvalId in
                     goAhead(approvalId)
                 } sendBack: { text in
                     await send(text, to: thread)
