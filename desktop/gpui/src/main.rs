@@ -83,6 +83,7 @@ mod shell_blocks;
 mod sidebar;
 mod slash_palette;
 mod slash_resize;
+mod spinner;
 mod style;
 mod swift_import;
 mod terminal;

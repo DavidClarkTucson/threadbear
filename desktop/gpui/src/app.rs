@@ -201,6 +201,8 @@ pub struct Threadbear {
     /// The Threads panel's view, made the first time the dock asks for it
     /// (sidebar.rs, `SidebarView`).
     pub(crate) sidebar_view: Option<Entity<crate::sidebar::SidebarView>>,
+    /// The main panel's view, cached as the Threads panel's is (shell.rs).
+    pub(crate) main_view: Option<Entity<crate::shell::MainPanelView>>,
     /// Threads open in panels of their own, and the tabs opened beside the
     /// main panel for what it shows (thread_panels.rs).
     pub(crate) thread_panels: crate::thread_panels::ThreadPanels,
@@ -426,6 +428,7 @@ impl Threadbear {
             move_sheet: None,
             side,
             sidebar_view: None,
+            main_view: None,
             thread_panels: Default::default(),
             _events: events,
             _subs: vec![appearance, searching, frame, menus, looking, quitting, side_changed, main_context],

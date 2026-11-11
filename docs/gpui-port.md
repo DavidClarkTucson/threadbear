@@ -485,7 +485,11 @@ What stage 0 found (9 Nov):
   root, the dock's bars and the thread pane above the list; caching those
   needs the dock to hand out its bars as views. Scroll anchoring and
   streaming with no jumps still have to prove themselves as the real rows
-  arrive.
+  arrive. The same held with nothing scrolling: a spinner in the sidebar
+  asked for a frame every frame, and each one laid the open thread out
+  again. With the spinners asking 30 times a second and the main panel
+  cached too, a thread at work in the background costs about 155 ms of the
+  main thread a second instead of 590 (`features/tools/idle-perf.ts`, 12 Nov).
 - **Web pages inside GPUI: works on the Mac.** A spike put a real Chromium page
   in a normal layout slot, resizing with it. GPUI's own menus can't draw over a
   page, so those popups open in small borderless windows of their own, as

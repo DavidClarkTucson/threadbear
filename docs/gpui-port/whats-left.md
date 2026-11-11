@@ -146,6 +146,7 @@ you go.
 - [ ] Windows and Linux: notifications, the badge, a menu bar and window
   buttons (`dock.titlebar`, `menu.*`)
 - [ ] Accessibility below the window (`foundation.accessibility`)
-- [ ] Idle redraws: the sidebar's spinners keep the main thread busy in debug
+- [x] Idle redraws: the sidebar's spinners keep the main thread busy in debug
   builds, and panels drawn inline with the shell redo their layout every
-  frame (the Usage helper's note)
+  frame (the Usage helper's note): the spinners ask 30 times a second and
+  the main panel is cached

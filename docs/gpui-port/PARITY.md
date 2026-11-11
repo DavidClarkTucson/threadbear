@@ -222,6 +222,37 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 Fewer frames while a thread works somewhere else (idle redraws)
+
+- The sidebar's spinners (a working row's, one working in the background, a
+  running sub-agent's) are a turning arc of their own (`spinner.rs`), as the
+  Swift app's SpinnerView: three quarters of a ring with round ends, once
+  round every 0.9 s. The kit's spinner asked for a frame every frame, and a
+  frame asked for in a view has that view and every one it's in draw again,
+  so while any thread worked the whole window drew at the screen's rate (120
+  a second on Mike's MacBook), and a debug build spent all its time there.
+  The arc waits 20 ms after it's drawn before asking again (about 30
+  frames a second), one timer for all the arcs in a view.
+- The main panel is a cached view of its own (`MainPanelView` in shell.rs),
+  as the Threads panel already was: a frame the sidebar asks for reuses the
+  open thread's last layout instead of laying out its whole transcript
+  again. It draws again whenever the app notifies, or something in it does.
+- Files: `desktop/gpui/src/spinner.rs` (new), `sidebar.rs` (the three
+  spinners), `shell.rs` and `app.rs` (the main panel's view), `main.rs`,
+  `features/tools/idle-perf.ts` (new: frames and their work, settled and
+  with a thread at work in the background, on a long thread and 60 others).
+- Verification: idle-perf.ts on Tinker Desk (release, 60 Hz screen, the
+  long thread open among 60 others), with another thread at work in the
+  background for 5 s: before, 268 frames (53.6 a second) at 11.0 ms of work
+  each (90% under 20.5 ms, the worst 57 ms), about 590 ms of the main thread
+  a second; after, 152 frames (30.4 a second) at 5.1 ms (90% under 5.3 ms),
+  about 155 ms a second. Settled, both draw under 2 frames a second. The
+  whole GPUI suite with it on Tinker Desk: 396 of 415 (18 skipped as
+  before); the one that failed, an archived row's Unarchive
+  (sidebar-actions.feature:29), fails on main without it too, 3 runs of 3.
+  Pictures of the Running section beside the Swift app's: the same
+  three-quarter rings, where the kit's spinner was a different glyph.
+
 ### 2026-11-11 Web panels: what Codex found trying to break the fix (`panel.web`, `panel.convex`)
 
 - Codex tried to break the fix below (7c4bd75a) and found the Swift app

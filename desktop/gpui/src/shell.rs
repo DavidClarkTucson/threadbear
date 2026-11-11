@@ -1297,7 +1297,12 @@ impl Threadbear {
                 let view = self.sidebar_view.get_or_insert_with(|| cx.new(|cx| crate::sidebar::SidebarView::new(&app, cx))).clone();
                 AnyView::from(view).cached(StyleRefinement::default().size_full()).into_any_element()
             }
-            MAIN => self.render_main_panel(window, cx).into_any_element(),
+            MAIN if ghost => self.render_main_panel(window, cx).into_any_element(),
+            MAIN => {
+                let app = cx.entity();
+                let view = self.main_view.get_or_insert_with(|| cx.new(|cx| MainPanelView::new(&app, cx))).clone();
+                AnyView::from(view).cached(StyleRefinement::default().size_full()).into_any_element()
+            }
             RUNNERS => self.activity_panel_view(RUNNERS, ghost, window, cx),
             UPDATES => self.activity_panel_view(UPDATES, ghost, window, cx),
             CONNECTORS => self.activity_panel_view(CONNECTORS, ghost, window, cx),
@@ -1328,7 +1333,7 @@ impl Threadbear {
     }
 
     /// The main panel: banners over the thread, the notes floating over it.
-    fn render_main_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_main_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.home_page();
         let banners = self.render_banners(window, cx);
         let main: AnyElement = match (&self.pane, page) {
@@ -1477,4 +1482,32 @@ fn gpui_menus(menus: &[TopMenu]) -> Vec<Menu> {
             .collect()
     }
     menus.iter().map(|m| Menu::new(m.title.clone()).items(entries(&m.items))).collect()
+}
+
+/// The main panel as a view of its own, as the Threads panel is
+/// (sidebar.rs's `SidebarView`), so the dock reuses its last frame when only
+/// something beside it changed. A turning spinner in the sidebar asks for a
+/// frame many times a second, and each one laid the open thread out again,
+/// its whole transcript, with the rest of the window. Everything it draws is
+/// the app's state, so it draws again whenever the app notifies, or something
+/// in it does (the thread, its box).
+pub(crate) struct MainPanelView {
+    app: WeakEntity<Threadbear>,
+    _app_changed: Subscription,
+}
+
+impl MainPanelView {
+    fn new(app: &Entity<Threadbear>, cx: &mut Context<Self>) -> Self {
+        let app_changed = cx.observe(app, |_, _, cx| cx.notify());
+        Self { app: app.downgrade(), _app_changed: app_changed }
+    }
+}
+
+impl Render for MainPanelView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.app.upgrade() {
+            Some(app) => app.update(cx, |t, cx| t.render_main_panel(window, cx).into_any_element()),
+            None => div().into_any_element(),
+        }
+    }
 }

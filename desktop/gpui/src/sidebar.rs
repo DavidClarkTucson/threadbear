@@ -1599,7 +1599,7 @@ fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyEle
             .text_size(meta).line_height(px(15.))
             .font_medium()
             .text_color(p.accent)
-            .child(div().flex_none().size(px(12.)).child(Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(p.accent).with_size(px(12.))))
+            .child(crate::spinner::TurningArc::new(12., p.accent))
             .child(text)
             .into_any_element(),
         TrailingKind::Background => h_flex()
@@ -1609,7 +1609,7 @@ fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyEle
             .text_size(meta).line_height(px(15.))
             .font_medium()
             .text_color(p.secondary)
-            .child(div().flex_none().size(px(12.)).child(Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(p.secondary).with_size(px(12.))))
+            .child(crate::spinner::TurningArc::new(12., p.secondary))
             .child(text)
             .into_any_element(),
         TrailingKind::Failed => gives_way(div()).text_size(meta).line_height(px(15.)).font_medium().text_color(p.failed).child(text).into_any_element(),
@@ -1650,7 +1650,7 @@ fn render_subagent_row(t: &ThreadSummary, row: &rows::SubagentRow, first: bool, 
     let (guide, secondary, faint, fg, failed) = (p.guide, p.secondary, p.faint, p.fg, p.failed);
     let running = sub.running();
     let glyph: AnyElement = match sub.status.as_str() {
-        "running" => Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(secondary).with_size(px(11.)).into_any_element(),
+        "running" => crate::spinner::TurningArc::new(11., secondary).into_any_element(),
         "completed" => icon("checkmark", 9., faint).into_any_element(),
         "failed" => icon("xmark", 9., failed).into_any_element(),
         _ => icon("minus", 9., faint).into_any_element(),
