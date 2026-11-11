@@ -1,6 +1,7 @@
 // tb: a small command line client for testing and scripting the runner.
 import { parseArgs } from 'node:util';
 import { startedByFlags } from './started-by-flags.ts';
+import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, runnerUrl, RunnerJsonError } from './config.ts';
 import { connectTb, ownerOnly } from './tb-connect.ts';
@@ -343,6 +344,14 @@ async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean):
     const t = await threadFromRunner(cfg, threadId);
     if (t?.worktree) {
       const top = await checkoutTop(here);
+      // Git finding no checkout where a folder above has a .git (unreadable,
+      // or GIT_CEILING_DIRECTORIES) isn't "outside git": that folder may be
+      // a sub-agent's, so don't fall back to the thread's (Codex, 11 Nov).
+      const dotGit = top ? undefined : nearestDotGit(here);
+      if (dotGit && !sameDir(dotGit, t.worktree.path) && !sameDir(dotGit, t.worktree.mainCheckout)) {
+        console.error(`Git couldn't read the checkout at ${dotGit}, so nothing landed. It didn't land this thread's worktree, ${t.worktree.path}, either: run tb land in that folder to land it.`);
+        return 1;
+      }
       const own = !top || sameDir(top, t.worktree.path) || sameDir(top, t.worktree.mainCheckout);
       if (own) {
         target = t.worktree;
@@ -374,6 +383,14 @@ async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean):
 }
 
 const sameDir = (a: string, b: string): boolean => realpath(a) === realpath(b);
+
+// The nearest folder at or above `dir` with a .git in it, by the files alone.
+function nearestDotGit(dir: string): string | undefined {
+  for (let d = path.resolve(dir); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return d;
+    if (path.dirname(d) === d) return undefined;
+  }
+}
 
 // The thread's summary, or undefined when the runner can't be reached or
 // doesn't know it (tb land then goes by git alone).

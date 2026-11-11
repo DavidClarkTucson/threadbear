@@ -329,10 +329,10 @@ export const worktreesPart = {
       title: 'Land',
       kind: 'command',
       command: `${quoted} land`,
-      // tb land lands the checkout it runs in when that isn't the thread's
-      // (a sub-agent's worktree), so a thread moved out of its worktree
-      // still lands that from its chip.
-      ...(isInside(rec.cwd, w.path) ? {} : { folder: w.path }),
+      // From the worktree itself: tb land lands the checkout it runs in when
+      // that isn't the thread's (a sub-agent's), and the thread's folder may
+      // be another checkout by now, even one inside this (Codex, 11 Nov).
+      folder: w.path,
       patch: 'worktree',
       note: `Rebase ${w.branch} on main, run the check, then move main to it`,
     };

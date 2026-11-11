@@ -28,7 +28,8 @@ test('the Land chip can wait beyond the ordinary command timeout', async () => {
 test("a thread moved out of its worktree still lands it from the Land chip", async () => {
   const h = makeHarness();
   const w = { repo: 'proj', mainCheckout: '/r/proj', path: '/r/proj-threads/slot-1', branch: 'thread/abcd1234', base: 'x', patchFile: 'p.ts' };
-  assert.equal(h.runner.worktreeAction({ cwd: '/r/proj-threads/slot-1/runner', worktree: w } as never)?.folder, undefined);
+  // Even from a folder inside it, which may be a sub-agent's checkout.
+  assert.equal(h.runner.worktreeAction({ cwd: '/r/proj-threads/slot-1/.claude/worktrees/agent-1', worktree: w } as never)?.folder, w.path);
   assert.equal(h.runner.worktreeAction({ cwd: '/elsewhere', worktree: w } as never)?.folder, w.path);
 });
 
@@ -526,6 +527,11 @@ test("tb land in another worktree lands that one, not the thread's", async () =>
     assert.match(r.out, /Agent work/);
     assert.equal(sh(main, 'git log -1 --format=%s'), 'Agent work');
     assert.ok(!fs.existsSync(path.join(main, 'runner', 'parent.ts')), "the parent's branch stays where it was");
+
+    // Git unable to see the agent's checkout doesn't make it the parent's.
+    const blind = await runTb(['land'], path.join(agent, 'runner'), { ...env, GIT_CEILING_DIRECTORIES: agent });
+    assert.equal(blind.code, 1, blind.out);
+    assert.match(blind.out, /Git couldn't read the checkout at .*agent-1a2b, so nothing landed/);
 
     // A worktree on a branch tb land doesn't take says so, and that it
     // didn't land the thread's either.
