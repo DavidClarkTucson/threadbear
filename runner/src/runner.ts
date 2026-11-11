@@ -77,6 +77,7 @@ import { cutOut } from './store.ts';
 
 // The presses a thread keeps for its agent to hear of (Runner.notePress).
 const MAX_PRESS_NOTES = 20;
+const MAX_PRESSES_UNTOLD = 100;
 import { appliedChanges, undoChanges } from './undo-edits.ts';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
@@ -989,7 +990,8 @@ export class Runner {
     // The turn may have ended on disk just before a crash stopped
     // thread.json being saved; then it only needs its status back.
     const ended = midTurn && rec.turnId ? this.findTurnCompleted(rec.id, rec.turnId) : undefined;
-    if (midTurn) this.settlePresses(rec, Boolean(ended));
+    // Only a turn that completed kept what it was told (Codex's second look).
+    if (midTurn) this.settlePresses(rec, ended?.type === 'turn.completed' && ended.outcome === 'completed');
     // thread.json can be behind the log (a crash before it was saved): a card
     // may have been answered there, and a later "expired" would replace the
     // answer. A turn that ended there closed its own cards, but a subagent's
@@ -2578,8 +2580,10 @@ export class Runner {
             // the move's note, any other thread with earlier turns the
             // not-found one.
             let text = this.forAgent(first);
-            // The presses it carried went to the session that's gone.
-            const pressed = this.inFlightPressNews(rec);
+            // What it was told of presses went with the session that's gone:
+            // a new one hears all it was told, the old one going on only this
+            // turn's (Codex's second look).
+            const pressed = this.toldPressNews(rec, inUse ? 'turn' : 'all');
             if (pressed) text = `${pressed}\n\n${text}`;
             const earlier = rec.lastTurnCompletedSeq > 0;
             if (!inUse && (rt.carried || earlier)) {
@@ -3463,12 +3467,12 @@ export class Runner {
     const line = `- "${b.title}" ${where} (${b.pressed.threadId.slice(0, 8)}): ${brief.length > 200 ? `${brief.slice(0, 200)}...` : brief}`;
     const list = (rec.presses ?? []).filter((p) => p.id !== b.id);
     list.push({ id: b.id, line });
-    // Bounded: the oldest told ones go first.
-    while (list.length > MAX_PRESS_NOTES) {
-      const i = list.findIndex((p) => p.told && !p.told.inFlight);
-      list.splice(i >= 0 ? i : 0, 1);
-    }
-    rec.presses = list;
+    // Bounded: the last MAX_PRESS_NOTES told ones are kept for an edit or a
+    // fresh session; untold ones go only past MAX_PRESSES_UNTOLD, which
+    // nobody presses between two messages.
+    const told = list.filter((p) => p.told);
+    const untold = list.filter((p) => !p.told);
+    rec.presses = [...told.slice(-MAX_PRESS_NOTES), ...untold.slice(-MAX_PRESSES_UNTOLD)];
   }
 
   pressNewsText(lines: string[]): string {
@@ -3483,13 +3487,14 @@ export class Runner {
     if (!untold.length) return undefined;
     const seq = this.store.log(st.rec.id).lastSeq;
     for (const p of untold) p.told = { seq, inFlight: true };
+    this.markDirty(st);
     return this.pressNewsText(untold.map((p) => p.line));
   }
 
-  // The presses told in the turn now going, for a fresh session that
-  // replays its first message (startSession's retry).
-  inFlightPressNews(rec: ThreadRecord): string | undefined {
-    const lines = rec.presses?.filter((p) => p.told?.inFlight).map((p) => p.line) ?? [];
+  // The presses told in the turn now going, or every one told, for a
+  // session that replays its first message (startSession's retry).
+  toldPressNews(rec: ThreadRecord, which: 'turn' | 'all'): string | undefined {
+    const lines = rec.presses?.filter((p) => (which === 'all' ? p.told : p.told?.inFlight)).map((p) => p.line) ?? [];
     return lines.length ? this.pressNewsText(lines) : undefined;
   }
 
@@ -3503,9 +3508,10 @@ export class Runner {
     }
   }
 
-  // Going back to the message at seq cuts what it and later ones told.
-  retellPressesFrom(rec: ThreadRecord, seq: number): void {
-    for (const p of rec.presses ?? []) if (p.told && p.told.seq >= seq) delete p.told;
+  // Going back to the message at seq cuts what it and later ones told; a
+  // fresh session (the cut reached its first message) heard none of them.
+  retellPressesFrom(rec: ThreadRecord, seq: number, fresh = false): void {
+    for (const p of rec.presses ?? []) if (p.told && (fresh || p.told.seq >= seq)) delete p.told;
   }
 
   // Sends a message with any change to the standing instructions in front.

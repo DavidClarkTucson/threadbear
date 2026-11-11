@@ -300,3 +300,46 @@ test('a fresh session that replays the message keeps the line', async () => {
   assert.notEqual(fresh, resumed);
   assert.match(fresh.sent[0].text, /"RSVP yes"[\s\S]*go$/);
 });
+
+// Codex's second look.
+test('a crash after a failed turn ended on disk tells it again', () => {
+  const { h, thread, session } = pressed();
+  h.runner.send(thread.id, 'go');
+  (h.runner as any).flush();
+  const file = path.join(h.store.threadDir(thread.id), 'thread.json');
+  const saved = fs.readFileSync(file, 'utf8');
+  session.result('failed', undefined, 'overloaded');
+  // thread.json as it was before the turn ended: the crash.
+  fs.writeFileSync(file, saved);
+  const back = h.restart();
+  back.runner.send(thread.id, 'still there?');
+  assert.ok(allSent(back, thread.id).some((t) => /"RSVP yes"/.test(t)));
+});
+
+test('a fresh session hears presses told in earlier turns', async () => {
+  const { h, thread, session } = pressed();
+  h.runner.send(thread.id, 'go');
+  session.result();
+  const back = h.restart();
+  back.runner.send(thread.id, 'finish the RSVP if it has not gone');
+  const resumed = back.adapter.last;
+  assert.doesNotMatch(resumed.sent.at(-1)!.text, /"RSVP yes"/);
+  resumed.sink.exited(new SessionNotFoundError('gone'));
+  await tick();
+  assert.match(back.adapter.last.sent[0].text, /"RSVP yes"/);
+});
+
+test('no press goes untold however many there are', () => {
+  const { h, thread } = fixture();
+  const other = h.runner.create({ text: 'Jobs', accountId: 'claude-3' }).thread;
+  const session = h.adapter.sessions.find((s) => s.opts.threadId === thread.id)!;
+  session.result();
+  for (let i = 0; i < 25; i++) {
+    const b = h.runner.createButton(thread.id, { title: `Job ${i}`, send: { threadId: other.id, text: `Do job ${i}` } }).button;
+    h.runner.pressButton(thread.id, b.id);
+  }
+  h.runner.send(thread.id, 'go ahead with those');
+  const text = allSent(h, thread.id).at(-1)!;
+  assert.match(text, /go ahead with those$/);
+  for (let i = 0; i < 25; i++) assert.match(text, new RegExp(`"Job ${i}"`));
+});
