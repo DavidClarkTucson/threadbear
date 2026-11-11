@@ -230,6 +230,12 @@ impl Threadbear {
             cx.new(|cx| DockView::new(model, content, options, cx))
         };
         let frame = cx.observe_window_bounds(window, |this, window, cx| this.window_frame_changed(window, cx));
+        // A thread is read once Mike's looking at it (AppModel.isLooking,
+        // which is the app being active, whichever of its windows is in
+        // front): coming back reads the open one (appBecameActive). The
+        // Settings window says so too (`SettingsWindow::new`).
+        crate::thread::set_looking(window.is_window_active());
+        let looking = cx.observe_window_activation(window, |this, _, cx| this.looking_changed(cx));
         // Everything the menus say is the app's state, which notifies when it
         // changes (the dock's layout too: `dock_layout_changed`).
         // Its 20-second tick notifies too (SidebarState), so the badge's
@@ -320,13 +326,23 @@ impl Threadbear {
             side,
             sidebar_view: None,
             _events: events,
-            _subs: vec![appearance, searching, frame, menus],
+            _subs: vec![appearance, searching, frame, menus, looking],
         };
         // The window starts on the Inbox with nothing open (`noteNavigation`
         // on launch), so Back from the first thread comes back here.
         this.note_navigation();
         this.watch_shortcuts(cx);
         this
+    }
+
+    /// One of the app's windows came to the front or went: whether any is
+    /// in front now, and if so the open thread is read.
+    pub(crate) fn looking_changed(&mut self, cx: &mut Context<Self>) {
+        let looking = cx.active_window().is_some();
+        crate::thread::set_looking(looking);
+        if let (true, Some(pane)) = (looking, self.pane.clone()) {
+            pane.read(cx).mark_seen();
+        }
     }
 
     fn on_seen(&mut self, seen: Seen, cx: &mut Context<Self>) {

@@ -23,6 +23,13 @@ const EVENTS_PAGE: u64 = 500;
 /// often, as ThreadSession does (30 Hz).
 const FLUSH_EVERY: Duration = Duration::from_millis(33);
 
+/// Whether the window is in front (AppModel.isLooking), for reading threads.
+static LOOKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+pub(crate) fn set_looking(looking: bool) {
+    LOOKING.store(looking, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub struct ThreadPane {
     client: Arc<Client>,
     pub(crate) summary: ThreadSummary,
@@ -165,9 +172,10 @@ impl ThreadPane {
         .detach();
     }
 
-    // Opening it reads it, as on the Mac.
-    fn mark_seen(&self) {
-        if self.summary.unread() {
+    // Opening it reads it, as on the Mac, while the window's in front: one
+    // opened behind other windows stays unread until he comes back to it.
+    pub(crate) fn mark_seen(&self) {
+        if self.summary.unread() && LOOKING.load(std::sync::atomic::Ordering::Relaxed) {
             let client = self.client.clone();
             let params = json!({ "threadId": self.summary.id, "seq": self.summary.last_seq });
             RT.spawn(async move { client.call("threads.markSeen", params).await });

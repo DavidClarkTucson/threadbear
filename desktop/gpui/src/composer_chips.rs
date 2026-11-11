@@ -355,7 +355,7 @@ impl Composer {
         let provider = self.chip_data(cx).summary.map(|t| t.provider).unwrap_or_default();
         Popover::new("composer-permission")
             .anchor(Anchor::BottomLeft)
-            .trigger(ChipTrigger { badge: None, id: "composer-permission-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(Icon::from(icon)), tip: help.into(), selected: false })
+            .trigger(ChipTrigger { badge: None, id: "composer-permission-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(if mode == "full" { crate::icons::symbol("lock.open") } else { Icon::from(icon) }), tip: help.into(), selected: false })
             .content(move |_, window, cx| {
                 let popover = cx.entity();
                 let modes: &[&str] = if threadbear_core::logins::has_auto_mode(&provider) || mode == "auto" { &["full", "auto", "ask", "plan"] } else { &["full", "ask", "plan"] };
@@ -553,7 +553,9 @@ impl RenderOnce for ChipTrigger {
                 .size(px(26.))
                 .rounded_full()
                 .hover(|s| s.bg(style::hover_fill(cx)))
-                .child(Icon::from(IconName::Plus).with_size(px(15.)).text_color(style::quiet_text(cx)))
+                // SF's plus at 15 pt is about 11.7 across with a 1.5 stroke;
+                // Lucide's comes to that at 17.5.
+                .child(Icon::from(IconName::Plus).with_size(px(17.5)).text_color(style::quiet_text(cx)))
                 .into_any_element(),
             TriggerKind::Ring(meter) => base.justify_center().size(px(26.)).rounded_full().hover(|s| s.bg(style::hover_fill(cx))).child(context_ring(meter, cx)).into_any_element(),
             TriggerKind::Chip => base

@@ -96,6 +96,21 @@ pub fn zoomed(size: f32) -> f32 {
     threadbear_core::zoom::scaled(size, zoom_percent())
 }
 
+/// A SwiftUI `Text`'s own line height at `size`, as SwiftUI lays it out on
+/// macOS (measured with NSHostingView.fittingSize: 14 at 11 pt, 16 at 13, 19
+/// at 15). GPUI's own is 1.618 times the size, so a view drawn in SwiftUI
+/// with no line height of its own comes out this tall per line, not GPUI's.
+pub fn natural_line(size: f32) -> f32 {
+    match size.round() as i32 {
+        ..=11 => 14.,
+        12 => 15.,
+        13 => 16.,
+        14 => 17.,
+        15 => 19.,
+        _ => (size * 1.22).ceil(),
+    }
+}
+
 /// GPUI's `px`, at the window's zoom.
 pub fn px(size: f32) -> Pixels {
     gpui_kit::px(zoomed(size))
@@ -280,9 +295,10 @@ pub fn chip_divider(cx: &App) -> Hsla {
     pick(cx, white(0.12), black(0.12))
 }
 
-/// The Needs you orange (Theme.needsYou).
+/// The Needs you orange (Theme.needsYou): systemOrange on dark, a deeper
+/// orange on light, the same as `needs_you_text`.
 pub fn needs_you(cx: &App) -> Hsla {
-    pick(cx, hsla(0.09, 0.95, 0.56, 1.), hsla(0.09, 0.9, 0.45, 1.))
+    needs_you_text(cx)
 }
 
 /// The answer box under an ask's Something else.

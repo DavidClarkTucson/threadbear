@@ -71,6 +71,8 @@ pub struct Composer {
     pub(crate) model_picker: Option<Entity<ModelPickerView>>,
     /// What's picked on the open card, and how the card's showing.
     pub(crate) card: CardState,
+    /// The card's text style, one per appearance (`card_reading_style`).
+    pub(crate) card_style: Option<(bool, gpui_kit::base::TextViewStyle)>,
     shown_placeholder: &'static str,
     /// The slash palette's own state (`PaletteState`), and whether this
     /// opening of it has asked for the thread's commands yet.
@@ -130,6 +132,7 @@ impl Composer {
             restore: None,
             model_picker: None,
             card: CardState::default(),
+            card_style: None,
             shown_placeholder: "Message",
             palette: PaletteState::default(),
             palette_asked: false,
@@ -845,9 +848,7 @@ impl Composer {
                 }
             })
             .child(
-                Textarea::new(&self.input)
-                    .appearance(false)
-                    .bordered(false)
+                bare_textarea(Textarea::new(&self.input))
                     .disabled(creating)
                     .text_size(px(style::size::COMPOSER))
                     .line_height(px(style::size::BODY_LINE))
@@ -938,9 +939,13 @@ impl Render for Composer {
                     .w_full()
                     .rounded(px(style::COMPOSER_RADIUS))
                     .bg(style::composer_fill(cx))
-                    .border_1()
-                    .border_color(if needs_you { style::accent(cx) } else { style::hairline(cx) })
                     .when(!cx.theme().is_dark(), |s| s.shadow_md())
+                    // The edge, drawn over the box rather than taking room in
+                    // it, as the Swift card's strokeBorder is: what's inside
+                    // sits its 14 in from the box's own edge, and the needs-you
+                    // edge (1 pt in the accent, otherwise a 0.5 hairline)
+                    // moves nothing. First, so the rest draws over it.
+                    .child(div().absolute().inset_0().rounded(px(style::COMPOSER_RADIUS)).border(px(if needs_you { 1. } else { 0.5 })).border_color(if needs_you { style::accent(cx) } else { style::hairline(cx) }))
                     // Clicking the card's padding puts the cursor in the text.
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| this.focus(window, cx)))
                     .children(limit)
@@ -954,6 +959,16 @@ impl Render for Composer {
             )
             .children(self.render_peek(cx))
     }
+}
+
+/// A text box with no frame and none of the kit's padding inside it, so its
+/// text starts where the box does, as an NSTextView with no inset and no
+/// line fragment padding does (ComposerTextField, the Something else box).
+/// The kit's smallest size still pads 4 either side (its own 4, whatever the
+/// text size), so the box reaches 4 out past each side to put the text back
+/// on the edge.
+pub(crate) fn bare_textarea(textarea: Textarea) -> Textarea {
+    textarea.appearance(false).bordered(false).xsmall().mx(gpui_kit::px(-4.))
 }
 
 /// The token a chip draws from. The token's text is the mark the draft holds

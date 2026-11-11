@@ -949,14 +949,16 @@ impl Threadbear {
             .tooltip(|window, cx| Tooltip::new("Search threads").build(window, cx))
             .flex_1()
             .min_w_0()
+            // 29 tall as the Swift field is (6 over and under a 14 pt line):
+            // the kit's small input, a little shorter, sits in the middle.
+            .h(px(29.))
             .pl(px(LEADING - 2.))
             .pr(px(9.))
-            .py(px(3.))
             .gap(px(8.))
             .items_center()
             .rounded(px(CORNER))
             .bg(p.field_fill)
-            .border_1()
+            .border(px(0.5))
             .border_color(p.separator)
             .child(div().flex_none().w(px(16.)).flex().justify_center().child(icon("magnifyingglass", 12.5, p.faint)))
             .child(div().flex_1().min_w_0().child(Input::new(&self.search).appearance(false).small().cleanable(true).pl(px(0.))))

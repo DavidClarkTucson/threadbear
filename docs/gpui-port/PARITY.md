@@ -222,6 +222,60 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-11 Point for point with the Swift app: the composer, its card, and what's round them
+
+- Mike: "can you do like a pixel by pixel comparison ... this decision panel
+  that I'm typing into right now looks slightly larger on the GPUI version".
+  `features/tools/compare.ts` now lays each pair over each other (Swift in
+  red, GPUI in cyan, grey where they agree) and can run commands before a
+  shot (a card's second page). `features/tools/pixel-overlay.swift`'s `rows`
+  and `cols` give each line's top and bottom in both pictures, paired, which
+  is where every number below came from.
+- The composer box: the kit's text box pads itself 10 and 8, so the GPUI box
+  was 18 taller than Swift's with its text 11 further in. It's unpadded now
+  (`composer::bare_textarea`, the Something else box too), and the box's edge
+  is drawn over it as Swift's strokeBorder is (0.5, or 1 in the accent),
+  rather than taking room in it. The empty box now matches to the point.
+- The card (`RowRenderer.asksText`): Swift's paged heading is a 38 pt line
+  (a work line plus 6 otherwise), each ask 12 under what's above, its number
+  where a list's goes (8 in, text at 30), a where line at 11 pt on 19, and
+  buttons on 38 pt lines 6 under that, 29.3 tall, three no-break spaces
+  either side and four between, with a soft shadow. The title is 14 pt
+  medium beside SF's filled hand (drawn here, as Lucide has only the
+  outline), the picked button is the accent with white words, the agent's
+  pick has an accent edge on the grey, the pager's live arrow is a button,
+  and the chevron is Swift's 22 pt square at 5 pt corners. A paged card is
+  as tall as its tallest page, all pages in one grid cell with only the shown
+  one drawn. The separator under it is half a point. The done card has SF's
+  tall tick, rows 8 over and under with their circle at 8 and words at 34,
+  and the small labels at 11 pt.
+- Elsewhere: the user bubble is as wide as its widest line (GPUI's wrapped
+  text takes all the room it's offered); list markers end 11.2 short of the
+  text, which puts a bullet and "1." where Swift's are; a reply that opens
+  with a heading starts without the heading's 6 (TextKit leaves out a first
+  paragraph's space before); the Highlights rows take SwiftUI's own line
+  heights (14 at 11 pt, 16 at 13, 19 at 15: `style::natural_line`, measured
+  with NSHostingView), where GPUI's are 1.618 times the size; the sidebar's
+  search field is Swift's 29 tall; the thread's bar title sits where Swift's
+  does; Full access has SF's open lock and "+" SF's size; and the needs-you
+  orange is systemOrange.
+- A thread is read only while its window is in front, as Swift's `isLooking`
+  has it: GPUI read one as soon as it opened, behind other windows too, which
+  moved it down the Inbox in the scripted pictures. The scripts' `focus` now
+  means "in front" in both apps.
+- Left: gpui-kit puts list items 3.75 apart (a quarter of the text size,
+  fixed in the kit) where Swift's are 6, and indents a nested list 21 where
+  Swift's is 30, so a card with a list in its why is a few points shorter;
+  that needs the kit to take an item gap. Reply buttons inside list items
+  (pills in Swift) are still plain links here.
+- Files: `desktop/gpui/src/{composer_card,composer,composer_chips,icons,
+  style,rows,rows/markdown,rows/images,highlights,sidebar,header,thread,app,
+  automation,open_gate}.rs`, `features/tools/{compare.ts,pixel-overlay.swift}`.
+- Verification: compare.ts on Tinker Desk, every demo thread in dark, with
+  the rows tool after each change (the empty composer, the card on both
+  pages, the bubble, the Highlights rows); the GPUI specs on Linux and the
+  Mac.
+
 ### 2026-11-11 The Settings window, with General and Models (`settings.window`, `settings.general`, `settings.models`)
 
 - ⌘, and the rail's gear open Settings in a window of its own, with the

@@ -15,6 +15,9 @@ use crate::style::px;
 
 /// How far a list's text sits in from the text around it (listIndent).
 const LIST_INDENT: f32 = 30.;
+/// How far short of a list item's text its marker ends: the Swift bullet
+/// (6.8 wide at 15 pt) starts 18 before the text, so ends 11.2 before it.
+const MARKER_END: f32 = 11.2;
 /// The gap between paragraphs (paragraphGap).
 const PARAGRAPH_GAP: f32 = 10.;
 
@@ -71,12 +74,23 @@ pub(crate) fn reading_style(cx: &App) -> TextViewStyle {
         .with_code_block(code_block)
         .with_inline_code(HighlightStyle { background_color: Some(inline_bg), ..Default::default() })
         .with_inline_code_style(inline_code)
-        .with_list_style(StyleRefinement::default().text_color(label).min_w(px(LIST_INDENT)).pr(px(LIST_INDENT - 22.)))
+        // The kit right-aligns a marker in the indent. Swift starts a bullet
+        // 18 before the text and a number 22 before (markerStart): ending
+        // them 11.2 short of the text puts the bullet and "1." where the
+        // Swift ones are (a two-figure number sits a little further out).
+        .with_list_style(StyleRefinement::default().text_color(label).min_w(px(LIST_INDENT)).pr(px(MARKER_END)))
         .with_blockquote_style(StyleRefinement::default().border_l(px(0.)).pl(px(14.)).text_color(muted))
         .with_table(table)
         .with_table_head(table_head)
         .with_table_cell(table_cell)
         .with_dark(cx.theme().is_dark())
+}
+
+/// Whether markdown text opens with a heading ("# " to "###### ").
+pub(crate) fn starts_with_heading(text: &str) -> bool {
+    let text = text.trim_start_matches([' ', '\n']);
+    let hashes = text.chars().take_while(|c| *c == '#').count();
+    (1..=6).contains(&hashes) && text[hashes..].starts_with([' ', '\t'])
 }
 
 /// `WorkLinks.escapeDestinations` and the "↑" after a work link: a space ends a

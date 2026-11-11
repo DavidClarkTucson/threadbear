@@ -109,6 +109,12 @@ impl Threadbear {
         let _ = window;
         h_flex()
             .min_w_0()
+            // Where the Swift bar's title line sits, measured against it
+            // (features/tools/compare.ts): 7 further in and 1 lower than the
+            // dock's padding alone puts it.
+            .pl(px(7.))
+            .relative()
+            .top(px(1.))
             .gap(px(6.))
             .text_size(header_size)
             .child(projects)
@@ -137,7 +143,8 @@ impl Threadbear {
         let cwd = thread.cwd.clone();
         if projects.is_empty() || !self.projects_supported {
             let tip = format!("In {}", abbreviate(&cwd));
-            return tipped!(div().id("header-folder").flex_none(), tip).child(icon("folder", style::size::DETAIL, secondary)).into_any_element();
+            // SF's folder at 12 pt is about 13.5 wide; Lucide's is at 14.
+            return tipped!(div().id("header-folder").flex_none(), tip).child(icon("folder", 14., secondary)).into_any_element();
         }
         let tile_fill = style::primary_opacity(cx, 0.08);
         let hover = style::primary_opacity(cx, 0.08);

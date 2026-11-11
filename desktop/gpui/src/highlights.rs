@@ -893,18 +893,18 @@ impl PaneRow {
             .gap(px(6.))
             .min_w_0()
             .when_some(self.lead, |s, lead| s.child(div().flex_none().font_family(cx.theme().mono_font_family.clone()).text_size(px(style::size::DETAIL)).text_color(p.secondary).child(lead)))
-            .child(div().min_w_0().truncate().text_size(px(style::size::LABEL)).line_height(px(17.)).text_color(label_color).child(self.title.clone()))
+            .child(div().min_w_0().truncate().text_size(px(style::size::LABEL)).line_height(px(style::natural_line(style::size::LABEL))).text_color(label_color).child(self.title.clone()))
             .child(div().flex_1().min_w(px(4.)))
-            .when_some(self.trailing, |s, t| s.child(div().flex_none().text_size(px(style::size::SMALL)).text_color(p.faint).child(t)))
+            .when_some(self.trailing, |s, t| s.child(div().flex_none().text_size(px(style::size::SMALL)).line_height(px(style::natural_line(style::size::SMALL))).text_color(p.faint).child(t)))
             .when_some(self.trailing_symbol, |s, symbol| s.child(icon(&symbol, 11., p.secondary)));
         let body = v_flex()
             .flex_1()
             .min_w_0()
             .gap(px(2.))
             .child(title_row)
-            .when_some(self.note.filter(|n| !n.is_empty()), |s, note| s.child(div().text_size(px(style::size::DETAIL)).line_height(px(16.)).text_color(p.secondary).line_clamp(4).overflow_hidden().text_ellipsis().child(note)))
+            .when_some(self.note.filter(|n| !n.is_empty()), |s, note| s.child(div().text_size(px(style::size::DETAIL)).line_height(px(style::natural_line(style::size::DETAIL))).text_color(p.secondary).line_clamp(4).overflow_hidden().text_ellipsis().child(note)))
             .when_some(self.detail.filter(|d| !d.is_empty()), |s, detail| {
-                let mut d = div().text_size(px(style::size::SMALL)).line_height(px(14.)).text_color(p.faint);
+                let mut d = div().text_size(px(style::size::SMALL)).line_height(px(style::natural_line(style::size::SMALL))).text_color(p.faint);
                 d = if self.detail_lines > 1 { d.line_clamp(self.detail_lines).overflow_hidden().text_ellipsis() } else { d.truncate() };
                 s.child(d.child(detail))
             });
@@ -955,7 +955,7 @@ impl SidePane {
         let (fg, secondary, faint, hairline) = (p.fg, p.secondary, p.faint, p.hairline);
         let hover_group = group.clone();
         let chevron_group = group.clone();
-        let title_el = div().flex_none().text_size(px(style::size::LABEL)).line_height(px(16.)).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(h.title.clone());
+        let title_el = div().flex_none().text_size(px(style::size::LABEL)).line_height(px(style::natural_line(style::size::LABEL))).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(h.title.clone());
         let mut label = h_flex().group(group.clone()).flex_1().min_w_0().gap(px(6.)).pl(px(LEADING)).pt(px(18.)).pb(px(6.)).items_center();
         if let Some(leading) = h.icon {
             label = label.child(leading);
@@ -1265,8 +1265,8 @@ impl SidePane {
                     .flex_1()
                     .min_w_0()
                     .gap(px(2.))
-                    .child(div().text_size(px(style::size::LABEL)).line_height(px(17.)).text_color(label_color).when(ticked, |s| s.line_through()).child(action))
-                    .when_some(where_text, |s, place| s.child(div().text_size(px(style::size::SMALL)).text_color(p.faint).line_clamp(2).child(place))),
+                    .child(div().text_size(px(style::size::LABEL)).line_height(px(style::natural_line(style::size::LABEL))).text_color(label_color).when(ticked, |s| s.line_through()).child(action))
+                    .when_some(where_text, |s, place| s.child(div().text_size(px(style::size::SMALL)).line_height(px(style::natural_line(style::size::SMALL))).text_color(p.faint).line_clamp(2).child(place))),
             )
             .into_any_element()
     }

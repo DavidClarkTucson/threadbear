@@ -12,6 +12,28 @@ use gpui_kit::component::Icon;
 /// here: the star's shape, filled with the current text colour.
 const STAR_FILLED: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.4 7 .7-5.2 4.7 1.5 6.9L12 17.7l-6.2 3.5 1.5-6.9-5.2-4.7 7-.7z" fill="black"/></svg>"#;
 
+/// `hand.raised.fill`, the asks card's mark: Lucide's hand is an outline, and
+/// the Swift card's is the filled one, four fingers and the thumb out to the
+/// right. Drawn to SF's proportions (about 11 by 15 at the card's 14 pt
+/// title), so at 16.5 px it covers what the Swift one does.
+const HAND_RAISED_FILLED: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="black"><rect x="4" y="5.2" width="3" height="10.4" rx="1.5"/><rect x="7.4" y="2.2" width="3" height="12" rx="1.5"/><rect x="10.8" y="1" width="3" height="13" rx="1.5"/><rect x="14.2" y="2.6" width="3" height="11.6" rx="1.5"/><path d="M4 12h13.2v1.4l1.2-2.6c.5-1 1.5-1.3 2.2-.8.6.4.7 1.2.4 1.9l-2.6 6.6c-.9 2.4-3 4.1-5.8 4.1h-2.2C6.8 22.6 4 19.9 4 16.4z"/></g></svg>"#;
+
+/// `lock.open`, Full access's mark: SF's has the shackle swung up and out to
+/// the right of the body, where Lucide's stands over it, so it read as a
+/// closed lock beside the Swift one. An outline in the text colour, about as
+/// wide as SF's at 12 pt when drawn at 13.
+const LOCK_OPEN: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="11" width="13" height="11" rx="2.5"/><path d="M12.5 11V7.5a4.5 4.5 0 0 1 9 0V9.5"/></svg>"#;
+
+/// SF's `checkmark` as the done card draws it at its title's size: a short
+/// stroke and a long one rising well above it. Lucide's check is wide and
+/// low, and beside the Swift card's it read as a different mark.
+const CHECKMARK_TALL: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13.5l5 5.5L20 3.5"/></svg>"#;
+
+/// The done card's tick (`checkmark` at 14 pt): about 12 by 12 at 16.
+pub fn tall_checkmark() -> Icon {
+    Icon::default().data(CHECKMARK_TALL)
+}
+
 /// The providers' marks (`ProviderLogo`), as single-colour SVGs that take the
 /// text colour, as the Swift app's template images do. Claude's is Anthropic's
 /// "A\" rather than Claude's starburst: Mike asked for the Anthropic logo, and
@@ -66,6 +88,7 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "magnifyingglass" => IconName::Search,
         "xmark.circle.fill" | "xmark.circle" => IconName::CircleX,
         "hand.raised" => IconName::Hand,
+        "hand.raised.fill" => return Some(Icon::default().data(HAND_RAISED_FILLED)),
         "arrow.down" => IconName::ArrowDown,
         "arrow.up" => IconName::ArrowUp,
         "arrow.up.arrow.down" => IconName::ArrowUpDown,
@@ -147,6 +170,7 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "exclamationmark.triangle" => IconName::TriangleAlert,
         "bolt.horizontal" | "bolt.horizontal.circle" => IconName::Zap,
         "lock" => IconName::Lock,
+        "lock.open" => return Some(Icon::default().data(LOCK_OPEN)),
         "cpu" => IconName::Cpu,
         // The trust chip over the composer, and the origin badges' marks.
         "lock.shield" | "lock.shield.fill" => IconName::ShieldLock,

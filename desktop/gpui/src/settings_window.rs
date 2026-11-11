@@ -201,6 +201,14 @@ impl SettingsWindow {
                 cx.notify();
             }));
         }
+        // In front, the app is: threads in the main window still read as
+        // Mike looks at them (`Threadbear::looking_changed`).
+        let looking_app = app.clone();
+        subs.push(cx.observe_window_activation(window, move |_, _, cx| {
+            if let Some(app) = looking_app.upgrade() {
+                app.update(cx, |app, cx| app.looking_changed(cx));
+            }
+        }));
         // Closing it saves what's typed and not yet sent (`onDisappear`).
         let me = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {

@@ -92,7 +92,7 @@ impl ThreadPane {
     pub(crate) fn render_item(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(row) = self.feed.model().rows().get(ix).cloned() else { return div().into_any_element() };
         let body: AnyElement = match &row.content {
-            RowContent::User(message) => self.user_row(ix, &row, message, cx),
+            RowContent::User(message) => self.user_row(ix, &row, message, window, cx),
             RowContent::Assistant(item) => self.assistant_row(ix, &row, item, cx),
             RowContent::Reasoning(item) => self.thinking_row(ix, &row, item, cx),
             RowContent::Tool(tool) => self.tool_row(ix, &row, tool, cx),
@@ -136,7 +136,7 @@ impl ThreadPane {
 
     /// `userText`: Mike's words, or for a message answering asks or a review
     /// each question small and quiet with his answer under it.
-    fn user_row(&mut self, ix: usize, row: &Row, message: &UserMessage, cx: &mut Context<Self>) -> AnyElement {
+    fn user_row(&mut self, ix: usize, row: &Row, message: &UserMessage, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         if message.shows_as_note() {
             return self.runner_note_row(message, cx);
         }
@@ -165,8 +165,15 @@ impl ThreadPane {
             }
             let text = if message.text.is_empty() { " ".to_string() } else { message.text.clone() };
             let answered = !message.answers.is_empty() || message.review.is_some();
+            // As wide as its widest line, as the Swift bubble is (its text's
+            // used width): GPUI's wrapped text takes all the width it's
+            // given. The text keeps room for a wrapped line's trailing space,
+            // reaching into the padding, so it wraps where it was measured.
+            let max_text = gpui_kit::px((self.column_width() * BUBBLE_SHARE).floor()) - px(BUBBLE_PAD_H * 2.);
+            let fit = (!answered).then(|| widest_line(&text, max_text, window));
             let bubble = div()
                 .max_w(relative(BUBBLE_SHARE))
+                .when_some(fit, |d, (ink, _)| d.w(ink + px(BUBBLE_PAD_H * 2.)))
                 .px(px(BUBBLE_PAD_H))
                 .py(px(BUBBLE_PAD_V))
                 .rounded(px(BUBBLE_RADIUS))
@@ -175,7 +182,9 @@ impl ThreadPane {
                 .line_height(px(size::BODY_LINE))
                 .text_color(label)
                 .when(faded, |d| d.opacity(0.5))
-                .when(!answered, |d| d.child(SelectableText::new(("user-text", ix), text)))
+                // A point over, as the layout rounds widths and a line that
+                // fits exactly would wrap.
+                .when_some(fit, |d, (ink, span)| d.child(div().w(span + px(1.)).mr(ink - span - px(1.)).child(SelectableText::new(("user-text", ix), text))))
                 .when(answered, |d| d.child(answers_body(ix, message, cx)));
             col = col.child(line.child(bubble));
         }
@@ -256,7 +265,10 @@ impl ThreadPane {
         let doc = self.markdown_state(&item.item_id, &source, cx);
         let text_style = self.reading_style(cx);
         let text = self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);
-        row_wrap(row, div().pt(px(ROW_TOP)).pb(px(10.)).text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).text_color(style::label_text(cx)).child(text))
+        // TextKit leaves out the space over a text's first paragraph, so a
+        // reply that opens with a heading starts without the heading's 6.
+        let top = if markdown::starts_with_heading(&source) { ROW_TOP - 6. } else { ROW_TOP };
+        row_wrap(row, div().pt(px(top)).pb(px(10.)).text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).text_color(style::label_text(cx)).child(text))
     }
 
     /// The plan an agent is working through (`planText`): a title and its
@@ -366,6 +378,45 @@ impl ThreadPane {
         }
         column(card).into_any_element()
     }
+}
+
+/// The widest line `text` makes wrapped at `max`, in the bubble's font, as
+/// (its ink, its span): the ink stops at the last letter, the span takes in a
+/// wrapped line's trailing space. Shaped and wrapped as GPUI's own text is,
+/// so text given the span wraps where it was measured.
+fn widest_line(text: &str, max: Pixels, window: &Window) -> (Pixels, Pixels) {
+    let style = window.text_style();
+    let run = TextRun { len: text.len(), font: style.font(), color: style.color, background_color: None, underline: None, strikethrough: None };
+    let Ok(lines) = window.text_system().shape_text(text.to_owned().into(), px(size::BODY), &[run], Some(max), None) else { return (max, max) };
+    let (mut ink, mut span) = (Pixels::ZERO, Pixels::ZERO);
+    for line in &lines {
+        let layout = &line.unwrapped_layout;
+        let glyphs: Vec<(Pixels, usize)> = layout.runs.iter().flat_map(|r| r.glyphs.iter().map(|g| (g.position.x, g.index))).collect();
+        let mut run_starts = Vec::with_capacity(layout.runs.len());
+        let mut total = 0;
+        for r in &layout.runs {
+            run_starts.push(total);
+            total += r.glyphs.len();
+        }
+        // Each wrapped line's first glyph: a boundary's glyph starts the next.
+        let mut starts = vec![0];
+        starts.extend(line.wrap_boundaries.iter().map(|b| run_starts[b.run_ix] + b.glyph_ix));
+        starts.push(glyphs.len());
+        let source = line.text.as_ref();
+        for pair in starts.windows(2) {
+            let (first, end) = (pair[0], pair[1]);
+            if first >= end {
+                continue;
+            }
+            let x0 = glyphs[first].0;
+            let right = |g: usize| if g + 1 < glyphs.len() { glyphs[g + 1].0 } else { layout.width };
+            span = span.max(right(end - 1) - x0);
+            if let Some(last) = (first..end).rev().find(|&g| source.get(glyphs[g].1..).and_then(|s| s.chars().next()).is_some_and(|c| !c.is_whitespace())) {
+                ink = ink.max(right(last) - x0);
+            }
+        }
+    }
+    (ink.min(max), span.min(max).max(ink.min(max)))
 }
 
 /// The left mark's box, as tall as the bubble's last line.

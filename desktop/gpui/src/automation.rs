@@ -409,9 +409,17 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let words = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
             Ok(json!(format!("ok {}", serde_json::to_string(&words).unwrap_or_default())))
         }
-        // Nothing to do: this app marks a thread read when it's open, and the
-        // Swift app only does when it's in front, which a scripted one never is.
-        "focus" => Ok(json!("ok")),
+        // As if the window had come to the front: both apps read a thread
+        // only while it is, and a scripted one never is.
+        "focus" => {
+            crate::thread::set_looking(true);
+            app.update(cx, |t, cx| {
+                if let Some(pane) = t.pane.clone() {
+                    pane.read(cx).mark_seen();
+                }
+            });
+            Ok(json!("ok"))
+        }
         // Everything the thread has, not just its newest page, then how long a
         // frame takes to draw while it's scrolled (the risk check in stage 0).
         "load-all" => {

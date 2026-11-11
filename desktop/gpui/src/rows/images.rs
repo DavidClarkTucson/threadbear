@@ -82,7 +82,7 @@ fn pixel_size(image: &ImageRef) -> (f32, f32) {
 impl ThreadPane {
     /// The reading column's width, from the list's last layout (`render` keeps
     /// it, as the list can't be asked while it lays its rows out).
-    fn column_width(&self) -> f32 {
+    pub(super) fn column_width(&self) -> f32 {
         if self.rows.list_width <= 0. {
             return MAX_CONTENT_WIDTH;
         }

@@ -101,6 +101,14 @@ pub(crate) fn markdown_view(id: impl Into<ElementId>, text: impl Into<SharedStri
     gpui_kit::component::text::TextView::markdown(id, text).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| open_link(url, origin, &base, cx))
 }
 
+/// The base kit's markdown text made from a string, for text that takes the
+/// reading column's style (`rows::reading_style`), as the asks card's
+/// paragraphs do.
+pub(crate) fn reading_markdown_view(id: impl Into<ElementId>, text: impl Into<SharedString>, origin: Origin, base: &str) -> gpui_kit::base::TextView {
+    let base = base.to_owned();
+    gpui_kit::base::TextView::markdown(id, text).on_link_click(move |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| open_link(url, origin, &base, cx))
+}
+
 // ---------------------------------------------------------------- files
 
 /// A file in its own app, after its symlinks are followed: a document opens,
