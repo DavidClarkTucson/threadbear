@@ -48,7 +48,9 @@ export const VALUE = '${__threadbear_value}';
 const VALUE_SAID = /`?\$\{?__threadbear_value\}?`?/g;
 
 export type PatchCommand = { text: string; line: number; worktree?: boolean };
-export type PatchCommands = { commands: PatchCommand[] } | { unknown: { line: number; why: string } };
+// `hard`: what it runs can't be known from the file at all (its default
+// export's commands come from elsewhere), so no reading of it vouches for it.
+export type PatchCommands = { commands: PatchCommand[] } | { unknown: { line: number; why: string; hard?: boolean } };
 
 // A follower's problem with VALUE in it, in words.
 export function sayValue(problem: string): string {
@@ -88,9 +90,11 @@ type Binding =
 
 class Unknown extends Error {
   readonly at: AstNode;
-  constructor(at: AstNode, why: string) {
+  readonly hard: boolean;
+  constructor(at: AstNode, why: string, hard = false) {
     super(why);
     this.at = at;
+    this.hard = hard;
   }
 }
 
@@ -109,7 +113,7 @@ export function patchCommands(src: string, file: string, root: boolean): PatchCo
   try {
     return { commands: new Reader(program, file, root).read().map((c) => ({ ...c, line: lineAt(c.at) })) };
   } catch (e) {
-    if (e instanceof Unknown) return { unknown: { line: lineAt(e.at.start), why: e.message } };
+    if (e instanceof Unknown) return { unknown: { line: lineAt(e.at.start), why: e.message, ...(e.hard ? { hard: true } : {}) } };
     throw e;
   }
 }
@@ -331,20 +335,25 @@ class Reader {
       if (v.type === kind) return v;
       if (depth < 8 && v.type === 'Identifier') {
         const b = this.only(v.name);
-        if (b?.kind === 'const') return literal(b.init, kind, depth + 1);
+        if (b?.kind === 'const') {
+          // Only if nothing else touches it: `hooks.push(...JSON.parse(x))`
+          // adds commands no object here has (Codex's review).
+          if (this.valueUses(v.name) > 1) throw new Unknown(v, `its default export's ${v.name} is changed or handed on elsewhere`, true);
+          return literal(b.init, kind, depth + 1);
+        }
       }
       if (depth < 8 && kind === 'ObjectExpression' && v.type === 'CallExpression' && unwrap(v.callee).type === 'Identifier') {
         const fn = this.localFunction(unwrap(v.callee).name);
         const body = fn && returned(fn);
         if (body) return literal(body, kind, depth + 1);
       }
-      throw new Unknown(v, "its default export's commands aren't written out in it");
+      throw new Unknown(v, "its default export's commands aren't written out in it", true);
     };
     const objectOf = (n: AstNode) => {
       const o = literal(n, 'ObjectExpression');
       if (seen.has(o)) return o;
       seen.add(o);
-      for (const p of o.properties) if (p.type === 'SpreadElement') throw new Unknown(p, "its default export's commands aren't written out in it");
+      for (const p of o.properties) if (p.type === 'SpreadElement') throw new Unknown(p, "its default export's commands aren't written out in it", true);
       return o;
     };
     for (const st of this.program.body) {
@@ -355,12 +364,21 @@ class Reader {
         if (name === 'actions' || name === 'hooks') {
           for (const e of literal(p.value, 'ArrayExpression').elements) {
             if (!e) continue;
-            if (e.type === 'SpreadElement') throw new Unknown(e, "its default export's commands aren't written out in it");
+            if (e.type === 'SpreadElement') throw new Unknown(e, "its default export's commands aren't written out in it", true);
             objectOf(e);
           }
         } else if (name === 'worktree') objectOf(p.value);
       }
     }
+  }
+
+  // How many times a name is read as a value in the file.
+  private valueUses(name: string): number {
+    let n = 0;
+    for (const [node, parent] of this.parents) {
+      if (node.type === 'Identifier' && node.name === name && isValue(node, parent, this.parents)) n++;
+    }
+    return n;
   }
 
   private findWorktree(): void {
@@ -552,7 +570,8 @@ class Reader {
       opts = list;
       list = undefined;
     }
-    const programs = fn === 'fork' ? this.value(args[0], new Map(), 0).map((p) => [quoteWord('node'), quoteWord(p)].join(' ')) : this.value(args[0], new Map(), 0).map(quoteWord);
+    const raw = this.value(args[0], new Map(), 0);
+    const programs = fn === 'fork' ? raw.map((p) => [quoteWord('node'), quoteWord(p)].join(' ')) : raw.map(quoteWord);
     let words: string[][];
     if (!list) words = [[]];
     else {
@@ -570,10 +589,12 @@ class Reader {
     if (o === 'unknown') return [{ text: VALUE, at: at.start }];
     const out: Found[] = [];
     for (const cd of o.cwd) {
-      for (const prog of programs) {
+      for (const [i, prog] of programs.entries()) {
         for (const w of words) {
           // With a shell, the words are joined and the shell reads them, as Node does.
-          const text = o.shell && fn !== 'fork' ? [unquoteWord(prog), ...w].join(' ') : [prog, ...w.map(quoteWord)].join(' ');
+          // With a shell, Node joins the file and arguments as they are and
+          // the shell reads that: the file can be a whole command line.
+          const text = o.shell && fn !== 'fork' ? [raw[i], ...w].join(' ') : [prog, ...w.map(quoteWord)].join(' ');
           out.push({ text: cd === undefined ? text : `cd ${quoteWord(cd)} && ${text}`, at: at.start });
           if (out.length > MAX_VARIANTS) return [{ text: VALUE, at: at.start }];
         }
@@ -646,6 +667,16 @@ class Reader {
       default:
         return [VALUE];
     }
+  }
+
+  // Whether an expression is null or undefined, through constants.
+  private nullish(node: AstNode, depth: number): boolean {
+    const u = unwrap(node);
+    if (u.type === 'Literal') return u.value === null && !u.regex;
+    if (u.type !== 'Identifier' || depth > MAX_DEPTH) return false;
+    if (u.name === 'undefined' && !this.bindings.has('undefined')) return true;
+    const b = this.only(u.name);
+    return b?.kind === 'const' && this.nullish(b.init, depth + 1);
   }
 
   // Whether an expression is surely a string, surely a number, or either.
@@ -730,8 +761,7 @@ class Reader {
       arr.elements.forEach((e: AstNode, i: number) => {
         if (i > 0) out = join(out, sep);
         // join() writes null and undefined as nothing.
-        const u = unwrap(e);
-        const empty = (u.type === 'Literal' && u.value === null && !u.regex) || (u.type === 'Identifier' && u.name === 'undefined' && !this.bindings.has('undefined'));
+        const empty = this.nullish(e, 0);
         out = join(out, empty ? [''] : this.value(e, env, depth + 1));
       });
       return out;
@@ -884,7 +914,3 @@ function quoteWord(w: string): string {
     .join(`"${VALUE}"`);
 }
 
-// A program name as a shell would read it unquoted (spawn with shell: true).
-function unquoteWord(w: string): string {
-  return w.startsWith("'") && w.endsWith("'") && !w.slice(1, -1).includes("'") ? w.slice(1, -1) : w;
-}

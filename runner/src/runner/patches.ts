@@ -78,6 +78,9 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
     }
   }
   const oneUnknown = [...reads.entries()].find(([, r]) => 'unknown' in r);
+  for (const [module, r] of reads) {
+    if ('unknown' in r && r.unknown.hard) unsure({ file: module, line: r.unknown.line, problem: `${r.unknown.why}, so Threadbear can't tell what it runs`, fix: "Write the patch's actions, hooks and worktree out in its default export, so Threadbear can see their commands." });
+  }
   for (const [module, bytes] of h.code) {
     const text = bytes.toString('utf8');
     for (const n of namedPaths(text)) add(path.resolve(from, n));
@@ -123,7 +126,7 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
         // A child_process call's runs from its cwd (patchCommands puts it as `cd '<dir>' && `).
         const cd = /^cd '([^']*)' && /.exec(c.text);
         const base = cd ? cd[1] : from;
-        for (const word of c.text.split(/[\s'"`;&|()<>=]+/)) {
+        for (const word of shellWords(c.text)) {
           if (!word || word.includes('__threadbear_value') || word.length > 4096) continue;
           if (word.startsWith('/') && word.length > 1) add(word);
           else if (word.startsWith('~/')) add(path.join(os.homedir(), word.slice(2)));
@@ -175,8 +178,42 @@ export function codeOfUnhashedPatch(file: string, from: string, now: number): Co
   return scan;
 }
 
+// A command's words roughly as a shell splits them, quotes taken off, so a
+// quoted path with a space is one word (Codex's review). Only for finding
+// paths in it: the follower is what reads it properly.
+export function shellWords(command: string): string[] {
+  const words: string[] = [];
+  let word = '';
+  let quote: string | undefined;
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) quote = undefined;
+      else word += ch;
+    } else if (ch === "'" || ch === '"') quote = ch;
+    else if (/[\s;&|()<>=`]/.test(ch)) {
+      if (word) words.push(word);
+      word = '';
+    } else word += ch;
+  }
+  if (word) words.push(word);
+  return words;
+}
+
+// Credentials a note could carry: a URL's user and password, `key=value`
+// for a word like token, and long runs that look like a key.
+function redact(text: string): string {
+  return text
+    .replace(/:\/\/[^\s/@]*@/g, '://...@')
+    .replace(/((?:token|key|secret|pass|auth)[\w-]*=)[^\s&`'"]+/gi, '$1...')
+    .replace(/(?<![\w/.-])[A-Za-z0-9_+-]{32,}(?![\w/.-])/g, '...');
+}
+
 // What's said in the thread and Patches when a patch makes every edit ask.
 export function editsAskText(patch: string, why: UnsureWhy | undefined): string {
+  return redact(editsAskWords(patch, why));
+}
+
+function editsAskWords(patch: string, why: UnsureWhy | undefined): string {
   const home = os.homedir();
   const name = patch.startsWith(home + path.sep) ? `~${patch.slice(home.length)}` : patch;
   const head = `Ask and Auto threads ask before every file edit while ${name} is loaded`;

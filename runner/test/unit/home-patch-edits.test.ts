@@ -242,3 +242,29 @@ test("the note leaves out a URL's password", async () => {
   const note = h.events(thread.id).find((e) => e.type === 'system.note' && String(e.text).includes('ask before every file edit'));
   assert.doesNotMatch(note!.text, /p4ss/);
 });
+
+test("what Codex's third review found: each still asks", async () => {
+  const outside = fs.realpathSync(tmpDir());
+  put(path.join(outside, 'status.mjs'), `import './lib.mjs';\n`);
+  put(path.join(outside, 'lib.mjs'), 'console.log(1);\n');
+  put(path.join(outside, 'hooks.json'), JSON.stringify([{ title: 'After', on: 'turn.end', run: `node ${outside}/status.mjs` }]));
+  const lib = path.join(outside, 'lib.mjs');
+  const cases: Record<string, { patch: string; file: string }> = {
+    'hooks pushed from JSON': { patch: `import { readFileSync } from 'node:fs'; const hooks: any[] = []; hooks.push(...JSON.parse(readFileSync(${JSON.stringify(path.join(outside, 'hooks.json'))}, 'utf8'))); export default { hooks };`, file: lib },
+    'a whole command line with shell: true': { patch: `import { spawnSync } from 'node:child_process'; import { join } from 'node:path'; const script = join(${JSON.stringify(outside)}, 'status.mjs'); export default { panels: [{ title: 'S', items: () => spawnSync("node '" + script + "'", { shell: true }) }] };`, file: lib },
+    'null through a constant': { patch: `const part = null; export default { panels: [{ title: 'S', items: ({ sh }: any) => sh('node ' + [${JSON.stringify(outside)}, part, 'status.mjs'].join('/')) }] };`, file: lib },
+    'a quoted path with a space, not there yet': { patch: `import { join } from 'node:path'; export default { panels: [{ title: 'S', items: ({ sh }: any) => sh(\`node "\${join(${JSON.stringify(path.join(outside, 'My Tools'))}, 'later.mjs')}"\`) }] };`, file: path.join(outside, 'My Tools', 'later.mjs') },
+  };
+  for (const [name, c] of Object.entries(cases)) {
+    const { runsAsCode } = await withHomePatch(c.patch);
+    assert.ok(runsAsCode(c.file), name);
+  }
+});
+
+test("the note leaves out a URL's password when the file is read the old way", async () => {
+  const { h, thread, runsAsCode, cwd } = await withHomePatch(`import cluster from 'node:cluster'; const endpoint = 'https://alice:p4ss@example.test/api?status=open'; export default { panels: [{ title: 'S', note: String(cluster.isPrimary), url: endpoint }] };`);
+  assert.equal(runsAsCode(path.join(cwd, 'README.md')), 'unsure');
+  const note = h.events(thread.id).find((e) => e.type === 'system.note' && String(e.text).includes('ask before every file edit'));
+  assert.ok(note);
+  assert.doesNotMatch(note.text, /p4ss/);
+});

@@ -4285,9 +4285,11 @@ isn't there yet included, as the follow stops there) makes every edit ask. A
 file it can't read that way (one that imports a package or a Node module that
 could run something, like `node:cluster`, or passes `sh` or a child_process
 function around, takes a property by a computed name, has a getter, or uses
-`require` or `import()`, or has a default export whose actions, hooks or
-worktree aren't written out as objects in it) is read as before, and so is
-every other file of that patch, as well as exactly. A child_process call runs
+`require` or `import()`) is read as before, and so is every other file of
+that patch, as well as exactly. A default export whose actions, hooks or
+worktree aren't written out as objects in it (built from JSON, or a list
+changed after it's made) makes every edit ask, as its commands could be
+anything. A child_process call runs
 from the runner's own folder unless its `cwd` says otherwise, and is followed
 from there. Read as before means: every string in it as a command it
 might run, except for strings found only in place in the patch file's own
