@@ -8,6 +8,7 @@ import ThreadbearCore
 /// toolbar's ... menu.
 struct ProjectPage: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.isDockGhost) private var isGhost
     let project: Project
 
     var body: some View {
@@ -45,10 +46,21 @@ struct ProjectPage: View {
                 if app.projectDecisionsOn {
                     let tab = app.projectTab(project.id)
                     ProjectTabBar(project: project, tab: tab, decisions: app.projectDecisionCount(project.id))
-                    if tab == .decisions {
-                        DecisionsSection(project: project, tabbed: true)
-                    } else {
-                        info(threads)
+                    // The Project tab stays built while Decisions shows, so
+                    // an edit half typed in its goals, state or notes is
+                    // still there on the way back (Codex review). Hidden, it
+                    // takes no room, clicks or keys.
+                    ZStack(alignment: .topLeading) {
+                        VStack(alignment: .leading, spacing: zoomed(30)) { info(threads) }
+                            .frame(height: tab == .project ? nil : 0, alignment: .top)
+                            .clipped()
+                            .opacity(tab == .project ? 1 : 0)
+                            .allowsHitTesting(tab == .project)
+                            .disabled(tab != .project)
+                            .accessibilityHidden(tab != .project)
+                        if tab == .decisions {
+                            DecisionsSection(project: project, tabbed: true)
+                        }
                     }
                 } else {
                     info(threads)
@@ -63,7 +75,9 @@ struct ProjectPage: View {
         .id(project.id)
         // A fresh visit opens on Decisions when something's waiting, unless
         // a tab was picked for it before (ProjectTabs).
-        .onChange(of: project.id, initial: true) { _, id in app.projectPageOpened(id) }
+        // Not from the dock's drag ghost, a second copy of the page drawn
+        // while a panel moves: that's the same visit (Codex review).
+        .onChange(of: project.id, initial: true) { _, id in if !isGhost { app.projectPageOpened(id) } }
     }
 
     /// Everything about the project but its decisions: the Project tab.

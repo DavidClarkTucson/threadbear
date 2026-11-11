@@ -93,13 +93,24 @@ extension AppModel {
         projectTabsOpenedOn[id] = ProjectTabs.opening(decisions: projectDecisionCount(id))
     }
 
+    /// A tab picked: kept for the project while the app runs. Picking the
+    /// one showing changes nothing, so it isn't kept as a choice either
+    /// (Codex review: a press that did nothing later held the page there).
     func pickProjectTab(_ id: String, _ tab: ProjectTab) {
+        guard tab != projectTab(id) else { return }
         projectTabsPicked[id] = tab
+    }
+
+    /// Whether ⇧⌘[ (-1) or ⇧⌘] (1) has a tab to go to: they stop at the ends.
+    func canStepProjectTab(by delta: Int) -> Bool {
+        guard projectTabsShowing, let id = openProjectId else { return false }
+        let tab = projectTab(id)
+        return ProjectTabs.step(tab, by: delta) != tab
     }
 
     /// ⇧⌘[ and ⇧⌘] on a project's page.
     func stepProjectTab(by delta: Int) {
-        guard projectTabsShowing, let id = openProjectId else { return }
+        guard canStepProjectTab(by: delta), let id = openProjectId else { return }
         pickProjectTab(id, ProjectTabs.step(projectTab(id), by: delta))
     }
 

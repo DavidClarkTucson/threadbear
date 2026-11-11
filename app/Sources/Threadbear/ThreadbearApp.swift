@@ -117,10 +117,10 @@ struct ThreadbearApp: App {
                     Divider()
                     Button("Show Previous Tab", systemImage: "chevron.backward.square") { app.stepProjectTab(by: -1) }
                         .shortcut(.previousTab)
-                        .disabled(!app.projectTabsShowing)
+                        .disabled(!app.canStepProjectTab(by: -1))
                     Button("Show Next Tab", systemImage: "chevron.forward.square") { app.stepProjectTab(by: 1) }
                         .shortcut(.nextTab)
-                        .disabled(!app.projectTabsShowing)
+                        .disabled(!app.canStepProjectTab(by: 1))
                 }
             }
             // Help has no help book to open: the tour is what there is.
