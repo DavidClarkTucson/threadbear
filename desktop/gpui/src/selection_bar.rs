@@ -99,7 +99,8 @@ pub(crate) fn pressed(thread: String, row: &Row) -> impl Fn(&MouseDownEvent, &mu
 pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
     canvas(
         |_, _, _| {},
-        move |_, _, window, _| {
+        move |bounds, _, window, _| {
+            follow_paused_while_selecting(pane.clone(), bounds, window);
             let released = pane.clone();
             window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
                 if phase.capture() && event.button == MouseButton::Left {
@@ -125,6 +126,32 @@ pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
     // listeners hear every press and release in the window.
     .absolute()
     .inset_0()
+}
+
+/// While the button's down on a selection begun in this pane's words, the
+/// transcript stops following new lines, so a working thread's words don't
+/// scroll away under a slow drag; let go and it catches up, if it was
+/// following when the drag began (Mike's pick, 12 Nov, "Pause while
+/// selecting"). A selection left on screen after doesn't hold it.
+fn follow_paused_while_selecting(pane: WeakEntity<ThreadPane>, bounds: Bounds<Pixels>, window: &mut Window) {
+    let pressed = pane.clone();
+    window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+        if phase.capture() && event.button == MouseButton::Left && bounds.contains(&event.position) && TextSelection::is_selectable_at(event.position, window, cx) {
+            let _ = pressed.update(cx, |pane, cx| {
+                let paused = pane.scroller.update(cx, |list, _| list.pause_for_selection());
+                pane.selection_paused_follow |= paused;
+            });
+        }
+    });
+    window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+        if phase.capture() && event.button == MouseButton::Left {
+            let _ = pane.update(cx, |pane, cx| {
+                if std::mem::take(&mut pane.selection_paused_follow) {
+                    pane.scroller.update(cx, |list, cx| list.scroll_to_end(cx));
+                }
+            });
+        }
+    });
 }
 
 /// Where the window's selection starts and ends, as its words last drew it:
@@ -458,17 +485,18 @@ pub(crate) fn text_lines_command(app: &Entity<crate::app::Threadbear>, cmd: &ser
 
 /// `selection`: what's selected in the window now, whether the bar's up (and
 /// its top), and whether the dock has a panel picked up, without drawing a frame, so a
-/// script can ask mid-drag: "ok {text, bar, barTop, panelDrag}".
+/// script can ask mid-drag: "ok {text, bar, barTop, following, panelDrag}".
 #[cfg(feature = "automation")]
 pub(crate) fn selection_command(app: &Entity<crate::app::Threadbear>, window: &mut Window, cx: &mut App) -> Result<serde_json::Value, String> {
     use serde_json::json;
     let text = TextSelection::selected_text(window, cx);
     let bar = BAR.with(|b| b.borrow().as_ref().map(|b| b.words.clone()));
     // Where it was drawn, its top, in window points.
+    let following = app.read(cx).pane.clone().is_some_and(|p| p.read(cx).scroller.read(cx).following());
     let bar_top = BAR.with(|b| b.borrow().as_ref().and_then(|b| b.drawn).map(|d| f32::from(d.top())));
     let model = app.read(cx).dock_view.read(cx).model.clone();
     let panel_drag = model.read(cx).controller.drag.as_ref().map(|d| d.panel.clone());
-    Ok(json!(format!("ok {}", json!({ "text": text, "bar": bar, "barTop": bar_top, "panelDrag": panel_drag }))))
+    Ok(json!(format!("ok {}", json!({ "text": text, "bar": bar, "barTop": bar_top, "following": following, "panelDrag": panel_drag }))))
 }
 
 

@@ -79,6 +79,24 @@ impl TranscriptList {
         cx.notify();
     }
 
+    /// While the mouse button's down on a selection: stop following new
+    /// lines, so the words don't move under the pointer. Whether it was
+    /// following, for `resume_after_selection`.
+    pub fn pause_for_selection(&mut self) -> bool {
+        let following = self.list.is_following_tail();
+        if following {
+            // Normal, not GPUI's pause: a pause takes up following again the
+            // moment the view's at the end, which it is as the drag starts.
+            self.list.set_follow_mode(FollowMode::Normal);
+        }
+        following
+    }
+
+    /// Whether it's following new lines right now (for scripts).
+    pub fn following(&self) -> bool {
+        self.list.is_following_tail()
+    }
+
     pub fn viewport(&self) -> Bounds<Pixels> {
         self.list.viewport_bounds()
     }

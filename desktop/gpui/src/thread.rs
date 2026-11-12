@@ -232,6 +232,9 @@ pub struct ThreadPane {
     subagent_missing: bool,
     refreshing: bool,
     _poll: Option<Task<()>>,
+    /// Following new lines was paused for a selection being dragged
+    /// (selection_bar.rs), to take up again on release.
+    pub(crate) selection_paused_follow: bool,
     pub(crate) scroller: Entity<TranscriptList>,
     /// Everything the rows themselves hold between frames (rows.rs).
     pub(crate) rows: crate::rows::RowsState,
@@ -281,6 +284,7 @@ impl ThreadPane {
             refreshing: false,
             _poll: None,
             scroller,
+            selection_paused_follow: false,
             rows: Default::default(),
             composer,
             open_rows: HashSet::new(),
@@ -324,6 +328,7 @@ impl ThreadPane {
             refreshing: false,
             _poll: None,
             scroller,
+            selection_paused_follow: false,
             rows: Default::default(),
             composer,
             open_rows: HashSet::new(),

@@ -30,7 +30,7 @@ const reply = [
 ].join('\n');
 
 type Line = { text: string; x: number; y: number; w: number; h: number };
-type Selection = { text: string; bar: string | null; barTop: number | null; panelDrag: string | null };
+type Selection = { text: string; bar: string | null; barTop: number | null; following: boolean; panelDrag: string | null };
 
 const app = new GpuiDriver();
 await app.start();
@@ -150,12 +150,51 @@ try {
     // Not while working: the transcript follows the reply's new lines, so
     // it scrolls a line under a drag that takes a second or two.
     if (label === 'idle') await anotherItem(label, s);
+    if (label === 'working') await pausedWhileSelecting(label);
   }
 
   // A selection in one item, then a drag along another: the new words, with
   // the bar over them. SHOTS=<dir> keeps a picture of each, to see the
   // highlight is drawn where the bar says (Mike's recording, 12 Nov, had
   // the bar over words with nothing highlighted).
+  // While a thread's working, a slow drag holds the transcript still (it
+  // stops following new lines while the button's down), and it follows
+  // again on release, only if it was following before (Mike's pick, 12
+  // Nov, "Pause while selecting").
+  async function pausedWhileSelecting(label: string) {
+    await app.do({ cmd: 'bottom' });
+    await sleep(1500);
+    // Measured just before the press: until then it follows.
+    const s = await screen();
+    const three = s.find('the last one');
+    const r = await drag([three.left, three.mid], [three.right, three.mid], 0.05, 240, 0.016);
+    const still = r.during.length > 3 && r.during.every((d) => !d.following);
+    check(`${label}: a slow drag while new lines come in stays on its words`, r.after, three.line.text.trim(), r.during);
+    console.log(`${still ? 'pass' : 'FAIL'}  ${label}: not following while the button's down\n      following while down: ${[...new Set(r.during.map((d) => d.following))].join(', ')}`);
+    if (!still) failed += 1;
+    await sleep(1500);
+    const again = (await selection()).following && (await app.dump()).transcript.atBottom;
+    console.log(`${again ? 'pass' : 'FAIL'}  ${label}: following again after letting go`);
+    if (!again) failed += 1;
+    // Scrolled up first, so not following: letting go leaves it where it is.
+    await app.do({ cmd: 'scroll', to: 'top' });
+    await sleep(800);
+    if ((await app.dump()).transcript.atBottom) {
+      console.log(`skip  ${label}: letting go when it wasn't following (the thread fits the window)`);
+      return;
+    }
+    const top = await screen();
+    const here = top.find('Here is where');
+    await drag([here.left, here.mid], [here.right, here.mid], 0.05, 40, 0.016);
+    await sleep(1500);
+    const d = await app.dump();
+    const stays = !(await selection()).following && !d.transcript.atBottom;
+    console.log(`${stays ? 'pass' : 'FAIL'}  ${label}: letting go when it wasn't following leaves it where it was`);
+    if (!stays) failed += 1;
+    await app.do({ cmd: 'bottom' });
+    await sleep(800);
+  }
+
   async function anotherItem(label: string, s: Awaited<ReturnType<typeof screen>>) {
     await clear(s);
     const one = s.find('still active');
