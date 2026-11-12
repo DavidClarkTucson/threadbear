@@ -1615,7 +1615,9 @@ folder. A button can run a command, like your tests, send the agent a
 message you use a lot, or open a web page in your browser (App Store
 Connect, say), without adding anything to the thread. The web page
 buttons show on the iPhone too, over the message box, and open there. A panel can show a web page, such as your app
-running on localhost, or a list. A link in a panel's page to another site
+running on localhost, a list, or a page the patch writes for each thread
+(an `html` panel: styled however you like, but with no scripts, and a link
+in it opens the way a link from a highlight does). A link in a panel's page to another site
 opens where your web links' Default says (the browser, or over the panel
 with a Back), so the patch's page stays put; if the page moves on to
 another of its own pages, a Back shows in the panel's bar, and Reload goes

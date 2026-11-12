@@ -733,7 +733,7 @@ export const patchesPart = {
     const st = this.mustGet(threadId);
     const panel = this.patchSet(st).panels.find((p) => p.id === panelId);
     if (!panel) throw new RpcError(ErrorCode.badParams, `This thread has no panel called ${panelId}`);
-    if (panel.kind === 'list') {
+    if (panel.kind === 'list' || panel.kind === 'html') {
       return renderListPanel(panel, this.patchSet(st), {
         cwd: st.rec.cwd,
         threadId,

@@ -463,9 +463,10 @@ type PatchInfo = {
 type Panel = {
   id: string            // unique within the thread: "convex.dashboard", "xcode.simulator"
   title: string         // the tab's label
-  kind: "url" | "image" | "list" // a page in a web view, a picture the runner
-                        // draws on request, or rows the runner gets from the
-                        // patch on request (see Patches)
+  kind: "url" | "image" | "list" | "html" // a page in a web view, a picture the
+                        // runner draws on request, rows the runner gets from the
+                        // patch on request, or a page the patch writes on
+                        // request (see Patches)
   url?: string          // kind "url": the page; also what Open in browser opens
   icon?: string         // an SF Symbol name for its button on the right-hand
                         // rail; absent: the client picks one by kind
@@ -1138,7 +1139,7 @@ the summary and then the reply.
 | `media.import` | `{ path: string }` | `{ image: ImageRef }` copies a file into `inbox/` and reads its size; HEIC becomes JPEG and TIFF or BMP becomes PNG |
 | `patches.trust` | `{ threadId, files: { file, hash }[] }` | `{ trusted: string[] }`. Trusts those versions of the thread's waiting patch files (each a `file` its `patches` lists with `untrusted`, and the `hash` given there), then every thread's patches are read again, so the answer comes once they have been. The `claude` entry's file trusts the folder's Claude Code settings the same way. `-32602` for a file the thread isn't waiting on, or one whose hash has moved on since (look again). See "Trusting a folder's patches" |
 | `actions.run` | `{ threadId, actionId }` | For a prompt action, `{ turnId }`: its prompt was sent as a message (as `threads.send`). For a url action (only an older client calls it for one), `{ ok: true, durationMs }` once the page is opened on the runner's Mac, with nothing in the transcript. For a command action, `{ ok, exitCode?, durationMs, seq }` once the command has finished, with its output in the transcript as the `action.run` event at `seq`. The command runs in the thread's folder through a login shell with the thread's variables (`THREADBEAR_THREAD_ID` and the rest) and is stopped after 10 minutes. `-32602` for an action the thread doesn't have, `-32020` while the same action is still running |
-| `panels.render` | `{ threadId, panelId }` | `{ image?: ImageRef, items?: PanelItem[], note?: string }` draws an `image` panel or fills a `list` panel now. For `xcode.simulator`, a screenshot of the booted simulator (`xcrun simctl io booted screenshot`), written to the same file each time under the thread's `panels/`; with no device booted (or another failure) there's only `note`. For a `list` panel, the rows its patch's `items` function returned (at most 200), or `note` with the error when it threw or took over 20 seconds. Slow: it waits for the screenshot or the function. `-32602` for a panel the thread doesn't have |
+| `panels.render` | `{ threadId, panelId }` | `{ image?: ImageRef, items?: PanelItem[], html?: string, note?: string }` draws an `image` panel, fills a `list` panel or writes an `html` panel's page now. For `xcode.simulator`, a screenshot of the booted simulator (`xcrun simctl io booted screenshot`), written to the same file each time under the thread's `panels/`; with no device booted (or another failure) there's only `note`. For a `list` panel, the rows its patch's `items` function returned (at most 200), or `note` with the error when it threw or took over 20 seconds. For an `html` panel, `html`, the string its `html` function returned (at most 1 MB), or `note` for a throw, a timeout or something that isn't a string. Slow: it waits for the screenshot or the function. `-32602` for a panel the thread doesn't have |
 | `panels.convexDeployments` | `{ threadId, panelId, refresh?: boolean }` | `{ deployments: { deployment, deploymentUrl, label }[], note?: string }`. The configured cloud deployment and the project's Development and Production deployments, resolved through the runner's own Convex CLI, run in the project's folder, with read-only queries of `process.env.CONVEX_CLOUD_URL`. Duplicate names are combined; `note` explains unavailable choices. Cached for one minute; `refresh` bypasses the cache. Makes no deploy keys and changes no project settings. `-32602` for a missing or non-cloud panel |
 | `panels.convexKey` | `{ threadId, panelId, deployment?: string, renew?: boolean }` | `{ deployment, deploymentUrl, adminKey }`, a deploy key for a panel with `convex`, for Convex's embedded dashboard. `deployment` defaults to the panel's configured deployment; any other name must be one returned by `panels.convexDeployments` for this panel's project. The runner makes it the first time (`convex deployment token create` in the project's folder, with the runner's own Convex CLI, so an older `convex` package in the project doesn't matter, on Mike's Convex CLI login) and keeps it in `secrets/convex-panels/<deployment>.json`; `renew` deletes that one from Convex and makes a fresh one. A kept key is first checked with the deployment's `/api/check_admin_key` (only at its own `<name>[.<region>].convex.cloud` address), and one Convex says no to (revoked) is replaced the same way; an unclear answer keeps it. Slow the first time. `-32602` for a panel the thread doesn't have or one without `convex`; `-32040` when the runner's Convex CLI isn't signed in (or its login expired), `-32041` when its login can't reach the deployment, otherwise `-32000` with the CLI's message, each in plain words |
 | `panels.convexLogin` | `{ threadId, panelId, check?: boolean, force?: boolean }` | `{ state: "idle" \| "waiting" \| "done" \| "failed", url?, code?, message? }`. Signs the runner's Convex CLI in (`convex login --no-open --login-flow poll`), for a panel that got `-32040` (or `-32041`, with `force`, to switch accounts). Answers once the CLI prints its device page: `url` to open in the browser on the Mac the person is at (any browser can approve it, so a remote runner's sign-in works from here), `code` what that page shows. A call while one is waiting joins it. `check` only reports: poll it until `done` (then the deployment list is fetched afresh) or `failed` (`message` says why, or that it wasn't approved within the code's five minutes) |
@@ -3613,8 +3614,9 @@ only) the app opens in the browser when the chip is pressed, with
 nothing added to the transcript; exactly one of the three. Use `url`,
 not `run: "open https://..."`, for a link: that leaves an `action.run` in
 the transcript on every press. A panel needs a
-`url` with a scheme, or an `items` function, which makes it a `list`
-panel: rows drawn natively, with no page to serve. `{threadId}` in a
+`url` with a scheme, an `items` function, which makes it a `list`
+panel (rows drawn natively, with no page to serve), or an `html` function,
+which makes it an `html` panel (below); one of the three. `{threadId}` in a
 panel's `url` is the id of the thread it's shown beside, filled in by
 the runner in each thread's summary (`http://127.0.0.1:6427/?thread={threadId}`),
 so the page can tell which thread it's in. A link in a `url` panel's page
@@ -3641,7 +3643,32 @@ where the thread is. It returns `PanelItem`s (or a promise of
 them). Give rows a `section` to group them under headings (rows of one
 section next to each other, in the order you want the groups), and a
 `trailing` for a date or count at the end of the line. A panel can have an `icon`, an SF Symbol name for its button on
-the rail. A hook is a command the runner runs by itself, so in a
+the rail.
+
+**HTML panels.** A panel with an `html` function is fully styled and still
+per thread: the function gets the same `{ cwd, threadId, matched, sh }` as
+`items` and returns a string of HTML (or a promise of one), at most 1 MB.
+`panels.render` calls it under the same trust, 20 second timeout and error
+`note` as `items`, and the app shows the string in a web view, asked again
+when the panel is shown and every 15 seconds while it is. The page is
+replaced only when the string has changed, and the scroll position is put
+back after, so a refresh doesn't flash. The page is sandboxed: no scripts
+run in it (so it is HTML and CSS, with inline SVG and `data:` images; a
+page that wants scripts or a live source is a `url` panel), it loads
+nothing from the network, and it can't navigate: a click on a link in it
+opens the link as a highlight's does (the browser, or over the panel,
+per the Default) and the panel itself stays put. Escape what the function
+puts in the page (a repo's name, a commit message), as the page is
+written from data the thread's folder gave it.
+
+```ts
+  panels: [{
+    title: "Pipeline", icon: "shippingbox",
+    html: async ({ sh }) => `<body style="background:#111;color:#eee">${(await sh("date")).trim()}</body>`,
+  }],
+```
+
+A hook is a command the runner runs by itself, so in a
 project's patch it's one script in the repo and plain words (see
 "Trusting a folder's patches"):
 
@@ -3652,7 +3679,8 @@ project's patch it's one script in the repo and plain words (see
 ```
 
 **Live state.** An action or panel can also have `when` and `badge`,
-functions that get the same `{ cwd, threadId, matched, sh }` as `items`.
+functions that get the same `{ cwd, threadId, matched, sh }` as `items`
+(and `html`).
 `when` hides it unless it returns something true (a chip that only turns
 up when there's something to do); `badge` returns a count (a number, a
 numeric string or a list, whose length counts), sent as the item's
@@ -4096,7 +4124,7 @@ shows waiting in Patches. Home's patches and Threadbear's own checkout
 aren't hashed, so theirs run as written. Nor is
 `check` held to the one-script rule, which runs when `tb land` does (the
 Land chip, or an agent that could run anything anyway); it's followed
-the same way. A live function (`items`, `when`, `badge`, `summary`) is
+the same way. A live function (`items`, `html`, `when`, `badge`, `summary`) is
 the patch's own code, hashed with it, and `sh` runs what that code says,
 but by itself, every few seconds, so a trusted-by-hash patch's `sh` is
 held as a hook is, short of the one-script rule (its commands are worked
@@ -4485,7 +4513,8 @@ access none of this changes anything.
 
 A client shows what it can: a `url` panel in a web view, an `image` panel
 by asking `panels.render` now and then while it's on screen, a `list`
-panel the same way (when it's shown and every 15 seconds while it is),
+panel the same way (when it's shown and every 15 seconds while it is), an `html` panel
+the same way in a web view with scripts off and no navigation ("Patches"),
 and an unknown `kind` as a page if it has a `url`.
 
 ### The Convex panel
