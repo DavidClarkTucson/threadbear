@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { land, landTargetFromGit, type LandTarget } from '../../src/worktrees.ts';
 import { joinQueue, queueDir, setRunning, waiting, waitingLine } from '../../src/land-queue.ts';
@@ -204,4 +205,69 @@ test("a workflow red on GitHub for another's files leaves that one out of the gr
   assert.deepEqual(await Promise.all(rest), [0, 1]);
   assert.match(cc.err.join('\n'), /Held: the workflow for c\.txt is red on main\./);
   assert.ok(fs.existsSync(path.join(main, 'b.txt')) && !fs.existsSync(path.join(main, 'c.txt')));
+});
+
+// 12 Nov: a hand-run `git rebase origin/main` in the main checkout had HEAD
+// detached while a landing fast-forwarded, so the landing moved the detached
+// HEAD, and the rebase's end set main without it.
+test('a landing refuses while the main checkout is in the middle of a rebase, and main keeps nothing half moved', async () => {
+  const { main } = makeRepo();
+  const [a] = branches(main, ['a']);
+  // A rebase in main that stops on a conflict: HEAD detached, rebase-merge there.
+  sh(main, 'git checkout -q -b side HEAD && echo side > README.md && git commit -qam side && git checkout -q main && echo mine > README.md && git commit -qam mine');
+  assert.throws(() => sh(main, 'git rebase side'));
+  const before = sh(main, 'git rev-parse refs/heads/main');
+  const c = capture();
+  assert.equal(await land({ ...a, check: 'true' }, c.opts), 1);
+  assert.match(c.err.join('\n'), /is in the middle of a rebase .*rebase-merge.*nothing landed/);
+  assert.equal(sh(main, 'git rev-parse refs/heads/main'), before);
+  sh(main, 'git rebase --abort');
+  assert.equal(await land({ ...a, check: 'true' }, capture().opts), 0);
+  assert.ok(fs.existsSync(path.join(main, 'a.txt')));
+});
+
+test('a rebase started in the main checkout while the check runs stops the landing before main moves', async () => {
+  const { main } = makeRepo();
+  const [a] = branches(main, ['a']);
+  sh(main, 'git checkout -q -b side HEAD && echo side > README.md && git commit -qam side && git checkout -q main && echo mine > README.md && git commit -qam mine');
+  const before = sh(main, 'git rev-parse refs/heads/main');
+  const c = capture();
+  // The check starts the rebase in main, as a sync by hand would mid-check.
+  const check = `cd '${main}' && git rebase side >/dev/null 2>&1; true`;
+  assert.equal(await land({ ...a, check }, c.opts), 1);
+  assert.match(c.err.join('\n'), /in the middle of a rebase/);
+  assert.equal(sh(main, 'git rev-parse refs/heads/main'), before);
+  assert.doesNotMatch(sh(main, 'git log --format=%s HEAD'), /Add a/, 'nor did the detached HEAD get it');
+  sh(main, 'git rebase --abort');
+});
+
+test('the main checkout on a detached HEAD is refused by name', async () => {
+  const { main } = makeRepo();
+  const [a] = branches(main, ['a']);
+  sh(main, 'git checkout -q --detach main');
+  const c = capture();
+  assert.equal(await land({ ...a, check: 'true' }, c.opts), 1);
+  assert.match(c.err.join('\n'), /is on a detached HEAD, not main, so tb land can't move main there/);
+});
+
+// 12 Nov: session restarts killed waiting tb lands, and the group was
+// checked again without each one, so two passing checks landed nothing.
+test('a landing whose tb is killed during the group check still lands, if its branch is where it was', async () => {
+  const { root, main } = makeRepo();
+  const [b, c] = branches(main, ['b', 'c']);
+  const common = path.join(main, '.git');
+  // c's tb, waiting: an entry, and its lock held by a stand-in that goes
+  // once the check has started.
+  const e = joinQueue(common, { branch: c.branch, path: c.path, base: sh(main, 'git rev-parse main'), commit: sh(c.path, 'git rev-parse HEAD'), check: 'CHECK', checkFrom: '' });
+  const holder = spawn('/usr/bin/lockf', ['-k', path.join(queueDir(common), `${e.id}.lock`), '/bin/sh', '-c', `touch '${root}/held'; while ! test -f '${root}/drop'; do sleep 0.05; done`], { stdio: 'ignore' });
+  const gone = new Promise((r) => holder.once('close', r));
+  await until(() => fs.existsSync(path.join(root, 'held')), "c's stand-in holding its lock");
+  const check = `if test -f c.txt; then touch '${root}/drop'; while pgrep -f "${root}/drop" >/dev/null; do sleep 0.05; done; fi`;
+  // The entry asks for the same check as b's.
+  fs.writeFileSync(path.join(queueDir(common), `${e.id}.json`), JSON.stringify({ ...e, check }));
+  const out = capture();
+  assert.equal(await land({ ...b, check }, out.opts), 0, out.err.join('\n'));
+  await gone;
+  assert.ok(fs.existsSync(path.join(main, 'b.txt')) && fs.existsSync(path.join(main, 'c.txt')), out.out.join('\n'));
+  assert.ok(out.out.some((l) => /In the same check, and landed with it: thread\/c0000000/.test(l)));
 });

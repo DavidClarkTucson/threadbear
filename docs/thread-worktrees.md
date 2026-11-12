@@ -103,6 +103,11 @@ stays. Separate repos do not block one another.
 4. `git -C <mainCheckout> merge --ff-only <checked commit>`. If main's working
    tree has uncommitted changes in files the merge touches, git refuses;
    `tb land` says so and which files, and leaves everything as it was.
+   Before it, and at the start, the main checkout has to be on
+   `refs/heads/main` itself with nothing half done there (no rebase,
+   merge, cherry-pick, revert or bisect in progress): a merge there would
+   move a detached HEAD, and the rebase's end would set main without it.
+   Afterwards it checks main and main's reflog are at the checked commit.
 5. Prints what landed (`git log --oneline main@{1}..main`).
 
 It never pushes. The runner and the app follow the local main by
@@ -186,9 +191,14 @@ their own.
   moved on since it asked, it doesn't go onto the stack cleanly, its tb
   has gone, or the group's files would be held by a workflow red on
   GitHub ("Red on GitHub"; the holder asks for the whole stack, and again
-  once the check has passed). One whose tb goes during the check means the check runs again
-  without it. A dry run and a branch
-  with a merge on it are never put in anyone's check.
+  once the check has passed). A dry run and a branch with a merge on it
+  are never put in anyone's check.
+- One whose tb goes during the check (killed: a session restart does
+  that) still lands, as long as its worktree is still on what it asked to
+  land; its next `tb land` then says there's nothing to land. Only one
+  that has moved on means the check runs again without it. On 12 Nov
+  restarts killed waiting landings again and again, and checking again
+  for each meant two passing group checks in a row landed nothing.
 - A tb killed during a group check leaves its worktree detached at the
   stack (its branch is untouched) and a marker in the worktree's git dir;
   the next `tb land` there checks the branch out again. Two `tb land`s in
@@ -364,6 +374,29 @@ any failure. Don't call `tb land` inside the script: it takes the same lock
 and would wait on itself. A plain git merge outside the lock can move main
 under a landing whose check is already running. A check from before a
 rebase cannot validate the new combination, even when files don't overlap.
+
+### Syncing main with GitHub
+
+Main on this Mac moves by `tb land`; GitHub's moves by pushes and merged
+PRs. When they've parted (a PR merged on GitHub), bring GitHub's in with
+the landing lock held for the whole of it, in one shell, from the main
+checkout:
+
+```sh
+cd ~/dev/me/threadbear
+/usr/bin/lockf -k "$(git rev-parse --git-common-dir)/threadbear-land.lock" \
+  /bin/sh -c 'git fetch origin && git rebase origin/main && git push origin main:main'
+```
+
+The `sh -c '...'` matters: `lockf ... git fetch; git rebase ...` holds the
+lock only for the fetch, and the rebase then races any landing. If the
+rebase stops on a conflict, the lock goes with the command but the rebase
+is still in progress: landings refuse while it is (step 4), so sort it
+out (or `git rebase --abort`) promptly, then push. Never rebase or reset
+main there without the lock: a landing waiting in the line has checked
+a stack built on the main it found, and moves main only by
+fast-forward, so it refuses rather than lands if main was rewritten
+under it ("main moved while this ran"), and has to queue again.
 
 ## Not in v1
 

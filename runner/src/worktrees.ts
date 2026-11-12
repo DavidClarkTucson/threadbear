@@ -623,10 +623,8 @@ async function prepare(
   const head = await gitOut(t.path, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (head === undefined) return fail(`${t.path} isn't a git checkout, so there's nothing to land.`);
   if (head !== t.branch) return fail(`The worktree at ${t.path} is on ${head}, not ${t.branch}. Check out ${t.branch} there, then run tb land again.`);
-  const mainHead = await gitOut(t.mainCheckout, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  if (mainHead !== MAIN) {
-    return fail(`The main checkout at ${t.mainCheckout} is on ${mainHead ?? 'nothing git can read'}, not ${MAIN}, so tb land can't move ${MAIN} there.`);
-  }
+  const notReady = await mainNotReady(t.mainCheckout);
+  if (notReady) return fail(notReady);
 
   // 1. Nothing uncommitted: it wouldn't land, and a rebase could trip on it.
   const status = await gitOut(t.path, ['status', '--porcelain', '--untracked-files=all']);
@@ -930,14 +928,21 @@ async function landLocked(
       return fail(`The branch or files in ${t.path} changed while the check ran, so nothing landed.${group.length ? ` (The check was of ${t.branch} with ${together.join(', ')}; HEAD was detached at it, so check out ${t.branch} if it still is.)` : ''} Commit the changes and run tb land again.`);
     }
 
-    // Everyone in the group still waiting for it: one that's gone (its tb
-    // killed) asked for nothing any more, so check again without it.
+    // One whose tb went during the check (killed: on 12 Nov session
+    // restarts killed waiting tb lands again and again, and checking again
+    // without each one meant two passing group checks in a row landed
+    // nothing) still lands, as long as its branch is still what it asked to
+    // land: that's what it asked for. Its next tb land then has nothing to
+    // land. One whose branch has moved on is checked again without.
     if (group.length) {
-      const gone = [];
-      for (const g of group) if (!(await ownerWaiting(common, g.entry))) gone.push(g.entry.branch);
-      if (gone.length) {
-        if (!(await back())) return fail(`${gone.join(', ')} stopped waiting during the check, so nothing landed. ${stuck}`);
-        out(`${gone.join(', ')} stopped waiting during the check, so it's checked again without ${gone.length > 1 ? 'them' : 'it'}.`);
+      const movedOn = [];
+      for (const g of group) {
+        if (await ownerWaiting(common, g.entry)) continue;
+        if ((await gitOut(g.entry.path, ['rev-parse', 'HEAD'])) !== g.entry.commit) movedOn.push(g.entry.branch);
+      }
+      if (movedOn.length) {
+        if (!(await back())) return fail(`${movedOn.join(', ')} stopped waiting and moved on during the check, so nothing landed. ${stuck}`);
+        out(`${movedOn.join(', ')} stopped waiting and moved on during the check, so it's checked again without ${movedOn.length > 1 ? 'them' : 'it'}.`);
         continue;
       }
     }
@@ -958,7 +963,16 @@ async function landLocked(
       return 0;
     }
 
-    // 4. Fast-forward main where it's checked out.
+    // 4. Fast-forward main where it's checked out. Asked again first: the
+    // check took minutes, and on 12 Nov a rebase someone started in the
+    // main checkout meanwhile had HEAD detached, so the merge moved that
+    // instead of main, and the rebase's end set main without it.
+    const unready = await mainNotReady(t.mainCheckout);
+    if (unready) {
+      if (!(await back())) err(stuck);
+      return fail(unready);
+    }
+    const before = await gitOut(t.mainCheckout, ['rev-parse', `refs/heads/${MAIN}`]);
     const merge = await git(t.mainCheckout, ['merge', '--ff-only', checked]);
     if (!merge.ok) {
       if (!(await back())) err(stuck);
@@ -973,6 +987,17 @@ async function landLocked(
       }
       if (/fast-forward/i.test(text)) return fail(`${MAIN} moved while this ran, so nothing landed. Run tb land again.`);
       return fail(`git merge --ff-only ${t.branch} failed in ${t.mainCheckout}, so nothing landed: ${firstLine(text)}`);
+    }
+    // And it's main that moved, as its reflog says, not some other HEAD.
+    const after = await gitOut(t.mainCheckout, ['rev-parse', `refs/heads/${MAIN}`]);
+    const logged = await gitOut(t.mainCheckout, ['reflog', '-1', '--format=%H', `refs/heads/${MAIN}`]);
+    const onMain = await gitOut(t.mainCheckout, ['symbolic-ref', '-q', 'HEAD']);
+    if (after !== checked || logged !== checked || onMain !== `refs/heads/${MAIN}`) {
+      if (!(await back())) err(stuck);
+      return fail(
+        `git merge --ff-only in ${t.mainCheckout} finished, but ${MAIN} is at ${after?.slice(0, 9) ?? 'nothing git can read'} (was ${before?.slice(0, 9) ?? '?'}), not the checked ${checked.slice(0, 9)}, and HEAD there is ${onMain || 'detached'}. Nothing landed.`,
+        `Something else is working in the main checkout. Look at git status and git reflog there, then run tb land again.`,
+      );
     }
 
     // 5. What landed. The others hear from their entries; this branch moves
@@ -994,6 +1019,35 @@ async function landLocked(
     if (group.length) out(`In the same check, and landed with it: ${together.join(', ')}.`);
     return 0;
   }
+}
+
+// Why tb land can't move main in the main checkout now, or undefined: HEAD
+// has to be main itself (not detached) with nothing half done there, as a
+// rebase, merge or cherry-pick in progress would move a detached HEAD and
+// then set main without what landed (12 Nov: a sync with GitHub, by hand,
+// lost a landing that way).
+export async function mainNotReady(mainCheckout: string): Promise<string | undefined> {
+  const head = await gitOut(mainCheckout, ['symbolic-ref', '-q', 'HEAD']);
+  const gitDirRel = await gitOut(mainCheckout, ['rev-parse', '--git-dir']);
+  if (!gitDirRel) return `Git couldn't read the main checkout at ${mainCheckout}, so tb land can't move ${MAIN} there.`;
+  const gitDir = path.resolve(mainCheckout, gitDirRel);
+  const busy: [string, string][] = [
+    ['rebase-merge', 'a rebase'],
+    ['rebase-apply', 'a rebase'],
+    ['MERGE_HEAD', 'a merge'],
+    ['CHERRY_PICK_HEAD', 'a cherry-pick'],
+    ['REVERT_HEAD', 'a revert'],
+    ['BISECT_LOG', 'a bisect'],
+  ];
+  const found = busy.find(([f]) => fs.existsSync(path.join(gitDir, f)));
+  if (found) {
+    return `The main checkout at ${mainCheckout} is in the middle of ${found[1]} (${path.join(gitDir, found[0])}), so tb land can't move ${MAIN} there and nothing landed. Someone may be syncing it with GitHub: let them finish or abort it (git status there says which), then run tb land again.`;
+  }
+  if (head !== `refs/heads/${MAIN}`) {
+    const what = head ? head.replace(/^refs\/heads\//, '') : 'a detached HEAD';
+    return `The main checkout at ${mainCheckout} is on ${what}, not ${MAIN}, so tb land can't move ${MAIN} there.`;
+  }
+  return undefined;
 }
 
 // The files git names when a merge would overwrite local changes (or
