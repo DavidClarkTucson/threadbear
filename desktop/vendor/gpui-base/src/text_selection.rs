@@ -1958,6 +1958,29 @@ impl WindowSelectionState {
         )
     }
 
+    /// [`TextSelection::painted_edges`].
+    fn painted_edges(&self) -> Option<(Bounds<Pixels>, Bounds<Pixels>)> {
+        let mut start: Option<(u64, Bounds<Pixels>)> = None;
+        let mut end: Option<(u64, Bounds<Pixels>)> = None;
+        for registration in self.participants.borrow().values() {
+            let geometry = &registration.registration;
+            if geometry.scope != self.active_scope || registration.participant.upgrade().is_none() {
+                continue;
+            }
+            let Some((edge_start, edge_end)) = geometry.selection_edges else {
+                continue;
+            };
+            let order = registration.document_order;
+            if start.is_none_or(|(best, _)| order < best) {
+                start = Some((order, edge_start));
+            }
+            if end.is_none_or(|(best, _)| order >= best) {
+                end = Some((order, edge_end));
+            }
+        }
+        Some((start?.1, end?.1))
+    }
+
     /// The handles `participant` paints: the start when no participant
     /// earlier in document order has a selection end, the end when none
     /// later has. Participants paint in document order, so a later one that
@@ -2909,6 +2932,18 @@ impl TextSelection {
     ) -> Subscription {
         let state = WindowSelectionState::acquire(window.window_handle().window_id(), cx);
         cx.observe(&state, move |_, cx| callback(cx))
+    }
+
+    /// The carets at the two ends of the window's selection where they were
+    /// last painted, in window coordinates: the first participant's start and
+    /// the last one's end, in document order. `None` when nothing painted
+    /// one, or for a participant that registers no ends. For placing
+    /// something over a pointer's selection, as `touch_selection` does a
+    /// finger's.
+    pub fn painted_edges(window: &Window, cx: &App) -> Option<(Bounds<Pixels>, Bounds<Pixels>)> {
+        WindowSelectionState::existing(window, cx)?
+            .read(cx)
+            .painted_edges()
     }
 
     /// Returns the selection a long press made, laid out for its handles and
