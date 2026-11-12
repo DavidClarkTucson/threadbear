@@ -456,10 +456,13 @@ export class EventLog {
 
   // Events with fromSeq <= seq <= toSeq.
   read(fromSeq: number, toSeq: number): PersistedEvent[] {
+    // The index first: building it can correct the count, in a log whose
+    // last seq isn't its line count (only a damaged one: append keeps them
+    // equal, and all 1,273 of Mike's agreed on 12 Nov).
+    const offsets = this.index();
     const from = Math.max(1, fromSeq);
     const to = Math.min(this.count, toSeq);
     if (to < from) return [];
-    const offsets = this.index();
     const startByte = offsets[from - 1];
     const endByte = to < offsets.length ? offsets[to] : this.size;
     const buf = Buffer.alloc(endByte - startByte);

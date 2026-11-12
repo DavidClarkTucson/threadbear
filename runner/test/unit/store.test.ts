@@ -77,6 +77,12 @@ test('a log whose last line is longer than the tail, or not an event, is read in
   const cut = new EventLog(file);
   assert.equal(cut.lastSeq, 3);
   assert.ok(fs.readFileSync(file, 'utf8').endsWith('not json\n'));
+  // A damaged log whose last seq isn't its line count reads what's there.
+  fs.writeFileSync(file, [ev(1), ev(2), ev(10)].map((e) => JSON.stringify(e)).join('\n') + '\n');
+  const odd = new EventLog(file);
+  assert.equal(odd.lastSeq, 10);
+  assert.deepEqual(odd.read(1, 10).map((e) => e.seq), [1, 2, 10]);
+  assert.equal(odd.lastSeq, 3);
   // An empty file and a missing one are empty logs.
   fs.writeFileSync(file, '');
   assert.equal(new EventLog(file).lastSeq, 0);
