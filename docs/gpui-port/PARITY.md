@@ -359,6 +359,64 @@ built parsers and gates with no launch of the app, which is the trap.)
   thread (every word replaced, not kept) and a card answered live in the
   app both edited on a pencil click in both apps; shots of the GPUI app
   after the fix show the pencil and his words beside the Swift app's.
+### 2026-11-12 The next version goes in by itself with the app in front (`system.selfupdate`)
+
+- The GPUI app only restarted onto a staged build while another app was in
+  front, and Mike keeps it in front, so he had to click Restart to Update
+  every time. It now also restarts in front once nothing's been touched for
+  five seconds (Mike's number), reopening on the list and thread he had, and
+  comes back in front.
+- Never over words typed in any box (a message, a schedule, a rename), a
+  drag or the button held, a page or row swipe, one of its menus or
+  popovers, a dialog, sheet or prompt, an alert or file picker AppKit put up,
+  or another of its windows with a field being typed in. The rule is
+  core's `should_auto_restart` over a `RestartMoment`, with its tests; the
+  idle time is macOS's own (how long since any key, click, pointer move or
+  scroll), and elsewhere it never counts as idle yet.
+- The Swift app is unchanged: it restarts in front only when its handover
+  would go unseen.
+- Files: `desktop/core/src/app_update.rs`, `desktop/gpui/src/app_update.rs`,
+  `automation.rs` (`updates` with `restartCheck`), `row_swipe.rs`,
+  `swipe_nav.rs`, `tips.rs`, `reply_links.rs`, `hang_watch.rs`,
+  `desktop/gpui/Cargo.toml`, `docs/guide.md`, `docs/on-your-mac.md`,
+  `features/updates.feature`, `features/steps/updates.steps.ts`.
+- Verification: core's app_update tests on Tinker Desk; the new scenario
+  (what a restart waits for: nothing, then the words typed, then the open
+  Hibernate menu) passes on Tinker Desk's GPUI app and on Linux.
+
+### 2026-11-12 A row's hover buttons no longer sit on its project line (`sidebar.row.hoverbuttons`)
+
+- The star, moon and archive buttons are centred on the row, over both
+  lines, and only the title's line kept room for them, so a long project
+  line ran on under them (Mike's screenshot). The project line now keeps the
+  same room while they show and is cut short before them with "…", the
+  runner's name kept whole. The Swift app did the same (a picture of it
+  before the change shows it), so both have it.
+- Files: `desktop/gpui/src/sidebar.rs`,
+  `app/Sources/Threadbear/Views/SidebarView.swift`.
+- Verification: pictures of a hovered row with a long title and folder, dark
+  mode, from both apps on Tinker Desk, and the Swift one from before; the
+  sidebar row specs pass on the GPUI app.
+
+### 2026-11-12 Words in a draft box can be selected (`rich.draft.select`)
+
+- A ```slack, ```email or ```draft box's lines can be selected now, as the
+  Swift box's lines are the reply's own text: a drag, a double click, the
+  bar over the words, and ⌘C. Its lines are one piece of text taking part in
+  the window's selection, focusing the box once a drag starts so ⌘C reaches
+  the thread's copy. The kit takes a box as one thing a selection covers or
+  doesn't, and orders the window's selection by when each reply was drawn,
+  so a drag that starts in the box keeps to it, and one from the reply
+  around takes the box whole, as before (the Swift app runs on from one into
+  the other).
+- Its `code` is monospaced on its pill's colour at the text's size, rather
+  than a smaller pill, as one piece of text has one size.
+- Files: `desktop/gpui/src/draft_boxes.rs`, `selection_bar.rs` (`select-text`
+  with `draft`), `docs/gpui-port/features.md`, `features/drafts.feature`,
+  `features/steps/drafts.steps.ts`.
+- Verification: both new scenarios pass on Tinker Desk's GPUI app and on
+  Linux (a real drag across "one link", then the bar's Copy, and ⌘C); the
+  bar's one passes on the Swift app.
 
 ### 2026-11-12 An ask's link on the card, and answering a decision with the runner away, crashed the app (`card.needsyou`, `projects.decisions`)
 

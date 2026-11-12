@@ -12,12 +12,14 @@
 // parse finds the fence wherever it is (in a list, in a quote, as the Swift
 // renderer does), streaming text reparses only its tail as it does for every
 // reply, and a selection across the reply still takes the draft in, as its
-// plain text.
+// plain text. The box's own words can be selected too (`DraftText`), with
+// the bar over them and ⌘C, as the Swift box's lines are the reply's text.
 use crate::open_gate::{self, Origin};
 use crate::rows::metrics::CODE_PAD;
 use crate::style::{self, size};
 use gpui_kit::base::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin};
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
+use gpui_kit::base::{TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
+use gpui_kit::component::{h_flex, ActiveTheme as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
@@ -195,11 +197,28 @@ fn draft_box(draft: &DraftBlock, at: usize, plugin: &DraftBoxes, window: &mut Wi
     let retina = window.scale_factor() >= 2.;
     let rule = gpui_kit::px(if retina { 0.5 } else { 1. });
     let rule_color = if retina { edge } else { edge.opacity(0.5) };
-    let mut body = v_flex().px(px(CODE_PAD)).pt(px(OVER_LINES) - rule).pb(px(CODE_PAD));
-    for (i, line) in lines.iter().enumerate() {
-        body = body.child(line_element(format!("draft-line-{base}-{i}"), line, plugin, cx));
-    }
+    // Its own selection, and somewhere for the keys to go once a drag starts
+    // in its words, so ⌘C copies them (the thread pane's copy, selection_bar.rs).
+    let selection = window
+        .use_keyed_state(ElementId::Name(format!("draft-selection-{base}").into()), cx, |_, cx| {
+            let handle = TextSelectionHandle::new(draft.plain_text(), cx);
+            let focus = cx.focus_handle();
+            let keys = focus.clone();
+            handle.focus_with(move |window, cx| keys.focus(window, cx), cx);
+            DraftSelection { handle, focus }
+        })
+        .read(cx)
+        .clone();
+    let body = div()
+        .w_full()
+        .px(px(CODE_PAD))
+        .pt(px(OVER_LINES) - rule)
+        .pb(px(CODE_PAD))
+        .text_size(px(size::BODY))
+        .line_height(px(size::BODY_LINE))
+        .child(DraftText::new(format!("draft-text-{base}"), &lines, plugin, selection.handle.clone(), cx));
     div()
+        .track_focus(&selection.focus)
         .w_full()
         .rounded(px(8.))
         .bg(fill)
@@ -211,111 +230,224 @@ fn draft_box(draft: &DraftBlock, at: usize, plugin: &DraftBoxes, window: &mut Wi
         .into_any_element()
 }
 
-/// One of the draft's lines, kept as the agent wrote it, with Slack's
-/// formatting or an email's bare addresses as links. A blank line keeps
-/// its height. A line with `code` in it is laid out a word at a time, as
-/// the code is smaller and monospaced in its pill and one text element has
-/// one size; the rest are one piece of text.
-fn line_element(id: String, line: &Line, plugin: &DraftBoxes, cx: &App) -> AnyElement {
-    let row = div().w_full().min_h(px(size::BODY_LINE)).text_size(px(size::BODY)).line_height(px(size::BODY_LINE)).when(line.quote, |d| d.text_color(style::secondary_label(cx)));
-    if line.spans.iter().any(|s| s.code) {
-        return row.flex().flex_wrap().children(word_pieces(&id, line, plugin, cx)).into_any_element();
-    }
-    let link = style::link_text(cx);
-    let mut text = String::new();
-    let mut highlights: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
-    let mut links: Vec<(Range<usize>, String)> = Vec::new();
-    if line.quote {
-        // The bar of a Slack quote, fainter than its words. Opaque: GPUI
-        // blends a highlight's colour into the run's (style::over_background).
-        highlights.push((0..QUOTE_BAR.len(), HighlightStyle { color: Some(style::over_background(style::tertiary_label(cx), cx)), ..Default::default() }));
-        text.push_str(QUOTE_BAR);
-    }
-    for span in &line.spans {
-        let range = text.len()..text.len() + span.text.len();
-        text.push_str(&span.text);
-        let mut look = HighlightStyle::default();
-        if span.bold {
-            look.font_weight = Some(FontWeight::SEMIBOLD);
-        }
-        if span.italic {
-            look.font_style = Some(FontStyle::Italic);
-        }
-        if span.strike {
-            look.strikethrough = Some(StrikethroughStyle { thickness: gpui_kit::px(1.), color: None });
-        }
-        if let Some(url) = &span.link {
-            look.color = Some(link);
-            links.push((range.clone(), url.clone()));
-        }
-        if look != HighlightStyle::default() {
-            highlights.push((range, look));
-        }
-    }
-    if text.is_empty() {
-        return row.into_any_element();
-    }
-    let styled = StyledText::new(text).with_highlights(highlights);
-    if links.is_empty() {
-        return row.child(styled).into_any_element();
-    }
-    // Its links go where the reply's do: through the open gate, as this
-    // thread's (a web page in the browser, a mail address asks first).
-    let (origin, cwd) = (plugin.origin, plugin.cwd.clone());
-    let ranges: Vec<Range<usize>> = links.iter().map(|(r, _)| r.clone()).collect();
-    let urls: Vec<String> = links.into_iter().map(|(_, u)| u).collect();
-    let text = InteractiveText::new(ElementId::Name(id.into()), styled).on_click(ranges, move |ix, _, cx| {
-        if let Some(url) = urls.get(ix) {
-            open_gate::open_link(url, origin, &cwd, cx);
-        }
-    });
-    row.child(text).into_any_element()
-}
-
 /// A Slack quote's bar, before its words.
 const QUOTE_BAR: &str = "\u{2502} ";
 
-/// A line with code in it as pieces that wrap like words: each word with
-/// the space after it, and each `code` whole, 13 pt monospaced in its pill
-/// as the reply's inline code is (MarkdownRenderer's pill), centred on the
-/// line.
-fn word_pieces(id: &str, line: &Line, plugin: &DraftBoxes, cx: &App) -> Vec<AnyElement> {
-    let (link, code_bg, mono) = (style::link_text(cx), style::inline_code_background(cx), cx.theme().mono_font_family.clone());
-    let mut pieces = Vec::new();
-    if line.quote {
-        pieces.push(div().flex_none().text_color(style::tertiary_label(cx)).child(QUOTE_BAR).into_any_element());
-    }
-    for (n, span) in line.spans.iter().enumerate() {
-        if span.code {
-            let pill = div().px(px(2.5)).py(px(1.5)).rounded(px(4.)).bg(code_bg).font_family(mono.clone()).text_size(px(size::CODE)).line_height(px(16.)).whitespace_nowrap().child(span.text.clone());
-            pieces.push(div().flex_none().h(px(size::BODY_LINE)).mx(px(1.5)).flex().items_center().child(pill).into_any_element());
-            continue;
+/// A box's own selection: its handle in the window's selection, and where
+/// the keys go once a drag starts in its words.
+#[derive(Clone)]
+struct DraftSelection {
+    handle: TextSelectionHandle,
+    focus: FocusHandle,
+}
+
+/// The draft's lines as one piece of text, kept as the agent wrote them,
+/// with Slack's formatting or an email's bare addresses as links: one piece,
+/// so a drag across them selects them, a double click a word, and ⌘C copies
+/// them, as the reply's words around the box do (Mike, 12 Nov: "I can't
+/// select the text inside of here?"). A blank line keeps its height. Its
+/// `code` is monospaced on its pill's colour, at the text's size, as one
+/// piece of text has one size.
+///
+/// The kit takes a box in a reply as one thing that a selection either
+/// covers or doesn't, and its window-wide selection orders what it covers
+/// by when each reply's text was drawn, which a box's text drawn inside its
+/// reply can't take a place in. So a drag that starts in these words keeps
+/// to them, and one that starts outside takes the box whole, as before.
+struct DraftText {
+    id: ElementId,
+    text: SharedString,
+    inner: InteractiveText,
+    /// The inner text's layout, shared with it, for the selection's runs.
+    layout: TextLayout,
+    handle: TextSelectionHandle,
+}
+
+impl DraftText {
+    fn new(id: String, lines: &[Line], plugin: &DraftBoxes, handle: TextSelectionHandle, cx: &App) -> Self {
+        // Opaque colours: GPUI blends a highlight's colour into the run's
+        // (style::over_background).
+        let (link, quoted, bar) = (style::link_text(cx), style::over_background(style::secondary_label(cx), cx), style::over_background(style::tertiary_label(cx), cx));
+        let (code_bg, mono) = (style::inline_code_background(cx), cx.theme().mono_font_family.clone());
+        let mut text = String::new();
+        let mut highlights: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
+        let mut code: Vec<(Range<usize>, SharedString)> = Vec::new();
+        let mut links: Vec<(Range<usize>, String)> = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i > 0 {
+                text.push('\n');
+            }
+            if line.quote {
+                // The bar of a Slack quote, fainter than its words.
+                highlights.push((text.len()..text.len() + QUOTE_BAR.len(), HighlightStyle { color: Some(bar), ..Default::default() }));
+                text.push_str(QUOTE_BAR);
+            }
+            for span in &line.spans {
+                let range = text.len()..text.len() + span.text.len();
+                text.push_str(&span.text);
+                let mut look = HighlightStyle::default();
+                if line.quote {
+                    look.color = Some(quoted);
+                }
+                if span.bold {
+                    look.font_weight = Some(FontWeight::SEMIBOLD);
+                }
+                if span.italic {
+                    look.font_style = Some(FontStyle::Italic);
+                }
+                if span.strike {
+                    look.strikethrough = Some(StrikethroughStyle { thickness: gpui_kit::px(1.), color: None });
+                }
+                if span.code {
+                    look.background_color = Some(code_bg);
+                    code.push((range.clone(), mono.clone().into()));
+                }
+                if let Some(url) = &span.link {
+                    look.color = Some(link);
+                    links.push((range.clone(), url.clone()));
+                }
+                if look != HighlightStyle::default() && !range.is_empty() {
+                    highlights.push((range, look));
+                }
+            }
         }
-        for (w, word) in span.text.split_inclusive(' ').enumerate() {
-            let piece = div()
-                .flex_none()
-                .whitespace_nowrap()
-                .when(span.bold, |d| d.font_weight(FontWeight::SEMIBOLD))
-                .when(span.italic, |d| d.italic())
-                .when(span.strike, |d| d.line_through())
-                .child(word.to_owned());
-            let Some(url) = span.link.clone() else {
-                pieces.push(piece.into_any_element());
-                continue;
-            };
-            // Through the open gate, as the reply's links go.
-            let (origin, cwd) = (plugin.origin, plugin.cwd.clone());
-            pieces.push(
-                piece
-                    .id(ElementId::Name(format!("{id}-{n}-{w}").into()))
-                    .text_color(link)
-                    .cursor_pointer()
-                    .on_click(move |_, _, cx| open_gate::open_link(&url, origin, &cwd, cx))
-                    .into_any_element(),
-            );
-        }
+        let styled = StyledText::new(text.clone()).with_highlights(highlights).with_font_family_overrides(code);
+        let layout = styled.layout().clone();
+        // Its links go where the reply's do: through the open gate, as this
+        // thread's (a web page in the browser, a mail address asks first).
+        let (origin, cwd) = (plugin.origin, plugin.cwd.clone());
+        let ranges: Vec<Range<usize>> = links.iter().map(|(r, _)| r.clone()).collect();
+        let urls: Vec<String> = links.into_iter().map(|(_, u)| u).collect();
+        let id = ElementId::Name(id.into());
+        let inner = InteractiveText::new(id.clone(), styled).on_click(ranges, move |ix, _, cx| {
+            if let Some(url) = urls.get(ix) {
+                open_gate::open_link(url, origin, &cwd, cx);
+            }
+        });
+        DraftText { id, text: text.into(), inner, layout, handle }
     }
-    pieces
+}
+
+impl IntoElement for DraftText {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for DraftText {
+    type RequestLayoutState = ();
+    type PrepaintState = Hitbox;
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, id: Option<&GlobalElementId>, inspector_id: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+        self.inner.request_layout(id, inspector_id, window, cx)
+    }
+
+    fn prepaint(&mut self, id: Option<&GlobalElementId>, inspector_id: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> Hitbox {
+        let hitbox = self.inner.prepaint(id, inspector_id, bounds, &mut (), window, cx);
+        let mine = self.handle.entity_id();
+        let dragging_here = self.handle.snapshot(cx).is_some_and(|s| s.is_selecting() && s.anchor().entity_id() == Some(mine));
+        let registration = if !dragging_here && crate::reply_links::left_held() {
+            // A selection being made from outside the box: out of its way,
+            // where nothing is, so the reply's text takes the box whole.
+            let away = Bounds::new(point(bounds.left(), gpui_kit::px(1e7)), Size::default());
+            TextSelectionRegistration::new(window.insert_hitbox(away, HitboxBehavior::Normal), away)
+        } else {
+            let own = window.insert_hitbox(bounds, HitboxBehavior::Normal);
+            if dragging_here {
+                // A drag that started here stays with these words wherever
+                // the pointer goes, as the reply's own text stays with it.
+                window.capture_pointer(own.id);
+            }
+            // The window's selection picks the smallest text under the
+            // pointer: as good as no size, so it's these words, never the
+            // reply they're in or another under a drag that's left them.
+            // Where they are is what counts for the points it hands back.
+            TextSelectionRegistration::new(own, Bounds::new(bounds.origin, gpui_kit::size(gpui_kit::px(1.), gpui_kit::px(1.)))).with_text_bounds(vec![bounds])
+        };
+        let registration = registration.with_rendered_element(&self.handle, window, cx);
+        self.handle.register(registration, window, cx);
+        hitbox
+    }
+
+    fn paint(&mut self, id: Option<&GlobalElementId>, inspector_id: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), hitbox: &mut Hitbox, window: &mut Window, cx: &mut App) {
+        let projection = self.handle.update_runs(&[TextSelectionRun::new(self.text.clone(), self.layout.clone(), bounds)], cx);
+        let color = cx.theme().selection;
+        for range in projection.ranges().iter().flatten() {
+            paint_selection(&self.layout, range.clone(), color, window);
+        }
+        // Words to select: the I-beam, as over the reply's (its links say
+        // otherwise as they paint).
+        window.set_cursor_style(CursorStyle::IBeam, hitbox);
+        self.inner.paint(id, inspector_id, bounds, &mut (), hitbox, window, cx);
+        #[cfg(feature = "automation")]
+        PAINTED.with(|p| p.borrow_mut().insert(self.id.to_string(), (self.text.clone(), self.layout.clone())));
+    }
+}
+
+#[cfg(feature = "automation")]
+thread_local! {
+    /// Each box's words as last painted, by its element's name, for a script
+    /// to find where words are (`drag_select`). One a box, so it stays small.
+    static PAINTED: std::cell::RefCell<HashMap<String, (SharedString, TextLayout)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// `select-text` with `"draft": true`: selects `words` in one of the row's
+/// draft boxes as a person would, pressing at the first and dragging to the
+/// last, through real pointer events and hit testing. Says where the press
+/// and the release were, for the bar.
+#[cfg(feature = "automation")]
+pub(crate) fn drag_select(row: &str, words: &str, window: &mut Window, cx: &mut App) -> Result<(Point<Pixels>, Point<Pixels>), String> {
+    use gpui_kit::test::{TestEventExt as _, TestWindowExt as _};
+    PAINTED.with(|p| p.borrow_mut().clear());
+    window.render_frame(cx);
+    let prefix = format!("draft-text-{row}-");
+    let found = PAINTED.with(|p| p.borrow().iter().find(|(name, (text, _))| name.contains(&prefix) && text.contains(words)).map(|(_, found)| found.clone()));
+    let (text, layout) = found.ok_or_else(|| format!("no draft box in {row} shows {words:?}"))?;
+    let start = text.find(words).unwrap_or(0);
+    let (Some(first), Some(last)) = (layout.position_for_index(start), layout.position_for_index(start + words.len())) else {
+        return Err(format!("{words:?} isn't laid out in {row}'s draft"));
+    };
+    // Into the first letter and short of the end of the last, on their line.
+    let half = layout.line_height() / 2.;
+    let (from, to) = (point(first.x + gpui_kit::px(1.), first.y + half), point(last.x - gpui_kit::px(1.), last.y + half));
+    window.pointer_move(from, None, cx);
+    window.pointer_down(from, MouseButton::Left, cx);
+    window.render_frame(cx);
+    window.pointer_move(to, Some(MouseButton::Left), cx);
+    window.render_frame(cx);
+    window.pointer_up(to, MouseButton::Left, cx);
+    window.render_frame(cx);
+    Ok((from, to))
+}
+
+/// The selected part of the text, on its lines: the first from where it
+/// starts, any between whole, the last to where it ends.
+fn paint_selection(layout: &TextLayout, range: Range<usize>, color: Hsla, window: &mut Window) {
+    let (Some(start), Some(end)) = (layout.position_for_index(range.start), layout.position_for_index(range.end)) else { return };
+    let (area, line) = (layout.bounds(), layout.line_height());
+    let mut quads = Vec::new();
+    if start.y == end.y {
+        quads.push(Bounds::from_corners(start, point(end.x, end.y + line)));
+    } else {
+        quads.push(Bounds::from_corners(start, point(area.right(), start.y + line)));
+        if end.y > start.y + line {
+            quads.push(Bounds::from_corners(point(area.left(), start.y + line), point(area.right(), end.y)));
+        }
+        quads.push(Bounds::from_corners(point(area.left(), end.y), point(end.x, end.y + line)));
+    }
+    for quad in quads {
+        window.paint_quad(fill(quad, color));
+    }
 }
 
 /// How wide `text` is at `font_size` in the window's font, for the button

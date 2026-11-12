@@ -114,3 +114,31 @@ Then("the clipboard's HTML has {string}", async function (this: ThreadbearWorld,
   }
   assert.fail(`the clipboard's HTML is ${last}`);
 });
+
+// Words in a draft box selected: both apps take `select-text` with the words.
+// The GPUI app drags across them in the box, through its real hit testing
+// (`draft`); the Swift app selects them wherever they are in the reply.
+async function selectInDraft(world: ThreadbearWorld, words: string, action?: string): Promise<string> {
+  const row = await world.until('a draft box', (d) => (firstDraft(d) ? streamed(d) : undefined));
+  return world.app.do({ cmd: 'select-text', row: row.id, words, draft: true, ...(action ? { action } : {}) });
+}
+
+When('I select {string} in the draft', async function (this: ThreadbearWorld, words: string) {
+  this.lastAnswer = await selectInDraft(this, words);
+});
+
+When('I press {string} on the bar over {string} in the draft', async function (this: ThreadbearWorld, action: string, words: string) {
+  await selectInDraft(this, words, action);
+});
+
+// Exactly the words: the whole draft's Copy, a scenario before, has them in it.
+Then('the clipboard holds just {string}', async function (this: ThreadbearWorld, words: string) {
+  const deadline = Date.now() + 5000;
+  let last = '';
+  while (Date.now() < deadline) {
+    last = await clipboard(this);
+    if (last === words) return;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  assert.equal(last, words);
+});

@@ -328,6 +328,28 @@ pub(crate) fn select_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_j
     let RowContent::Assistant(item) = &row.content else { return Err(format!("{} isn't a reply: only a reply's words can be selected from a script here", row.id)) };
     pane.update(cx, |p, cx| p.scroll_command(None, Some(&row.id), 120., cx))?;
     window.render_frame(cx);
+    // Words in one of its draft boxes, dragged across as a person would
+    // (draft_boxes.rs). The Swift app finds the words wherever they are.
+    if cmd["draft"].as_bool() == Some(true) {
+        TextSelection::clear(window, cx);
+        let (first, last) = crate::draft_boxes::drag_select(&row.id, words, window, cx)?;
+        let selected = TextSelection::selected_text(window, cx);
+        if selected.trim() != words.trim() {
+            return Err(format!("dragging across {words:?} in {}'s draft selected {:?}", row.id, selected.trim()));
+        }
+        let (words, html) = selection_now(&pane, window, cx).ok_or("nothing got selected")?;
+        BAR.with(|b| *b.borrow_mut() = Some(Bar { thread: pane.read(cx).summary.id.clone(), message: Some(message), words, html, first, last, drawn: None }));
+        pane.update(cx, |_, cx| cx.notify());
+        window.render_frame(cx);
+        return match action {
+            Some(action) => {
+                act(&pane.downgrade(), action, window, cx);
+                window.render_frame(cx);
+                Ok(json!("ok"))
+            }
+            None => Ok(json!("ok window 0")),
+        };
+    }
     let doc = pane.read(cx).rows.documents.get(&item.item_id).cloned().ok_or("that reply isn't drawn")?;
     TextSelection::clear(window, cx);
     doc.update(cx, |d, cx| d.select_all(cx));

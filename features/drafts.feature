@@ -34,3 +34,23 @@ Feature: Drafts in a reply
     Then the draft's Copy reads "Copied"
     And the clipboard holds the lines "*Threadbear, 6 Nov*", "• one link (https://x.dev)" and "• two"
     And the clipboard's HTML has '<b>Threadbear, 6 Nov</b><br>• one <a href="https://x.dev">link</a><br>• two'
+
+  @rich.draft.select
+  Scenario: Words in a draft can be selected, and Copy on the bar copies them
+    When I open the thread "Morning brief"
+    And a reply with a Slack draft streams in
+    And I select "one link" in the draft
+    Then the bar shows over the words
+    When I press "copy" on the bar over "one link" in the draft
+    Then the clipboard holds just "one link"
+
+  # A scripted Swift app's ⌘C goes to the Mac's own clipboard, not the
+  # instance's own that `clipboard` reads (selected-words.feature), so it's
+  # only read back here from the GPUI app.
+  @rich.draft.select @swift-pending
+  Scenario: ⌘C copies words selected in a draft
+    When I open the thread "Morning brief"
+    And a reply with a Slack draft streams in
+    And I select "one link" in the draft
+    And I press ⌘C
+    Then the clipboard holds just "one link"

@@ -197,6 +197,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `rich.fullsize` | Full-size rich window | Most of the screen | Own GPUI window holding the web runtime's page. | web | S | `RichBlockWindow` |
 | `rich.draft` | Draft blocks | Slack, email, draft as it'll go out, Slack formatting | Our own block element from `DraftBlock`. | build | M | `DraftBlock`, `DraftBlockCell` |
 | `rich.draft.copy` | Draft copy | Copies with links and bold, "Copied" bubble | GPUI's clipboard is simpler than this, so the HTML flavour needs code on macOS, Windows and Linux (unverified). | shim | S | `DraftBlockCell`, `CopiedBubble` |
+| `rich.draft.select` | Draft words selected | A draft's lines select like the reply's words, with the bar over them and ⌘C | Its lines as one text of the window's selection, its own in the box; a drag from outside takes the box whole. | build | S | `MarkdownRenderer.draftBlock`, `TextKit` |
 | `rich.replybuttons` | Reply buttons | Agent-made pill buttons in the text, live states | Drawn pills as blocks, or inline once `foundation.richtext` settles that. | build | M | `MarkdownRenderer` (`replyButton`), `ReplyButton` |
 | `rich.threadchips` | Thread chips | Ids become chips, hover card, click opens | Drawn chip with `Popover` card, depending on `foundation.richtext` for inline placement. | build | S | `ThreadChips`, `ThreadRefs` |
 | `rich.cardchips` | Card chips | Notion card mentions, click opens | Drawn chip, depending on `foundation.richtext`. | build | S | `CardChips`, `CardMentions` |
