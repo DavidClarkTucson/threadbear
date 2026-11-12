@@ -448,6 +448,54 @@ Fixes from Codex's review of the slice before:
   drawn height came to exactly the room over the box (395 under a box at
   411). Dark pictures of each change are in
   `~/Library/Caches/Threadbear/gpui-compare/composer-gaps/`.
+### 2026-11-12 Edit and Window menus, File > Close, About, the sidebar's and Settings' keys, the Updates popover (`menu.edit`, `menu.file`, `menu.window`, `tour.about`, `sidebar.keys`, `settings.window`, `updates.popover`)
+
+- The menu bar has the Swift app's Edit menu (Undo, Redo, Cut, Copy, Paste,
+  Delete, Select All), each sending gpui-kit's text action to wherever the
+  keyboard is, with the Mac's own selectors for Cut, Copy, Paste and Select
+  All; AppKit then adds AutoFill, Start Dictation and Emoji & Symbols as it
+  does for the Swift app. The Swift app's real Edit menu has no Find,
+  Spelling, Substitutions or Speech (the audit listed them from SwiftUI's
+  defaults); its Writing Tools item AppKit adds for text views, which GPUI's
+  boxes aren't. The app menu has Services.
+- File > Close (⌘W) closes the window in front as its red button would
+  (`performClose:`), and closing the main window quits without asking, as
+  the Swift app quits on its last window. Window has Minimize, Zoom and
+  Bring All to Front; AppKit adds Fill, Center, Move & Resize and the open
+  windows (a panel's own included), and View's Enter Full Screen.
+- About Threadbear is a window of its own: the waving bear (the Swift
+  BearGeometry wave pose, drawn out once as an SVG, tilting from its feet as
+  it opens), the numbers (`threadbear_core::den`, from each thread's
+  `createdAt`) and the build.
+- A click in the Threads panel gives it the keyboard, as a click on a row of
+  the Swift list does (so a row click no longer puts the cursor in the
+  thread's box): up and down move through the drawn threads, Esc goes back
+  to the Inbox from Scheduled, Projects and Librarian. The arrows, Next Inbox
+  Thread and a thread chip scroll the row into view, as little as it takes.
+- Settings' list of sections takes up and down, and has the keyboard as the
+  window opens.
+- Right-click Updates: the app's update in a line, with Restart to Update
+  (Return) once one's staged, or Show the Log after a failed build.
+- Not done: the project page's Show Previous and Next Tab, as this app's
+  project page has no tabs; Help's Take the Tour and Finish Setting Up, which
+  aren't ported, still say so.
+- Files: `desktop/gpui/src/{window_menu,about_window}.rs`,
+  `desktop/gpui/src/{shell,sidebar,row_motion,rails,settings_window,updates_panel,automation,app,main}.rs`,
+  `desktop/gpui/icons/bear-wave.svg`, `desktop/core/src/{den,updates,inbox}.rs`,
+  `features/menus.feature` and scenarios in `navigation`, `settings`,
+  `updates` and `thread-chips`.
+- Verification: the 17 new scenarios failed on main's build (Tinker Desk);
+  on this build, the GPUI app on Tinker Desk passed 47 of 48 scenarios
+  tagged with those and the nearby `nav.*`, `updates.panel`,
+  `system.selfupdate`, `rich.threadchips`, `rail.activity`, `sidebar.search`
+  and list ones; the one left read Window's Fill and Center, which AppKit
+  adds only as the menu opens (as for the Swift app), so that check came
+  out and the `menu.*` and `tour.about` ones passed again, 7 of 7. The
+  Swift app passed the 11 it can run. `cargo test -p
+  threadbear-core` den and popover tests. Shots of the About window and the
+  popover from the debug build on Tinker Desk. The menus Mike's installed
+  app had before: read from the menu bar with System Events (Edit missing,
+  Window with Fill, Center and the window list from AppKit already).
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 

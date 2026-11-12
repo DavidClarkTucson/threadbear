@@ -137,8 +137,16 @@ you go.
   link yet
 - [ ] Connect to other machines directly: other runners' threads only come
   through Convex here (`settings.runners`, `remote.rs`)
-- [ ] Help's two items, About's window, the tour and Finish Setting Up are
-  stubs (`menu.help`, `tour.*`)
+- [ ] Help's two items, the tour and Finish Setting Up, are stubs that say
+  so (`menu.help`, `tour.firstrun`, `tour.setup`). About's window, the
+  Edit menu, File > Close, the Window menu's Zoom, Bring All to Front and
+  window list, the sidebar's and Settings' arrow keys and the Updates
+  icon's popover are in since 12 Nov (`tour.about`, `menu.edit`,
+  `menu.window`, `sidebar.keys`, `updates.popover`)
+- [ ] GPUI's text boxes have no spelling or grammar checks, Substitutions,
+  Look Up, Translate, Writing Tools or Services on selected words: its input
+  isn't an AppKit text view. The Swift app's menu bar has none of these
+  either, but its boxes had them on the right-click menu
 - [x] The archive and hibernate flights: the open thread's page drops into
   the Archived heading or sinks into the moon, and the heading's box bounces
   (`juice.archiveflight`, `juice.hibernateflight`). A drawn card with a

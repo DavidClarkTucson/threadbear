@@ -212,6 +212,9 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     // and `shot --settings` reach it; `"review": id`, in that review's.
     let window = if let Some(id) = cmd["review"].as_str() {
         cx.update(|cx| crate::review_window::window_for(id, cx)).ok_or("that review isn't open")?
+    } else if cmd["den"].as_bool() == Some(true) && cmd["cmd"] != "den" {
+        // `"den": true`: in the About window (a `screenshot` of it).
+        cx.update(crate::about_window::handle).ok_or("the About window isn't open")?
     } else if cmd["settings"].as_bool() == Some(true) && cmd["cmd"] != "settings" {
         app.read_with(cx, |t, _| t.settings_window.as_ref().map(|(handle, _)| *handle)).ok_or("the Settings window isn't open")?
     } else {

@@ -48,6 +48,8 @@ export type Thread = {
   subagents?: { id: string; depth: number; status: string; title: string; detail: string; selected: boolean }[];
   /** "On bruce" for another runner's thread ("On bruce, offline"). */
   runner?: string | null;
+  /** The row is laid out within the part of the list that's showing (GPUI only; null when it isn't drawn). */
+  inView?: boolean | null;
 };
 
 export type Dump = {
@@ -62,6 +64,8 @@ export type Dump = {
     sort?: string;
     /** Before the runner's first list: the grey loading rows are showing. */
     loading?: boolean;
+    /** The Threads panel has the keyboard, for its arrows and Esc (GPUI only). */
+    keyboard?: boolean;
   };
   /** The line under the bar when the thread can't go on where it is (LimitBanner). */
   limit?: { text: string; button?: string | null; carryOn?: string | null } | null;

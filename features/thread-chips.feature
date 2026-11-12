@@ -23,3 +23,14 @@ Feature: Threads named in a reply
     Then the message is headed by the thread chip "Tidy the imports in the uploader"
     When I press the thread chip "Tidy the imports in the uploader"
     Then the open thread is "Tidy the imports in the uploader"
+
+  # The GPUI app's dump says whether a row is in view; the Swift one's doesn't.
+  @rich.threadchips @sidebar.keys @swift-pending
+  Scenario: A thread chip brings that thread's row into view
+    Given the window is short
+    When I click the first row in the sidebar
+    And I press the down arrow until the last thread in the sidebar is open
+    And the agent in "Tidy the imports in the uploader" sends this thread a message
+    And I press the thread chip "Tidy the imports in the uploader"
+    Then the open thread is "Tidy the imports in the uploader"
+    And the open thread's row is in view in the sidebar

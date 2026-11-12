@@ -43,3 +43,8 @@ Then('Settings lists the private folder {string}', async function (this: Threadb
 Then('Settings lists no private folders', async function (this: ThreadbearWorld) {
   await this.until('no private folders', (d) => shown(d)?.privateFolders?.length === 0);
 });
+
+// Where the keyboard is in the Settings window: its list of sections, as it opens.
+When('I press the {word} arrow in Settings', async function (this: ThreadbearWorld, dir: string) {
+  await this.app.do({ cmd: 'arrow', dir, settings: true });
+});

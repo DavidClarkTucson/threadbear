@@ -13,6 +13,18 @@ Feature: Settings
     When I open Settings on "models"
     Then Settings shows "models"
 
+  # A scripted Swift app's arrow keys go only to a text box (`arrow`), so the
+  # list's arrows are checked on the GPUI app.
+  @settings.window @swift-pending
+  Scenario: Up and down move through Settings' sections
+    When I open Settings
+    And I press the down arrow in Settings
+    Then Settings shows "models"
+    When I press the down arrow in Settings
+    Then Settings shows "pools"
+    When I press the up arrow in Settings
+    Then Settings shows "models"
+
   # The Swift app's Settings is an AppKit form: a scripted click on one of its
   # controls starts a tracking loop that waits for a real mouse-up, so the
   # command never answers. Those scenarios are driven on the GPUI app only.

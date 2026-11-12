@@ -481,8 +481,7 @@ for real browsing. I'd skip it: two engines means two sandboxes to prove.
   the Swift app's is; a tooltip from the panel's bar that falls over its
   page is hidden behind it, which Ghostex's small borderless windows (the
   spike) would fix. ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z go to a page that has the
-  keyboard (GPUI's view answers key equivalents for the whole window, and
-  the app has no Edit menu yet). GPUI's own view never asks AppKit for the
+  keyboard (GPUI's view answers key equivalents for the whole window). GPUI's own view never asks AppKit for the
   keyboard back once a page's view has had it, so the app hands it over
   whenever it asks GPUI to focus something (even the box that already had
   GPUI's focus), on a click anywhere GPUI draws, and when the page goes out

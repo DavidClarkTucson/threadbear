@@ -50,7 +50,7 @@ impl Threadbear {
         };
         // Its own height from what it says, as SwiftUI fits the Swift one to
         // its content: the bear, the name, a line each, the two at the foot.
-        let height = 20. + BEAR + 14. + 20. + if view.lines.is_empty() { 0. } else { 10. + 22. * view.lines.len() as f32 } + 16. + (if view.build.is_some() { 2. } else { 1. }) * 15. + 4. + 24.;
+        let height = 20. + BEAR + 14. + 20. + if view.lines.is_empty() { 0. } else { 10. + 22. * view.lines.len() as f32 } + 16. + (if view.build.is_some() { 2. } else { 1. }) * 15. + 4. + 32.;
         // Over the top of the main window, a little down, as the Swift one sits.
         let main = window.bounds();
         let origin = point(main.center().x - px(WIDTH / 2.), main.origin.y + px((f32::from(main.size.height) / 8.).min(70.)));
@@ -81,6 +81,12 @@ impl Threadbear {
             }
         });
     }
+}
+
+/// The About window while it's open, for a script's `screenshot` of it.
+#[cfg(feature = "automation")]
+pub(crate) fn handle(cx: &mut App) -> Option<AnyWindowHandle> {
+    cx.try_global::<AboutWindow>().and_then(|a| a.0)
 }
 
 /// The About window's lines, while it's open, for the specs.

@@ -36,7 +36,10 @@ sort it newest first or oldest first instead, which is handy for working
 through a long inbox from the bottom up. ⌥⌘↓ (Go > Next Inbox Thread)
 opens the thread below the open one in the Inbox, or the Inbox's first if
 the open one is somewhere else; past the last one, a note says you're
-caught up. When your threads pass 100, and each thousand after (archived ones
+caught up. Once you've clicked the list, the up and down arrows move through
+the threads, and Esc in the Scheduled, Projects or Librarian view goes back
+to the Inbox. The list scrolls to keep the open thread's row in sight,
+whether you got there by the arrows, ⌥⌘↓ or a thread named in a reply. When your threads pass 100, and each thousand after (archived ones
 count), a note says so once, the next time you're at the app. Running holds threads whose agent is
 working now. A thread that
 asks you something keeps its place in the inbox, wake-up or not, and so does
@@ -1247,6 +1250,12 @@ In the file, a key is its modifiers and then the key, joined with `+`: `cmd`,
 `return`, `tab`, `space`, `delete`, `home`, `end`, `pageup`, `pagedown` or `f1`
 to `f20`.
 
+The rest are every Mac app's own and can't be changed: the Edit menu's (⌘Z,
+⇧⌘Z, ⌘X, ⌘C, ⌘V, ⌘A, with Start Dictation and Emoji & Symbols under them),
+⌘W to close the window in front, ⌘M to minimize it, ⌃⌘F for full screen, and
+⌘H and ⌥⌘H to hide. In Settings, the up and down arrows move through its
+sections.
+
 ## Experiments
 <!-- slug: experiments -->
 
@@ -1764,7 +1773,8 @@ Inbox's order, the appearance, the panel layout, where the window was, the
 ding, Ask before quitting, the activity log switch, what a click on a link
 does, how files and folders show, and anything typed in a message box and
 not sent. It only fills in what it hasn't got of its own, does it once, and
-a note at the top says what came across.
+a note at the top says what came across. The tour and Finish setting up
+aren't in it yet: its Help menu says so.
 
 ### Light and dark
 
@@ -1853,7 +1863,8 @@ you turn it on, and it stays on your Mac.
   its version, the threads that are busy, and any restart or update on the
   way.
 - `threadbear` in Terminal opens the app, and quitting it with ⌘Q is always
-  safe, since your threads keep running without it. Quit asks first, with
+  safe, since your threads keep running without it. Closing its window
+  (⌘W or the red button) quits it too, without asking. Quit asks first, with
   a Don't ask again box; Settings > General > Quitting turns asking back
   on. If the app says it can't reach the runner, click Start runner.
 - Threadbear > About Threadbear says which commit your copy was built from,

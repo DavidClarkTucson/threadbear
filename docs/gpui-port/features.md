@@ -114,6 +114,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `sidebar.mousedrag` | Mouse drag to archive | Drag left past the line | GPUI mouse drag on the row, sharing the swipe's end state. | build | S | `RowSwipe` |
 | `sidebar.rowmotion` | Row slide and count roll | Section changes animate | `Animation` by hand, as GPUI has no matched geometry we know of. | build | M | `Juice` |
 | `sidebar.starredorder` | Reorder within Starred | Not present: starred keeps star order | Not ported: the app doesn't have it. | drop | none | none |
+| `sidebar.keys` | Sidebar keys | Up and down move through the threads once the list is clicked, Esc goes back to the Inbox from the Scheduled, Projects and Librarian views, and the arrows, Next Inbox Thread and a thread chip scroll the row into view | A key context on the Threads panel, which takes the keyboard when clicked, and a scroll to the row once it's laid out (`row_motion.rs`). | build | S | `SidebarView` (`ThreadList`), `ScheduledList`, `LibrarianView` |
 | `sidebar.move` | Move to another runner | Sheet with login choice, Cancel Move | gpui-kit sheet. | kit | S | `MoveSheet`, `AppModel+Moves` |
 
 ## 4. Thread header, banners, toasts
@@ -358,13 +359,14 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `runners.panel` | Runners panel | Online, commit, threads, CPU, memory, disk, reorder | Drawn, with `foundation.reorder`. | build | M | `RunnersPanel`, `RunnersText`, `RemoteRunners` |
 | `connectors.panel` | Connectors panel | Services, Connect, check again | Drawn. | build | S | `ConnectorsPanel`, `ConnectorsModel`, `ConnectorsText` |
 | `updates.panel` | Updates panel | App, runner, CLIs, From Mike, Bring Them In, Discuss | Drawn. | build | M | `UpdatesPanel`, `UpdatesText` |
+| `updates.popover` | Updates popover | Right-click the Updates icon: the app's update in a line, with Restart to Update once it's ready (Return takes it) or Show the Log once a build failed | Drawn popover beside the icon. | build | S | `UpdatesPanel` (`AppUpdatePopover`) |
 | `pocket.phoneonly` | Pocket and phone-only items | Not on the Mac | Not ported: these are phone features. | drop | none | none |
 
 ## 15. Settings
 
 | ID | Feature | What it does | How in GPUI | Route | Size | Swift |
 |---|---|---|---|---|---|---|
-| `settings.window` | Settings window | Tabbed, width draggable | Own GPUI window with gpui-kit tabs and a resizable width. | kit | M | `SettingsView` |
+| `settings.window` | Settings window | Tabbed, width draggable, up and down move through the sections | Own GPUI window with gpui-kit tabs and a resizable width. | kit | M | `SettingsView` |
 | `settings.general` | General | Appearance, ding with sound and volume, default folder, activity log, Updates from Mike | gpui-kit form, but GPUI has no sound API, so the ding needs an audio crate or code on macOS, Windows and Linux. | shim | M | `SettingsView`, `DingPlayer`, `CompletionSound` |
 | `settings.models` | Models | Small-jobs pool, private folders | gpui-kit form and GPUI path prompts. | kit | S | `SettingsView` |
 | `settings.pools` | Pools | List, rename, order, icon, logins, folders | Drawn, with `foundation.reorder`. | build | L | `SettingsView`, `PoolsModel` |
@@ -396,8 +398,10 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `nav.nextinbox` | Next Inbox Thread | ⌥⌘↓ | GPUI key binding. | kit | S | `AppModel+Selection` |
 | `nav.hints` | Hold ⌘ hints | Keys appear beside buttons | Modifier change handler that draws the keys. | build | M | `ShortcutHints` |
 | `nav.deeplink` | Deep link | `threadbear://thread/<id>` | `register_url_scheme` and `on_open_urls`. | kit | S | `ThreadbearApp`, `ThreadLink` |
-| `menu.app` | App menu | About, Restart to Update, Settings… | `set_menus`: NSMenu on macOS, drawn by `AppMenuBar` on Windows and Linux (inferred). | kit | S | `ThreadbearApp` |
-| `menu.file` | File menu | New Thread | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
+| `menu.app` | App menu | About, Restart to Update, Settings…, Services | `set_menus`: NSMenu on macOS, drawn by `AppMenuBar` on Windows and Linux (inferred). | kit | S | `ThreadbearApp` |
+| `menu.file` | File menu | New Thread, Close (⌘W); closing the main window quits, as the last window | `set_menus`, as `menu.app`, with Close as AppKit's `performClose:` on a Mac. | kit | S | `ThreadbearApp`, `AppDelegate` |
+| `menu.edit` | Edit menu | Undo, Redo, Cut, Copy, Paste, Delete, Select All; on a Mac AppKit adds Writing Tools, AutoFill, Start Dictation and Emoji & Symbols | `set_menus` with gpui-kit's text actions, the Mac's own selectors for Cut, Copy, Paste and Select All. | kit | S | SwiftUI's standard menus |
+| `menu.window` | Window menu | Minimize, Zoom, Bring All to Front; on a Mac AppKit adds Fill, Center, Move & Resize and the open windows (a panel's own too), and View's Enter Full Screen | `set_menus`, the menu named Window being AppKit's windows menu. | kit | S | SwiftUI's standard menus |
 | `menu.view` | View menu | Zoom In, Out, Actual, Show Threads, Panels, Terminal, Reset | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `menu.go` | Go menu | Back, Forward, Next Inbox Thread | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `menu.thread` | Thread menu | Archive, Hibernate submenu, Stop, Copy Transcript, Show Inbox, Scheduled, Projects, Librarian, Hibernating, Archived | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |

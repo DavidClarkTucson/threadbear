@@ -106,3 +106,19 @@ Then('the sidebar shows the Scheduled list with {string} open', async function (
   const later = where(await this.app.dump());
   assert.deepEqual(later, { mode: 'scheduled', open: id });
 });
+
+When('I right-click the Updates icon', async function (this: ThreadbearWorld) {
+  const out = await this.app.do({ cmd: 'updates', rightClick: true });
+  assert.match(out, /popover shown/);
+});
+
+// The popover's line, as both apps' `updates` say it: "popover: shown, <line>".
+Then('the update popover says {string}', async function (this: ThreadbearWorld, line: string) {
+  let lines: string[] = [];
+  for (let i = 0; i < 20; i += 1) {
+    lines = JSON.parse(okValue(await this.app.do({ cmd: 'updates' }))) as string[];
+    if (lines.includes(`popover: shown, ${line}`)) return;
+    await new Promise((done) => setTimeout(done, 200));
+  }
+  assert.fail(`the popover doesn't say "${line}": ${JSON.stringify(lines)}`);
+});

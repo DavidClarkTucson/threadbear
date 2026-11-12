@@ -100,3 +100,15 @@ Feature: The Updates panel
   Scenario: Back from restarting onto the next version, the list and the thread are as they were
     When the app comes back from restarting onto its next version on the Scheduled list with "Morning brief" open
     Then the sidebar shows the Scheduled list with "Morning brief" open
+
+  # The quick way to take the app's update: a popover by the icon.
+  @updates.popover
+  Scenario: Right-clicking Updates offers Restart to Update once the next version is ready
+    When the app's next version, def5678, is ready
+    And I right-click the Updates icon
+    Then the update popover says "A new version of the app is ready."
+
+  @updates.popover
+  Scenario: The update popover says when the app is up to date
+    When I right-click the Updates icon
+    Then the update popover says "The app is up to date."
