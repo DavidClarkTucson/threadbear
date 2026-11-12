@@ -202,9 +202,27 @@ export class GpuiDriver implements Driver {
   }
 
   async do(cmd: Record<string, unknown>, timeoutSeconds = 30): Promise<string> {
+    if (cmd.cmd === 'click' || cmd.cmd === 'label-point') await this.settle();
     const r = await this.ask(cmd, timeoutSeconds);
     if (r.error) throw new Error(`${cmd.cmd}: ${r.error as string}`);
     return typeof r.result === 'string' ? r.result : JSON.stringify(r.result ?? '');
+  }
+
+  /**
+   * Waits for the panels' glide and any archive flight to finish before a
+   * click reads where its control is, as a person waits for things to stop
+   * moving. A click mid-glide read "Go to it" where it was a frame before and
+   * landed on "Show it here" as the note slid over (12 Nov). One small
+   * question while nothing's moving; at most 3 seconds, then it clicks
+   * anyway. An app without the `motion` command says so and isn't waited for.
+   */
+  private async settle(): Promise<void> {
+    const until = Date.now() + 3000;
+    while (Date.now() < until) {
+      const r = await this.ask({ cmd: 'motion' }, 5);
+      if (r.error || !(r.result as { moving?: boolean } | undefined)?.moving) return;
+      await sleep(30);
+    }
   }
 
   async dump(): Promise<Dump> {

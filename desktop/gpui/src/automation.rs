@@ -261,6 +261,18 @@ fn text<'a>(cmd: &'a Value, key: &str) -> &'a str {
 /// is what's on screen now.
 fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App) -> Result<Value, String> {
     match text(cmd, "cmd") {
+        // Whether anything's on its way across the window (the panels
+        // gliding, an archive flight), which the spec driver asks before
+        // every click so it never reads a control's spot mid-move
+        // (features/support/gpui.ts, `settle`). Cheap while nothing moves; a
+        // frame only while something does, as a covered window gets none
+        // from the system and a glide ends at a frame.
+        "motion" => {
+            if app.read(cx).moving(cx) {
+                window.render_frame(cx);
+            }
+            Ok(json!({ "moving": app.read(cx).moving(cx) }))
+        }
         "dump" => {
             // A window covered by another gets no frames from the system on a
             // Mac, and a scroll only takes effect at a frame.

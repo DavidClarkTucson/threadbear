@@ -1402,6 +1402,13 @@ impl Threadbear {
         dump
     }
 
+    /// Whether the panels are gliding or an archive flight is under way
+    /// (automation's `motion`).
+    #[cfg(feature = "automation")]
+    pub(crate) fn moving(&self, cx: &App) -> bool {
+        self.dock_view.read(cx).last_motion().is_some_and(|(_, _, moving)| moving) || self.flight.in_flight()
+    }
+
     /// The composer's part of the dump (AppDump.composer).
     #[cfg(feature = "automation")]
     fn dump_composer(&self, cx: &App) -> Value {

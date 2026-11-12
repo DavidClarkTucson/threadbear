@@ -45,12 +45,6 @@ const noteButtons: Record<string, string> = {
 When("I press {string} on the main panel's note", async function (this: ThreadbearWorld, label: string) {
   const tip = noteButtons[label];
   assert.ok(tip, `the note has no ${label} button`);
-  // As a person does, once the panels have stopped gliding: the note sits
-  // in the middle of the main panel, which narrows as the thread's own
-  // panel opens beside it, so a click while it's moving landed where "Go
-  // to it" was a frame before, now "Show it here" (failed 7 in 8 on Tinker
-  // Desk, and on GitHub's Macs once their specs played the glides, 12 Nov).
-  await this.until('the panels still', (d) => !d.panelMotion?.moving);
   await this.app.do({ cmd: 'click', tip });
 });
 

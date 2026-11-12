@@ -141,6 +141,12 @@ impl Flights {
         }
     }
 
+    /// A page's on its way to its heading (the last flight hasn't landed).
+    #[cfg(feature = "automation")]
+    pub(crate) fn in_flight(&self) -> bool {
+        self.last.as_ref().is_some_and(|l| l["landed"] == json!(false))
+    }
+
     pub(crate) fn dump(&self) -> Value {
         let mut last = self.last.clone().unwrap_or(Value::Null);
         // A heading that only turns up as the page lands (the first thread
