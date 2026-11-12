@@ -61,14 +61,15 @@ test('with THREADBEAR_CHECK_BUSY_EXIT, no room exits with it, and a run over tim
   const r = low.run('h1', 3600, '', { RSYNC_FAILS_ON: 'h1', THREADBEAR_CHECK_BUSY_EXIT: '69' });
   assert.equal(r.status, 69, r.stdout + r.stderr);
   assert.match(r.stderr, /No check host has room for this check/);
-  // The limit counts from the script's start, and a run stopped before its
-  // check begins reads as still waiting. So the hung run gets 25 s: 3 s failed
-  // this with the other files running beside it (9 Nov), and 8 s did in the
-  // runner's self-update on a busy Mac, its copy alone taking 4 s (10 Nov).
-  // The queued run waits either way, so a short limit is fine there.
+  // 8 s, not less: the limit counts from the script's start, and with the other
+  // files running beside this one a 3 s limit failed this test (9 Nov). A run
+  // stopped before its check begins reads as still waiting.
   const limits = { THREADBEAR_CHECK_PING_SECS: '1', THREADBEAR_CHECK_MAX_SECS: '8', THREADBEAR_CHECK_BUSY_EXIT: '69' };
   // Started: --on-host has moved its copy out of runs/ (the fake ssh doesn't
   // run --on-host, so the peek does the move's part), then a step hangs.
+  // 25 s for the hung run, not 8: in a runner's self-update on a busy Mac the
+  // copy alone took 4 s, so its step hadn't begun when 8 s ran out and it read
+  // as still queued (David Clark's fork, 10 Nov 2026).
   const hung = setup({ h1: { state: 'free' } }).run('h1', 3600, 'rm -rf "$PWD"; sleep 120', { ...limits, THREADBEAR_CHECK_MAX_SECS: '25' });
   assert.equal(hung.status, 1, hung.stdout + hung.stderr);
   // Still waiting for the host's lock: its copy is where it was sent.
