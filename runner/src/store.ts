@@ -327,24 +327,81 @@ export type ThreadProjectRecord = Omit<ThreadProject, 'title'>;
 // thread can change folder, account or session after it ran.
 export type SubagentRecord = Subagent & { sessionId?: string; cwd?: string; accountId?: string };
 
+// How much of the end of an events.ndjson opening one reads (EventLog).
+const TAIL_BYTES = 64 * 1024;
+
 // Append-only events.ndjson with a byte-offset index, so a page of a
 // 4,000-event thread is one read of the bytes it needs. seq N is line N.
+//
+// Opening one reads only the end of the file: the last line's seq is the
+// count, which is all a start needs for most threads. The index is built
+// on the first read(). Reading every log in full at start (456 MB over
+// 1,273 threads) took 1.5 to 2 s of each runner restart (12 Nov).
 export class EventLog {
   readonly file: string;
-  private offsets: number[] = [];
+  // Built on the first read(); appends keep it up to date once it is.
+  private offsets: number[] | undefined;
+  private count = 0;
   private size = 0;
 
   constructor(file: string) {
     this.file = file;
-    this.load();
+    if (!this.openTail()) this.loadIndex();
   }
 
-  private load(): void {
+  // The count and size from the last whole line, cutting off half a line a
+  // crash mid-append left. False when the tail can't say (a last line
+  // longer than the bit read, or one that isn't an event), and the whole
+  // file is read instead.
+  private openTail(): boolean {
+    let fd: number;
+    try {
+      fd = fs.openSync(this.file, 'r');
+    } catch {
+      this.offsets = [];
+      this.count = 0;
+      this.size = 0;
+      return true;
+    }
+    try {
+      const total = fs.fstatSync(fd).size;
+      if (total === 0) {
+        this.offsets = [];
+        this.count = 0;
+        this.size = 0;
+        return true;
+      }
+      const len = Math.min(total, TAIL_BYTES);
+      const at = total - len;
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, at);
+      const lastNl = buf.lastIndexOf(0x0a);
+      if (lastNl < 0) return false;
+      const prevNl = lastNl === 0 ? -1 : buf.lastIndexOf(0x0a, lastNl - 1);
+      // The last whole line starts after prevNl, or at the file's start.
+      if (prevNl < 0 && at > 0) return false;
+      const seq = (JSON.parse(buf.subarray(prevNl + 1, lastNl).toString('utf8')) as { seq?: unknown }).seq;
+      if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1) return false;
+      const whole = at + lastNl + 1;
+      // A crash mid-append left half a line. Drop it so seq stays gapless.
+      if (whole < total) fs.truncateSync(this.file, whole);
+      this.count = seq;
+      this.size = whole;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  private loadIndex(): void {
     let buf: Buffer;
     try {
       buf = fs.readFileSync(this.file);
     } catch {
       this.offsets = [];
+      this.count = 0;
       this.size = 0;
       return;
     }
@@ -361,16 +418,22 @@ export class EventLog {
       fs.truncateSync(this.file, start);
     }
     this.offsets = offsets;
+    this.count = offsets.length;
     this.size = start;
   }
 
+  private index(): number[] {
+    if (!this.offsets) this.loadIndex();
+    return this.offsets!;
+  }
+
   get lastSeq(): number {
-    return this.offsets.length;
+    return this.count;
   }
 
   append(event: PersistedEvent): void {
-    if (event.seq !== this.offsets.length + 1) {
-      throw new Error(`event seq ${event.seq} out of order (last ${this.offsets.length})`);
+    if (event.seq !== this.count + 1) {
+      throw new Error(`event seq ${event.seq} out of order (last ${this.count})`);
     }
     const line = Buffer.from(JSON.stringify(event) + '\n', 'utf8');
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -382,21 +445,23 @@ export class EventLog {
       try {
         if (fs.statSync(this.file).size > this.size) fs.truncateSync(this.file, this.size);
       } catch {
-        // can't fix it now; load() drops a half line on the next start
+        // can't fix it now; the next open drops a half line
       }
       throw e;
     }
-    this.offsets.push(this.size);
+    this.offsets?.push(this.size);
+    this.count++;
     this.size += line.length;
   }
 
   // Events with fromSeq <= seq <= toSeq.
   read(fromSeq: number, toSeq: number): PersistedEvent[] {
     const from = Math.max(1, fromSeq);
-    const to = Math.min(this.offsets.length, toSeq);
+    const to = Math.min(this.count, toSeq);
     if (to < from) return [];
-    const startByte = this.offsets[from - 1];
-    const endByte = to < this.offsets.length ? this.offsets[to] : this.size;
+    const offsets = this.index();
+    const startByte = offsets[from - 1];
+    const endByte = to < offsets.length ? offsets[to] : this.size;
     const buf = Buffer.alloc(endByte - startByte);
     const fd = fs.openSync(this.file, 'r');
     try {

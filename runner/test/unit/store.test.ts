@@ -43,6 +43,46 @@ test('a half-written last line from a crash is dropped on load', () => {
   assert.deepEqual(new EventLog(file).read(1, 3).map((e) => e.seq), [1, 2, 3]);
 });
 
+// Opening a log reads only its end (the index waits for the first read),
+// since reading every log in full held each restart back 1.5 to 2 s.
+test('a log opened from its tail appends and reads as one read in full would', () => {
+  const file = path.join(tmpDir(), 'events.ndjson');
+  const first = new EventLog(file);
+  for (let i = 1; i <= 5; i++) first.append(ev(i));
+  const again = new EventLog(file);
+  assert.equal(again.lastSeq, 5);
+  // Appends before the index is built, then a read that builds it.
+  again.append(ev(6));
+  assert.throws(() => again.append(ev(8)), /out of order/);
+  assert.deepEqual(again.read(4, 99).map((e) => e.seq), [4, 5, 6]);
+  // Appends after it is built land in it too.
+  again.append(ev(7));
+  assert.deepEqual(again.read(6, 7).map((e) => e.seq), [6, 7]);
+  assert.equal(new EventLog(file).lastSeq, 7);
+});
+
+test('a log whose last line is longer than the tail, or not an event, is read in full', () => {
+  const file = path.join(tmpDir(), 'events.ndjson');
+  const log = new EventLog(file);
+  log.append(ev(1));
+  log.append(ev(2, 'x'.repeat(200_000)));
+  const again = new EventLog(file);
+  assert.equal(again.lastSeq, 2);
+  assert.equal((again.read(2, 2)[0] as { text: string }).text.length, 200_000);
+  // A corrupt last line still counts as a line, as before.
+  fs.appendFileSync(file, 'not json\n');
+  assert.equal(new EventLog(file).lastSeq, 3);
+  // A half line after a long one is still cut off.
+  fs.appendFileSync(file, '{"seq":4,"ts":"2026-10-2');
+  const cut = new EventLog(file);
+  assert.equal(cut.lastSeq, 3);
+  assert.ok(fs.readFileSync(file, 'utf8').endsWith('not json\n'));
+  // An empty file and a missing one are empty logs.
+  fs.writeFileSync(file, '');
+  assert.equal(new EventLog(file).lastSeq, 0);
+  assert.equal(new EventLog(path.join(tmpDir(), 'none.ndjson')).lastSeq, 0);
+});
+
 test('thread store saves atomically and loads every thread', () => {
   const home = tmpDir();
   ensureHome(home);
