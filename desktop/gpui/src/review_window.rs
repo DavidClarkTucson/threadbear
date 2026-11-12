@@ -791,6 +791,7 @@ impl ReviewWindow {
         let Some(words) = cx.read_from_clipboard().and_then(|c| c.text()).filter(|w| !w.is_empty()) else { return };
         let handle = self.reply.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+        crate::web_panels::keyboard_to_app(window);
         // Replace its selection, or insert at its cursor, as its own Paste does.
         self.reply.update(cx, |s, cx| s.replace(words, window, cx));
         // Save and Send must see the paste before the box's Change arrives.
@@ -1278,6 +1279,7 @@ pub(crate) async fn automation(app: &WeakEntity<Threadbear>, main: AnyWindowHand
                 if cmd["focusReply"].as_bool() == Some(true) {
                     let handle = v.reply.read(cx).focus_handle(cx);
                     window.focus(&handle, cx);
+                    crate::web_panels::keyboard_to_app(window);
                 }
             })
         })
