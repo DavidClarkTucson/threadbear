@@ -77,7 +77,11 @@ evict() {
   local gone="target-gone-$$-${key:-shared}"
   mv "$1" "$gone" || return 0
   local src_gone=""
-  if [ -n "$src" ] && [ -d "$src" ] && mv "$src" "src-gone-$$-$key"; then src_gone="src-gone-$$-$key"; fi
+  # Looked at again once the target's gone: a run that started in between has
+  # touched its copy (remote.sh does as it starts), and keeps it, building
+  # from cold. A lock on the host would close the last instant too; a run that
+  # loses that race fails its copy and works the next time (Codex, 12 Nov).
+  if [ -n "$src" ] && [ -d "$src" ] && ! recent "$src" && mv "$src" "src-gone-$$-$key"; then src_gone="src-gone-$$-$key"; fi
   rm -rf "$gone" ${src_gone:+"$src_gone"}
   return 0
 }
