@@ -42,7 +42,7 @@ const CARD_LABEL_MAX: f32 = 230.;
 /// and a picture's quickly, a page's a little longer, as links are
 /// everywhere (TextKit's hoverChip and hoverPeek).
 const QUICK: Duration = Duration::from_millis(350);
-const SLOWER: Duration = Duration::from_millis(500);
+pub(crate) const SLOWER: Duration = Duration::from_millis(500);
 
 // ---------------------------------------------------------------- hover cards
 
@@ -50,7 +50,7 @@ const SLOWER: Duration = Duration::from_millis(500);
 /// it's been there a moment, and goes when it leaves.
 static HOVERED: Mutex<Option<(SharedString, Instant)>> = Mutex::new(None);
 
-fn hover(key: &SharedString, on: bool, delay: Duration, window: &mut Window, cx: &mut App) {
+pub(crate) fn hover(key: &SharedString, on: bool, delay: Duration, window: &mut Window, cx: &mut App) {
     let mut hovered = HOVERED.lock().unwrap_or_else(|e| e.into_inner());
     if on {
         *hovered = Some((key.clone(), Instant::now()));
@@ -65,7 +65,7 @@ fn hover(key: &SharedString, on: bool, delay: Duration, window: &mut Window, cx:
     }
 }
 
-fn card_shown(key: &str, delay: Duration) -> bool {
+pub(crate) fn card_shown(key: &str, delay: Duration) -> bool {
     HOVERED.lock().ok().and_then(|h| h.as_ref().map(|(k, at)| k.as_ref() == key && at.elapsed() >= delay)).unwrap_or(false)
 }
 
@@ -78,7 +78,7 @@ pub(crate) fn show_card(key: Option<&str>) {
 
 /// A card under a chip `height` tall (ChipCardWindow): its left edge on the
 /// chip's, 4 below it, kept in the window.
-fn under(height: f32, card: AnyElement) -> AnyElement {
+pub(crate) fn under(height: f32, card: AnyElement) -> AnyElement {
     div()
         .absolute()
         .left_0()

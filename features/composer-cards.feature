@@ -132,3 +132,14 @@ Feature: The open card in the composer
     And the card has had a moment to move on
     And I press Return
     Then the app beeps
+
+  # docs/guide.md promises a peek "in a reply or on a Needs you card's
+  # buttons". The Swift app shows it too (RowRenderer's AskButton peek), but
+  # its `ask` has no way to rest on one.
+  @card.needsyou @rich.linkpeek @swift-pending
+  Scenario: Resting on a card's link button shows where it goes
+    When I open the thread "Morning brief"
+    And I send "decisions"
+    Then the card in the composer says "Needs you"
+    When I rest on link 1 of ask 1 on the card
+    Then the card shows the peek "See the list of repos | github.com/mikecann?tab=repositories"

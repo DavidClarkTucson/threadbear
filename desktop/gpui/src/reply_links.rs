@@ -665,7 +665,7 @@ fn rested(serial: u64, pane: &WeakEntity<ThreadPane>, thread: &str, row: &str, w
 /// Whether a link can have a card, cheaply: a web page or a file does
 /// (`peek(atCharacter:)`); Threadbear's own links (a step, a thread, a
 /// review, a chip, a reply button) and other apps' (`mailto:`) don't.
-fn has_card(url: &str) -> bool {
+pub(crate) fn has_card(url: &str) -> bool {
     match url.split_once(':').map(|(s, _)| s.to_ascii_lowercase()) {
         Some(s) if s == "http" || s == "https" || s == "file" || s == "tbpath" => true,
         // `Foo.swift:12`: a file and a line.
@@ -760,6 +760,52 @@ impl ThreadPane {
                 let picture = match (exists, rules::peek_picture(&file.path)) {
                     (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::picture_file(&file.path)),
                     (true, PeekPicture::Lines) => FilePicture::Lines(PathBuf::from(&file.path), None),
+                    _ => FilePicture::Symbol(if Path::new(&file.path).is_dir() { "folder" } else { hl::file_symbol(&file.path) }),
+                };
+                Some(Card::File { words, picture })
+            }
+        }
+    }
+
+    /// A Needs you card's link button's card (the guide's "in a reply or on
+    /// a Needs you card's buttons"): what `peek_card` shows for a reply's
+    /// link, with the button's words for a page's title. Drawn at once, so
+    /// a text file shows its symbol rather than its first lines, which are
+    /// only read off the main thread. None for a link with no card (a
+    /// review, a thread, another Mac's file).
+    pub(crate) fn ask_link_card(&self, title: &str, url: &str, cx: &App) -> Option<AnyElement> {
+        if !has_card(url) {
+            return None;
+        }
+        Some(match self.peek_card_named(url, title)? {
+            Card::Page { title, detail } => crate::chips::words_card(&title, &detail, cx),
+            Card::File { words, picture } => file_card(&words, &picture, cx),
+        })
+    }
+
+    /// The card's title and detail, for the dump (`peek` on a card's link).
+    #[cfg(feature = "automation")]
+    pub(crate) fn ask_link_words(&self, title: &str, url: &str) -> Option<(String, String)> {
+        has_card(url).then_some(())?;
+        Some(match self.peek_card_named(url, title)? {
+            Card::Page { title, detail } => (title, detail),
+            Card::File { words, .. } => (words.title, words.detail),
+        })
+    }
+
+    fn peek_card_named(&self, url: &str, words: &str) -> Option<Card> {
+        match self.link_target(url)? {
+            LinkTarget::Web(web) => {
+                let words = rules::page_peek(&web, words);
+                Some(Card::Page { title: words.title, detail: words.detail })
+            }
+            LinkTarget::File(_) if self.summary.is_remote() => None,
+            LinkTarget::File(None) => None,
+            LinkTarget::File(Some(file)) => {
+                let exists = Path::new(&file.path).exists();
+                let words = rules::file_peek(&file.path, exists, None, &crate::files::home_dir());
+                let picture = match (exists, rules::peek_picture(&file.path)) {
+                    (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::picture_file(&file.path)),
                     _ => FilePicture::Symbol(if Path::new(&file.path).is_dir() { "folder" } else { hl::file_symbol(&file.path) }),
                 };
                 Some(Card::File { words, picture })

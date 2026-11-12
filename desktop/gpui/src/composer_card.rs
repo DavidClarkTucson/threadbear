@@ -650,6 +650,15 @@ pub(crate) trait AskHost: Sized + 'static {
     fn ask_reading_style(&mut self, cx: &App) -> gpui_kit::base::TextViewStyle;
     fn ask_pick_answer(&mut self, ask: usize, option: i64, window: &mut Window, cx: &mut Context<Self>);
     fn ask_open_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>);
+    /// The card a link button shows while the pointer rests on it (a page's
+    /// address, a file's picture or name), and the key its hover is kept
+    /// under; None where its links have none.
+    fn ask_link_card(&self, _title: &str, _target: &str, _cx: &App) -> Option<AnyElement> {
+        None
+    }
+    fn ask_link_key(&self, _ask: usize, _link: usize) -> Option<SharedString> {
+        None
+    }
     fn ask_answer_box(&mut self, ask: usize, window: &mut Window, cx: &mut Context<Self>) -> Entity<TextareaState>;
     /// Return in an ask's box; `command` is ⌘Return.
     fn ask_box_return(&mut self, ask: usize, command: bool, window: &mut Window, cx: &mut Context<Self>);
@@ -721,8 +730,17 @@ pub(crate) trait AskHost: Sized + 'static {
             for (n, title, target) in links {
                 let this = this.clone();
                 let look = if n == 0 { ButtonLook::Picked } else { ButtonLook::Plain };
-                let tip: &'static str = if target.starts_with("review:") { "Open the design options" } else { "Open this" };
-                row = row.child(card_button(("ask-link", index * 100 + n), &format!("{title} ↗"), look, tip, cx).on_click(move |_, window, cx| {
+                // Resting on one shows where it goes, as a reply's link does
+                // (RowRenderer's AskButton peek); a review has none, its
+                // window being the look, and keeps its tip.
+                let key = self.ask_link_key(index, n).filter(|_| crate::reply_links::has_card(&target));
+                let tip: &'static str = if key.is_some() { "" } else if target.starts_with("review:") { "Open the design options" } else { "Open this" };
+                let shown = key.as_ref().filter(|k| crate::chips::card_shown(k, crate::chips::SLOWER)).and_then(|_| self.ask_link_card(&title, &target, cx)).map(|card| crate::chips::under(metrics::BUTTON_HEIGHT, card));
+                let button = card_button(("ask-link", index * 100 + n), &format!("{title} ↗"), look, tip, cx)
+                    .relative()
+                    .when_some(key, |b, key| b.on_hover(move |on, window, cx| crate::chips::hover(&key, *on, crate::chips::SLOWER, window, cx)))
+                    .children(shown);
+                row = row.child(button.on_click(move |_, window, cx| {
                     if let Some(this) = this.upgrade() {
                         let target = target.clone();
                         this.update(cx, |this, cx| this.ask_open_link(&target, window, cx));
@@ -905,6 +923,14 @@ impl AskHost for Composer {
 
     fn ask_open_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.open_ask_link(target, window, cx);
+    }
+
+    fn ask_link_card(&self, title: &str, target: &str, cx: &App) -> Option<AnyElement> {
+        self.pane.upgrade()?.read(cx).ask_link_card(title, target, cx)
+    }
+
+    fn ask_link_key(&self, ask: usize, link: usize) -> Option<SharedString> {
+        Some(format!("ask-link:{}:{ask}:{link}", self.thread_id.as_deref()?).into())
     }
 
     fn ask_answer_box(&mut self, ask: usize, window: &mut Window, cx: &mut Context<Self>) -> Entity<TextareaState> {
@@ -1156,6 +1182,17 @@ impl Composer {
                 let (a, n): (usize, i64) = (a.parse().map_err(|_| "bad ask")?, n.parse().map_err(|_| "bad choice")?);
                 self.pick_answer(a, n, window, cx);
             }
+            // Rests on a link button: its card shows as it would after the
+            // pause ("peek:0:0"), and "peek" alone puts it away.
+            ["peek", a, n] => {
+                let key = self.ask_link_key(a.parse().map_err(|_| "bad ask")?, n.parse().map_err(|_| "bad link")?).ok_or("no thread")?;
+                crate::chips::show_card(Some(&key));
+                window.refresh();
+            }
+            ["peek"] => {
+                crate::chips::show_card(None);
+                window.refresh();
+            }
             ["run", a, _] => {
                 let run = card.asks.get(a.parse::<usize>().map_err(|_| "bad ask")?).and_then(|ask| ask.run.clone()).ok_or("no command on that ask")?;
                 crate::card_run::press_ask(self, &run, cx)?;
@@ -1171,6 +1208,15 @@ impl Composer {
     pub(crate) fn card_lines(&self, cx: &App) -> Option<Vec<String>> {
         let card = self.open_card(cx)?;
         let mut lines = Vec::new();
+        // A link button's card while it shows: "peek: <title> | <detail>",
+        // as its card says them, last.
+        let home = std::env::var("HOME").unwrap_or_default();
+        let peek = card.asks.iter().enumerate().flat_map(|(a, ask)| ask.links.iter().enumerate().map(move |(n, link)| (a, n, link))).find_map(|(a, n, link)| {
+            let key = self.ask_link_key(a, n)?;
+            let target = link.target(&home)?;
+            (crate::chips::card_shown(&key, crate::chips::SLOWER) && crate::reply_links::has_card(&target)).then_some(())?;
+            self.pane.upgrade()?.read(cx).ask_link_words(&link.title, &target)
+        });
         if card.is_done() {
             lines.push("Done".to_owned());
             for (i, next) in card.next.iter().enumerate() {
@@ -1190,6 +1236,9 @@ impl Composer {
                     lines.push(format!("    $ {}", run.command));
                 }
             }
+        }
+        if let Some((title, detail)) = peek {
+            lines.push(format!("peek: {title} | {detail}"));
         }
         Some(lines)
     }
@@ -1349,7 +1398,8 @@ pub(crate) fn card_button(id: impl Into<ElementId>, title: &str, look: ButtonLoo
         .line_height(px(16.))
         .cursor_pointer()
         .hover(|s| s.opacity(0.85))
-        .tip(tip)
+        // No tip where the button shows a card of its own instead.
+        .when(!tip.is_empty(), |b| b.tip(tip))
         .child(title.to_owned())
 }
 

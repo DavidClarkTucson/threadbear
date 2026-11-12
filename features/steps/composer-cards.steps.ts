@@ -60,6 +60,15 @@ When('I press link {int} of ask {int} on the card', async function (this: Thread
   await this.app.do({ cmd: 'ask', row: await openCardRow(this), action: `link:${ask - 1}:${link - 1}` });
 });
 
+When('I rest on link {int} of ask {int} on the card', async function (this: ThreadbearWorld, link: number, ask: number) {
+  await this.app.do({ cmd: 'ask', row: await openCardRow(this), action: `peek:${ask - 1}:${link - 1}` });
+});
+
+// The link button's card, as the dump's card lines give it last.
+Then('the card shows the peek {string}', async function (this: ThreadbearWorld, words: string) {
+  await this.until(`the peek "${words}"`, (d) => cardLines(d).includes(`peek: ${words}`));
+});
+
 When('I tick follow-up {int} on the card', async function (this: ThreadbearWorld, number: number) {
   await this.app.do({ cmd: 'ask', row: await openCardRow(this), action: `next:${number - 1}` });
 });
