@@ -690,3 +690,58 @@ mod highlighter_tests {
         assert!(std::sync::Arc::ptr_eq(&super::plain_code_blocks(), &super::plain_code_blocks()));
     }
 }
+
+/// A selection from one of Mike's messages (plain selectable text) on into
+/// a reply (the kit's text view) copies the words of both. (The Swift app
+/// can't select across rows: each is a text view of its own.)
+#[cfg(all(test, feature = "automation"))]
+mod across_tests {
+    use gpui_kit::base::{SelectableText, TextSelection, TextView, TextViewState};
+    use gpui_kit::prelude::*;
+    use gpui_kit::test::{TestEventExt as _, TestWindowExt as _};
+    // By name: a glob of the kit would bring its `test` over the one the
+    // test macro's own expansion uses.
+    use gpui_kit::{div, point, px, size, Bounds, Entity, MouseButton, Point, TestAppContext, Window, WindowBounds, WindowOptions};
+
+    struct Thread {
+        reply: Entity<TextViewState>,
+    }
+
+    impl Render for Thread {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .child(div().w(px(320.)).child(SelectableText::new(("user-text", 0usize), "Where do things stand")))
+                .child(div().w(px(320.)).child(TextView::new(&self.reply).selectable(true).shared_code_block_highlighter(super::plain_code_blocks())))
+        }
+    }
+
+    #[gpui_kit::test]
+    fn a_drag_from_a_message_into_a_reply_copies_both(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let window = cx.update(|cx| {
+            let bounds = Bounds { origin: Point::default(), size: size(px(400.), px(300.)) };
+            let options = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+            gpui_kit::open_window(options, cx, |_, cx| cx.new(|cx| Thread { reply: cx.new(|cx| TextViewState::markdown("Here is the answer", cx)) })).expect("a test window").0
+        });
+        let selected = cx
+            .update_window(window, |_, window, cx| {
+                window.render_frame(cx);
+                let line = |words: &str, window: &Window| {
+                    gpui_kit::base::test_support::texts(window).into_iter().find(|t| t.visible() && t.text().starts_with(words)).unwrap_or_else(|| panic!("no {words:?} drawn")).bounds()
+                };
+                // The message's plain text isn't in the kit's list of texts:
+                // it's the window's first line, above the reply.
+                let reply = line("Here", window);
+                let (from, to) = (point(px(1.), reply.top() / 2.), point(reply.right() - px(1.), reply.center().y));
+                window.pointer_move(from, None, cx);
+                window.pointer_down(from, MouseButton::Left, cx);
+                window.pointer_move(to, Some(MouseButton::Left), cx);
+                window.pointer_up(to, MouseButton::Left, cx);
+                window.render_frame(cx);
+                TextSelection::selected_text(window, cx)
+            })
+            .expect("the test window");
+        assert_eq!(selected.trim(), "Where do things stand\nHere is the answer");
+    }
+}

@@ -434,6 +434,17 @@ pub(crate) fn text_lines_command(app: &Entity<crate::app::Threadbear>, cmd: &ser
     window.render_frame(cx);
     // A reply's paragraphs, or a message of Mike's (rows.rs's "user-text").
     let mine = [ElementId::NamedInteger("reply-links".into(), ix as u64), ElementId::NamedInteger("user-text".into(), ix as u64)];
+    // A message's words are plain selectable text, which the kit's list of
+    // texts leaves out: its selectable runs, found by their words, instead.
+    if let RowContent::User(message) = &pane.read(cx).feed.model().rows()[ix].content {
+        let text = message.text.trim().to_owned();
+        let lines: Vec<serde_json::Value> = TextSelection::participant_runs(window, cx)
+            .into_iter()
+            .filter(|(words, _)| words.trim() == text)
+            .map(|(words, b)| json!({ "text": words, "x": f32::from(b.left()), "y": f32::from(b.top()), "w": f32::from(b.size.width), "h": f32::from(b.size.height) }))
+            .collect();
+        return Ok(json!(format!("ok {}", serde_json::to_string(&lines).unwrap_or_default())));
+    }
     let lines: Vec<serde_json::Value> = gpui_kit::base::test_support::texts(window)
         .into_iter()
         .filter(|t| t.visible() && mine.iter().any(|m| t.path().contains(m)))

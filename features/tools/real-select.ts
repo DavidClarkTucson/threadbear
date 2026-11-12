@@ -209,21 +209,21 @@ try {
     await app.do({ cmd: 'scroll', row: userRowId, offset: 160 });
     await sleep(800);
     const [wx, wy] = windowFrame(app.pid!);
-    const ls: Line[] = [...JSON.parse(answer(await app.do({ cmd: 'text-lines', row: userRowId }))), ...JSON.parse(answer(await app.do({ cmd: 'text-lines', row: cannedId })))];
-    const find = (words: string) => {
+    // Each row's own lines: the canned answer quotes my message ("You said:
+    // ..."), so its words alone don't say which is which.
+    const mineLines: Line[] = JSON.parse(answer(await app.do({ cmd: 'text-lines', row: userRowId })));
+    const theirLines: Line[] = JSON.parse(answer(await app.do({ cmd: 'text-lines', row: cannedId })));
+    const find = (ls: Line[], words: string) => {
       const l = ls.find((l) => l.text.includes(words));
       if (!l) throw new Error(`no line with ${words}: ${JSON.stringify(ls.map((l) => l.text))}`);
       return { mid: wy + l.y + Math.min(l.h, 26) / 2, left: wx + l.x + 1, right: wx + l.x + l.w - 2, line: l };
     };
-    const mine = find('Where do the three');
-    const theirs = find('You said');
+    const mine = find(mineLines, 'Where do the three');
+    const theirs = find(theirLines, 'You said');
     // A click clear of both first, under the reply's first line.
     await click([theirs.left + 40, theirs.mid + 400], 1);
     const r = await drag([mine.left, mine.mid], [theirs.right, theirs.mid], 0.3, 90, 0.016);
-    // Only the reply's part: what's copied leaves my message's words out,
-    // a separate bug (12 Nov, on main before this script), so not asked of
-    // it here.
-    const ok = r.after.text.includes('You said') && r.after.bar !== null;
+    const ok = r.after.text.trim().startsWith(asked) && r.after.text.includes('You said') && r.after.bar !== null;
     if (!ok) failed += 1;
     console.log(`${ok ? 'pass' : 'FAIL'}  ${label}: a drag from my message into the reply\n      got ${JSON.stringify(r.after.text)}${r.after.bar === null ? ' (no bar)' : ''}`);
     barOver(`${label}: the bar over my message, where that selection starts`, r.after, mine.line);
@@ -253,12 +253,14 @@ try {
     }
   }
 
-  await round('idle');
+  // ONLY=message runs the drag from a message alone.
+  const all = process.env.ONLY !== 'message';
+  if (all) await round('idle');
   // The same while the thread's working: a slow stream after the reply, its
   // spinner and working line redrawing all the while.
   await app.do({ cmd: 'mock', method: 'stream', params: { threadId, seconds: 120, hz: 1 } });
   await sleep(1500);
-  await round('working');
+  if (all) await round('working');
   await fromMessage('idle');
   console.log(failed === 0 ? 'PASS' : `FAIL (${failed})`);
   if (failed) process.exitCode = 1;

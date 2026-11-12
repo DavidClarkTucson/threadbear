@@ -2961,6 +2961,24 @@ impl TextSelection {
         cx.observe(&state, move |_, cx| callback(cx))
     }
 
+    /// Each selectable text run in the window, its words and where they were
+    /// laid out, for scripts that press on words the kit's list of texts
+    /// doesn't name (a `SelectableText`).
+    #[doc(hidden)]
+    pub fn participant_runs(window: &Window, cx: &App) -> Vec<(SharedString, Bounds<Pixels>)> {
+        let Some(state) = WindowSelectionState::existing(window, cx) else {
+            return Vec::new();
+        };
+        state
+            .read(cx)
+            .participants
+            .borrow()
+            .values()
+            .filter_map(|registration| registration.participant.upgrade())
+            .flat_map(|participant| participant.read(cx).runs.borrow().iter().map(|run| (run.text.clone(), run.bounds)).collect::<Vec<_>>())
+            .collect()
+    }
+
     /// The carets at the two ends of the window's selection where they were
     /// last painted, in window coordinates: the first participant's start and
     /// the last one's end, in document order. `None` when nothing painted
