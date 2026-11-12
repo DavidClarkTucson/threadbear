@@ -68,7 +68,8 @@ try {
     for (;;) {
       t = await paneTiming();
       if (t.threadId === id && t.state === 'loaded' && !shown) shown = performance.now() - started;
-      if (t.threadId === id && t.state === 'loaded' && t.timing?.paintedMs != null) break;
+      // A window macOS isn't drawing (a sleeping screen) never gets its frame.
+      if (t.threadId === id && t.state === 'loaded' && (t.timing?.paintedMs != null || performance.now() - started - shown > 3000)) break;
       if (performance.now() - started > 60_000) throw new Error(`${id} didn't open in a minute: ${JSON.stringify(t)}`);
       await sleep(5);
     }
@@ -78,7 +79,7 @@ try {
       `${label.padEnd(26)} ${String(Math.round(shown)).padStart(5)} ms to rows` +
         (kept
           ? `  (kept: no read, ${t.rows} rows)`
-          : `  request ${tm.requestMs.toFixed(0)} ms, ${(tm.bytes / 1024).toFixed(0)} KB, decode ${tm.decodeMs.toFixed(0)} ms, fold ${tm.foldMs.toFixed(0)} ms, ready ${tm.readyMs?.toFixed(0)} ms, first frame ${tm.paintedMs?.toFixed(0)} ms, ${t.rows} rows`),
+          : `  request ${tm.requestMs.toFixed(0)} ms, ${(tm.bytes / 1024).toFixed(0)} KB, decode ${tm.decodeMs.toFixed(0)} ms, fold ${tm.foldMs.toFixed(0)} ms, ready ${tm.readyMs?.toFixed(0)} ms, first frame ${tm.paintedMs == null ? 'not drawn' : `${tm.paintedMs.toFixed(0)} ms`}, ${t.rows} rows`),
     );
     return { shown, kept, reads: tm.reads };
   }
