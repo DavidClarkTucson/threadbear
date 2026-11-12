@@ -39,9 +39,15 @@ on:
 permissions:
   contents: read
 
+# A PR's newer push cancels its run in progress. Main's don't: on 12 Nov main
+# was pushed about every 7 minutes, each run takes about 40, and every run was
+# cancelled by the next, so main went hours with no verdict and tb land's gate
+# held on an old red one. Now main's runs go one at a time; GitHub keeps one
+# waiting per group and a newer push replaces it, so a busy morning batches
+# into the newest commit rather than piling up Mac and Windows minutes.
 concurrency:
   group: desktop-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

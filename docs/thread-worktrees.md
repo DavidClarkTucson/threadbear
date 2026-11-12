@@ -147,6 +147,10 @@ workflow checks (`runner/src/land-gate.ts`). It asks again once the check
 has passed, just before main moves, as a run going when it started may have
 failed since. A trigger it can't read (an alias, a list over several lines)
 counts as every file, and a whole page of cancelled runs as "couldn't ask".
+A held workflow mustn't cancel its runs on main for newer pushes, or a busy
+day never finishes one and the gate holds on an old red run for hours (12
+Nov): `desktop.yml` cancels in progress only for pull requests, so main's
+runs go one at a time, with the newest push waiting in place of any before it.
 
 Fix what failed first (`gh run view <id> --log-failed`). The landing that is
 that fix, or one made while main already has a fix GitHub hasn't run yet
