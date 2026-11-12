@@ -65,6 +65,17 @@ Feature: Design reviews
     And I open the review
     Then the review has "B" ticked and the reply "Bigger, please"
 
+  # Voice Type puts what Mike says on the clipboard and presses ⌘V in the
+  # window in front. He ticks an option and talks straight away, before
+  # clicking the reply box, and the words went nowhere (12 Nov). The Swift
+  # app's `clipboard` can't be set from a script.
+  @review.picks @swift-pending
+  Scenario: Words pasted after ticking an option go in the reply box
+    When I open the review
+    And I tick "B" in the review
+    And I paste "Bigger, please" in the review with ⌘V
+    Then the review has "B" ticked and the reply "Bigger, please"
+
   @review.picks
   Scenario: Sending answers the agent, and the review can't be changed after
     When I open the review

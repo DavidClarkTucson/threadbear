@@ -17,7 +17,7 @@ use crate::app::Threadbear;
 use crate::style::{self, px};
 use crate::call;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::input::{Enter, InputEvent, TextareaState};
+use gpui_kit::component::input::{Enter, InputEvent, Paste, TextareaState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
@@ -140,6 +140,15 @@ async fn riding_out(client: Arc<Client>, method: &'static str, params: Value, cx
 /// mustn't come to the front and count as Mike looking.
 fn scripted() -> bool {
     cfg!(feature = "automation") && std::env::var_os("THREADBEAR_AUTOMATION").is_some()
+}
+
+/// ⌘V on the window itself, so a paste with the keys outside the reply box
+/// reaches `paste_in_reply`; in the box, the box's own binding comes first.
+/// Bound once, for every review window.
+fn bind_keys(cx: &mut App) {
+    static BOUND: std::sync::Once = std::sync::Once::new();
+    let chord = if cfg!(target_os = "macos") { "cmd-v" } else { "ctrl-v" };
+    BOUND.call_once(|| cx.bind_keys([KeyBinding::new(chord, Paste, Some("ReviewWindow"))]));
 }
 
 impl Threadbear {
@@ -330,6 +339,7 @@ impl ReviewWindow {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         crate::web_panels::keyboard_to_app(window);
+        bind_keys(cx);
         // The latest copy now, then every few seconds while it waits: replies
         // from the phone or another window, when the thread's events aren't
         // coming to this app.
@@ -759,6 +769,30 @@ impl ReviewWindow {
         }
     }
 
+    /// ⌘V with the keys on the window rather than the reply box (on open,
+    /// after a tick or a press on the stage) puts the words in the box, and
+    /// the cursor with them. Voice Type pastes what Mike says with ⌘V into
+    /// whatever has the keys, and he ticks an option and talks straight away:
+    /// nothing here took the paste, so the words went nowhere (12 Nov).
+    fn paste_in_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // In the box already, the paste was the box's own to take.
+        if !self.session.editable() || self.reply_focused(window, cx) {
+            return;
+        }
+        let Some(words) = cx.read_from_clipboard().and_then(|c| c.text()).filter(|w| !w.is_empty()) else { return };
+        let handle = self.reply.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        // At the box's cursor, as its own Paste puts them.
+        self.reply.update(cx, |s, cx| s.insert(words, window, cx));
+        // Into the draft now, not when the box's Change arrives: a frame
+        // drawn before then puts the draft's reply back in the box
+        // (`sync_reply_box`), and the words went.
+        let text = self.reply.read(cx).value().to_string();
+        if self.session.set_reply(&text) {
+            self.edited(cx);
+        }
+    }
+
     fn reply_focused(&self, window: &Window, cx: &App) -> bool {
         self.reply.read(cx).focus_handle(cx).is_focused(window)
     }
@@ -981,6 +1015,8 @@ impl Render for ReviewWindow {
                     cx.stop_propagation();
                 }
             }))
+            // A paste nothing else took goes in the reply box.
+            .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste_in_reply(window, cx)))
             // On a shot, the View menu's zoom keys zoom the shot rather than
             // the app's text, as they do in Preview.
             .on_action(cx.listener(|this, _: &crate::shell::ZoomIn, _, cx| {
@@ -1228,6 +1264,12 @@ pub(crate) async fn automation(app: &WeakEntity<Threadbear>, main: AnyWindowHand
                 }
                 if let Some(browse) = cmd["browse"].as_i64() {
                     v.browse(browse as i32, cx);
+                }
+                // The keys in the reply box, as a click in it gives them, for a
+                // real ⌘V after (features/tools/real-review-paste.ts).
+                if cmd["focusReply"].as_bool() == Some(true) {
+                    let handle = v.reply.read(cx).focus_handle(cx);
+                    window.focus(&handle, cx);
                 }
             })
         })

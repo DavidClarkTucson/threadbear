@@ -129,6 +129,13 @@ When('I write {string} in the review', async function (this: ThreadbearWorld, wo
   await review(this, { open: false, reply: words });
 });
 
+// As Voice Type pastes: the words on the clipboard, then ⌘V to the review's
+// window wherever its keys are, not into a box picked first.
+When('I paste {string} in the review with ⌘V', async function (this: ThreadbearWorld, words: string) {
+  await this.app.do({ cmd: 'clipboard', set: words });
+  await this.app.do({ cmd: 'menu-key', key: 'v', modifiers: ['cmd'], review: reviewId(this) });
+});
+
 When('I press Send in the review', async function (this: ThreadbearWorld) {
   await press(this, 'Send your picks and reply to the agent (⌘↩). Close the window to finish it later.');
 });
