@@ -114,10 +114,7 @@ Feature: The open card in the composer
     Then the box shows no picked answers
     And the transcript doesn't show my message "1. Accept the new agreement in App Store Connect"
 
-  # @windows-pending: on GitHub's Windows runner the picture never shows on
-  # the answer (it overflowed the main thread's stack before the 8 MB stack,
-  # 12 Nov); not yet looked into.
-  @card.somethingelse @windows-pending
+  @card.somethingelse
   Scenario: A picture put in a Something else box goes with that answer
     When I open the thread "Ship the beta to TestFlight"
     And I write "Like this one" as my own answer to ask 2

@@ -14,10 +14,7 @@ Feature: Links in a reply
     When I choose "Copy Link" from the menu of the link "the release notes"
     Then the clipboard holds "https://example.com/notes"
 
-  # @windows-pending: on GitHub's Windows runner a file link to C:\...
-  # never opens in the pane (the link is drawn, the pane stays as it was);
-  # not yet looked into (12 Nov).
-  @rich.filemenu @windows-pending
+  @rich.filemenu
   Scenario: A file link's right-click menu opens it in the pane and copies its path
     Given a file "plan.md" saying "# The plan\n\nShip it." in a folder of its own
     When I open the thread "Morning brief"
@@ -28,10 +25,7 @@ Feature: Links in a reply
     When I choose "Open in Panel" from the menu of the link "the plan"
     Then the pane is showing that file
 
-  # @windows-pending: on GitHub's Windows runner a file link to C:\...
-  # never opens in the pane (the link is drawn, the pane stays as it was);
-  # not yet looked into (12 Nov).
-  @rich.filemenu @windows-pending
+  @rich.filemenu
   Scenario: Default in a file link's menu sets what a click on a file link does
     Given a file "main.rs" saying "fn main() {}" in a folder of its own
     When I open the thread "Morning brief"
@@ -41,10 +35,7 @@ Feature: Links in a reply
     Then the pane is showing that file
     And nothing was opened in another app
 
-  # @windows-pending: on GitHub's Windows runner a file link to C:\...
-  # never opens in the pane (the link is drawn, the pane stays as it was);
-  # not yet looked into (12 Nov).
-  @rich.filerefs @windows-pending
+  @rich.filerefs
   Scenario: A file a reply names by itself is found among the files the thread read, and a document opens in the pane
     Given a file "notes.md" saying "# Notes\n\nThe first line." in a folder of its own
     When I open the thread "Morning brief"
