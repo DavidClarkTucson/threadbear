@@ -30,7 +30,7 @@ const reply = [
 ].join('\n');
 
 type Line = { text: string; x: number; y: number; w: number; h: number };
-type Selection = { text: string; bar: string | null; panelDrag: string | null };
+type Selection = { text: string; bar: string | null; barTop: number | null; panelDrag: string | null };
 
 const app = new GpuiDriver();
 await app.start();
@@ -146,7 +146,9 @@ try {
     check(`${label}: double-click a word`, await click([first.left + 6, first.mid], 2), 'Here');
     await shiftClick(label, s);
     await clickAway(label, s);
-    await anotherItem(label, s);
+    // Not while working: the transcript follows the reply's new lines, so
+    // it scrolls a line under a drag that takes a second or two.
+    if (label === 'idle') await anotherItem(label, s);
   }
 
   // A selection in one item, then a drag along another: the new words, with
@@ -154,9 +156,9 @@ try {
   // highlight is drawn where the bar says (Mike's recording, 12 Nov, had
   // the bar over words with nothing highlighted).
   async function anotherItem(label: string, s: Awaited<ReturnType<typeof screen>>) {
+    await clear(s);
     const one = s.find('still active');
     const three = s.find('the last one');
-    await clear(s);
     await drag([one.left, one.mid], [one.right, one.mid], 0.3, 60, 0.016);
     const r = await drag([three.left, three.mid], [three.right, three.mid], 0.3, 60, 0.016);
     if (process.env.SHOTS) {
@@ -191,7 +193,13 @@ try {
     for (let i = 1; i <= 3; i += 1) {
       await clear(s);
       await drag([one.left, one.mid], [one.right, one.mid], 0.05, 20, 0.015);
-      check(`${label}: Shift-click extends (${i})`, await click([two.left + 30, two.mid], 1, true), { startsWith: 'still active on the main branch\np' });
+      const got = await click([two.left + 30, two.mid], 1, true);
+      check(`${label}: Shift-click extends (${i})`, got, { startsWith: 'still active on the main branch\np' });
+      // The bar over where the selection starts, clear of its first line
+      // (29 points tall), not over the line the Shift-click was on.
+      const above = got.barTop !== null && got.barTop + 29 <= one.line.y + 2;
+      if (!above) failed += 1;
+      console.log(`${above ? 'pass' : 'FAIL'}  ${label}: the bar over the selection's start after a Shift-click (${i})\n      bar top ${got.barTop}, first line's top ${one.line.y}`);
     }
   }
 

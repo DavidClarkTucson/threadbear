@@ -49,6 +49,11 @@ struct Bar {
 
 thread_local! {
     static PRESS: RefCell<Option<Press>> = const { RefCell::new(None) };
+    /// Where the last plain press went down: where a selection starts, so a
+    /// Shift-click that carries it on puts the bar over its start, not over
+    /// the Shift-click's line (which covered the line above, the selection's
+    /// own start).
+    static ANCHOR: RefCell<Option<Point<Pixels>>> = const { RefCell::new(None) };
     static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
 }
 
@@ -86,7 +91,8 @@ fn message_of(row: &Row) -> Option<String> {
 pub(crate) fn pressed(thread: String, row: &Row) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
     let (row_id, is_message) = (row.id.clone(), message_of(row).is_some());
     move |event: &MouseDownEvent, _, _| {
-        PRESS.with(|p| *p.borrow_mut() = is_message.then(|| Press { thread: thread.clone(), row: row_id.clone(), at: event.position }));
+        let at = if extends(event) { ANCHOR.with(|a| *a.borrow()).unwrap_or(event.position) } else { event.position };
+        PRESS.with(|p| *p.borrow_mut() = is_message.then(|| Press { thread: thread.clone(), row: row_id.clone(), at }));
     }
 }
 
@@ -108,12 +114,17 @@ pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
             let pressed = pane.clone();
             window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
                 if phase.capture() && !on_bar(event.position) {
+                    if event.button == MouseButton::Left && !extends(event) {
+                        ANCHOR.with(|a| *a.borrow_mut() = Some(event.position));
+                    }
                     hide(&pressed, cx);
                 }
             });
             let scrolled = pane.clone();
             window.on_mouse_event(move |_: &ScrollEvent, phase, _, cx| {
                 if phase.capture() {
+                    // The words have moved from under where it went down.
+                    ANCHOR.with(|a| a.borrow_mut().take());
                     hide(&scrolled, cx);
                 }
             });
@@ -123,6 +134,11 @@ pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
     // listeners hear every press and release in the window.
     .absolute()
     .inset_0()
+}
+
+/// A Shift-click, which the kit takes as carrying the selection on.
+fn extends(event: &MouseDownEvent) -> bool {
+    event.modifiers.shift && event.click_count == 1
 }
 
 fn on_bar(at: Point<Pixels>) -> bool {
@@ -410,17 +426,19 @@ pub(crate) fn text_lines_command(app: &Entity<crate::app::Threadbear>, cmd: &ser
     Ok(json!(format!("ok {}", serde_json::to_string(&lines).unwrap_or_default())))
 }
 
-/// `selection`: what's selected in the window now, whether the bar's up and
-/// whether the dock has a panel picked up, without drawing a frame, so a
-/// script can ask mid-drag: "ok {text, bar, panelDrag}".
+/// `selection`: what's selected in the window now, whether the bar's up (and
+/// its top), and whether the dock has a panel picked up, without drawing a frame, so a
+/// script can ask mid-drag: "ok {text, bar, barTop, panelDrag}".
 #[cfg(feature = "automation")]
 pub(crate) fn selection_command(app: &Entity<crate::app::Threadbear>, window: &mut Window, cx: &mut App) -> Result<serde_json::Value, String> {
     use serde_json::json;
     let text = TextSelection::selected_text(window, cx);
     let bar = BAR.with(|b| b.borrow().as_ref().map(|b| b.words.clone()));
+    // Where it was drawn, its top, in window points.
+    let bar_top = BAR.with(|b| b.borrow().as_ref().and_then(|b| b.drawn).map(|d| f32::from(d.top())));
     let model = app.read(cx).dock_view.read(cx).model.clone();
     let panel_drag = model.read(cx).controller.drag.as_ref().map(|d| d.panel.clone());
-    Ok(json!(format!("ok {}", json!({ "text": text, "bar": bar, "panelDrag": panel_drag }))))
+    Ok(json!(format!("ok {}", json!({ "text": text, "bar": bar, "barTop": bar_top, "panelDrag": panel_drag }))))
 }
 
 
