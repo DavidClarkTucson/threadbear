@@ -240,9 +240,11 @@ look at the screen). Wake its screen with `caffeinate -u`, or the events go nowh
 The desktop app is being rewritten as one GPUI app for Mac, Windows and Linux
 (`docs/gpui-port.md`, `desktop/`). Mike uses it every day since 12 Nov, so the
 Swift app (`app/`, `dock/`) is frozen: changes go in `desktop/`, never in both.
-`scripts/swift-freeze.sh` refuses a Claude edit or a commit there in Mike's copy
-(the mock runner and the shared test tools in `app/Tools` stay open); its comment
-says how to let one through when Mike asks for a Swift change himself. In other
+`scripts/swift-freeze.sh` refuses a Claude edit or a commit there in Mike's copy,
+and `check.sh` no longer builds or tests the Swift app unless it changed (or with
+`--app`). What the GPUI and iPhone apps still use from `app/` stays open (the mock
+runner, test tools, fixtures, art, the files ThreadbearKit links); the script's
+comment lists it, and says how to let a change through when Mike asks for one. In other
 people's copies it will only warn, from the release that gives them the GPUI app.
 A change to what the app does should get a spec in `features/` (Gherkin;
 `features/README.md`), so the two apps' differences stay visible in

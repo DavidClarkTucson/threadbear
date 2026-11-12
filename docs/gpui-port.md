@@ -360,7 +360,8 @@ Decided: **A, the daily driver first.**
 4. **Cutover** once every Mac row in the parity table passes and Mike's used it
    for two weeks without going back. One last Swift build moves other people
    across: installs Rust if needed, builds the GPUI app, and swaps itself.
-   `app/` and `dock/` then go.
+   `app/` and `dock/` then go, once what the GPUI and iPhone apps still
+   use from `app/` (`scripts/swift-freeze.sh` lists it) has moved out.
 5. **Windows and Linux get it as releases** once their parity rows pass.
 
 The website and the iPhone app aren't touched. Later, Ghostex's GPUI-in-the-

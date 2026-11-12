@@ -10,6 +10,9 @@
 #                              Write (.claude/settings.json): the tool call
 #                              on stdin, so an agent hears it before it
 #                              writes the code, not after
+#   swift-freeze.sh --gpui-shared
+#                              prints which of app/ the GPUI app uses, as a
+#                              regex, for check.sh
 #
 # In Mike's own copy (origin is mikecann/threadbear) it refuses. Only when
 # Mike asks for a change to the Swift app itself, in that thread (the last
@@ -28,13 +31,43 @@ WARN_FORKS=0
 
 set -uo pipefail
 
-# What's still shared with the GPUI app, so it isn't frozen: the mock
-# runner its CI and the features/ specs run against, and the test tools its
-# pointer and drag tests use (AGENTS.md).
+# What in app/ the GPUI app still uses, so it isn't frozen: the mock runner
+# its CI and the features/ specs run against, the test tools its pointer
+# and drag tests use (AGENTS.md), the golden transcripts and fixtures its
+# tests share, and the art and rich-block scripts it builds in (check.sh's
+# DESKTOP_NEEDS). check.sh reads this too (--gpui-shared), so a change to
+# only these doesn't build and test the Swift app. They move out of app/
+# before it goes at the cutover.
+GPUI_SHARED='^app/Tools/mock-runner/|^app/Tools/(droptarget|post-gesture)\.swift$|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/(Art|Rich)/'
+
+mode="${1:-}"
+if [ "$mode" = --gpui-shared ]; then
+  printf '%s\n' "$GPUI_SHARED"
+  exit 0
+fi
+top="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -n "$top" ] || exit 0
+
+# And what the iPhone app (which stays Swift) builds from app/: the files
+# ThreadbearKit links to (SlashCommands.swift and the like, found from its
+# links as check.sh's IOS_NEEDS does) and Sentry's framework.
+IPHONE_SHARED=(app/SentryBinary/)
+top_real="$(cd "$top" && pwd -P)"
+while IFS= read -r link; do
+  to="$(readlink "$link")"
+  dir="$(cd "$(dirname "$link")" && cd "$(dirname "$to")" 2>/dev/null && pwd -P)" || continue
+  case "$dir" in "$top_real"/app/*) IPHONE_SHARED+=("${dir#"$top_real"/}/$(basename "$to")") ;; esac
+done < <(find "$top_real/ios" -type l -not -path '*/.build/*' 2>/dev/null)
+
 shared() {
-  case "$1" in
-    app/Tools/mock-runner/*|app/Tools/droptarget.swift|app/Tools/post-gesture.swift) return 0 ;;
-  esac
+  [[ "$1" =~ $GPUI_SHARED ]] && return 0
+  local s
+  for s in "${IPHONE_SHARED[@]}"; do
+    case "$s" in
+      */) [[ "$1" == "$s"* ]] && return 0 ;;
+      *) [ "$1" = "$s" ] && return 0 ;;
+    esac
+  done
   return 1
 }
 frozen() {
@@ -43,10 +76,6 @@ frozen() {
   esac
   return 1
 }
-
-mode="${1:-}"
-top="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-[ -n "$top" ] || exit 0
 
 # Mike's copy, or someone else's. THREADBEAR_SWIFT_FREEZE_COPY is for the
 # tests (runner/test/unit/swift-freeze.test.ts).
@@ -90,7 +119,7 @@ case "$mode" in
     frozen "$f" && hits+=("$f")
     ;;
   *)
-    echo "usage: swift-freeze.sh --commit | --tool" >&2
+    echo "usage: swift-freeze.sh --commit | --tool | --gpui-shared" >&2
     exit 64
     ;;
 esac

@@ -350,11 +350,18 @@ changed="$(mktemp)"
 
 # Whether a Linux host can run this: only the runner's, Convex's and the
 # website's checks, so --quick, nothing changed under ios/ (ThreadbearKit's
-# tests), app/ or dock/ (the Mac app's release build) (and something
-# changed: with nothing, check.sh itself or --all, it runs everything), no
-# shots.
+# tests), app/ or dock/ (the Mac app's release build) beyond what the GPUI
+# app shares (scripts/swift-freeze.sh --gpui-shared: the mock runner,
+# fixtures, art, which the Swift app's build no longer runs for), and
+# something changed (with nothing, check.sh itself or --all, it runs
+# everything), no shots.
 linux_ok=0
-if [ "$QUICK" = 1 ] && [ "$ALL" = 0 ] && [ -z "$SHOTS" ] && [ -s "$changed" ] && ! grep -qE '^(ios|app|dock)/|^check\.sh$' "$changed"; then linux_ok=1; fi
+GPUI_SHARED="$("$ROOT/scripts/swift-freeze.sh" --gpui-shared 2>/dev/null)"
+# Without it, nothing counts as shared: an empty pattern would match every
+# line, and every change would look like none.
+[ -n "$GPUI_SHARED" ] || GPUI_SHARED='^$'
+if [ "$QUICK" = 1 ] && [ "$ALL" = 0 ] && [ -z "$SHOTS" ] && [ -s "$changed" ] \
+  && ! grep -qE '^ios/|^check\.sh$' "$changed" && ! grep -vE "$GPUI_SHARED" "$changed" | grep -qE '^(app|dock)/'; then linux_ok=1; fi
 # --runner is only Node, whatever changed: the runner's self-update sends
 # it from a clone on main, where nothing has, and with Tinker Desk away a
 # Linux host should still take it rather than this Mac (Codex, 9 Nov).

@@ -138,3 +138,41 @@ test('finishing a merge brings in commits already made, so it passes', () => {
   stage(dir, 'app/Sources/Threadbear/Other.swift');
   assert.equal(commit(dir).status, 0);
 });
+
+test('what the GPUI app uses from app/ stays open: fixtures, art, rich scripts', () => {
+  const dir = repo(MIKE);
+  stage(dir, 'app/Tests/Fixtures/inbox-urgency-cases.json');
+  stage(dir, 'app/Sources/Threadbear/Resources/Art/librarian.png');
+  stage(dir, 'app/Sources/Threadbear/Resources/Rich/pele.js');
+  assert.equal(commit(dir).status, 0);
+});
+
+test("what the iPhone app builds from app/ stays open, found from ThreadbearKit's links", () => {
+  const dir = repo(MIKE);
+  stage(dir, 'app/Sources/ThreadbearCore/Threads/SlashCommands.swift');
+  stage(dir, 'app/SentryBinary/Sentry.xcframework/Info.plist');
+  const kit = path.join(dir, 'ios/ThreadbearKit/Sources/ThreadbearKit');
+  fs.mkdirSync(kit, { recursive: true });
+  fs.symlinkSync('../../../../app/Sources/ThreadbearCore/Threads/SlashCommands.swift', path.join(kit, 'SlashCommands.swift'));
+  assert.equal(commit(dir).status, 0);
+  assert.equal(edit(dir, 'app/Sources/ThreadbearCore/Threads/SlashCommands.swift').status, 0);
+  stage(dir, 'app/Sources/ThreadbearCore/Threads/ThreadSections.swift');
+  assert.equal(commit(dir).status, 2, 'a file next to it the kit has no link to is still frozen');
+});
+
+// check.sh's DESKTOP_NEEDS is what the GPUI app's checks read from app/. Each
+// of those has to be open in the freeze, or the GPUI app couldn't change it,
+// and has to not count as a Swift change, or it would build the Swift app.
+test("everything the GPUI app's checks read from app/ is shared, not frozen", () => {
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+  const check = fs.readFileSync(path.join(root, 'check.sh'), 'utf8');
+  const needs = check.match(/^DESKTOP_NEEDS='([^']*)'/m)?.[1];
+  assert.ok(needs, 'DESKTOP_NEEDS in check.sh');
+  const shared = new RegExp(spawnSync(script, ['--gpui-shared'], { encoding: 'utf8' }).stdout.trim());
+  const fromApp = needs.split('|').filter((p) => p.startsWith('^app/'));
+  assert.ok(fromApp.length >= 3);
+  for (const p of fromApp) {
+    const example = p.slice(1).replace(/\\\./g, '.') + 'example';
+    assert.match(example, shared, p);
+  }
+});

@@ -16,10 +16,11 @@
 #                 one test file, or swift test --filter)
 #
 #   (no options)  runner typecheck, unit tests and deploy tests, then the
-#                 app's swift build and swift test, and BearDock's tests,
-#                 and the desktop app's Rust tests and build (desktop/)
+#                 desktop app's Rust tests and build (desktop/), and the
+#                 Swift Mac app's swift build and swift test, and BearDock's
+#                 tests, when they changed (below)
 #   --quick       runner typecheck and unit tests (about a minute), plus
-#                 the Mac app's release build when app/ or dock/ changed,
+#                 the Swift Mac app's release build when it changed,
 #                 and the desktop app's core and client tests when
 #                 desktop/ changed
 #   --runner      only the runner's typecheck and unit tests, nothing else
@@ -27,9 +28,9 @@
 #                 main too: the runner's self-update runs this (deploy.mjs),
 #                 so a website test can't hold the runner back, and a Linux
 #                 check host can take it
-#   --app         the app's swift build and swift test only, for a change
-#                 that doesn't touch runner/
-#   --all         don't skip the dock and deploy tests (below)
+#   --app         the Swift app's swift build and swift test only, changed
+#                 or not
+#   --all         don't skip the Swift app, dock and deploy tests (below)
 #
 # When up to 8 of the runner's unit test files fail, those run again on
 # their own, one at a time, and a pass then counts: the step's line lists
@@ -37,12 +38,15 @@
 #
 # The deploy tests (a few minutes) only run when something they cover
 # changed from main: runner/scripts/, launch.mjs, the launcher or the tests
-# themselves. BearDock's tests only run when dock/ changed (the app's own
-# build and tests cover how it uses it). The iPhone app's ThreadbearKit
+# themselves. The Swift Mac app is frozen (scripts/swift-freeze.sh), so its
+# build and tests only run when something in app/ or dock/ it builds from
+# changed: not the parts the GPUI app uses (the mock runner, fixtures, art),
+# whose own checks are the desktop app's. BearDock's tests only run when
+# dock/ changed (the app's own build and tests cover how it uses it). The iPhone app's ThreadbearKit
 # tests run with any of the options when ios/ changed, or a Mac app file
 # ThreadbearKit links to (IOS_NEEDS, below), --quick included, so
 # `tb land` runs them (MicTapTests guards a crash the phone hit twice). On
-# main itself, with nothing changed, everything runs.
+# main itself, with nothing changed, everything but the Swift app runs.
 #
 # A Swift step that prints nothing for 10 minutes, or runs for an hour, is
 # killed and fails, saying which test was running and where it was stuck.
@@ -175,6 +179,19 @@ fi
 # needed <regex>: whether a step whose inputs match it should run.
 needed() {
   [ "$ALL" = 1 ] || [ -z "$CHANGED" ] || printf '%s\n' "$CHANGED" | grep -qE "$1|^check\.sh$"
+}
+
+# swift_needed [<regex>]: whether the frozen Swift app's build and tests
+# should run: with --app or --all, or when something it builds from (app/
+# and dock/, or <regex>) changed beyond what the GPUI app shares. Unlike
+# needed, not on main with nothing changed, nor for a change to this file.
+GPUI_SHARED="$("$ROOT/scripts/swift-freeze.sh" --gpui-shared 2>/dev/null)"
+# Without it, nothing counts as shared: an empty pattern would match every
+# line, and every change would look like none.
+[ -n "$GPUI_SHARED" ] || GPUI_SHARED='^$'
+swift_needed() {
+  [ "$ALL" = 1 ] || [ "$APP_ONLY" = 1 ] \
+    || printf '%s\n' "$CHANGED" | grep -vE "$GPUI_SHARED" | grep -qE "${1:-^(app|dock)/}"
 }
 
 # What the iPhone kit's tests cover: ios/, and the Mac app's files that
@@ -413,13 +430,15 @@ fi
 # minute or so on a warm build folder. The full check's own debug build and
 # tests cover the rest.
 if [ "$QUICK" = 1 ] && [ "$RUNNER_ONLY" = 0 ]; then
-  if needed '^(app|dock)/'; then
+  if swift_needed; then
     step "app release build" "$ROOT/app" "${LIMITED[@]}" swift build -c release --product Threadbear --disable-keychain
   else
-    skip "app release build" "nothing in app/ or dock/ changed"
+    skip "app release build" "the Swift app is frozen and nothing it builds changed"
   fi
 fi
-if [ "$QUICK" = 0 ]; then
+if [ "$QUICK" = 0 ] && ! swift_needed; then
+  skip "app build and tests" "the Swift app is frozen and nothing it builds changed"
+elif [ "$QUICK" = 0 ]; then
   # The app's MockRunnerTests run the real WebSocket client (and the
   # runner restart) against the mock, and skip without its packages: in a
   # fresh checkout or worktree they used to skip while this said ok.
