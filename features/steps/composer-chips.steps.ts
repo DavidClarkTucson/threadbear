@@ -96,3 +96,21 @@ Then('the context popover shows {string}', async function (this: ThreadbearWorld
   }
   assert.fail(`the context popover has no "${line}":\n${lines.join('\n')}`);
 });
+
+// What a click on a picture in the box opened: `ok quicklook <index> of
+// [paths]` from both apps' `composer-peek` (the Swift one's Quick Look is
+// swapped for a note of what it would show; the GPUI one's viewer is real).
+function opened(out: string, number: number, total: number): void {
+  const found = /\bok quicklook (\d+) of (\[.*\])$/.exec(out);
+  assert.ok(found, `the click said "${out}"`);
+  assert.equal(Number(found[1]) + 1, number, `it opened picture ${Number(found[1]) + 1}, not ${number}`);
+  assert.equal((JSON.parse(found[2]) as string[]).length, total, `it steps through ${found[2]}`);
+}
+
+Then('clicking chip {int} opens picture {int} of {int}', async function (this: ThreadbearWorld, chip: number, number: number, total: number) {
+  opened(await this.app.do({ cmd: 'composer-peek', number: chip, press: true }), number, total);
+});
+
+Then('clicking the thumbnail of picture {int} opens picture {int} of {int}', async function (this: ThreadbearWorld, picture: number, number: number, total: number) {
+  opened(await this.app.do({ cmd: 'composer-peek', strip: picture - 1 }), number, total);
+});

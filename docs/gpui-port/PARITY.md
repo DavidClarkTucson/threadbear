@@ -291,6 +291,40 @@ built parsers and gates with no launch of the app, which is the trap.)
   viewer, folders and highlights still passing on the GPUI app; core's gate
   tests pass. `features/tools/media-shot.ts` took both windows from the
   screen with the clip playing in the pane, the same size and place in each.
+### 2026-11-12 A click on a picture in the message box opens it, and the strip's × is back in its corner (`composer.chiphover`)
+
+- The Swift app's be92682e: a plain click on a picture's chip among the
+  words, or on its thumbnail over them, opens the picture. Here it's the
+  app's own viewer (the one the transcript's pictures open in), not Quick
+  Look, stepping through the other pictures in the same box, as the Swift
+  one steps through the box's; only pictures that open there (`opens_here`).
+  A drag from a chip or a Shift-click still selects (the kit only calls
+  the click for a press and let go on the same chip); unlike the Swift
+  app, the click selects the chip rather than putting the cursor beside it,
+  as the kit does. A Something else box's chips and thumbnails open the
+  same way, among that box's pictures. The viewer opens once the click's
+  update is over, so the side pane never reads the composer mid-update.
+- The strip's × showed at the thumbnail's bottom edge, over the chip under
+  it, where it couldn't be clicked: its layer sat in the flow under the
+  thumbnail. It's placed in the top right corner, 4 in (2 in a Something
+  else box's), as AttachmentThumbnail's overlay is, with Swift's faint
+  white edge, and its click is its own (it doesn't open the picture).
+- `composer-peek` takes `press` and `strip` as the Swift app's does, and
+  says `ok quicklook <index> of [paths]`. Both are real pointer events;
+  `strip` hovers the thumbnail first and fails unless its × is inside the
+  thumbnail's top right corner, and with `remove: true` (GPUI only) clicks
+  the × and fails if anything opened or the picture didn't go.
+- Files: `desktop/gpui/src/composer.rs`, `desktop/gpui/src/composer_card.rs`,
+  `desktop/gpui/src/viewer.rs`, `desktop/gpui/src/automation.rs`,
+  `features/composer-chips.feature`, `features/steps/composer-chips.steps.ts`.
+- Verification: `@composer.chiphover` 3 of 3 on both apps (GPUI on `cloud`
+  under Xvfb, as Tinker Desk was out of disk for a Rust build; Swift on
+  Tinker Desk), and `@transcript.images @composer.picturechips` still pass
+  on GPUI. With the old × layer put back, the thumbnail scenario fails with
+  the × at y 676 under a thumbnail spanning 616 to 672, Mike's bug. A
+  scripted run saw the viewer really open on picture 2 of 2 from the chip
+  and 1 of 2 from the thumbnail, and the × take a picture out with the
+  viewer still closed.
 
 ### 2026-11-12 An ask's link on the card, and answering a decision with the runner away, crashed the app (`card.needsyou`, `projects.decisions`)
 

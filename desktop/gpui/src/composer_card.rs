@@ -906,12 +906,20 @@ impl AskHost for Composer {
         let Some(input) = self.card.inputs.get(&ask).cloned() else { return field };
         let this = cx.entity().downgrade();
         let tokens = this.clone();
+        let (clicks, click_input) = (this.clone(), input.clone());
         field
             .token(move |ctx, _window, cx| match tokens.upgrade() {
                 Some(this) => this.read(cx).render_chip(ctx, cx),
                 None => div().into_any_element(),
             })
             .on_paste(move |item, window, cx| this.upgrade().is_some_and(|this| this.update(cx, |this, cx| this.take_clipboard_in(&input, item, window, cx))))
+            // A click on a picture's chip opens it among this box's others,
+            // as in the message box (Composer::open_picture).
+            .on_token_click(move |event, window, cx| {
+                if let Some(this) = clicks.upgrade() {
+                    this.update(cx, |this, cx| this.open_picture(&click_input, event.token().id(), window, cx));
+                }
+            })
     }
 
     /// Its pictures over the words, 44 square with × on hover, and the
@@ -934,23 +942,28 @@ impl AskHost for Composer {
                     .border_color(style::hairline(cx))
                     .bg(style::chip_fill(cx))
                     .when_some(path, |d, path| d.child(img(path).size(px(44.)).object_fit(ObjectFit::Cover).when(!in_yet, |i| i.opacity(0.5))));
-                let remove = div()
-                    .id(("answer-picture-remove", ask * 100 + n))
-                    .absolute()
-                    .top(px(2.))
-                    .right(px(2.))
-                    .size(px(18.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .bg(hsla(0., 0., 0., 0.6))
-                    .cursor_pointer()
-                    .child(Icon::from(IconName::X).with_size(px(9.)).text_color(gpui_kit::white()))
-                    .tip("Remove")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.remove_picture_in(&remove_input, remove_id.clone(), window, cx)));
+                let remove = crate::composer::remove_badge(("answer-picture-remove", ask * 100 + n)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    // Not the thumbnail's click under it, which opens the picture.
+                    cx.stop_propagation();
+                    this.remove_picture_in(&remove_input, remove_id.clone(), window, cx);
+                }));
+                let (open_input, open_id) = (input.clone(), id.clone());
                 let group: SharedString = format!("answer-picture-{ask}-{n}").into();
-                row = row.child(div().id(("answer-picture", ask * 100 + n)).group(group.clone()).relative().child(tile).child(div().invisible().group_hover(group, |s| s.visible()).child(remove)));
+                row = row.child(
+                    div()
+                        .id(("answer-picture", ask * 100 + n))
+                        .group(group.clone())
+                        .relative()
+                        .cursor_pointer()
+                        .child(tile)
+                        // Placed itself in the corner, as the message box's are
+                        // (Composer::render_strip).
+                        .child(div().absolute().top(px(2.)).right(px(2.)).invisible().group_hover(group, |s| s.visible()).child(remove))
+                        .tip(crate::viewer::TILE_TIP)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            this.open_picture(&open_input, &open_id, window, cx);
+                        })),
+                );
             }
             row.into_any_element()
         });

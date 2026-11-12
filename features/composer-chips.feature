@@ -74,3 +74,22 @@ Feature: The chips under the message box
     And the context popover shows "Messages 610k 61%"
     And the context popover shows "MCP tools (deferred) 173k"
     And the context popover shows "Breakdown from just now"
+
+  # A picture's chip among the words, and its thumbnail over them, open the
+  # picture as one in the transcript does: Quick Look in the Swift app, the
+  # app's own viewer in GPUI, stepping through the box's other pictures. The
+  # GPUI app's click on a thumbnail also checks its × is in its top right
+  # corner while the pointer's on it (12 Nov).
+  @composer.chiphover
+  Scenario: Clicking a picture's chip opens it, among the box's other pictures
+    When I paste the picture into the composer
+    And I paste the picture into the composer
+    And the composer holds 2 pictures
+    Then clicking chip 2 opens picture 2 of 2
+
+  @composer.chiphover
+  Scenario: Clicking a picture's thumbnail over the box opens it
+    When I paste the picture into the composer
+    And I paste the picture into the composer
+    And the composer holds 2 pictures
+    Then clicking the thumbnail of picture 1 opens picture 1 of 2

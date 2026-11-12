@@ -498,6 +498,14 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         "composer-peek" => {
             let Some(composer) = app.read(cx).composer(cx) else { return Err("no thread open".into()) };
             let number = cmd["number"].as_u64().map(|n| n as usize);
+            // `"press": true` clicks the chip; `"strip": n` (0-based) the
+            // thumbnail over the box, `"remove": true` with it its ×. Says
+            // what the viewer was handed, as the Swift app says what Quick
+            // Look would show (`ok quicklook <index> of [paths]`).
+            let strip = cmd["strip"].as_u64().map(|n| n as usize);
+            if cmd["press"].as_bool() == Some(true) || strip.is_some() {
+                return crate::composer::Composer::debug_click_picture(&composer, number, strip, cmd["remove"].as_bool() == Some(true), window, cx);
+            }
             composer.update(cx, |c, cx| c.debug_peek(number, cx))?;
             Ok(json!(if number.is_some() { "ok window 0" } else { "ok" }))
         }

@@ -65,6 +65,10 @@ pub struct Composer {
     hovered_chip: Option<(SharedString, Bounds<Pixels>)>,
     peek_shown: Option<(SharedString, Bounds<Pixels>)>,
     hover_serial: u64,
+    /// What the last click on a picture opened in the viewer (its paths and
+    /// the place of the one clicked), for `composer-peek` to say.
+    #[cfg(feature = "automation")]
+    pub(crate) debug_opened: Option<(Vec<String>, usize)>,
     /// Stop was pressed and the turn hasn't ended yet: a spinner in its place.
     stopping: bool,
     /// A refused send's draft, to put back at the next render.
@@ -149,6 +153,8 @@ impl Composer {
             hovered_chip: None,
             peek_shown: None,
             hover_serial: 0,
+            #[cfg(feature = "automation")]
+            debug_opened: None,
             stopping: false,
             restore: None,
             model_picker: None,
@@ -875,6 +881,87 @@ impl Composer {
         Ok(())
     }
 
+    /// A plain click on a picture's chip among the words, or on its thumbnail
+    /// over them: the app's picture viewer on it, stepping through the other
+    /// pictures in the same box (ComposerTextView.previewPicture, where it's
+    /// Quick Look; Mike, 11 Nov). One still being copied in shows from the
+    /// file it came from. False when it isn't a picture that opens here.
+    pub(crate) fn open_picture(&mut self, target: &Entity<TextareaState>, id: &SharedString, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(chosen) = self.picture_path(id).map(|p| p.to_string_lossy().into_owned()) else { return false };
+        // The hover card goes, as Swift's mouseDown ends it: the viewer
+        // comes up over everything.
+        self.hover_serial += 1;
+        self.hovered_chip = None;
+        self.peek_shown = None;
+        let paths = Self::chips_in(target, cx).iter().filter_map(|(_, chip)| self.picture_path(chip)).map(|p| p.to_string_lossy().into_owned()).collect();
+        let opened = crate::viewer::open_from_composer(paths, &chosen, window, cx);
+        let ok = opened.is_some();
+        #[cfg(feature = "automation")]
+        {
+            self.debug_opened = opened;
+        }
+        cx.notify();
+        ok
+    }
+
+    /// `composer-peek` with `press` or `strip`, as the Swift app's
+    /// debugOpenPicture: a real click (pointer events through hit testing) on
+    /// chip `number` among the words, or on the strip's thumbnail `strip`
+    /// (0-based), and what the viewer was handed: `(paths, index)`.
+    ///
+    /// The thumbnail is hovered first, and its × has to be inside the
+    /// thumbnail's top right corner (it was drawn at the bottom edge over the
+    /// chip under it, where it couldn't be clicked; Mike, 12 Nov). With
+    /// `remove`, the × is clicked instead: the picture has to go and nothing
+    /// open.
+    #[cfg(feature = "automation")]
+    pub(crate) fn debug_click_picture(this: &Entity<Self>, number: Option<usize>, strip: Option<usize>, remove: bool, window: &mut Window, cx: &mut App) -> Result<serde_json::Value, String> {
+        use gpui_kit::test::{TestEventExt as _, TestQueryExt as _, TestWindowExt as _};
+        let click = |at: Point<Pixels>, window: &mut Window, cx: &mut App| {
+            window.pointer_move(at, None, cx);
+            window.render_frame(cx);
+            window.pointer_down(at, MouseButton::Left, cx);
+            window.pointer_up(at, MouseButton::Left, cx);
+            window.render_frame(cx);
+        };
+        this.update(cx, |c, _| c.debug_opened = None);
+        window.render_frame(cx);
+        let at = match strip {
+            Some(index) => {
+                let label = format!("Picture {}", index + 1);
+                let found = |label: &str, window: &Window| window.elements().into_iter().filter(|e| e.visible() && e.label() == Some(label)).last().map(|e| e.bounds());
+                let tile = found(&label, &*window).ok_or_else(|| format!("no thumbnail {} over the box", index + 1))?;
+                window.pointer_move(tile.center(), None, cx);
+                window.render_frame(cx);
+                let x = found(REMOVE_LABEL, &*window).ok_or("no × on the thumbnail while it's hovered")?;
+                let corner = Bounds::from_corners(point(tile.center().x, tile.origin.y), point(tile.right(), tile.center().y));
+                if !(corner.contains(&x.origin) && corner.contains(&point(x.right() - gpui_kit::px(1.), x.bottom() - gpui_kit::px(1.)))) {
+                    return Err(format!("the × is at {x:?}, not in the top right corner of the thumbnail at {tile:?}"));
+                }
+                if remove {
+                    let before = this.read(cx).chips(cx).len();
+                    click(x.center(), window, cx);
+                    let (after, opened) = (this.read(cx).chips(cx).len(), this.read(cx).debug_opened.clone());
+                    if let Some((paths, _)) = opened {
+                        return Err(format!("the × opened the viewer on {paths:?}"));
+                    }
+                    return if after + 1 == before { Ok(json!("ok removed")) } else { Err(format!("{before} pictures before the × and {after} after")) };
+                }
+                // Away from the × in the corner.
+                point(tile.origin.x + tile.size.width / 4., tile.bottom() - tile.size.height / 4.)
+            }
+            None => {
+                let number = number.ok_or("press needs a number")?;
+                let composer = this.read(cx);
+                let range = composer.chips(cx).get(number.saturating_sub(1)).map(|(r, _)| r.clone()).ok_or_else(|| format!("no chip {number}"))?;
+                composer.input.read(cx).range_to_bounds(&range).ok_or("the chip isn't on screen")?.center()
+            }
+        };
+        click(at, window, cx);
+        let (paths, index) = this.read(cx).debug_opened.clone().ok_or("nothing opened")?;
+        Ok(json!(format!("ok quicklook {index} of {}", serde_json::to_string(&paths).unwrap_or_default())))
+    }
+
     // ---- Drawing ----
 
     fn picture_path(&self, id: &SharedString) -> Option<PathBuf> {
@@ -912,6 +999,8 @@ impl Composer {
                     .bg(fill)
                     .border(gpui_kit::px(0.5))
                     .border_color(edge)
+                    // A click opens the picture (`open_picture`).
+                    .when(path.is_some(), |s| s.cursor_pointer())
                     .when_some(path, |s, path| s.child(img(path).size(px(14.)).rounded(px(3.)).object_fit(ObjectFit::Cover).when(dimmed, |s| s.opacity(0.5))))
                     .child(div().text_size(px(13.)).text_color(label_color).child(format!("Picture {number}"))),
             )
@@ -938,23 +1027,36 @@ impl Composer {
                 Some(image) => tile.child(img(PathBuf::from(&image.path)).size(side).rounded(radius).object_fit(ObjectFit::Cover)),
                 None => tile.flex().items_center().justify_center().child(Spinner::new().color(style::quiet_text(cx)).with_size(px(14.))),
             };
-            let remove_id = id.clone();
-            let remove = div()
-                .id(("remove-picture", index))
-                .absolute()
-                .top(px(4.))
-                .right(px(4.))
-                .size(px(18.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .bg(hsla(0., 0., 0., 0.72))
+            let (remove_id, open_id) = (id.clone(), id.clone());
+            let remove = remove_badge(("remove-picture", index)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                // Not the thumbnail's click under it, which opens the picture.
+                cx.stop_propagation();
+                this.remove_picture(remove_id.clone(), window, cx);
+            }));
+            use gpui_kit::base::TestSupportExt as _;
+            let tile = div()
+                .id(("strip-tile", index))
+                .test_support()
+                // "Picture N", as its chip among the words says, for VoiceOver
+                // and for scripts (`composer-peek` with `strip`).
+                .aria_label(SharedString::from(format!("Picture {}", index + 1)))
+                .group("tile")
+                .relative()
                 .cursor_pointer()
-                .child(Icon::from(IconName::X).with_size(px(9.)).text_color(gpui_kit::white()))
-                .tip("Remove")
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.remove_picture(remove_id.clone(), window, cx)));
-            row = row.child(div().id(("strip-tile", index)).group("tile").relative().child(tile).child(div().invisible().group_hover("tile", |s| s.visible()).child(remove)));
+                .child(tile)
+                // Over the thumbnail's top right corner, 4 in, while the
+                // pointer's on it (AttachmentThumbnail's overlay). The
+                // layer is placed itself: placed inside a layer that sat
+                // in the flow, the × came out at the thumbnail's bottom
+                // edge over the chip under it, where it couldn't be clicked
+                // (Mike, 12 Nov).
+                .child(div().absolute().top(px(4.)).right(px(4.)).invisible().group_hover("tile", |s| s.visible()).child(remove))
+                .tip(crate::viewer::TILE_TIP)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    let input = this.input.clone();
+                    this.open_picture(&input, &open_id, window, cx);
+                }));
+            row = row.child(tile);
         }
         Some(row.into_any_element())
     }
@@ -1024,6 +1126,7 @@ impl Composer {
         let this = cx.entity().downgrade();
         let paste_target = this.clone();
         let hover_target = this.clone();
+        let click_target = this.clone();
         let token_owner = this.clone();
         let thread_drop = this.clone();
         let file_drop = this.clone();
@@ -1106,6 +1209,18 @@ impl Composer {
                     .on_token_hover(move |event, _window, cx| {
                         if let Some(this) = hover_target.upgrade() {
                             this.update(cx, |this, cx| this.hover_chip(event, cx));
+                        }
+                    })
+                    // A plain click on a picture's chip opens it (the kit
+                    // only calls this for one, a press and a let go on the
+                    // same chip; a drag from it or a Shift-click selects).
+                    // A card's or thread's chip has no picture, so nothing.
+                    .on_token_click(move |event, window, cx| {
+                        if let Some(this) = click_target.upgrade() {
+                            this.update(cx, |this, cx| {
+                                let input = this.input.clone();
+                                this.open_picture(&input, event.token().id(), window, cx);
+                            });
                         }
                     }),
             )
@@ -1226,6 +1341,31 @@ impl Render for Composer {
 pub(crate) fn bare_textarea(textarea: Textarea) -> Textarea {
     textarea.appearance(false).bordered(false).xsmall().mx(gpui_kit::px(-4.))
 }
+
+/// The × over a thumbnail of the box's pictures (AttachmentThumbnail's
+/// remove button): 18 round, black at 0.72 with a faint white edge.
+pub(crate) fn remove_badge(id: impl Into<ElementId>) -> impl StatefulInteractiveElement + ParentElement + IntoElement {
+    use gpui_kit::base::TestSupportExt as _;
+    div()
+        .id(id)
+        .test_support()
+        .aria_label(REMOVE_LABEL)
+        .size(px(18.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(hsla(0., 0., 0., 0.72))
+        .border(gpui_kit::px(0.5))
+        .border_color(hsla(0., 0., 1., 0.2))
+        .cursor_pointer()
+        .child(Icon::from(IconName::X).with_size(px(9.)).text_color(gpui_kit::white()))
+        .tip("Remove")
+}
+
+/// The ×'s name for VoiceOver (the Swift one's accessibilityLabel), and for
+/// `composer-peek` to find it by.
+pub(crate) const REMOVE_LABEL: &str = "Remove image";
 
 /// The token a chip draws from. The token's text is the mark the draft holds
 /// (InlinePictures.mark); its label is only for accessibility and measuring.
