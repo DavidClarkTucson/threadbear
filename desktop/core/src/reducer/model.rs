@@ -882,6 +882,12 @@ impl TranscriptModel {
 
             EventPayload::AssistantTextDelta { item_id, text } => {
                 let id = format!("a:{item_id}");
+                // A row with persisted text is final: a delta that comes after
+                // it (held while a subscribe was in flight, ThreadFeed) would
+                // add its words again and set it streaming.
+                if matches!(self.item(&id).map(|r| &r.content), Some(RowContent::Assistant(item)) if !item.is_streaming) {
+                    return;
+                }
                 if self.item_index.contains_key(&id) {
                     let delta = text.clone();
                     self.update(&id, move |content| {
@@ -902,6 +908,12 @@ impl TranscriptModel {
 
             EventPayload::ReasoningDelta { item_id, text } => {
                 let id = format!("r:{item_id}");
+                // A row with persisted text is final: a delta that comes after
+                // it (held while a subscribe was in flight, ThreadFeed) would
+                // add its words again and set it streaming.
+                if matches!(self.item(&id).map(|r| &r.content), Some(RowContent::Reasoning(item)) if !item.is_streaming) {
+                    return;
+                }
                 if self.item_index.contains_key(&id) {
                     let delta = text.clone();
                     self.update(&id, move |content| {

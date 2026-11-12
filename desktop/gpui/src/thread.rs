@@ -28,6 +28,9 @@ const QUEUED_GRACE: Duration = Duration::from_secs(10);
 /// A kept thread further behind than this many events when it's shown again
 /// reads its newest page afresh rather than every event since (`resubscribe`).
 const CATCH_UP_LIMIT: i64 = 2000;
+/// A kept pane holding more events than this (older pages scrolled to, or a
+/// lot happening while it was kept) goes back to its newest page (`set_kept`).
+const KEPT_EVENTS: usize = 2000;
 
 /// Where the time went in a pane's last full read, for the automation's dump
 /// and features/tools/switch-perf.ts: the runner's answer, its size, turning
@@ -51,6 +54,20 @@ pub(crate) struct LoadTiming {
 impl LoadTiming {
     fn since(&self) -> f64 {
         self.started.map(|s| s.elapsed().as_secs_f64() * 1000.).unwrap_or(0.)
+    }
+}
+
+/// `threads.unsubscribe`s on their way, by thread. Each is its own task on the
+/// runtime, which has more than one worker, so one sent as a thread is evicted
+/// (pane_cache.rs) could reach the runner after a subscribe for it sent as it's
+/// opened again straight after, and end the new pane's subscription. A
+/// subscribe waits for them (`after_unsubscribe`). Codex's review, 12 Nov.
+static UNSUBSCRIBING: std::sync::Mutex<std::collections::BTreeMap<String, Vec<futures::channel::oneshot::Receiver<()>>>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+async fn after_unsubscribe(thread_id: &str) {
+    let waits = UNSUBSCRIBING.lock().ok().and_then(|mut map| map.remove(thread_id)).unwrap_or_default();
+    for wait in waits {
+        let _ = wait.await;
     }
 }
 
@@ -488,6 +505,9 @@ impl ThreadPane {
                         // and says so on the error line.
                         if this.loaded {
                             this.error = Some(e.message);
+                            // Not subscribed either: tried again when it's
+                            // next shown from the kept ones.
+                            this.stale = true;
                         } else {
                             this.load_failed = Some(e.message);
                         }
@@ -502,7 +522,9 @@ impl ThreadPane {
             // main thread, so the window goes on drawing (and the spinner
             // turning) meanwhile, as ThreadSession.open does.
             let prepared = cx.background_executor().spawn(async move { prepare(v, Some(root)) }).await;
-            let after_seq = this
+            // A pane let go while it read (evicted, pane_cache.rs) stops
+            // here: subscribing for it would leave a subscription nobody ends.
+            let Ok(after_seq) = this
                 .update(cx, |this, cx| {
                     let Prepared { mut model, buttons, at_start: _, bytes, decode_ms, fold_ms } = prepared;
                     this.timing.request_ms = request_ms;
@@ -541,14 +563,22 @@ impl ThreadPane {
                     cx.notify();
                     this.feed.accepted_seq()
                 })
-                .unwrap_or(0);
+            else {
+                return;
+            };
+            after_unsubscribe(&id).await;
             let sub = call(client, "threads.subscribe", json!({ "threadId": id, "afterSeq": after_seq })).await;
             this.update(cx, |this, cx| match sub.ok().and_then(|v| EventsPage::decode(&v)) {
                 Some(page) => {
                     let action = this.feed.finish_subscribe(page.events, &page.in_progress);
                     this.handle(action, cx);
                 }
-                None => this.feed.catch_up_failed(),
+                // Not subscribed: the next connection reads it again, and
+                // so does showing it again from the kept ones (`shown_again`).
+                None => {
+                    this.feed.catch_up_failed();
+                    this.stale = true;
+                }
             })
             .ok();
         })
@@ -558,9 +588,19 @@ impl ThreadPane {
     /// Kept loaded while another thread's shown (pane_cache.rs): not in
     /// front of Mike, so news to it doesn't mark it read, and the zoom it was
     /// measured at, so its rows are measured again if that's changed.
-    pub(crate) fn set_kept(&mut self) {
+    pub(crate) fn set_kept(&mut self, cx: &mut Context<Self>) {
         self.behind = true;
         self.kept_zoom = Some(crate::style::zoom_percent());
+        // Older pages paged in while it was read go, as Swift's sessions
+        // do once hidden: it's kept for coming back to the end of it, and
+        // they're read again if it's scrolled up to them.
+        if self.loaded && self.feed.model().events().len() > KEPT_EVENTS && !self.feed.has_pending() {
+            let memory = self.capture_memory(cx);
+            self.feed.trim(EVENTS_PAGE as usize);
+            self.scroller.update(cx, |s, cx| s.reset(self.feed.model().rows().len(), cx));
+            self.restore_memory(Some(memory), cx);
+            self.older_skip = None;
+        }
     }
 
     /// The connection's back while this pane is kept and not shown: it
@@ -601,7 +641,11 @@ impl ThreadPane {
             return;
         }
         let behind = i64::try_from(self.summary.last_seq).unwrap_or(i64::MAX).saturating_sub(self.feed.accepted_seq());
-        if !self.loaded || behind > CATCH_UP_LIMIT {
+        // Another runner's thread: its summary's `last_seq` isn't the relay's
+        // seqs (remote.rs), so how far behind it is can't be told, and its
+        // newest page is read rather than everything since.
+        let remote = self.summary.runner_id.is_some();
+        if !self.loaded || remote || behind > CATCH_UP_LIMIT {
             // Back to the spinner from a failed first read, as Try again does.
             self.load_failed = None;
             return self.load(cx);
@@ -609,6 +653,7 @@ impl ThreadPane {
         self.feed.begin_subscribe();
         let (client, id, after_seq) = (self.client.clone(), self.summary.id.clone(), self.feed.accepted_seq());
         cx.spawn(async move |this, cx| {
+            after_unsubscribe(&id).await;
             let sub = call(client, "threads.subscribe", json!({ "threadId": id, "afterSeq": after_seq })).await;
             this.update(cx, |this, cx| match sub.ok().and_then(|v| EventsPage::decode(&v)) {
                 Some(page) => {
@@ -680,7 +725,14 @@ impl ThreadPane {
         }
         let client = self.client.clone();
         let params = json!({ "threadId": self.summary.id });
-        RT.spawn(async move { client.call("threads.unsubscribe", params).await });
+        let (done, wait) = futures::channel::oneshot::channel::<()>();
+        if let Ok(mut map) = UNSUBSCRIBING.lock() {
+            map.entry(self.summary.id.clone()).or_default().push(wait);
+        }
+        RT.spawn(async move {
+            let _ = client.call("threads.unsubscribe", params).await;
+            let _ = done.send(());
+        });
     }
 
     pub fn summary_changed(&mut self, t: &ThreadSummary, cx: &mut Context<Self>) {

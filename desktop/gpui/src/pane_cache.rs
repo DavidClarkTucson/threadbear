@@ -41,7 +41,7 @@ impl PaneCache {
         // on with the subscription they shared.
         self.forget(&id, cx);
         // Not in front of Mike, so news to it doesn't mark it read.
-        pane.update(cx, |p, _| p.set_kept());
+        pane.update(cx, |p, cx| p.set_kept(cx));
         self.panes.push(pane);
         while self.panes.len() > KEEP - 1 {
             let oldest = self.panes.remove(0);
