@@ -1356,6 +1356,55 @@ test('snoozing a thread with background work stops it straight away and says so'
   assert.equal(h.runner.get(thread.id).live, false);
 });
 
+// Thread 8a971407, 12 Nov 2026: hibernated with its CLI already released,
+// so the snooze's releaseWhenIdle had no CLI to go with and stayed set. It
+// woke on its timer, Mike's next message started a fresh CLI, and the end
+// of that turn hard-released it, killing the sub-agent it had just started.
+test('a hibernation with no CLI live leaves nothing to release the next one for', async () => {
+  const h = makeHarness();
+  const { thread } = create(h);
+  const first = h.adapter.last;
+  first.init();
+  first.result();
+  h.clock.advance(30 * MIN);
+  assert.equal(first.ended, true, 'released when idle');
+  await tick();
+  h.runner.update({ threadId: thread.id, snoozedUntil: new Date(h.clock.now() + 60 * MIN).toISOString() });
+  h.clock.advance(60 * MIN);
+  assert.equal(h.runner.get(thread.id).snoozedUntil, undefined, 'woke');
+  h.runner.send(thread.id, 'give the diagram more room');
+  await tick();
+  const s = h.adapter.last;
+  assert.notEqual(s, first);
+  s.init();
+  s.out({ kind: 'tasks', tasks: [{ id: 'a1', type: 'local_agent', kind: 'agent', description: 'Give the viewer more room' }] });
+  s.result();
+  assert.equal(s.ended, false, 'kept for the sub-agent');
+  assert.equal(h.events(thread.id).some((e) => e.type === 'system.note' && /Stopped background work/.test(e.text)), false);
+});
+
+// A change that wants a fresh CLI (here another login, asked for during the
+// turn) waits for background work, rather than stopping it as the turn ends.
+test('a fresh CLI asked for during a turn waits for background work to finish', async () => {
+  const h = makeHarness();
+  const { thread } = create(h);
+  const s = h.adapter.last;
+  s.init();
+  s.out({ kind: 'tasks', tasks: [{ id: 'a1', type: 'local_agent', kind: 'agent', description: 'Check the docs' }] });
+  h.runner.update({ threadId: thread.id, accountId: 'claude-main' });
+  s.result();
+  await tick();
+  assert.equal(s.ended, false, 'kept while the sub-agent works');
+  s.out({ kind: 'tasks', tasks: [] });
+  assert.equal(s.ended, false, 'kept for the turn that reads its result');
+  // That turn comes and goes; then the CLI is released for the move.
+  s.out({ kind: 'cliTurn', note: 'Agent "Check the docs" completed' });
+  s.result();
+  await tick();
+  assert.equal(s.ended, true, 'released once it finished');
+  assert.equal(s.endedHard, false);
+});
+
 test('a CLI turn left open when its CLI is released ends as interrupted', async () => {
   const h = makeHarness();
   h.adapter.slowExit = true;

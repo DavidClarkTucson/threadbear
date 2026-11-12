@@ -1899,6 +1899,9 @@ export class Runner {
     rt.resumed = resume;
     rt.cliVersion = undefined;
     rt.versionMove = false;
+    // This CLI is the fresh one anything asked for; a release asked of the
+    // last one doesn't carry over to it (thread 8a971407).
+    rt.releaseWhenIdle = false;
     rt.started = false;
     rt.startVersion = this.cliList()?.find((c) => c.provider === rec.provider)?.installedVersion;
     // Read now, not from the patch list's cache: a pull just before this
@@ -2256,8 +2259,8 @@ export class Runner {
       rt.wakeTimer = undefined;
       rt.finished = [];
       this.markDirty(st);
-      // A version move was waiting for the grace to end.
-      if (rt.versionMove && !rt.turn) this.scheduleIdle(st);
+      // A version move or a fresh CLI was waiting for the grace to end.
+      if ((rt.versionMove || rt.releaseWhenIdle) && !rt.turn) this.scheduleIdle(st);
     }, WAKE_GRACE_MS);
   }
 
