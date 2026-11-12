@@ -141,6 +141,15 @@ fn the_gate_opens_in_one_place() {
 ///   `playerItemWithURL:`, an asset made from a file URL), which would read
 ///   whatever's there by then, but from the held file through the asset made
 ///   with QuickTime's references to other files forbidden.
+///
+/// And from Codex's second review, the same day:
+/// - PDFKit's right-click menu opens a link itself (Open Link, Open With), so
+///   a PDF view's menu goes through `tb_safe_menu` both as it's made and as
+///   it opens;
+/// - a film dragged out is a copy of the held file, never a URL made from
+///   its path, which whatever it's dropped on would read later;
+/// - a PDF's bytes are read off the main thread, never as the pane draws;
+/// - nothing there calls NSWorkspace at all.
 #[test]
 fn the_media_views_read_only_what_the_gate_checked() {
     let desktop = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned();
@@ -166,11 +175,43 @@ fn the_media_views_read_only_what_the_gate_checked() {
             if line.contains("[PDFView alloc]") {
                 found.push(format!("{rel}: a plain PDFView, whose links go to the system: {}", line.trim()));
             }
+            if line.contains("NSWorkspace") {
+                found.push(format!("{rel}: opens through NSWorkspace, not the gate: {}", line.trim()));
+            }
+            if line.contains("fileURLWithPath:self.path") || line.contains("fileURLWithPath:file") {
+                found.push(format!("{rel}: hands out the real file's path, which can be swapped before it's read: {}", line.trim()));
+            }
         }
         if has("PDFView") {
-            for needed in ["- (void)PDFViewWillClickOnLink:", "- (void)PDFViewOpenPDF:", "- (void)performAction:(PDFAction *)action", "pdf.delegate = "] {
+            for needed in [
+                "- (void)PDFViewWillClickOnLink:",
+                "- (void)PDFViewOpenPDF:",
+                "- (void)performAction:(PDFAction *)action",
+                "pdf.delegate = ",
+                "- (NSMenu *)menuForEvent:(NSEvent *)event {",
+                "- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {",
+            ] {
                 if !has(needed) {
                     found.push(format!("{rel}: a PDF view without `{needed}`, so its links could reach the system"));
+                }
+            }
+            // Each of those menu methods puts the menu through the filter
+            // before anything else sees it.
+            for (i, line) in code.iter().enumerate() {
+                if line.contains("- (NSMenu *)menuForEvent:") || line.contains("- (void)willOpenMenu:") {
+                    let body: String = code[i..(i + 4).min(code.len())].join("\n");
+                    if !body.contains("tb_safe_menu(menu, self.links);") {
+                        found.push(format!("{rel}: a PDF menu that isn't put through tb_safe_menu: {}", line.trim()));
+                    }
+                }
+            }
+        }
+        // A whole PDF read only off the main thread.
+        for (i, line) in code.iter().enumerate() {
+            if line.contains("tb_read_all(") && !line.contains("static NSData *tb_read_all(") {
+                let before: String = code[i.saturating_sub(3)..i].join("\n");
+                if !before.contains("dispatch_get_global_queue(") {
+                    found.push(format!("{rel}: a PDF read where the pane draws, not off the main thread: {}", line.trim()));
                 }
             }
         }

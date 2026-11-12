@@ -141,6 +141,10 @@ File references are where to look.
   `~/Library/Caches/Threadbear/update`;
   `~/Library/Caches/Threadbear/remote` (copies of pictures and files from
   threads on your other Macs, at most 512 MB, unused ones go after 30 days);
+  `~/Library/Caches/Threadbear/drags` (a copy of a video you drag out of the
+  side pane, so what you drop it on gets the file you were watching; a
+  clone that takes no space where the disk can make one, cleared after a
+  day);
   `~/Library/Caches/Threadbear/rich` (pictures of the ```` ```mermaid ```` and
   ```` ```html ```` blocks in replies, and each one's page for the side pane,
   newest 900 files kept). They're drawn on this Mac in web views that load

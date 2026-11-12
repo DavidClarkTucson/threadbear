@@ -771,6 +771,15 @@ impl SidePane {
                 // sits in the middle with the pane's colour round it, as the
                 // Swift pane's player does.
                 match crate::media_view::slot(&key, window, |opening| crate::open_gate::show_media(&path, origin, kind, opening)) {
+                    // A PDF still being read off the main thread has the
+                    // pane's spinner where it will be, until it's in.
+                    Ok(view) if crate::media_view::state_of(&key).is_some_and(|s| s.loading) => div()
+                        .id("hl-media")
+                        .size_full()
+                        .relative()
+                        .child(view)
+                        .child(div().absolute().inset_0().flex().items_center().justify_center().child(Spinner::new().with_size(px(14.)).color(p.secondary)))
+                        .into_any_element(),
                     Ok(view) => div().id("hl-media").size_full().child(view).into_any_element(),
                     Err(why) => pane_note(&why, p).into_any_element(),
                 }
@@ -974,7 +983,7 @@ impl SidePane {
                             pane.insert("previewText".into(), json!(why));
                         } else if *kind == crate::media_view::Kind::PaneDocument {
                             pane.insert("previewKind".into(), json!("pdf"));
-                            if let Some(state) = crate::media_view::state_of(&key) {
+                            if let Some(state) = crate::media_view::state_of(&key).filter(|s| !s.loading) {
                                 pane.insert("previewText".into(), json!(format!("{} page{}", state.pages, if state.pages == 1 { "" } else { "s" })));
                             }
                         } else {

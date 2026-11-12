@@ -7,8 +7,10 @@
 //
 // They read only that open file, never its path again: a film through an
 // asset whose bytes come from it (TBFileSource), with QuickTime's references
-// to other files forbidden; a PDF from its bytes. A PDF's links go back to
-// the open gate, never to the system (Codex's review, 12 Nov).
+// to other files forbidden; a PDF from its bytes, read off the main thread.
+// A PDF's links go back to the open gate, never to the system, from a click
+// or from its right-click menu, and a film dragged out is a copy of the open
+// file, never its path (Codex's reviews, 12 Nov).
 //
 // They behave as the Swift app's do: FilePreviewView in the pane (the
 // player's floating controls, sound on, paused on its first frame, sized to
@@ -44,6 +46,7 @@ typedef struct {
   float volume;
   int pages;
   bool failed;
+  bool loading;
 } TBMediaState;
 
 // Implemented in Rust (media_view.rs): a PDF's link clicked, for the open
@@ -51,6 +54,10 @@ typedef struct {
 // changed in a way the window should draw again for (a film that failed).
 extern void tb_media_said_link(const char *url, const char *base);
 extern void tb_media_said_changed(void);
+// Implemented in Rust (media_view.rs): a private copy of the open file `fd`
+// named `name`, for a drag out (threadbear_core::private_file::snapshot), its
+// path written into `out`; false if it couldn't be made.
+extern bool tb_media_snapshot(int fd, const char *name, char *out, int capacity);
 
 // The biggest PDF read into memory to show.
 static const long long TBDocumentLimit = 256LL * 1024 * 1024;
@@ -64,6 +71,8 @@ static const long long TBDocumentLimit = 256LL * 1024 * 1024;
 @property(nonatomic, readonly) long long length;
 @property(nonatomic, readonly, copy) NSString *contentType;
 @property(nonatomic, readonly) dispatch_queue_t queue;
+// The file as the gate opened it, to tell if it's been written to since.
+@property(nonatomic, readonly) struct stat opened;
 @end
 
 @implementation TBFileSource
@@ -75,6 +84,9 @@ static const long long TBDocumentLimit = 256LL * 1024 * 1024;
     NSString *ext = path.pathExtension.lowercaseString;
     _contentType = [ext isEqualToString:@"mov"] ? AVFileTypeQuickTimeMovie : [ext isEqualToString:@"m4v"] ? AVFileTypeAppleM4V : AVFileTypeMPEG4;
     _queue = dispatch_queue_create("threadbear.media.file", DISPATCH_QUEUE_SERIAL);
+    if (fstat(fd, &_opened) != 0) {
+      memset(&_opened, 0, sizeof _opened);
+    }
   }
   return self;
 }
@@ -116,15 +128,35 @@ static const long long TBDocumentLimit = 256LL * 1024 * 1024;
   return YES;
 }
 
-// The file at `path` is still the one held open: the same file on the same
-// disk, the same size and last change, and not a link put in its place.
-- (BOOL)isStillAt:(NSString *)path {
-  struct stat held, now;
-  if (fstat(self.fd, &held) != 0 || lstat(path.fileSystemRepresentation, &now) != 0) {
-    return NO;
+// The open file as it was when the gate opened it: the same size, last
+// change and status change, so not written to since. The status change
+// (ctime) is the one its owner can't set back after a write, as they can
+// the last change (Codex's third review, 12 Nov).
+- (BOOL)isUnchanged {
+  struct stat now;
+  struct stat was = self.opened;
+  return fstat(self.fd, &now) == 0 && was.st_ino != 0 && was.st_dev == now.st_dev && was.st_ino == now.st_ino && was.st_size == now.st_size &&
+         was.st_mtimespec.tv_sec == now.st_mtimespec.tv_sec && was.st_mtimespec.tv_nsec == now.st_mtimespec.tv_nsec &&
+         was.st_ctimespec.tv_sec == now.st_ctimespec.tv_sec && was.st_ctimespec.tv_nsec == now.st_ctimespec.tv_nsec;
+}
+
+// A private copy of the open file, named `name`, for handing to another app
+// (tb_media_snapshot), or nil if the file's been written to since it was
+// checked or the copy couldn't be made.
+- (NSString *)snapshotNamed:(NSString *)name {
+  if (![self isUnchanged]) {
+    return nil;
   }
-  return S_ISREG(now.st_mode) && held.st_dev == now.st_dev && held.st_ino == now.st_ino && held.st_size == now.st_size &&
-         held.st_mtimespec.tv_sec == now.st_mtimespec.tv_sec && held.st_mtimespec.tv_nsec == now.st_mtimespec.tv_nsec;
+  char path[PATH_MAX];
+  if (!tb_media_snapshot(self.fd, name.fileSystemRepresentation, path, (int)sizeof path)) {
+    return nil;
+  }
+  // Written to while it was copied: the copy may hold some of both.
+  if (![self isUnchanged]) {
+    unlink(path);
+    return nil;
+  }
+  return [NSString stringWithUTF8String:path];
 }
 
 @end
@@ -196,7 +228,7 @@ static void *TBStatusContext = &TBStatusContext;
 @property(nonatomic, strong) AVPlayerLooper *looper;
 @property(nonatomic, strong) TBFileSource *source;
 @property(nonatomic, strong) AVURLAsset *asset;
-// The real file's path, for dragging it out once it's checked as the same.
+// The real file's path, for the name of a copy dragged out.
 @property(nonatomic, copy) NSString *path;
 // What's being watched for a failure: the pane's item, or the looper.
 @property(nonatomic, strong) NSObject *watched;
@@ -256,17 +288,19 @@ static void *TBStatusContext = &TBStatusContext;
   self.passingClick = NO;
 }
 
-// The film dragged out as the file itself, to drop on X or the Finder (Mike
-// wanted to post a clip without opening the panel first, 29 Oct). Only while
-// the path still leads to the very file that's playing, checked against the
-// one held open: a link or another file put there since is never handed on.
-// Copy only.
+// The film dragged out as a file, to drop on X or the Finder (Mike wanted to
+// post a clip without opening the panel first, 29 Oct). What's handed over
+// is a private copy of the very file that's playing, made from the one held
+// open, never its path: whatever it's dropped on reads the path later, by
+// when a link or another file could be in its place (Codex's second review,
+// 12 Nov). A file written to since it was checked isn't handed on. Copy only.
 - (void)dragFile:(NSEvent *)event {
-  if (![self.source isStillAt:self.path]) {
+  NSString *copy = [self.source snapshotNamed:self.path.lastPathComponent];
+  if (!copy) {
     NSBeep();
     return;
   }
-  NSURL *file = [NSURL fileURLWithPath:self.path isDirectory:NO];
+  NSURL *file = [NSURL fileURLWithPath:copy isDirectory:NO];
   NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:file];
   NSImage *image = [NSImage imageWithSystemSymbolName:@"film" accessibilityDescription:nil] ?: [NSImage new];
   NSImageSymbolConfiguration *config = [NSImageSymbolConfiguration configurationWithPointSize:36 weight:NSFontWeightRegular];
@@ -384,11 +418,104 @@ static void tb_send_link(NSURL *url, NSString *base) {
   tb_send_link(action.URL, self.base);
 }
 
+// The right-click menu's Open Link, put through here (tb_safe_menu).
+- (void)openLinkThroughGate:(NSMenuItem *)item {
+  if ([item.representedObject isKindOfClass:[NSURL class]]) {
+    tb_send_link(item.representedObject, self.base);
+  }
+}
+
 @end
+
+// What a PDF's right-click menu may keep: what copies, zooms, lays out or
+// moves within the document. PDFKit's own Open Link and Open With items hand
+// the link to NSWorkspace themselves (`openRepresentedLink:`, and
+// `openURLs:withApplicationAtURL:` for Open With), never through the
+// delegate or performAction: (Codex's second review, 12 Nov), so a file
+// link to a program would run from the menu with no question.
+static NSSet<NSString *> *tb_safe_actions(void) {
+  static NSSet<NSString *> *safe;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    safe = [NSSet setWithArray:@[
+      @"copy:", @"copyLink:", @"selectAll:", @"zoomIn:", @"zoomOut:", @"_setAutoSize:", @"_setActualSize:", @"_setSinglePage:", @"_setSinglePageScrolling:",
+      @"_setDoublePage:", @"_setDoublePageScrolling:", @"goToNextPage:", @"goToPreviousPage:", @"goToFirstPage:", @"goToLastPage:"
+    ]];
+  });
+  return safe;
+}
+
+// A PDF's right-click menu, made safe in place: an item that opens a link
+// (one with the link as its object and "open" in its action) goes to the
+// open gate instead, through `links`; a submenu of them (Open With, which
+// names an app the gate wouldn't use) goes; anything else not known to be
+// safe goes, so an item a later PDFKit adds can't open something either.
+// Only what's left of a submenu stays, and no separators doubled or at
+// the ends. The menu's plug-ins and services are turned off.
+static void tb_safe_menu_at(NSMenu *menu, TBDocumentLinks *links, int depth) {
+  menu.allowsContextMenuPlugIns = NO;
+  for (NSMenuItem *item in [menu.itemArray copy]) {
+    if (item.isSeparatorItem) {
+      continue;
+    }
+    if (item.submenu) {
+      tb_safe_menu_at(item.submenu, links, depth + 1);
+      BOOL left = NO;
+      for (NSMenuItem *inner in item.submenu.itemArray) {
+        left = left || !inner.isSeparatorItem;
+      }
+      // Open With goes whole: every item in it opens with an app.
+      BOOL opensWith = [item.title.lowercaseString containsString:@"open"];
+      if (!left || opensWith) {
+        [menu removeItem:item];
+      }
+      continue;
+    }
+    NSString *action = item.action ? NSStringFromSelector(item.action) : @"";
+    if (item.target == links && item.action == @selector(openLinkThroughGate:)) {
+      continue;
+    }
+    if ([tb_safe_actions() containsObject:action]) {
+      continue;
+    }
+    BOOL opensLink = [item.representedObject isKindOfClass:[NSURL class]] && [action.lowercaseString containsString:@"open"];
+    if (opensLink && depth == 0) {
+      item.target = links;
+      item.action = @selector(openLinkThroughGate:);
+      continue;
+    }
+    [menu removeItem:item];
+  }
+  // Separators: none first, last or two together.
+  BOOL lastWasSeparator = YES;
+  for (NSMenuItem *item in [menu.itemArray copy]) {
+    if (item.isSeparatorItem && lastWasSeparator) {
+      [menu removeItem:item];
+      continue;
+    }
+    lastWasSeparator = item.isSeparatorItem;
+  }
+  if (menu.itemArray.lastObject.isSeparatorItem) {
+    [menu removeItem:menu.itemArray.lastObject];
+  }
+}
+
+static void tb_safe_menu(NSMenu *menu, TBDocumentLinks *links) {
+  if (menu) {
+    tb_safe_menu_at(menu, links, 0);
+  }
+}
 
 @interface TBDocumentView : PDFView
 // Held here, as a view's delegate isn't kept by it.
 @property(nonatomic, strong) TBDocumentLinks *links;
+// Its bytes are still being read (tb_media_open): hidden until they're in,
+// with the pane's spinner under it.
+@property(nonatomic) BOOL loading;
+// Whether it's to show once it's read, as tb_media_set_hidden last said.
+@property(nonatomic) BOOL wantsHidden;
+// Why it couldn't be shown, once that's known.
+@property(nonatomic, copy) NSString *failure;
 @end
 
 @implementation TBDocumentView
@@ -419,12 +546,17 @@ static NSURL *tb_link_of(PDFAnnotation *annotation) {
 }
 
 // A press on a link is this view's own, never PDFKit's inner views' (which
-// would hand it to NSWorkspace): the release sends it to the gate.
+// would hand it to NSWorkspace): the release sends it to the gate. A right
+// click is this view's too, so the menu it opens is made safe as it opens
+// (willOpenMenu:withEvent:), with whatever AppKit adds to it by then.
 - (NSView *)hitTest:(NSPoint)point {
   if (self.hidden) {
     return nil;
   }
   NSEventType type = NSApp.currentEvent.type;
+  if (type == NSEventTypeRightMouseDown && NSPointInRect(point, self.frame)) {
+    return self;
+  }
   if ((type == NSEventTypeLeftMouseDown || type == NSEventTypeLeftMouseUp) && NSPointInRect(point, self.frame) && [self linkAt:[self convertPoint:point fromView:self.superview]]) {
     return self;
   }
@@ -445,6 +577,20 @@ static NSURL *tb_link_of(PDFAnnotation *annotation) {
     return;
   }
   [super mouseUp:event];
+}
+
+// The right-click menu, through tb_safe_menu: PDFKit's inner views ask this
+// for theirs too.
+- (NSMenu *)menuForEvent:(NSEvent *)event {
+  NSMenu *menu = [super menuForEvent:event];
+  tb_safe_menu(menu, self.links);
+  return menu;
+}
+
+// And again as it opens, for what AppKit has added since.
+- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {
+  tb_safe_menu(menu, self.links);
+  [super willOpenMenu:menu withEvent:event];
 }
 
 // Any action an annotation runs: within the document it's PDFKit's (going
@@ -500,19 +646,37 @@ void *tb_media_open(void *nativeParent, int fd, long long length, const char *pa
   }
   NSView *view = nil;
   if (kind == TBPaneDocument) {
-    NSData *bytes = tb_read_all(fd, length);
-    close(fd);
-    PDFDocument *document = bytes ? [[PDFDocument alloc] initWithData:bytes] : nil;
-    if (!document) {
-      return NULL;
-    }
     TBDocumentView *pdf = [[TBDocumentView alloc] initWithFrame:NSZeroRect];
     pdf.links = [TBDocumentLinks new];
     pdf.links.base = file.stringByDeletingLastPathComponent;
     pdf.delegate = pdf.links;
     pdf.autoScales = YES;
     pdf.displayMode = kPDFDisplaySinglePageContinuous;
-    pdf.document = document;
+    pdf.loading = YES;
+    pdf.wantsHidden = YES;
+    // Read off the main thread: a big PDF on a slow disk would hold the
+    // whole app while it's read (Codex's second review, 12 Nov). The view is
+    // given it back on the main thread, if it's still up by then.
+    __weak TBDocumentView *weakPdf = pdf;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+      NSData *bytes = tb_read_all(fd, length);
+      close(fd);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        TBDocumentView *me = weakPdf;
+        if (!me || !me.loading) {
+          return;
+        }
+        PDFDocument *document = bytes ? [[PDFDocument alloc] initWithData:bytes] : nil;
+        me.loading = NO;
+        if (document) {
+          me.document = document;
+          me.hidden = me.wantsHidden;
+        } else {
+          me.failure = length > TBDocumentLimit ? @"it's over 256 MB, too big to show here." : @"it isn't a PDF it can read.";
+        }
+        tb_media_said_changed();
+      });
+    });
     view = pdf;
   } else {
     TBFileSource *source = [[TBFileSource alloc] initWithDescriptor:fd length:length path:file];
@@ -569,6 +733,12 @@ void tb_media_place(void *nativeView, double x, double y, double width, double h
 // over it. A film hidden for a menu plays on, as it does under a Swift menu.
 void tb_media_set_hidden(void *nativeView, bool hidden) {
   NSView *view = (__bridge NSView *)nativeView;
+  // A PDF still being read, or that couldn't be, stays hidden whatever.
+  if ([view isKindOfClass:[TBDocumentView class]]) {
+    TBDocumentView *pdf = (TBDocumentView *)view;
+    pdf.wantsHidden = hidden;
+    hidden = hidden || pdf.loading || pdf.failure != nil;
+  }
   if (view.hidden != hidden) {
     view.hidden = hidden;
   }
@@ -587,7 +757,10 @@ void tb_media_close(void *nativeView) {
     player.looper = nil;
     player.player = nil;
   } else if ([view isKindOfClass:[TBDocumentView class]]) {
-    ((TBDocumentView *)view).delegate = nil;
+    TBDocumentView *pdf = (TBDocumentView *)view;
+    // A read still under way gives nothing to it when it's done.
+    pdf.loading = NO;
+    pdf.delegate = nil;
   }
   [view removeFromSuperview];
 }
@@ -616,7 +789,9 @@ void tb_media_state(void *nativeView, TBMediaState *out) {
     out->looping = player.looper != nil;
     out->failed = player.failure != nil;
   } else if ([view isKindOfClass:[TBDocumentView class]]) {
-    PDFView *pdf = (PDFView *)view;
+    TBDocumentView *pdf = (TBDocumentView *)view;
+    out->loading = pdf.loading;
+    out->failed = pdf.failure != nil;
     out->pages = (int)pdf.document.pageCount;
     PDFPage *first = out->pages > 0 ? [pdf.document pageAtIndex:0] : nil;
     if (first) {
@@ -630,7 +805,7 @@ void tb_media_state(void *nativeView, TBMediaState *out) {
 // Why a film couldn't play, into `buffer` (cut to fit), or false if it's fine.
 bool tb_media_failure(void *nativeView, char *buffer, int capacity) {
   NSView *view = (__bridge NSView *)nativeView;
-  NSString *failure = [view isKindOfClass:[TBPlayerView class]] ? ((TBPlayerView *)view).failure : nil;
+  NSString *failure = [view isKindOfClass:[TBPlayerView class]] ? ((TBPlayerView *)view).failure : [view isKindOfClass:[TBDocumentView class]] ? ((TBDocumentView *)view).failure : nil;
   if (!failure || capacity <= 0) {
     return false;
   }
@@ -666,4 +841,50 @@ bool tb_media_click_link(void *nativeView) {
     }
   }
   return false;
+}
+
+// For media_view.rs's tests: a menu made as PDFKit makes a link's (Open Link,
+// Open With, Copy Link, its zoom and page items, and ones it might add),
+// put through tb_safe_menu, then each item left written as "title|action"
+// a line each into `buffer`; and its Open Link chosen, which should reach
+// tb_media_said_link with `link`.
+int tb_media_menu_for_tests(const char *link, char *buffer, int capacity) {
+  @autoreleasepool {
+    NSURL *url = [NSURL URLWithString:[NSString stringWithUTF8String:link]];
+    NSObject *kit = [NSObject new];
+    NSMenu *menu = [NSMenu new];
+    NSMenuItem * (^add)(NSMenu *, NSString *, NSString *) = ^NSMenuItem *(NSMenu *into, NSString *title, NSString *action) {
+      NSMenuItem *item = [into addItemWithTitle:title action:action.length ? NSSelectorFromString(action) : NULL keyEquivalent:@""];
+      item.target = kit;
+      item.representedObject = url;
+      return item;
+    };
+    add(menu, @"Open Link", @"openRepresentedLink:");
+    NSMenuItem *with = add(menu, @"Open With", @"");
+    with.submenu = [NSMenu new];
+    add(with.submenu, @"Terminal", @"_openWithApplication:");
+    add(menu, @"Copy Link", @"copyLink:");
+    [menu addItem:[NSMenuItem separatorItem]];
+    [menu addItem:[NSMenuItem separatorItem]];
+    add(menu, @"Search with Google", @"_searchInGoogle:");
+    add(menu, @"Something New", @"_somethingNew:");
+    NSMenuItem *share = add(menu, @"Share", @"");
+    share.submenu = [NSMenu new];
+    add(share.submenu, @"Mail", @"_share:");
+    add(menu, @"Zoom In", @"zoomIn:");
+    [menu addItem:[NSMenuItem separatorItem]];
+    TBDocumentLinks *links = [TBDocumentLinks new];
+    links.base = @"/tmp";
+    tb_safe_menu(menu, links);
+    NSMutableString *out = [NSMutableString string];
+    for (NSMenuItem *item in menu.itemArray) {
+      [out appendFormat:@"%@|%@\n", item.isSeparatorItem ? @"-" : item.title, item.action ? NSStringFromSelector(item.action) : @""];
+    }
+    strlcpy(buffer, out.UTF8String, (size_t)capacity);
+    NSMenuItem *open = [menu itemWithTitle:@"Open Link"];
+    if ([open.target respondsToSelector:open.action]) {
+      ((void (*)(id, SEL, id))[open.target methodForSelector:open.action])(open.target, open.action, open);
+    }
+    return (int)menu.numberOfItems;
+  }
 }

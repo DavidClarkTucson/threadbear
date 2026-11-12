@@ -476,33 +476,146 @@ const VIDEO_BRANDS: &[&[u8; 4]] = &[
     b"3g2a", b"MSNV", b"dash", b"XAVC",
 ];
 
-/// The boxes an older QuickTime movie can start with in place of `ftyp`.
-const QUICKTIME_FIRST: &[&[u8; 4]] = &[b"moov", b"mdat", b"wide", b"free", b"skip", b"pnot"];
+/// The brands of still pictures in the same box shape (HEIF, AVIF and their
+/// picture sequences): an `ftyp` naming one of these anywhere in its list is
+/// a picture's, whatever its main brand says.
+const PICTURE_BRANDS: &[&[u8; 4]] = &[b"mif1", b"mif2", b"msf1", b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"heif", b"avif", b"avis", b"avci", b"avcs", b"jpeg", b"jpgs"];
 
-/// Whether a file of `len` bytes starts the way its kind's files do. An
-/// MPEG-4 or QuickTime file is a run of boxes, each a 4-byte size and a
-/// 4-letter type: the first is `ftyp`, a few dozen bytes long, whose main
-/// brand is a film's (or, in older QuickTime files, `moov`, `mdat`, `wide`,
-/// `free`, `skip` or `pnot`, no longer than the file). A PDF starts `%PDF-`
-/// and its version. The size is what keeps a text file that happens to say
-/// `ftyp` four letters in from passing (Codex's review, 12 Nov).
+/// The boxes an older QuickTime movie can have before its `moov` (or a newer
+/// file before its `ftyp`): padding, the film's own data, a preview.
+const QUICKTIME_LEADING: &[&[u8; 4]] = &[b"free", b"skip", b"wide", b"mdat", b"pnot"];
+
+/// How many of those boxes are walked past before giving up on finding an
+/// `ftyp` or a `moov`.
+const LEADING_BOXES: usize = 8;
+
+/// How many boxes in all are walked: after a `moov`, every box to the end of
+/// the file is looked at for a picture's `ftyp`, and a file with more top
+/// level boxes than this (a real movie without an `ftyp` has a handful) isn't
+/// taken for one (Codex's fourth review, 12 Nov).
+const ALL_BOXES: usize = 64;
+
+/// Whether a file of `len` bytes, whose first bytes are `head`, starts the
+/// way its kind's files do (`looks_like_at`, reading only `head`).
 pub fn looks_like(kind: Media, head: &[u8], len: u64) -> bool {
+    looks_like_at(
+        kind,
+        &mut |at, buf| {
+            let start = usize::try_from(at).unwrap_or(usize::MAX).min(head.len());
+            let n = buf.len().min(head.len() - start);
+            buf[..n].copy_from_slice(&head[start..start + n]);
+            n
+        },
+        len,
+    )
+}
+
+/// Whether a file of `len` bytes starts the way its kind's files do,
+/// reading it through `read_at` (bytes at an offset, how many it read).
+///
+/// An MPEG-4 or QuickTime file is a run of boxes, each a 4-byte size and a
+/// 4-letter type (a size of 1 is "a 64-bit size follows", 0 "to the end of
+/// the file"). A film's first box is `ftyp`, a few dozen bytes long, whose
+/// brands are a film's; an older QuickTime movie may have padding (`free`,
+/// `skip`, `wide`), its data (`mdat`) or a preview (`pnot`) before its
+/// `moov` or `ftyp`. Those are walked past, a few at most, each with a sane
+/// size that fits in the file, until an `ftyp` or a `moov`; anything else
+/// first, or a box that doesn't fit, isn't a film. An `ftyp` naming a
+/// picture's brand is refused wherever it is (Codex's second review, 12 Nov:
+/// eight bytes of `free` in front of an AVIF named `.mov` passed when only
+/// the first box was looked at). A PDF starts `%PDF-` and its version.
+pub fn looks_like_at(kind: Media, read_at: &mut dyn FnMut(u64, &mut [u8]) -> usize, len: u64) -> bool {
     match kind {
-        Media::Video => {
-            if head.len() < 12 {
+        Media::Video => film_boxes(read_at, len),
+        Media::Pdf => {
+            let mut head = [0u8; 6];
+            let n = read_at(0, &mut head);
+            n == 6 && head.starts_with(b"%PDF-") && head[5].is_ascii_digit()
+        }
+    }
+}
+
+fn film_boxes(read_at: &mut dyn FnMut(u64, &mut [u8]) -> usize, len: u64) -> bool {
+    let mut at = 0u64;
+    // A `moov` found before any `ftyp`: an old QuickTime movie, unless an
+    // `ftyp` after it names a picture (Codex's third review, 12 Nov: an
+    // empty `moov` in front of an AVIF passed).
+    let mut movie = false;
+    for walked in 0..ALL_BOXES {
+        if !movie && walked >= LEADING_BOXES {
+            return false;
+        }
+        let mut header = [0u8; 16];
+        let got = read_at(at, &mut header);
+        if got < 8 {
+            return movie;
+        }
+        let kind: [u8; 4] = [header[4], header[5], header[6], header[7]];
+        let small = u64::from(u32::from_be_bytes([header[0], header[1], header[2], header[3]]));
+        let rest = len - at;
+        let size = match small {
+            // To the end of the file: only the movie itself can be last
+            // without anything after it to find.
+            0 => rest,
+            1 => {
+                if got < 16 {
+                    return false;
+                }
+                let big = u64::from_be_bytes([header[8], header[9], header[10], header[11], header[12], header[13], header[14], header[15]]);
+                // A 64-bit size counts its own 16-byte header.
+                if big < 16 {
+                    return false;
+                }
+                big
+            }
+            n if n < 8 => return false,
+            n => n,
+        };
+        if size > rest {
+            return false;
+        }
+        if &kind == b"ftyp" {
+            return small != 0 && small != 1 && ftyp_is_a_films(read_at, at, size);
+        }
+        if &kind == b"moov" {
+            // One with nothing in it isn't a movie.
+            let header_len = if small == 1 { 16 } else { 8 };
+            if size <= header_len {
                 return false;
             }
-            let size = u64::from(u32::from_be_bytes([head[0], head[1], head[2], head[3]]));
-            let first = &head[4..8];
-            if first == b"ftyp" {
-                let brand = &head[8..12];
-                return (16..=4096).contains(&size) && size % 4 == 0 && size <= len && VIDEO_BRANDS.iter().any(|b| brand == *b);
-            }
-            // 0 is "to the end of the file" and 1 "a 64-bit size follows".
-            QUICKTIME_FIRST.iter().any(|t| first == *t) && (size == 0 || size == 1 || (8..=len).contains(&size))
+            movie = true;
+        } else if !movie && !QUICKTIME_LEADING.contains(&&kind) {
+            // Before the movie, only what QuickTime puts there; after it,
+            // anything (its user data, say), walked past to the end.
+            return false;
         }
-        Media::Pdf => head.starts_with(b"%PDF-") && head.get(5).is_some_and(u8::is_ascii_digit),
+        if small == 0 {
+            return movie;
+        }
+        at = match at.checked_add(size) {
+            Some(next) if next < len => next,
+            _ => return movie,
+        };
     }
+    false
+}
+
+/// An `ftyp` box at `at`, `size` bytes: a few dozen bytes, whole brands, a
+/// film's main brand, and no picture's brand among the rest.
+fn ftyp_is_a_films(read_at: &mut dyn FnMut(u64, &mut [u8]) -> usize, at: u64, size: u64) -> bool {
+    if !(16..=4096).contains(&size) || size % 4 != 0 {
+        return false;
+    }
+    let mut body = vec![0u8; size as usize];
+    if read_at(at, &mut body) != body.len() {
+        return false;
+    }
+    let brand = |i: usize| -> &[u8] { &body[i..i + 4] };
+    if !VIDEO_BRANDS.iter().any(|b| brand(8) == *b) {
+        return false;
+    }
+    // The minor version at 12, then the compatible brands from 16.
+    (16..body.len()).step_by(4).all(|i| !PICTURE_BRANDS.iter().any(|b| brand(i) == *b))
 }
 
 /// A file the rules have checked, held open: the view reads this, not the
@@ -567,20 +680,32 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
         Ok(meta) if meta.is_file() => meta.len(),
         _ => return not_really(),
     };
-    let mut head = Vec::with_capacity(16);
-    {
-        use std::io::Read;
-        let _ = (&mut file).take(16).read_to_end(&mut head);
-    }
-    if !looks_like(kind, &head, len) {
+    if !looks_like_at(kind, &mut |at, buf| read_at(&file, at, buf), len) {
         return not_really();
     }
     {
-        // Back to the start for the view, which reads it from here.
+        // From the start for the view (Windows's positioned reads move it).
         use std::io::Seek;
         let _ = file.seek(std::io::SeekFrom::Start(0));
     }
     MediaVerdict::Show(CheckedFile { real: resolved, file, len })
+}
+
+/// Reads what it can of `buf` from `file` at `at`, without moving where the
+/// file is read from next (the view reads it from its start).
+fn read_at(file: &std::fs::File, at: u64, buf: &mut [u8]) -> usize {
+    let mut got = 0;
+    while got < buf.len() {
+        #[cfg(unix)]
+        let n = std::os::unix::fs::FileExt::read_at(file, &mut buf[got..], at + got as u64);
+        #[cfg(windows)]
+        let n = std::os::windows::fs::FileExt::seek_read(file, &mut buf[got..], at + got as u64);
+        match n {
+            Ok(0) | Err(_) => break,
+            Ok(n) => got += n,
+        }
+    }
+    got
 }
 
 /// Opens the real file for reading: not through a link swapped in for it
@@ -959,7 +1084,8 @@ mod tests {
         let s = Scratch::new("media-real");
         let clip = bytes(&s, "clips/hero.mp4", MP4_HEAD);
         assert_eq!(shows(decide_media(&clip.to_string_lossy(), Origin::ThisMac)), Some(clip.clone()));
-        let old = bytes(&s, "old.MOV", b"\0\0\0\x08wide\0\0\0\0mdat");
+        // An older QuickTime movie: padding, its data, then the movie box.
+        let old = bytes(&s, "old.MOV", b"\0\0\0\x08wide\0\0\0\x10mdat12345678\0\0\0\x10moov\0\0\0\x08mvhd");
         assert_eq!(shows(decide_media(&old.to_string_lossy(), Origin::ThisMac)), Some(old));
         let pdf = bytes(&s, "spec.pdf", b"%PDF-1.7\n");
         assert_eq!(shows(decide_media(&pdf.to_string_lossy(), Origin::ThisMac)), Some(pdf));
@@ -1025,6 +1151,76 @@ mod tests {
         let screen_recording = bytes(&s, "Screen Recording.mov", b"\0\0\0\x14ftypqt  \0\0\0\0qt  \0\0\0\x08wide");
         assert!(shows(decide_media(&screen_recording.to_string_lossy(), Origin::ThisMac)).is_some());
         assert!(!looks_like(Media::Pdf, b"%PDF-x", 6));
+    }
+
+    /// The boxes in front of the first that says what the file is are walked
+    /// past, not trusted (Codex's second review, 12 Nov): padding in front
+    /// of a picture's `ftyp` doesn't make it a film, nor does a 64-bit size
+    /// that's nonsense, a run of padding with no movie after it, or a
+    /// picture's brand among a film's compatible brands.
+    #[test]
+    fn padding_in_front_doesnt_make_a_picture_a_film() {
+        let avif: &[u8] = b"\0\0\0\x1cftypavif\0\0\0\0avifmif1miaf\0\0\0\0";
+        let free8: &[u8] = b"\0\0\0\x08free";
+        let padded = [free8, avif].concat();
+        assert!(!looks_like(Media::Video, &padded, padded.len() as u64));
+        let skipped = [b"\0\0\0\x0cskip\0\0\0\0".as_slice(), free8, avif].concat();
+        assert!(!looks_like(Media::Video, &skipped, skipped.len() as u64));
+        let s = Scratch::new("media-padded");
+        let file = bytes(&s, "photo.mov", &padded);
+        assert!(refusal(decide_media(&file.to_string_lossy(), Origin::ThisMac)).contains("isn't really a video"));
+
+        // A film's brand first, a picture's among the rest.
+        let mixed: &[u8] = b"\0\0\0\x18ftypisom\0\0\0\0isommif1";
+        assert!(!looks_like(Media::Video, mixed, mixed.len() as u64));
+
+        // 64-bit sizes: one smaller than its own header, one past the end,
+        // and a sane one in front of a film's ftyp.
+        let tiny: &[u8] = b"\0\0\0\x01free\0\0\0\0\0\0\0\x04\0\0\0\x08moov";
+        assert!(!looks_like(Media::Video, tiny, tiny.len() as u64));
+        let huge = [b"\0\0\0\x01mdat\x7f\xff\xff\xff\xff\xff\xff\xff".as_slice(), b"\0\0\0\x08moov"].concat();
+        assert!(!looks_like(Media::Video, &huge, huge.len() as u64));
+        let wide_mdat = [b"\0\0\0\x01mdat\0\0\0\0\0\0\0\x14abcd".as_slice(), MP4_HEAD].concat();
+        assert!(looks_like(Media::Video, &wide_mdat, wide_mdat.len() as u64));
+
+        // Padding and nothing after it, or padding that runs to the end.
+        let only_padding = [free8, free8].concat();
+        assert!(!looks_like(Media::Video, &only_padding, only_padding.len() as u64));
+        let to_end: &[u8] = b"\0\0\0\0free\0\0\0\x08moov";
+        assert!(!looks_like(Media::Video, to_end, to_end.len() as u64));
+        // More padding boxes than are ever walked past.
+        let many = [free8.repeat(LEADING_BOXES), b"\0\0\0\x08moov".to_vec()].concat();
+        assert!(!looks_like(Media::Video, &many, many.len() as u64));
+        // A box type nothing starts with.
+        let other: &[u8] = b"\0\0\0\x08meta\0\0\0\x08moov";
+        assert!(!looks_like(Media::Video, other, other.len() as u64));
+
+        // Films that really start with padding still play.
+        let padded_film = [free8, MP4_HEAD].concat();
+        assert!(looks_like(Media::Video, &padded_film, padded_film.len() as u64));
+        let moov_first: &[u8] = b"\0\0\0\x10moov\0\0\0\x08mvhd";
+        assert!(looks_like(Media::Video, moov_first, 16));
+        let moov_then_data = [moov_first, b"\0\0\0\x0cmdatdata".as_slice(), b"\0\0\0\x0cudta\0\0\0\0"].concat();
+        assert!(looks_like(Media::Video, &moov_then_data, moov_then_data.len() as u64));
+
+        // A movie box in front doesn't make a picture a film either (Codex's
+        // third review, 12 Nov), and an empty one isn't a movie.
+        let moov_avif = [moov_first, avif].concat();
+        assert!(!looks_like(Media::Video, &moov_avif, moov_avif.len() as u64));
+        let empty_moov_avif = [b"\0\0\0\x08moov".as_slice(), avif].concat();
+        assert!(!looks_like(Media::Video, &empty_moov_avif, empty_moov_avif.len() as u64));
+        assert!(!looks_like(Media::Video, b"\0\0\0\x08moov", 8));
+        // Nor does anything between the movie box and the picture's ftyp
+        // (Codex's fourth review, 12 Nov): user data, or padding enough to
+        // use up the walk.
+        let udta_avif = [moov_first, b"\0\0\0\x08udta".as_slice(), avif].concat();
+        assert!(!looks_like(Media::Video, &udta_avif, udta_avif.len() as u64));
+        let padded_avif = [moov_first, &free8.repeat(LEADING_BOXES), avif].concat();
+        assert!(!looks_like(Media::Video, &padded_avif, padded_avif.len() as u64));
+        let endless = [moov_first, &free8.repeat(ALL_BOXES)].concat();
+        assert!(!looks_like(Media::Video, &endless, endless.len() as u64));
+        let movie_with_extras = [moov_first, &free8.repeat(LEADING_BOXES), b"\0\0\0\x0cudta\0\0\0\0"].concat();
+        assert!(looks_like(Media::Video, &movie_with_extras, movie_with_extras.len() as u64));
     }
 
     /// A pipe named like a film is refused at once, not waited on: opening

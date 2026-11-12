@@ -55,6 +55,8 @@ pub(crate) struct MediaState {
     pub looping: bool,
     pub volume: f32,
     pub pages: i32,
+    /// A PDF still being read, with the pane's spinner where it will be.
+    pub loading: bool,
 }
 
 /// native/media_views.m's TBMediaState, field for field.
@@ -70,6 +72,7 @@ struct NativeState {
     volume: f32,
     pages: i32,
     failed: bool,
+    loading: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -130,7 +133,7 @@ impl Media {
         unsafe {
             tb_media_state(self.view, &mut out)
         };
-        MediaState { width: out.width, height: out.height, playing: out.playing, muted: out.muted, controls: out.controls, looping: out.looping, volume: out.volume, pages: out.pages }
+        MediaState { width: out.width, height: out.height, playing: out.playing, muted: out.muted, controls: out.controls, looping: out.looping, volume: out.volume, pages: out.pages, loading: out.loading }
     }
 
     /// Why AVFoundation couldn't play the film, once it's said.
@@ -240,6 +243,47 @@ pub extern "C" fn tb_media_said_changed() {
     say(Said::Changed);
 }
 
+/// A film dragged out is an APFS clone of the open file, which is instant,
+/// or not dragged at all (a beep): copying it byte by byte from another disk
+/// would hold the main thread as the drag starts for as long as that disk
+/// takes (Codex's third and fourth reviews, 12 Nov).
+const DRAG_COPY_LIMIT: u64 = 0;
+
+/// Where films dragged out are copied to: the app's own Caches, which an
+/// agent working in its own folders doesn't write to.
+fn drag_folder() -> Option<std::path::PathBuf> {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").filter(|h| !h.is_empty())?);
+    Some(home.join("Library/Caches/Threadbear/drags"))
+}
+
+/// native/media_views.m: a private copy of the open file `fd` (still the
+/// view's, not closed here) named `name`, for a drag out, its path written
+/// into `out` (`threadbear_core::private_file::snapshot`).
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn tb_media_snapshot(fd: i32, name: *const std::ffi::c_char, out: *mut std::ffi::c_char, capacity: i32) -> bool {
+    use std::os::fd::FromRawFd as _;
+    use std::os::unix::ffi::OsStrExt as _;
+    if fd < 0 || name.is_null() || out.is_null() || capacity <= 0 {
+        return false;
+    }
+    let name = unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy().into_owned();
+    // Borrowed: the view still owns and closes it.
+    let file = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
+    let Some(folder) = drag_folder() else { return false };
+    let Ok(path) = threadbear_core::private_file::snapshot(&file, &folder, &name, DRAG_COPY_LIMIT) else { return false };
+    let bytes = path.as_os_str().as_bytes();
+    if bytes.len() + 1 > capacity as usize || bytes.contains(&0) {
+        let _ = std::fs::remove_file(&path);
+        return false;
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), out, bytes.len());
+        *out.add(bytes.len()) = 0;
+    }
+    true
+}
+
 fn frame_of(window: WindowId) -> u64 {
     FRAMES.with(|f| f.borrow().get(&window).copied().unwrap_or(0))
 }
@@ -267,7 +311,8 @@ pub(crate) fn slot(key: &str, window: &Window, open: impl FnOnce(Opening) -> Res
     if let Some(why) = failed {
         // Every key ends with the file's path.
         let name = threadbear_core::highlights::last_component(key).to_owned();
-        let said = format!("Threadbear couldn't play {name}: {why}");
+        let pdf = SLOTS.with(|s| s.borrow().iter().any(|s| s.key == key && s.window == id && s.media.as_ref().is_ok_and(|m| m.kind == Kind::PaneDocument)));
+        let said = format!("Threadbear couldn't {} {name}: {why}", if pdf { "show" } else { "play" });
         // Taken out of the list before it's dropped, which closes it.
         let gone = SLOTS.with(|s| s.borrow_mut().iter_mut().find(|s| s.key == key && s.window == id).map(|slot| std::mem::replace(&mut slot.media, Err(said))));
         drop(gone);
@@ -479,7 +524,7 @@ pub(crate) fn dump() -> serde_json::Value {
                 .map(|slot| match &slot.media {
                     Ok(media) => {
                         let st = media.state();
-                        serde_json::json!({ "key": slot.key, "kind": format!("{:?}", media.kind), "hidden": media.hidden.get(), "width": st.width, "height": st.height, "playing": st.playing, "muted": st.muted, "controls": st.controls, "looping": st.looping, "pages": st.pages })
+                        serde_json::json!({ "key": slot.key, "kind": format!("{:?}", media.kind), "hidden": media.hidden.get(), "width": st.width, "height": st.height, "playing": st.playing, "muted": st.muted, "controls": st.controls, "looping": st.looping, "pages": st.pages, "loading": st.loading })
                     }
                     Err(why) => serde_json::json!({ "key": slot.key, "failed": why }),
                 })
@@ -492,6 +537,33 @@ pub(crate) fn dump() -> serde_json::Value {
 mod tests {
     // Not `super::*`: that brings gpui's own `test` macro in over std's.
     use super::{stage_audio, Kind};
+
+    /// A PDF's right-click menu keeps what's safe and sends Open Link to the
+    /// open gate (Codex's second review, 12 Nov): PDFKit's own Open Link and
+    /// Open With hand a file link to the system, which would run a program
+    /// it points at with no question. Anything it doesn't know goes too.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_pdf_links_menu_opens_nothing_itself() {
+        extern "C" {
+            fn tb_media_menu_for_tests(link: *const std::ffi::c_char, buffer: *mut std::ffi::c_char, capacity: i32) -> i32;
+        }
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        super::SAID.with(|s| *s.borrow_mut() = Some(tx));
+        let link = std::ffi::CString::new("file:///tmp/payload.command").unwrap();
+        let mut buffer = [0 as std::ffi::c_char; 1024];
+        unsafe { tb_media_menu_for_tests(link.as_ptr(), buffer.as_mut_ptr(), buffer.len() as i32) };
+        let left = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
+        assert_eq!(left, "Open Link|openLinkThroughGate:\nCopy Link|copyLink:\n-|\nZoom In|zoomIn:\n");
+        // Choosing Open Link reached the gate's way in, with the link.
+        match rx.try_recv() {
+            Ok(super::Said::Link { url, base }) => {
+                assert_eq!(url, "file:///tmp/payload.command");
+                assert_eq!(base, "/tmp");
+            }
+            _ => panic!("Open Link didn't go to the open gate"),
+        }
+    }
 
     /// Stepping from one clip to the next on the stage: the next starts at
     /// the mute and volume just set on the one going, which is still up as

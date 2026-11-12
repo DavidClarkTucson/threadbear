@@ -92,6 +92,129 @@ pub fn append(path: &Path) -> std::io::Result<std::fs::File> {
     Ok(file)
 }
 
+/// A copy of what the open file `from` holds, as `name` in a new folder of
+/// its own under `folder`, only for this user: for handing a file to
+/// another app (a film dragged out of the pane) without handing it a path
+/// someone could swap before that app reads it (Codex's second review of
+/// the media views, 12 Nov). It's an APFS clone where the disk can make
+/// one, which is instant whatever the size; elsewhere the bytes are copied,
+/// and only up to `copy_limit`. Copies older than a day there are cleared
+/// out first.
+pub fn snapshot(from: &std::fs::File, folder: &Path, name: &str, copy_limit: u64) -> std::io::Result<PathBuf> {
+    let name = Path::new(name).file_name().filter(|n| !n.is_empty()).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no name to give the copy"))?.to_owned();
+    make_dir(folder)?;
+    // The folder itself, not a link someone put there first to a folder of
+    // theirs, and this user's only.
+    let meta = std::fs::symlink_metadata(folder)?;
+    #[cfg(unix)]
+    let shared = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o077 != 0;
+    #[cfg(not(unix))]
+    let shared = false;
+    if !meta.is_dir() || shared {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{} isn't a folder of this user's own", folder.display())));
+    }
+    clear_old(folder, std::time::Duration::from_secs(24 * 60 * 60));
+    let dir = new_dir(folder)?;
+    let path = dir.join(&name);
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd as _;
+        use std::os::unix::ffi::OsStrExt as _;
+        let target = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+        // The clone takes the file's own mode, but its folder is this user's
+        // alone; it's still made the owner's only, and read-only.
+        if unsafe { libc::fclonefileat(from.as_raw_fd(), libc::AT_FDCWD, target.as_ptr(), 0) } == 0 {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400))?;
+            return Ok(path);
+        }
+    }
+    let len = from.metadata()?.len();
+    if len > copy_limit {
+        let _ = std::fs::remove_dir(&dir);
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "too big to copy"));
+    }
+    let (mut file, temp) = new_file(&dir, &path, 0o600)?;
+    // Not synced: it's a hand-over, read straight away, not kept.
+    let copied = copy_all(from, &mut file, len);
+    drop(file);
+    if let Err(e) = copied.and_then(|()| std::fs::rename(&temp, &path)) {
+        let _ = std::fs::remove_file(&temp);
+        let _ = std::fs::remove_dir(&dir);
+        return Err(e);
+    }
+    Ok(path)
+}
+
+/// `len` bytes of `from` from its start into `to`, read at their offsets so
+/// whatever else reads `from` keeps its place.
+fn copy_all(from: &std::fs::File, to: &mut std::fs::File, len: u64) -> std::io::Result<()> {
+    let mut buf = vec![0u8; 1024 * 1024];
+    let mut at = 0u64;
+    while at < len {
+        let want = usize::try_from((len - at).min(buf.len() as u64)).unwrap_or(buf.len());
+        #[cfg(unix)]
+        let got = std::os::unix::fs::FileExt::read_at(from, &mut buf[..want], at)?;
+        #[cfg(windows)]
+        let got = std::os::windows::fs::FileExt::seek_read(from, &mut buf[..want], at)?;
+        if got == 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "the file got shorter while it was copied"));
+        }
+        to.write_all(&buf[..got])?;
+        at += got as u64;
+    }
+    Ok(())
+}
+
+/// A new folder under `folder`, this user's only, that wasn't there before.
+fn new_dir(folder: &Path) -> std::io::Result<PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    let mut last = None;
+    for _ in 0..16 {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let dir = folder.join(format!("{}-{nanos:x}-{}", std::process::id(), COUNT.fetch_add(1, Ordering::Relaxed)));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("couldn't make a folder to copy into")))
+}
+
+/// Removes `snapshot`'s folders under `folder` older than `age`: by then
+/// whatever they were dropped on has read them. Only folders with the names
+/// `new_dir` gives, never a link (an entry's metadata here doesn't follow
+/// one), and `remove_dir_all` doesn't follow one swapped in partway either.
+fn clear_old(folder: &Path, age: std::time::Duration) {
+    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        if !is_snapshot_name(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let old = meta.modified().ok().and_then(|m| now.duration_since(m).ok()).is_some_and(|d| d > age);
+        if old && meta.is_dir() && !meta.file_type().is_symlink() {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// `<pid>-<hex nanos>-<count>`, as `new_dir` names them.
+fn is_snapshot_name(name: &str) -> bool {
+    let parts: Vec<&str> = name.split('-').collect();
+    parts.len() == 3
+        && !parts.iter().any(|p| p.is_empty())
+        && parts[0].bytes().all(|b| b.is_ascii_digit())
+        && parts[1].bytes().all(|b| b.is_ascii_hexdigit())
+        && parts[2].bytes().all(|b| b.is_ascii_digit())
+}
+
 /// A folder that isn't there yet is made for this user only. One that is
 /// keeps the permissions it has.
 fn make_dir(dir: &Path) -> std::io::Result<()> {
@@ -197,6 +320,74 @@ mod tests {
         write_with_mode(&dir.join("sign-in.sh"), b"#!/bin/sh\n", 0o755).unwrap();
         assert_eq!(mode(&dir.join("sign-in.sh")), 0o700, "never group or other bits");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A copy for handing to another app holds what the open file held when
+    /// it was made, at a path of its own that's the owner's only: swapping
+    /// or rewriting the original afterwards changes nothing in it.
+    #[test]
+    fn a_snapshot_is_the_open_files_bytes_and_the_owners_only() {
+        let dir = scratch("snapshot");
+        let original = dir.join("hero.mp4");
+        std::fs::write(&original, b"the film that was checked").unwrap();
+        let held = std::fs::File::open(&original).unwrap();
+        let folder = dir.join("drags");
+        let copy = snapshot(&held, &folder, "hero.mp4", 1 << 20).unwrap();
+        assert_eq!(copy.file_name().unwrap(), "hero.mp4");
+        assert_ne!(copy, original);
+        assert!(copy.starts_with(&folder));
+        assert_eq!(mode(copy.parent().unwrap()), 0o700);
+        assert_eq!(mode(&copy) & 0o077, 0);
+        // The original swapped for a link to something private, then
+        // rewritten where it is: the copy still holds the checked bytes.
+        std::fs::remove_file(&original).unwrap();
+        std::os::unix::fs::symlink("/etc/hosts", &original).unwrap();
+        assert_eq!(std::fs::read(&copy).unwrap(), b"the film that was checked");
+        assert!(!std::fs::symlink_metadata(&copy).unwrap().file_type().is_symlink());
+        // Each copy has a folder of its own, and a name can't climb out.
+        let again = snapshot(&held, &folder, "../../escape.mp4", 1 << 20).unwrap();
+        assert_ne!(again.parent(), copy.parent());
+        assert_eq!(again.file_name().unwrap(), "escape.mp4");
+        assert!(again.starts_with(&folder));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A drags folder that's a link to somewhere else, or one others can
+    /// write to, isn't copied into: a copy there could be swapped.
+    #[test]
+    fn a_snapshot_isnt_made_in_a_folder_that_isnt_the_users_own() {
+        let dir = scratch("snapshot-folder");
+        let original = dir.join("hero.mp4");
+        std::fs::write(&original, b"film").unwrap();
+        let held = std::fs::File::open(&original).unwrap();
+        let theirs = dir.join("theirs");
+        std::fs::create_dir(&theirs).unwrap();
+        std::fs::set_permissions(&theirs, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let linked = dir.join("drags");
+        std::os::unix::fs::symlink(&theirs, &linked).unwrap();
+        assert!(snapshot(&held, &linked, "hero.mp4", 1 << 20).is_err());
+        assert_eq!(std::fs::read_dir(&theirs).unwrap().count(), 0);
+        // Cleaning up touches only its own folders, old as they may be.
+        let own = dir.join("own");
+        std::fs::create_dir(&own).unwrap();
+        std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let project = own.join("OldProject");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(project.join("notes.txt"), b"keep").unwrap();
+        let stale = own.join("123-abc-0");
+        std::fs::create_dir(&stale).unwrap();
+        let day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 24 * 60 * 60);
+        for old in [&project, &stale] {
+            std::fs::File::open(old).unwrap().set_modified(day_ago).unwrap();
+        }
+        snapshot(&held, &own, "hero.mp4", 1 << 20).unwrap();
+        assert!(project.join("notes.txt").exists());
+        assert!(!stale.exists());
+        let open = dir.join("open");
+        std::fs::create_dir(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(snapshot(&held, &open, "hero.mp4", 1 << 20).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
