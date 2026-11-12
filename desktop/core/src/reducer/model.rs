@@ -914,6 +914,11 @@ impl TranscriptModel {
                 if matches!(self.item(&id).map(|r| &r.content), Some(RowContent::Reasoning(item)) if !item.is_streaming) {
                     return;
                 }
+                // Narration streams as reasoning and lands as the reply's
+                // text (`a:` the same item): finished, it takes no more.
+                if matches!(self.item(&format!("a:{item_id}")).map(|r| &r.content), Some(RowContent::Assistant(item)) if !item.is_streaming) {
+                    return;
+                }
                 if self.item_index.contains_key(&id) {
                     let delta = text.clone();
                     self.update(&id, move |content| {

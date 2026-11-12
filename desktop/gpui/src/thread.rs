@@ -567,6 +567,10 @@ impl ThreadPane {
                 return;
             };
             after_unsubscribe(&id).await;
+            // Let go while it waited: no subscription for a pane that's gone.
+            if this.update(cx, |_, _| ()).is_err() {
+                return;
+            }
             let sub = call(client, "threads.subscribe", json!({ "threadId": id, "afterSeq": after_seq })).await;
             this.update(cx, |this, cx| match sub.ok().and_then(|v| EventsPage::decode(&v)) {
                 Some(page) => {
@@ -594,13 +598,24 @@ impl ThreadPane {
         // Older pages paged in while it was read go, as Swift's sessions
         // do once hidden: it's kept for coming back to the end of it, and
         // they're read again if it's scrolled up to them.
-        if self.loaded && self.feed.model().events().len() > KEPT_EVENTS && !self.feed.has_pending() {
-            let memory = self.capture_memory(cx);
+        let _ = self.trim_kept(cx);
+    }
+
+    /// A kept pane with more than `KEPT_EVENTS` back to its newest page, at
+    /// the end of it: where it was reading may have gone with the older
+    /// pages, and going back there would only read them in again. Also as
+    /// news comes to a kept thread that's busy (`apply`).
+    fn trim_kept(&mut self, cx: &mut Context<Self>) -> bool {
+        let trim = self.loaded && self.feed.model().events().len() > KEPT_EVENTS && !self.feed.has_pending();
+        if trim {
             self.feed.trim(EVENTS_PAGE as usize);
-            self.scroller.update(cx, |s, cx| s.reset(self.feed.model().rows().len(), cx));
-            self.restore_memory(Some(memory), cx);
             self.older_skip = None;
+            self.scroller.update(cx, |s, cx| {
+                s.reset(self.feed.model().rows().len(), cx);
+                s.scroll_to_end(cx);
+            });
         }
+        trim
     }
 
     /// The connection's back while this pane is kept and not shown: it
@@ -654,6 +669,10 @@ impl ThreadPane {
         let (client, id, after_seq) = (self.client.clone(), self.summary.id.clone(), self.feed.accepted_seq());
         cx.spawn(async move |this, cx| {
             after_unsubscribe(&id).await;
+            // Let go while it waited: no subscription for a pane that's gone.
+            if this.update(cx, |_, _| ()).is_err() {
+                return;
+            }
             let sub = call(client, "threads.subscribe", json!({ "threadId": id, "afterSeq": after_seq })).await;
             this.update(cx, |this, cx| match sub.ok().and_then(|v| EventsPage::decode(&v)) {
                 Some(page) => {
@@ -837,6 +856,11 @@ impl ThreadPane {
     pub(crate) fn apply(&mut self, change: TranscriptChange, cx: &mut Context<Self>) {
         self.keep_outbox();
         if change.is_empty() {
+            return;
+        }
+        // Kept and not shown (`set_kept`): a busy thread's events don't
+        // pile up in it while nobody's looking.
+        if self.kept_zoom.is_some() && self.trim_kept(cx) {
             return;
         }
         self.scroller.update(cx, |s, cx| {

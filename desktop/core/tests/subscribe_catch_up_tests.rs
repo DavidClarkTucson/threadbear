@@ -35,3 +35,14 @@ fn a_delta_while_it_streams_still_adds_on() {
     assert_eq!(item.text, "Hello");
     assert!(item.is_streaming);
 }
+
+// Claude's narration streams as reasoning and lands as assistant text with the
+// same item: a reasoning delta held past it doesn't bring a thinking row back.
+#[test]
+fn a_held_reasoning_delta_after_narration_landed_adds_no_row() {
+    let mut model = TranscriptModel::new(None);
+    model.load(vec![event(1, "turn.started", json!({"turnId": "t1"})), user(2, "Hi"), text(3, "n1", "Looking now."), done(4)], &[]);
+    let before = ids(&model);
+    let _ = model.apply(vec![reasoning_delta(0, "n1", " more")]);
+    assert_eq!(ids(&model), before);
+}
