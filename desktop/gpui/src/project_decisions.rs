@@ -8,6 +8,7 @@
 // so the agent can't tell where it was answered. A card of one ask goes on one
 // click; until the thread takes the answer its card says "Sending to" and
 // takes no clicks, and if the runner refuses, the picks come back.
+use std::sync::Arc;
 use crate::app::Threadbear;
 use crate::composer_card::AskHost;
 use crate::open_gate::Origin;
@@ -283,7 +284,11 @@ impl Threadbear {
     /// thread's own box does.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn send_decision(&mut self, thread: String, seq: u64, text: String, images: Vec<ImageRef>, answers: Value, words: Vec<String>, card: WeakEntity<DecisionCard>, picks: Picks, cx: &mut Context<Self>) {
-        if !matches!(self.status, Status::Connected { .. }) {
+        // As a message from the thread's own box: one of this Mac's threads
+        // waits for a restarting runner (`sendDecision`'s `holding`).
+        let remote = self.threads.get(&thread).is_some_and(|t| t.runner_id.is_some());
+        let holding = !remote && self.client.restart_under_way();
+        if !matches!(self.status, Status::Connected { .. }) && !holding {
             self.show_error("Not connected to the runner, so that wasn't sent.".to_owned(), cx);
             // Once this update is over: the card's own update is what sent
             // it (a pick, Return in its box), and GPUI refuses to update the
@@ -305,7 +310,12 @@ impl Threadbear {
         }
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
-            let res = call(client, "threads.send", params).await;
+            // The card says "Sending to" with its spinner meanwhile, held or not.
+            let res = if remote {
+                call(client, "threads.send", params).await
+            } else {
+                crate::RT.spawn(async move { client.call_in_restart_order("threads.send", params, Arc::new(|_| {})).await }).await.unwrap_or_else(|e| Err(threadbear_client::runner::RpcError { code: -1, message: e.to_string(), data: None }))
+            };
             this.update(cx, |this, cx| {
                 if let Err(e) = res {
                     if this.projects.decision_sends.get(&thread).is_some_and(|s| s.asks_seq == seq) {

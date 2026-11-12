@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use threadbear_client::runner::Client;
+use threadbear_client::runner::{Client, Progress, ProgressFn, Resend, RpcError};
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::reducer::{BackgroundTask, Event, EventsPage, FeedAction, ImageRef, PendingMessage, Row, RowContent, ThreadFeed, TranscriptChange, TranscriptModel};
 
@@ -79,6 +79,37 @@ pub(crate) fn window_key(window: &Window) -> u64 {
     window.window_handle().window_id().as_u64()
 }
 
+thread_local! {
+    /// Messages on their way, by thread, kept outside any pane (the Swift
+    /// app keeps its sessions, and with them their pending messages): a pane
+    /// goes when another thread is opened, and a message held for a
+    /// restarting runner can wait a minute and more. A pane opened on the
+    /// thread shows them, and a send's task finds whichever pane is showing
+    /// its thread by then (`Threadbear::pane_for`). The main thread's only.
+    static OUTBOX: std::cell::RefCell<HashMap<String, Vec<PendingMessage>>> = std::cell::RefCell::new(HashMap::new());
+}
+
+fn outbox(thread_id: &str) -> Vec<PendingMessage> {
+    OUTBOX.with(|o| o.borrow().get(thread_id).cloned().unwrap_or_default())
+}
+
+fn set_outbox(thread_id: &str, list: Vec<PendingMessage>) {
+    OUTBOX.with(|o| {
+        let mut o = o.borrow_mut();
+        if list.is_empty() {
+            o.remove(thread_id);
+        } else {
+            o.insert(thread_id.to_owned(), list);
+        }
+    });
+}
+
+/// How a send got on, as the connection's task reports it.
+enum SendStep {
+    Progress(Progress),
+    Done(Result<Option<Value>, RpcError>),
+}
+
 pub struct ThreadPane {
     client: Arc<Client>,
     pub(crate) summary: ThreadSummary,
@@ -106,8 +137,6 @@ pub struct ThreadPane {
     /// showing every line). Groups keep theirs in the model.
     pub(crate) open_rows: HashSet<String>,
     pub(crate) chosen: HashMap<String, HashMap<usize, Vec<String>>>,
-    pending: Vec<PendingMessage>,
-    next_pending: u64,
     flush_queued: bool,
     /// An older page is on its way.
     pub(crate) loading_older: bool,
@@ -144,8 +173,6 @@ impl ThreadPane {
             composer,
             open_rows: HashSet::new(),
             chosen: HashMap::new(),
-            pending: vec![],
-            next_pending: 0,
             flush_queued: false,
             loading_older: false,
             older_skip: None,
@@ -153,6 +180,8 @@ impl ThreadPane {
             behind: false,
             _subs: vec![scrolled],
         };
+        // Messages still on their way to it from before it was last open.
+        let _ = pane.feed.set_pending(outbox(&pane.summary.id));
         // Its diagrams and pages drawing, and the web runtime (rich_boxes.rs).
         pane._subs.extend(crate::rich_boxes::watch(cx));
         pane.load(cx);
@@ -182,8 +211,6 @@ impl ThreadPane {
             composer,
             open_rows: HashSet::new(),
             chosen: HashMap::new(),
-            pending: vec![],
-            next_pending: 0,
             flush_queued: false,
             loading_older: false,
             older_skip: None,
@@ -381,6 +408,10 @@ impl ThreadPane {
                     // it was when the read started.
                     let _ = model.set_loose_ends(this.summary.loose_ends_check());
                     this.feed = ThreadFeed::new(model);
+                    // What's still on its way stays at the end, less what this
+                    // page shows arrived (a reload after a restart brings them).
+                    let _ = this.feed.set_pending(outbox(&this.summary.id));
+                    this.keep_outbox();
                     // Another runner's thread through this Mac's runner has
                     // gaps in its seqs (`feed.sparse = viaRelay`).
                     this.feed.set_sparse(this.summary.runner_id.is_some());
@@ -568,7 +599,7 @@ impl ThreadPane {
     /// list holds the view on the row at its top (or follows the tail) across
     /// all of it, which is what `apply` in TranscriptController did by hand.
     pub(crate) fn apply(&mut self, change: TranscriptChange, cx: &mut Context<Self>) {
-        self.pending = self.feed.model().pending().to_vec();
+        self.keep_outbox();
         if change.is_empty() {
             return;
         }
@@ -590,87 +621,151 @@ impl ThreadPane {
         self.send_message(text, Vec::new(), answers.unwrap_or(Value::Null), None, WeakEntity::new_invalid(), cx);
     }
 
+    /// What the model shows as on its way, kept in the outbox, so it
+    /// outlives this pane. A sub-agent's pane never sends.
+    fn keep_outbox(&self) {
+        if self.subagent_id.is_none() {
+            set_outbox(&self.summary.id, self.feed.model().pending().to_vec());
+        }
+    }
+
+    /// The outbox's messages for this thread on show again, after a send's
+    /// task changed them.
+    fn show_outbox(&mut self, cx: &mut Context<Self>) {
+        if self.subagent_id.is_some() {
+            return;
+        }
+        let change = self.feed.set_pending(outbox(&self.summary.id));
+        self.apply(change, cx);
+        self.check_queued(cx);
+        cx.notify();
+    }
+
+    /// Why a message to this thread can't go now, if it can't: no runner,
+    /// and no restart under way to wait for (`send`'s `guard ready != nil ||
+    /// holding`). The words stay in the box.
+    pub(crate) fn cant_send_now(&self) -> Option<String> {
+        let held = self.summary.runner_id.is_none() && self.client.restart_under_way();
+        (self.client.connected_session().is_none() && !held).then(|| NOT_CONNECTED_TEXT.to_owned())
+    }
+
     /// Sends a message (AppModel.post): it shows dimmed at the end of the
     /// transcript straight away, and goes back into the box if the runner
-    /// doesn't take it. `draft` is what to give back then.
+    /// doesn't take it, with the error bar saying so. Sent while the runner
+    /// restarts, it waits in the transcript for the new one ("Runner
+    /// restarting. Sends when it's back."). `draft` is what to give back.
     pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<crate::composer::RestoreDraft>, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
         // By count, never its words (activity.rs).
         crate::activity::sent(Some(&self.summary.id), images.len(), answers.as_object().map(|a| a.len()).or_else(|| answers.as_array().map(Vec::len)).unwrap_or(0), false);
+        let thread_id = self.summary.id.clone();
+        let app = self.composer.read(cx).app.clone();
+        // Another Mac's thread goes through this Mac's runner, whose restart
+        // isn't that runner's: it's sent as it is.
+        let remote = self.summary.runner_id.is_some();
+        let holding = !remote && self.client.connected_session().is_none() && self.client.restart_under_way();
         // Shown straight away and put right when the runner echoes it back.
-        self.next_pending += 1;
-        let pending_id = format!("local-{}", self.next_pending);
-        let mut message = PendingMessage::new(&pending_id, &text, self.feed.accepted_seq());
+        // Unique across panes: the outbox outlives each one.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let pending_id = format!("local-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1);
+        // Only a user.message after this can be it: the thread's last seq as
+        // the summary has it, if the transcript hasn't caught up (a pane
+        // that's still loading), so an older one with the same words isn't.
+        let after_seq = self.feed.accepted_seq().max(i64::try_from(self.summary.last_seq).unwrap_or(i64::MAX));
+        let mut message = PendingMessage::new(&pending_id, &text, after_seq);
         message.images = images.clone();
-        self.pending.push(message);
-        let change = self.feed.set_pending(self.pending.clone());
-        self.apply(change, cx);
+        message.waiting_for_runner = holding;
+        let mut list = outbox(&thread_id);
+        list.push(message.clone());
+        // Idle when sent and the only one on its way: nothing on the runner
+        // could queue it, so one cut off by a restart can be looked for and
+        // sent again if it never arrived (`Resend::was_idle`).
+        let was_idle = !self.summary.busy() && list.len() == 1;
+        set_outbox(&thread_id, list);
+        self.show_outbox(cx);
         self.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
 
-        let mut params = json!({ "threadId": self.summary.id, "text": text });
+        let mut params = json!({ "threadId": thread_id, "text": text });
         if !images.is_empty() {
             params["images"] = json!(images.iter().map(crate::composer::image_ref_json).collect::<Vec<_>>());
         }
         if !answers.is_null() {
             params["answers"] = answers;
         }
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<SendStep>();
+        let told = tx.clone();
+        let progress: ProgressFn = Arc::new(move |p| {
+            let _ = told.unbounded_send(SendStep::Progress(p));
+        });
+        let probe = message.clone();
+        let resend = Resend { thread_id: thread_id.clone(), after_seq: message.after_seq, was_idle, landed: Arc::new(move |v: &Value| Event::decode(v).is_some_and(|e| probe.is_landed_by(&e))) };
         let client = self.client.clone();
-        cx.spawn(async move |this, cx| {
-            let res = call(client, "threads.send", params).await;
-            let failed = res.is_err();
-            let queued_id = pending_id.clone();
-            this.update(cx, |this, cx| {
-                this.error = res.err().map(|e| e.message);
-                if failed {
-                    // Off the end of the transcript and back in the box.
-                    this.pending.retain(|m| m.id != pending_id);
-                    let change = this.feed.set_pending(this.pending.clone());
-                    this.apply(change, cx);
+        RT.spawn(async move {
+            let res = if remote { client.call("threads.send", params).await.map(Some) } else { client.send_through_restart(params, resend, progress).await };
+            let _ = tx.unbounded_send(SendStep::Done(res));
+        });
+        let title = self.summary.title.clone();
+        cx.spawn(async move |_, cx| {
+            use futures::StreamExt as _;
+            let mut res = Err(RpcError { code: threadbear_client::runner::CLOSED, message: "The connection to the runner closed".into(), data: None });
+            while let Some(step) = rx.next().await {
+                match step {
+                    // Held for the new runner, or going now: the bubble's note.
+                    SendStep::Progress(p) => {
+                        let id = pending_id.clone();
+                        change_outbox(&app, &thread_id, cx, move |list| {
+                            if let Some(m) = list.iter_mut().find(|m| m.id == id) {
+                                m.waiting_for_runner = p == Progress::Held;
+                            }
+                        });
+                    }
+                    SendStep::Done(done) => {
+                        res = done;
+                        break;
+                    }
                 }
-                this.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
-                cx.notify();
-            })
-            .ok();
-            if failed {
+            }
+            if let Err(e) = res {
+                // Off the end of the transcript and back in the box, and the
+                // error bar says so, naming the thread, until it's dismissed.
+                let id = pending_id.clone();
+                change_outbox(&app, &thread_id, cx, move |list| list.retain(|m| m.id != id));
                 if let (Some(composer), Some(draft)) = (composer.upgrade(), draft) {
                     composer.update(cx, |c, cx| c.restore_draft(draft, cx));
                 }
+                let held = holding;
+                app.update(cx, |app, cx| app.show_send_failed(&e, &title, held, cx)).ok();
                 return;
             }
             // Taken but not shown: it's queued behind the running turn. Its
             // user.message usually comes just before this answer, so wait a
             // moment rather than flash the clock on every send (`markQueued`).
             cx.background_executor().timer(Duration::from_millis(600)).await;
-            this.update(cx, |this, cx| this.mark_queued(&queued_id, cx)).ok();
+            change_outbox(&app, &thread_id, cx, move |list| {
+                if let Some(m) = list.iter_mut().find(|m| m.id == pending_id) {
+                    m.queued = true;
+                    m.waiting_for_runner = false;
+                }
+            });
         })
         .detach();
-    }
-
-    /// The runner took it and hasn't shown it: the bubble says it's queued.
-    fn mark_queued(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some(message) = self.pending.iter_mut().find(|m| m.id == id) else { return };
-        message.queued = true;
-        let change = self.feed.set_pending(self.pending.clone());
-        self.apply(change, cx);
-        self.check_queued(cx);
-        cx.notify();
     }
 
     /// A queued message starts its own turn once the thread is free, so one
     /// still queued after the thread has sat idle a while was lost on the
     /// way: it goes rather than wait there for good (`checkQueued`).
     pub(crate) fn check_queued(&mut self, cx: &mut Context<Self>) {
-        if self.summary.busy() || !self.pending.iter().any(|m| m.queued) || self.queued_check.is_some() {
+        if self.summary.busy() || !self.feed.model().pending().iter().any(|m| m.queued) || self.queued_check.is_some() {
             return;
         }
         self.queued_check = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(QUEUED_GRACE).await;
             this.update(cx, |this, cx| {
                 this.queued_check = None;
-                if !this.summary.busy() && this.pending.iter().any(|m| m.queued) {
-                    this.pending.retain(|m| !m.queued);
-                    let change = this.feed.set_pending(this.pending.clone());
-                    this.apply(change, cx);
-                    cx.notify();
+                if !this.summary.busy() && this.feed.model().pending().iter().any(|m| m.queued) {
+                    let mut list = outbox(&this.summary.id);
+                    list.retain(|m| !m.queued);
+                    set_outbox(&this.summary.id, list);
+                    this.show_outbox(cx);
                 }
             })
             .ok();
@@ -940,7 +1035,7 @@ impl ThreadPane {
                 self.scroller.update(cx, |s, cx| s.scroll_to_row(index, px(offset), cx));
             }
         }
-        self.pending = self.feed.model().pending().to_vec();
+        self.keep_outbox();
         self.loading_older = false;
         cx.notify();
         if let Some(memory) = self.rows.pending_restore.take() {
@@ -1301,5 +1396,21 @@ impl Render for ThreadPane {
             // the bar over selected words (selection_bar.rs).
             .children(crate::reply_links::peek_overlay(self, cx))
             .children(crate::selection_bar::overlay(self, cx))
+    }
+}
+
+/// What the banner says when a message can't go (`notConnectedText`).
+pub(crate) const NOT_CONNECTED_TEXT: &str = "Not connected to the runner, so that wasn't sent. It's still in the box.";
+
+/// Changes the messages on their way to a thread, then shows them in
+/// whichever pane has the thread open now, if one does: not necessarily the
+/// one the message was sent from, which may have gone.
+fn change_outbox(app: &WeakEntity<crate::app::Threadbear>, thread_id: &str, cx: &mut AsyncApp, change: impl FnOnce(&mut Vec<PendingMessage>)) {
+    let mut list = outbox(thread_id);
+    change(&mut list);
+    set_outbox(thread_id, list);
+    let pane = app.read_with(cx, |app, cx| app.pane_for(thread_id, cx)).ok().flatten();
+    if let Some(pane) = pane {
+        pane.update(cx, |p, cx| p.show_outbox(cx));
     }
 }

@@ -516,5 +516,6 @@ async fn backs_off_when_the_runner_just_went_away() {
     })
     .await
     .unwrap();
-    assert_eq!(waits, vec![500, 1000, 2000, 4000]);
+    // Never more than two seconds: it's this Mac's own runner.
+    assert_eq!(waits, vec![500, 1000, 2000, 2000]);
 }

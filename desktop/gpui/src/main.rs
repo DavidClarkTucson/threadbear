@@ -9,6 +9,7 @@ mod activity_panels;
 mod about_window;
 mod alert;
 mod app;
+mod app_log;
 mod archive_flight;
 mod app_update;
 #[cfg(feature = "automation")]
@@ -152,6 +153,20 @@ pub async fn call(client: Arc<Client>, method: impl Into<String>, params: Value)
         .unwrap_or_else(|e| Err(RpcError { code: -1, message: e.to_string(), data: None }))
 }
 
+/// `threads.update` (a rename, a pick, an archive) for a thread: one of this
+/// runner's goes in restart order while it's connected (`inRestartOrder`),
+/// so a pick the restarting runner turns away goes again on the new one,
+/// and nothing made later lands before it. With no connection it fails, as
+/// before; another Mac's thread goes as it is.
+pub async fn call_for_thread(client: Arc<Client>, remote: bool, method: &'static str, params: Value) -> Result<Value, RpcError> {
+    if remote || client.connected_session().is_none() {
+        return call(client, method, params).await;
+    }
+    RT.spawn(async move { client.call_in_restart_order(method, params, Arc::new(|_| {})).await })
+        .await
+        .unwrap_or_else(|e| Err(RpcError { code: -1, message: e.to_string(), data: None }))
+}
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
@@ -186,6 +201,8 @@ fn main() {
     // Before anything else, to catch a panic at launch. Only the installed
     // release, and a scripted app into its own folder (crash_reporting.rs).
     crash_reporting::start();
+    // The app's own log (app_log.rs), before the connection's first line.
+    app_log::start();
     // All of Lucide (about 1 MB), so `icons.rs` can name any icon; the default
     // `Assets` has only gpui-kit's own hundred.
     let application = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);

@@ -255,16 +255,37 @@ impl ThreadPane {
 
     /// `copyTranscript`: fetches any older pages first, then copies the whole
     /// thread as Markdown, nothing folded left out.
+    /// The banner says it's copying until it has, then "Transcript copied"
+    /// for a moment (`whileBusy(note:)`, `flashDone`): from a menu there's
+    /// nothing else to show it, and a long thread's older pages take a
+    /// while. A second copy of the same thread meanwhile does nothing.
     pub(crate) fn copy_transcript(&mut self, cx: &mut Context<Self>) {
         let (client, id, title, root) = (self.client_handle(), self.summary.id.clone(), self.summary.title.clone(), self.summary.cwd.clone());
         let mut events: Vec<Event> = self.feed.model().events().to_vec();
         let mut before = self.feed.model().first_seq();
         let more = self.feed.model().has_older_events();
+        let app = self.composer.read(cx).app.clone();
+        let key = format!("copying/{id}");
         cx.spawn(async move |this, cx| {
+            // From the app's own update (a menu), so not from inside this one.
+            if !app.update(cx, |app, cx| app.begin_note(&key, "Copying the transcript…", cx)).unwrap_or(true) {
+                return;
+            }
             let mut at_start = !more;
+            let mut failed = None;
             while !at_start && before > 1 {
                 let page = crate::call(client.clone(), "threads.events", serde_json::json!({ "threadId": id, "beforeSeq": before, "limit": 500 })).await;
-                let Some(page) = page.ok().and_then(|v| EventsPage::decode(&v)) else { return };
+                let page = match page {
+                    Ok(v) => EventsPage::decode(&v),
+                    Err(e) => {
+                        failed = Some(e.message);
+                        break;
+                    }
+                };
+                let Some(page) = page else {
+                    failed = Some("The runner sent a page of the thread this app couldn't read.".to_owned());
+                    break;
+                };
                 let mut older: Vec<Event> = page.events.into_iter().filter(|e| !e.is_transient() && e.seq < before).collect();
                 if older.is_empty() {
                     break;
@@ -275,9 +296,20 @@ impl ThreadPane {
                 older.append(&mut events);
                 events = older;
             }
-            let model = TranscriptModel::from_events(events, Some(root));
-            let text = transcript_text(&title, model.items());
-            this.update(cx, |_, cx| cx.write_to_clipboard(ClipboardItem::new_string(text))).ok();
+            if failed.is_none() {
+                let model = TranscriptModel::from_events(events, Some(root));
+                let text = transcript_text(&title, model.items());
+                cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string(text)));
+            }
+            let _ = this;
+            app.update(cx, |app, cx| {
+                app.end_note(&key, cx);
+                match failed {
+                    None => app.flash_done("Transcript copied", cx),
+                    Some(e) => app.show_error(format!("Couldn't copy the transcript: {e}"), cx),
+                }
+            })
+            .ok();
         })
         .detach();
     }

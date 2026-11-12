@@ -1699,7 +1699,8 @@ and each one scrolls when it's taller than the window. Drag the window wider
 or taller for more room.
 
 When something goes wrong, the app says so in an orange bar at the top of
-the thread. Investigate on that bar starts a thread in your Threadbear
+the thread, and the runner's own warnings show there too (a message it
+couldn't start, an update to `main` that failed). Investigate on that bar starts a thread in your Threadbear
 folder with the error, the thread it came up in, what you were doing and
 which versions you're on, and asks it to find the cause and fix it. The new
 thread opens and the bar goes once it's made.
@@ -1714,8 +1715,10 @@ while it does: the new version opens the same thread underneath and takes
 over, so you shouldn't see it go.
 
 Whatever's typed in a message box and not sent is kept through a quit or a
-restart. A message you send while the runner is restarting waits under its
-bubble and goes once the new one is up. If one can't be sent, its words go
+restart. While a runner restart waits for threads to finish, a quiet line at
+the top says how many it's waiting for, and hovering it names them. A message
+you send while the runner is restarting waits under its bubble and goes once
+the new one is up. If one can't be sent, its words go
 back in that thread's box and a note above the thread says which thread,
 until you dismiss it.
 

@@ -8,7 +8,7 @@ use crate::app::Threadbear;
 use crate::shell;
 use crate::sidebar::{MenuAction, MenuRow};
 use crate::style::{self, px};
-use crate::{call, icons, now_ms};
+use crate::{call, icons};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -42,21 +42,42 @@ macro_rules! tipped {
 struct Banner {
     quiet: bool,
     text: String,
+    /// The tooltip: a drop's raw reason, the threads a restart waits for.
     detail: Option<String>,
     retry: bool,
     /// Start runner, beside Try again (`showStart`).
     start: bool,
-    icon: &'static str,
+    /// A warning's symbol, or a quiet line's (None there is a spinner).
+    icon: Option<&'static str>,
+    /// A failed CLI update: the line has Dismiss, which forgets it.
+    dismiss: Option<String>,
 }
 
 impl Banner {
+    /// Something under way: a spinner and the words.
     fn quiet(text: &str) -> Banner {
-        Banner { quiet: true, text: text.into(), detail: None, retry: false, start: false, icon: "bolt.horizontal" }
+        Banner { quiet: true, text: text.into(), detail: None, retry: false, start: false, icon: None, dismiss: None }
+    }
+
+    /// Quiet, with a symbol in place of the spinner.
+    fn quiet_with(icon: &'static str, text: &str) -> Banner {
+        Banner { icon: Some(icon), ..Banner::quiet(text) }
     }
 
     fn warning(icon: &'static str, text: &str, detail: Option<&str>) -> Banner {
-        Banner { quiet: false, text: text.into(), detail: detail.filter(|d| !d.is_empty()).map(str::to_owned), retry: true, start: false, icon }
+        Banner { quiet: false, text: text.into(), detail: detail.filter(|d| !d.is_empty()).map(str::to_owned), retry: true, start: false, icon: Some(icon), dismiss: None }
     }
+}
+
+/// How long an unexpected drop goes unmentioned in the banner.
+const DROP_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// A failed CLI update's key, so dismissing it hides only that one
+/// (`failureKey`): when it finished, or what it was going to.
+fn cli_failure_key(cli: &threadbear_core::updates::CliStatus) -> String {
+    let update = cli.update.as_ref();
+    let when = update.and_then(|u| u.finished_ms).map(|ms| ms.to_string()).or_else(|| update.and_then(|u| u.target_version.clone())).unwrap_or_default();
+    format!("{}|{when}", cli.provider)
 }
 
 /// What `limit_advice` says about a thread at its limit (`LimitAdvice`), for
@@ -566,35 +587,120 @@ impl Threadbear {
     /// `AppModel.banner`: the line about the runner, if there's anything to say.
     fn connection_banner(&self) -> Option<Banner> {
         use crate::app::Connection;
-        let restarting = self.restart_expected();
+        let restart = self.client.restart();
+        let restarting = restart.is_restarting(std::time::Instant::now());
         let connection = self.connection();
         if let Connection::Connected = connection {
+            // Mike's own click comes first: he's looking for it.
+            if let Some((_, note)) = self.busy_notes.last() {
+                return Some(Banner::quiet(note));
+            }
+            if let Some(done) = &self.done_note {
+                return Some(Banner::quiet_with("checkmark", done));
+            }
             if restarting {
                 return Some(Banner::quiet("The runner is restarting now."));
             }
-            if self.sidebar.restart_pending {
-                return Some(Banner::quiet("The runner will restart once its threads are done."));
+            let waiting_on_you = |id: &str| self.threads.get(id).is_some_and(|t| t.status == "waiting");
+            if let Some(text) = restart.pending_text(waiting_on_you) {
+                let detail = restart.waiting_for_text(|id| self.threads.get(id).map(|t| t.title.clone()));
+                return Some(Banner { detail, ..Banner::quiet_with("arrow.clockwise", &text) });
             }
-            return None;
+            // A CLI update under way (a spinner), or one that failed, which
+            // stays until it's dismissed.
+            return self.cli_banner();
         }
         // While a restart is under way the runner is meant to be down for a
         // moment: say so quietly, with no buttons to press.
         if restarting {
             return Some(Banner::quiet("The runner is restarting. Reconnecting…"));
         }
+        // An unexpected drop says nothing for its first few seconds: this
+        // Mac's runner is usually back by then (a handover with no notice,
+        // a restart whose notice went down with the socket), and a warning
+        // that flicks up and away is only noise (Mike, 12 Nov).
+        if !matches!(connection, Connection::Unauthorized(_)) && self.dropped_at.is_some_and(|at| at.elapsed() < DROP_GRACE) {
+            return None;
+        }
+        let plain = |reason: &str| threadbear_client::runner::plain_reason(reason);
         Some(match connection {
-            // One plain sentence; the raw reason is in the tooltip.
-            Connection::Down(reason) => Banner { start: self.can_start_runner(), ..Banner::warning("bolt.horizontal.circle", "Can't reach the runner.", Some(reason)) },
-            Connection::Lost(reason) => Banner::warning("bolt.horizontal", "Lost the connection to the runner. Reconnecting…", Some(reason)),
+            // One plain sentence; why, in plain words, is in the tooltip,
+            // and the raw reason in the app's log.
+            Connection::Down(reason) => Banner { start: self.can_start_runner(), ..Banner::warning("bolt.horizontal.circle", "Can't reach the runner.", Some(&plain(reason))) },
+            Connection::Lost(reason) => Banner::warning("bolt.horizontal", "Lost the connection to the runner. Reconnecting…", Some(&plain(reason))),
             Connection::Unauthorized(reason) => Banner::warning("lock", "The runner didn't accept the token in secrets/runner-token.", Some(reason)),
             Connection::Connecting | Connection::Connected => Banner::warning("bolt.horizontal", "Connecting to the runner…", None),
         })
     }
 
-    /// Whether the runner said it's restarting, recently enough that it being
-    /// gone is expected (`RunnerRestart.patience`).
-    fn restart_expected(&self) -> bool {
-        self.restart_notice_ms.is_some_and(|t| now_ms() - t < 120_000)
+    /// Not connected: from now, unless it already wasn't, and a redraw once
+    /// the grace is over, so the banner comes up then if it's still down.
+    pub(crate) fn start_drop_grace(&mut self, cx: &mut Context<Self>) {
+        if self.dropped_at.is_some() && self.drop_grace_task.is_some() {
+            return;
+        }
+        let at = *self.dropped_at.get_or_insert_with(std::time::Instant::now);
+        let left = DROP_GRACE.saturating_sub(at.elapsed()) + std::time::Duration::from_millis(50);
+        self.drop_grace_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(left).await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        }));
+    }
+
+    /// An update under way, or one that failed and hasn't been dismissed
+    /// (`cliBanner`).
+    fn cli_banner(&self) -> Option<Banner> {
+        use threadbear_core::updates as rules;
+        for cli in &self.updates_panel.clis {
+            let (Some(update), Some(text)) = (cli.update.as_ref(), rules::banner_text(cli)) else { continue };
+            if update.state == "failed" {
+                let key = cli_failure_key(cli);
+                if self.dismissed_cli_failures.contains(&key) {
+                    continue;
+                }
+                return Some(Banner { dismiss: Some(key), ..Banner::quiet_with("exclamationmark.triangle", &text) });
+            }
+            return Some(Banner::quiet(&text));
+        }
+        None
+    }
+
+    /// What a click from a menu is doing, in the banner until it's done
+    /// (`whileBusy`'s `note:`): for a click from somewhere that can't show a
+    /// spinner of its own. The banner can't be pressed, so this is only
+    /// what's going on; the work itself still refuses a second go while it
+    /// runs. Returns false, and changes nothing, if `key` is already busy.
+    pub(crate) fn begin_note(&mut self, key: &str, text: &str, cx: &mut Context<Self>) -> bool {
+        if self.busy_notes.iter().any(|(k, _)| k == key) {
+            return false;
+        }
+        self.busy_notes.push((key.to_owned(), text.to_owned()));
+        cx.notify();
+        true
+    }
+
+    pub(crate) fn end_note(&mut self, key: &str, cx: &mut Context<Self>) {
+        if let Some(i) = self.busy_notes.iter().rposition(|(k, _)| k == key) {
+            self.busy_notes.remove(i);
+            cx.notify();
+        }
+    }
+
+    /// Says something's done in the banner for a moment (`flashDone`).
+    pub(crate) fn flash_done(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.done_note = Some(text.to_owned());
+        let text = text.to_owned();
+        self.done_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+            this.update(cx, |this, cx| {
+                if this.done_note.as_deref() == Some(text.as_str()) {
+                    this.done_note = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
+        cx.notify();
     }
 
     fn render_connection_banner(&mut self, banner: Banner, cx: &mut Context<Self>) -> AnyElement {
@@ -602,6 +708,10 @@ impl Threadbear {
         let secondary = style::secondary_text(cx);
         let spinner = || Spinner::new().icon(IconName::LoaderCircle).color(secondary).with_size(px(13.));
         if banner.quiet {
+            // A restart: grey words on the window's own background with a
+            // hairline under them, so it reads as information, not a
+            // problem. The threads it waits for are its tooltip.
+            let line = tipped!(div().id("banner-text").flex_1().min_w_0().truncate(), banner.detail.clone().unwrap_or_default()).child(banner.text);
             return h_flex()
                 .flex_none()
                 .px(px(14.))
@@ -612,8 +722,21 @@ impl Threadbear {
                 .border_color(hairline)
                 .text_size(px(style::size::LABEL))
                 .text_color(secondary)
-                .child(spinner())
-                .child(div().truncate().child(banner.text))
+                .child(match banner.icon {
+                    Some(name) => icon(name, 13., secondary).into_any_element(),
+                    None => spinner().into_any_element(),
+                })
+                .child(line)
+                .when_some(banner.dismiss, |s, key| {
+                    s.child(
+                        tipped!(div().id("banner-dismiss").px(px(6.)).py(px(2.)).rounded(px(5.)).cursor_pointer(), "Hide this until it happens again")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.dismissed_cli_failures.insert(key.clone());
+                                cx.notify();
+                            }))
+                            .child("Dismiss"),
+                    )
+                })
                 .into_any_element();
         }
         let detail = banner.detail.clone().unwrap_or_default();
@@ -626,7 +749,7 @@ impl Threadbear {
             .items_center()
             .bg(warning_fill)
             .text_size(px(style::size::LABEL))
-            .child(icon(banner.icon, 13., secondary))
+            .child(icon(banner.icon.unwrap_or("bolt.horizontal"), 13., secondary))
             .child(tipped!(div().id("connection-text").flex_1().min_w_0().truncate(), detail).child(banner.text))
             // Regular push buttons, as the Swift bar's. Start runner spins
             // until launchctl has answered and the app has tried again, and
@@ -979,6 +1102,43 @@ impl Threadbear {
     pub(crate) fn show_error(&mut self, message: String, cx: &mut Context<Self>) {
         self.error_message = Some(message);
         cx.notify();
+    }
+
+    /// The error bar, about not being connected: out of date, and so gone,
+    /// once the app's connected again (`showConnectionError`).
+    pub(crate) fn show_connection_error(&mut self, message: String, cx: &mut Context<Self>) {
+        self.connection_error = Some(message.clone());
+        self.show_error(message, cx);
+    }
+
+    /// Connected again: a bar about not being connected goes, unless
+    /// something else has taken its place (`clearConnectionError`).
+    pub(crate) fn clear_connection_error(&mut self) {
+        if let Some(stale) = self.connection_error.take() {
+            if self.error_message.as_deref() == Some(stale.as_str()) {
+                self.error_message = None;
+            }
+        }
+    }
+
+    /// A send that didn't go, its words back in the thread's box
+    /// (`showSendFailed`). A lost connection's banner goes once the app
+    /// reconnects, seconds later, and Mike may have moved on to another
+    /// thread by then, so this one names the thread and stays until he
+    /// dismisses it. `held`: it waited for a restarting runner that didn't
+    /// come back.
+    pub(crate) fn show_send_failed(&mut self, error: &threadbear_client::runner::RpcError, title: &str, held: bool, cx: &mut Context<Self>) {
+        use threadbear_client::runner::{CLOSED, NOT_CONNECTED, TIMED_OUT};
+        let what = match error.code {
+            NOT_CONNECTED if held => return self.show_connection_error(crate::thread::NOT_CONNECTED_TEXT.to_owned(), cx),
+            NOT_CONNECTED => "Couldn't reach the runner.".to_owned(),
+            CLOSED => "Lost the connection to the runner.".to_owned(),
+            TIMED_OUT => "The runner didn't answer threads.send in time.".to_owned(),
+            _ => return self.show_error(error.message.clone(), cx),
+        };
+        let title = title.trim();
+        let name = if title.is_empty() { "this thread".to_owned() } else { format!("\u{201C}{title}\u{201D}") };
+        self.show_error(format!("{what} Your message to {name} wasn't sent. It's back in its box."), cx);
     }
 
     fn dismiss_error(&mut self, cx: &mut Context<Self>) {

@@ -158,6 +158,11 @@ File references are where to look.
   and how long since the last keyboard or mouse input (just how long, never
   what); nothing else ever reads these). The installed GPUI app keeps its
   own the same way in `hangs/desktop` there (`desktop/gpui/src/hang_watch.rs`),
+  and its own log in `desktop.log` there (the one before it in `.log.1`
+  once that passes 2 MB): when the connection to the runner went and came
+  back, requests the runner turned down or didn't answer, the runner's
+  notices, and messages held while it restarted, by thread id and never
+  their words (`desktop/client/src/log.rs`),
   and its last 10 panics in `~/Library/Logs/Threadbear/crashes/desktop`
   (the message with anything in quotes and any paths taken out, the file and
   line in Threadbear's code, and the names of the functions it was in), with

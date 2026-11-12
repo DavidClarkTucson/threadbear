@@ -437,6 +437,14 @@ impl Composer {
             return;
         }
         let Some(pane) = self.pane() else { return };
+        // No runner and no restart to wait for: the words stay in the box,
+        // and the error bar says why (`send`'s guard).
+        if let Some(why) = pane.read(cx).cant_send_now() {
+            if let Some(app) = self.app.upgrade() {
+                app.update(cx, |app, cx| app.show_connection_error(why, cx));
+            }
+            return;
+        }
         let picks = self.saved_picks();
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.pictures.clear();

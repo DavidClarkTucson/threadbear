@@ -1229,7 +1229,7 @@ impl Threadbear {
             })
             .collect();
         // Only while a runner restart is waiting, as the Swift menu has it.
-        if self.sidebar.restart_pending {
+        if self.client.restart().is_pending() {
             items.push(MenuEntry::item(threadbear_core::sidebar::SNOOZE_UNTIL_RESTART, Command::HibernateRestart));
         }
         items.push(MenuEntry::Separator);

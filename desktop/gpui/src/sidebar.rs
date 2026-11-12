@@ -306,9 +306,6 @@ pub(crate) struct SidebarState {
     pub(crate) busy: HashSet<String>,
     /// The runner's first list has come; until then, loading rows.
     pub(crate) loaded: bool,
-    /// A runner restart is waiting (`runner.status`), so the Hibernate menu
-    /// offers "Until the runner restarts".
-    pub(crate) restart_pending: bool,
     /// Each project's icon by id, for the tiles (`projects.list`).
     pub(crate) project_icons: HashMap<String, ProjectIcon>,
     /// The projects themselves, for the new-thread page's chip.
@@ -387,7 +384,6 @@ impl SidebarState {
             menu: None,
             busy: HashSet::new(),
             loaded: false,
-            restart_pending: false,
             project_icons: HashMap::new(),
             projects: Vec::new(),
             folding: HashMap::new(),
@@ -515,8 +511,9 @@ impl Threadbear {
         let mut params = params;
         params["threadId"] = json!(id);
         let client = self.client.clone();
+        let remote = before.as_ref().is_some_and(|t| t.runner_id.is_some());
         cx.spawn(async move |this, cx| {
-            let res = call(client, "threads.update", params).await;
+            let res = crate::call_for_thread(client, remote, "threads.update", params).await;
             this.update(cx, |this, cx| {
                 if let Err(e) = res {
                     this.list_error = Some(e.message);
@@ -625,7 +622,11 @@ impl Threadbear {
             let res = call(client, "runner.status", json!({})).await;
             this.update(cx, |this, cx| {
                 let status = res.ok();
-                this.sidebar.restart_pending = status.as_ref().is_some_and(|v| v.get("pendingRestart").is_some_and(|p| !p.is_null()));
+                // Which threads a restart waits for (restart.rs). A runner
+                // older than runner.status: its notices are all there is.
+                if let Some(status) = &status {
+                    this.client.restart_status(&status["pendingRestart"]);
+                }
                 this.website_url = status.as_ref().and_then(crate::header::website_url);
                 // Where Investigate's thread works (`ownCheckout`); kept from
                 // the last answer if this one has none.
@@ -637,6 +638,27 @@ impl Threadbear {
             .ok();
         })
         .detach();
+    }
+
+    /// `refresh_restart` in a moment, once for a burst of thread updates
+    /// (`refreshRunnerStatus`'s 300 ms).
+    pub(crate) fn refresh_restart_soon(&mut self, cx: &mut Context<Self>) {
+        self.restart_status_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(300)).await;
+            this.update(cx, |this, cx| this.refresh_restart(cx)).ok();
+        }));
+    }
+
+    /// A restart under way that goes on past its patience means the runner
+    /// is down, not restarting: the banner says so then, with Try again
+    /// (`restartExpiry`).
+    pub(crate) fn watch_restart_expiry(&mut self, cx: &mut Context<Self>) {
+        let Some(since) = self.client.restart().restarting_since() else { return };
+        let left = threadbear_client::restart::PATIENCE.saturating_sub(since.elapsed()) + std::time::Duration::from_secs(1);
+        self.restart_expiry = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(left).await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        }));
     }
 
     /// Hibernate until the runner next starts (`snoozedUntil: "restart"`).
@@ -712,6 +734,11 @@ impl Threadbear {
                     let (id, busy_key) = (id.clone(), busy_key.clone());
                     entity
                         .update(cx, move |this, cx| {
+                            // The row spins, and the banner says what's going
+                            // on, as the click came from a menu (`whileBusy(note:)`).
+                            if !this.begin_note(&busy_key, "Deleting chat…", cx) {
+                                return;
+                            }
                             this.sidebar.busy.insert(busy_key.clone());
                             cx.notify();
                             let client = this.client.clone();
@@ -720,6 +747,7 @@ impl Threadbear {
                                 let res = call(client, "threads.delete", params).await;
                                 this.update(cx, |this, cx| {
                                     this.sidebar.busy.remove(&busy_key);
+                                    this.end_note(&busy_key, cx);
                                     match res {
                                         Ok(_) => {
                                             this.threads.remove(&id);
@@ -900,7 +928,7 @@ impl Threadbear {
         let mut items: Vec<MenuRow> = rows::snooze_presets(&now).into_iter().map(|p| MenuRow::item(p.title, p.symbol(), MenuAction::Hibernate(p.id))).collect();
         // Only while a restart is waiting, so a thread holding it up can go
         // away now and come back after (`app.restartPending`).
-        if self.sidebar.restart_pending {
+        if self.client.restart().is_pending() {
             items.push(MenuRow::item(rows::SNOOZE_UNTIL_RESTART, "arrow.clockwise", MenuAction::HibernateUntilRestart));
         }
         items.push(MenuRow::separator());
@@ -1159,7 +1187,6 @@ impl Threadbear {
             list = list.child(motion.reveal_marker(self.sidebar.reveal.clone(), self.sidebar.scroll.clone(), self.sidebar_view.as_ref().map(|v| v.entity_id())));
         }
         let new_thread_active = self.selected.is_none();
-        let conn_note = self.connection_note();
         let list_error = self.list_error.clone();
         let red = p.failed;
         v_flex()
@@ -1168,7 +1195,10 @@ impl Threadbear {
             .bg(p.side)
             // One line: search and New thread (Mike asked 30 Oct).
             .child(h_flex().gap(px(6.)).px(px(OUTER_INSET)).pt(px(4.)).items_stretch().child(self.render_search(&p, cx)).child(self.render_new_thread(new_thread_active, &p, cx)))
-            .when_some(conn_note, |s, note| s.child(div().mx(px(OUTER_INSET)).mt_2().p_2().rounded(px(CORNER)).bg(p.field_fill).text_sm().text_color(p.secondary).child(note)))
+            // Nothing about the connection here: the banner over the thread
+            // says it, as the Swift app's does, and only once it's worth
+            // saying (`connection_banner`). The raw error showed here in the
+            // middle of a restart (Mike, 12 Nov).
             .when_some(list_error, |s, e| s.child(div().mx(px(OUTER_INSET)).mt_2().text_sm().text_color(red).child(e)))
             .child(
                 // The scrolling list, with no scrollbar (the times stay put),

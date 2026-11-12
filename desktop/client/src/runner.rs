@@ -19,6 +19,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 
 const CLIENT_NAME: &str = "threadbear-desktop";
+/// The longest wait between tries to reach the runner.
+pub const MAX_RETRY_MS: u64 = 2_000;
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long a request waits for its answer (`RunnerAPI`'s timeouts). Two
@@ -80,6 +82,23 @@ pub enum Disconnect {
     Lost,
     Refused,
     Down,
+}
+
+/// Why it couldn't connect, in plain words, for the banner's tooltip: the
+/// raw reason (with its ws:// address, "IO error" and "os error 61") is for
+/// the log (`log.rs`), not for Mike.
+pub fn plain_reason(reason: &str) -> String {
+    let lower = reason.to_lowercase();
+    if lower.contains("connection refused") {
+        return "Nothing is answering on the runner's port, so it isn't running.".into();
+    }
+    if lower.contains("timed out") {
+        return "The runner didn't answer in time.".into();
+    }
+    if reason.starts_with(TURNED_DOWN) || reason.starts_with("The runner") || reason.starts_with("Whatever is on") {
+        return reason.to_owned();
+    }
+    "Something went wrong reaching it. The app's log has the details.".into()
 }
 
 /// How `session` says the runner turned down the sign-in, so `run` can tell
@@ -521,7 +540,10 @@ impl Client {
                 _ = tokio::time::sleep(Duration::from_millis(wait_ms)) => {}
                 _ = self.retry.notified() => {}
             }
-            backoff_ms = (backoff_ms * 2).min(10_000);
+            // This Mac's own runner: a refused connection costs nothing, and
+            // a runner that's back shouldn't wait out a long backoff (Mike,
+            // 12 Nov, a "Trying again in 8s" in the middle of a restart).
+            backoff_ms = (backoff_ms * 2).min(MAX_RETRY_MS);
         }
     }
 
@@ -670,6 +692,13 @@ mod tests {
         assert_eq!(timeout_for("threads.hibernateWhen", &json!({})), Duration::from_secs(150));
         assert_eq!(timeout_for("panels.convexKey", &json!({})), Duration::from_secs(150));
         assert_eq!(timeout_for("threads.list", &json!({})), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn reasons_are_said_plainly() {
+        assert_eq!(plain_reason("Couldn't reach the runner at ws://127.0.0.1:8797/rpc: IO error: Connection refused (os error 61)"), "Nothing is answering on the runner's port, so it isn't running.");
+        assert_eq!(plain_reason("The runner closed the connection"), "The runner closed the connection");
+        assert!(!plain_reason("Couldn't reach the runner at ws://127.0.0.1:8797/rpc: IO error: unexpected EOF").contains("ws://"));
     }
 
     #[test]

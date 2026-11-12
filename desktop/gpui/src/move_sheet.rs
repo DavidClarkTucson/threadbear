@@ -122,17 +122,24 @@ impl Threadbear {
     }
 
     /// Cancel on a moving row, before the thread has gone (`cancelMove`).
+    /// The banner says so until the runner answers, as the click came from
+    /// a menu, and a second Cancel meanwhile does nothing (`whileBusy(note:)`).
     pub(crate) fn cancel_move(&mut self, thread_id: String, cx: &mut Context<Self>) {
+        let key = format!("moveThread/{thread_id}");
+        if !self.begin_note(&key, "Cancelling the move…", cx) {
+            return;
+        }
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
             let res = call(client, "threads.moveCancel", json!({ "threadId": thread_id })).await;
-            if let Err(e) = res {
-                this.update(cx, |this, cx| {
+            this.update(cx, |this, cx| {
+                this.end_note(&key, cx);
+                if let Err(e) = res {
                     this.list_error = Some(e.message);
-                    cx.notify();
-                })
-                .ok();
-            }
+                }
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
     }

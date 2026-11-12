@@ -97,6 +97,23 @@ pub struct Threadbear {
     pub(crate) toast_hovered: bool,
     /// The error bar's text (`errorMessage`).
     pub(crate) error_message: Option<String>,
+    /// The error bar's text when it's about not being connected, so it goes
+    /// once the app is again (`connectionErrorMessage`).
+    pub(crate) connection_error: Option<String>,
+    /// What clicks from a menu are doing, by their key, newest last, and
+    /// what's just been done, for the banner (`busyNotes`, `doneNote`).
+    pub(crate) busy_notes: Vec<(String, String)>,
+    pub(crate) done_note: Option<String>,
+    pub(crate) done_task: Option<Task<()>>,
+    /// CLI updates that failed and were dismissed from the banner, by
+    /// `cli_failure_key` (`dismissedCliFailures`).
+    pub(crate) dismissed_cli_failures: HashSet<String>,
+    /// Asks `runner.status` which threads a pending restart waits for, as
+    /// they finish, once for a burst of updates (`refreshRunnerStatus`).
+    pub(crate) restart_status_task: Option<Task<()>>,
+    /// Redraws the banner when a restart has gone on so long that the runner
+    /// looks down (`restartExpiry`).
+    pub(crate) restart_expiry: Option<Task<()>>,
     pub(crate) creating_investigation: bool,
     /// The title being renamed in the header, and its field.
     pub(crate) renaming: Option<String>,
@@ -111,8 +128,6 @@ pub struct Threadbear {
     pub(crate) continuing_refusal: Option<String>,
     /// The runner's website, from `runner.status` (`websiteURL`).
     pub(crate) website_url: Option<String>,
-    /// When the runner last said it was restarting.
-    pub(crate) restart_notice_ms: Option<i64>,
     pub(crate) schedules_supported: bool,
     /// The Scheduled view: the list, its folded headings, what's on the way
     /// (scheduled.rs).
@@ -169,6 +184,11 @@ pub struct Threadbear {
     /// says what's wrong rather than flicking to "Connecting" on each try
     /// (`connection()`). Cleared when it's back, and by Try again.
     pub(crate) last_drop: Option<(threadbear_client::runner::Disconnect, String)>,
+    /// When it stopped being connected (or the app started), for the grace
+    /// before the banner says anything about an unexpected drop
+    /// (`DROP_GRACE`), and the redraw at its end.
+    pub(crate) dropped_at: Option<std::time::Instant>,
+    pub(crate) drop_grace_task: Option<Task<()>>,
     /// Start runner is under way (runner_launcher.rs): its button spins.
     pub(crate) starting_runner: bool,
     /// The checkout the runner follows main in (`runner.status`'s
@@ -396,6 +416,15 @@ impl Threadbear {
             archived_task: None,
             toast_hovered: false,
             error_message: None,
+            connection_error: None,
+            busy_notes: Vec::new(),
+            done_note: None,
+            done_task: None,
+            dismissed_cli_failures: HashSet::new(),
+            restart_status_task: None,
+            restart_expiry: None,
+            dropped_at: Some(std::time::Instant::now()),
+            drop_grace_task: None,
             creating_investigation: false,
             renaming: None,
             rename_field: None,
@@ -404,7 +433,6 @@ impl Threadbear {
             chip_busy: Default::default(),
             continuing_refusal: None,
             website_url: None,
-            restart_notice_ms: None,
             schedules_supported: false,
             scheduled,
             schedule_editor: None,
@@ -661,15 +689,23 @@ impl Threadbear {
                     self.updates_from_hello(hello);
                 }
                 match &status {
-                    Status::Connected { .. } => self.last_drop = None,
-                    Status::Disconnected { kind, reason, .. } => self.last_drop = Some((*kind, reason.clone())),
-                    Status::Connecting { .. } => {}
+                    Status::Connected { .. } => {
+                        self.last_drop = None;
+                        self.dropped_at = None;
+                        self.drop_grace_task = None;
+                        self.clear_connection_error();
+                    }
+                    Status::Disconnected { kind, reason, .. } => {
+                        self.last_drop = Some((*kind, reason.clone()));
+                        self.watch_restart_expiry(cx);
+                        self.start_drop_grace(cx);
+                    }
+                    Status::Connecting { .. } => self.start_drop_grace(cx),
                 }
                 self.status = status;
                 // Each time it's connected, the whole list again, and the
                 // open thread read again: thread.updated only says what changed.
                 if connected {
-                    self.restart_notice_ms = None;
                     self.load_list(cx);
                     self.refresh_restart(cx);
                     self.load_projects(cx);
@@ -706,6 +742,11 @@ impl Threadbear {
                             self.serve_panel_request(cx);
                         }
                         crate::terminal::thread_updated(&t, cx);
+                        // A thread a pending restart waits for may have just
+                        // finished: the banner's count and list follow.
+                        if self.client.restart().is_pending() {
+                            self.refresh_restart_soon(cx);
+                        }
                     }
                 }
                 "thread.deleted" => {
@@ -718,12 +759,17 @@ impl Threadbear {
                     self.refresh_dock_badge();
                 }
                 "runner.notice" => {
-                    // The runner said it's restarting: the connection going
-                    // away is expected for a while (`RunnerRestart.notice`).
-                    if params["message"].as_str().is_some_and(|m| m.contains("restart")) {
-                        self.restart_notice_ms = Some(now_ms());
+                    // A restart notice moves the quiet banner along (the
+                    // connection has already noted it, restart.rs), and asks
+                    // which threads it waits for; other warnings and errors
+                    // go in the error bar (`notice`).
+                    let message = params["message"].as_str().unwrap_or("");
+                    if threadbear_client::restart::RunnerRestart::parse(message).is_some() {
+                        self.refresh_restart(cx);
+                        self.watch_restart_expiry(cx);
+                    } else if params["level"].as_str().is_some_and(|l| l != "info") && !message.is_empty() {
+                        self.show_error(message.to_owned(), cx);
                     }
-                    self.refresh_restart(cx);
                 }
                 "librarian.updated" => self.librarian.status = Some(threadbear_core::librarian::Status::decode(&params["librarian"])),
                 "settings.updated" => self.runner_settings = Some(params["settings"].clone()),
@@ -1034,6 +1080,16 @@ impl Threadbear {
         self.show_error(threadbear_core::thread_link::unopened_link_message(matches.len()), cx);
     }
 
+    /// The pane showing a thread now, if one is: the main panel's, or the
+    /// thread's own panel. Not a sub-agent's, which shows another transcript.
+    pub(crate) fn pane_for(&self, id: &str, cx: &App) -> Option<Entity<ThreadPane>> {
+        let main = self.pane.clone().filter(|p| {
+            let p = p.read(cx);
+            p.summary.id == id && p.subagent_id.is_none()
+        });
+        main.or_else(|| self.thread_panel_pane(id))
+    }
+
     /// A thread's message box, kept while others are open so what's typed
     /// stays with it, and made (with its words from before a quit) the first
     /// time it's wanted.
@@ -1112,8 +1168,9 @@ impl Threadbear {
         let mut params = params;
         params["threadId"] = json!(id);
         let client = self.client.clone();
+        let remote = before.as_ref().is_some_and(|t| t.runner_id.is_some());
         cx.spawn(async move |this, cx| {
-            let res = call(client, "threads.update", params).await;
+            let res = crate::call_for_thread(client, remote, "threads.update", params).await;
             this.update(cx, |this, cx| {
                 if let Some(key) = &busy {
                     this.chip_busy.remove(key);
@@ -1272,6 +1329,10 @@ impl Threadbear {
             "actions": self.side.read(cx).thread(cx).map(|t| crate::patches::actions_dump(self.side.read(cx), &t)).unwrap_or_else(|| json!([])),
             "terminal": crate::terminal::dump(self, cx),
         });
+        // Any other note the window shows outside the banner and the error
+        // bar: the sidebar's, when the list couldn't be read. Never the
+        // connection's (Mike, 12 Nov: the raw error mid-restart).
+        dump["notes"] = json!(self.list_error.iter().collect::<Vec<_>>());
         // What came across from the Swift app, while its note's up. Set
         // after, as the literal above is as long as serde_json's macro goes.
         dump["importNote"] = json!(self.import_note);
@@ -1405,13 +1466,6 @@ impl Threadbear {
         .detach();
     }
 
-    pub(crate) fn connection_note(&self) -> Option<String> {
-        match &self.status {
-            Status::Connected { .. } => None,
-            Status::Connecting { .. } => Some("Connecting to the runner…".into()),
-            Status::Disconnected { reason, retry_in_ms, .. } => Some(format!("Can't reach the runner: {reason}. Trying again in {}s.", retry_in_ms.div_ceil(1000))),
-        }
-    }
 }
 
 /// `Threadbear::connection`: the Swift app's `ConnectionState`, each drop

@@ -38,7 +38,18 @@ pub fn serve(app: WeakEntity<Threadbear>, window: AnyWindowHandle, cx: &mut App)
     RT.spawn(listen(file, tx));
     cx.spawn(async move |cx| {
         while let Some((cmd, reply)) = rx.recv().await {
+            // What was run, by name (never its words: a `send`'s text is
+            // Mike's), as the Swift app's AppLog has them. Not the dumps, which
+            // a spec asks for many times a second.
+            let name = cmd["cmd"].as_str().unwrap_or("").to_owned();
+            let method = cmd["method"].as_str().map(|m| format!(" {m}")).unwrap_or_default();
+            if name != "dump" {
+                threadbear_client::log::write("automation", &format!("{name}{method}"));
+            }
             let out = run(&app, window, &cmd, cx).await;
+            if let Err(e) = &out {
+                threadbear_client::log::write("automation", &format!("{name}{method} failed: {e}"));
+            }
             let line = match out {
                 Ok(result) => json!({ "result": result }),
                 Err(error) => json!({ "error": error }),
