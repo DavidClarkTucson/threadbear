@@ -258,6 +258,33 @@ built parsers and gates with no launch of the app, which is the trap.)
   `features/remote-threads.feature`, `features/steps/connection.steps.ts`.
 - Verification: on Tinker Desk, the new scenario fails on the code before
   the fix with the panic at entity_map.rs:156, and passes with it.
+### 2026-11-12 Panels glide open and closed (`dock.motion`)
+
+- Opening a panel (⌘J's Terminal, the pane beside the thread, a tab beside the
+  main panel) or closing one now glides, as BearDock's `withAnimation(settle)`
+  with each group's `matchedGeometryEffect` does: the panels that stay move
+  and resize to their new places on the same spring (0.34 s response, 0.86
+  damping), a new one fades in where it's going, and one that's gone fades
+  out where it was. GPUI can't animate a flex layout, so while it runs the
+  dock places its groups by hand at frames worked out from the layout
+  (`group_frames`, with a test), sampled from the spring by time, and goes
+  back to its flex layout once the spring has settled. A divider drag still
+  follows the pointer, and Reduce Motion skips it.
+- A closing panel fades out as a blank of the panel's colour rather than its
+  content.
+- Both dumps give `panelMotion`: where each panel was drawn when the layout
+  last changed and where it went (the Swift app's `DockController.motionFrom`
+  and `panelFrames`).
+- Files: `desktop/dock/src/view.rs`, `desktop/dock/layout/src/controller.rs`,
+  `desktop/gpui/src/app.rs`; `dock/Sources/BearDock/DockController.swift`,
+  `app/Sources/Threadbear/AppDump.swift`; `features/panel-motion.feature`.
+- Verification: on Tinker Desk, `@dock.motion` 2 of 2 on GPUI and Swift, with
+  `@terminal.panel`, `@dock.layout` and `@dock.reset` on GPUI (14 of 14) and
+  `@terminal.panel` on Swift; the dock layout crate's tests (33). Clips of
+  both apps side by side (the Terminal opening, closing, and opening with the
+  main thread stalled 0.3 s; Highlights closing) in
+  `~/Library/Caches/Threadbear/gpui-compare/panel-motion/`.
+
 ### 2026-11-12 The archive and hibernate flights (`juice.archiveflight`, `juice.hibernateflight`)
 
 - Archiving the open thread (the row's button, ⌘E, the done card, a swipe,

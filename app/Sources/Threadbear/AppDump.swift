@@ -437,6 +437,14 @@ struct AppDump: Encodable {
     var pools: [PoolInfo] = []
     /// The window's panels and where they are (WindowDock), in one line.
     var dock: String = ""
+    /// The last time the panels moved with their glide (a panel opened or
+    /// closed): where each panel's group was and where it is now, by panel.
+    var panelMotion: PanelMotion?
+    struct PanelMotion: Encodable {
+        struct Rect: Encodable { var x, y, width, height: Double }
+        var from: [String: Rect]
+        var to: [String: Rect]
+    }
     /// The Threads panel is on screen: in the layout and not folded away
     /// with ⌘/ (`threadsShowing`).
     var threadsShowing: Bool = true
@@ -984,6 +992,12 @@ struct AppDump: Encodable {
                          rail: Pools.railSubtitle(pool, accounts: app.accounts), status: Pools.statusLine(pool, accounts: app.accounts, now: app.now))
             } : [],
             dock: app.dock.layout.summary.replacingOccurrences(of: "threadbear.", with: ""),
+            panelMotion: app.dock.motionFrom.map { from in
+                func rects(_ frames: [String: CGRect]) -> [String: PanelMotion.Rect] {
+                    Dictionary(frames.map { ($0.key.replacingOccurrences(of: "threadbear.", with: ""), PanelMotion.Rect(x: $0.value.minX.rounded(), y: $0.value.minY.rounded(), width: $0.value.width.rounded(), height: $0.value.height.rounded())) }, uniquingKeysWith: { a, _ in a })
+                }
+                return PanelMotion(from: rects(from), to: rects(app.dock.panelFrames))
+            },
             threadsShowing: app.threadsShowing,
             threadPanels: threadPanels(app),
             openElsewhere: app.selection.flatMap { id in

@@ -113,6 +113,10 @@ export type Dump = {
    * transcript, in window points from the top left) and aimed, and once it
    * landed, where the heading's box was. */
   flight?: Flight | null;
+  /** The last time the panels moved with their glide: where each panel was
+   * drawn and where it is (or, in the GPUI app, is going), by panel
+   * ("thread", "terminal"), and whether it's still moving (GPUI only). */
+  panelMotion?: { from: Record<string, Rect>; to: Record<string, Rect>; moving?: boolean } | null;
   /** "end" or "empty" while the end-of-inbox note is up. */
   inboxEndNote?: string | null;
   /** The panel bar's title line and its buttons' tips. */

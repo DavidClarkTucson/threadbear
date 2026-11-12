@@ -1211,6 +1211,14 @@ impl Threadbear {
         // The last archive or hibernate flight: where it started and aimed,
         // and once it's landed, where the heading's box was (archive_flight.rs).
         dump["flight"] = self.flight.dump();
+        // The last time the panels moved (a panel opened or closed): where
+        // each panel was and went, and whether they're still on their way.
+        dump["panelMotion"] = self.dock_view.read(cx).last_motion().map_or(Value::Null, |(from, to, moving)| {
+            let rects = |frames: &std::collections::HashMap<String, threadbear_dock::Rect>| -> Value {
+                frames.iter().map(|(panel, r)| (panel.replace("threadbear.", ""), json!({ "x": r.x.round(), "y": r.y.round(), "width": r.width.round(), "height": r.height.round() }))).collect::<serde_json::Map<_, _>>().into()
+            };
+            json!({ "from": rects(from), "to": rects(to), "moving": moving })
+        });
         dump
     }
 

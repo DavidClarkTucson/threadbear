@@ -9,12 +9,13 @@
 //     TB_GPUI_PROFILE=release node features/tools/motion-clip.ts <out folder> <scene> [--busy <seconds>]'
 //
 // Scenes: archive, hibernate (archive-flight.feature), and the panel ones
-// (panel-motion.feature): terminal, highlights. `--busy` blocks each app's
+// (panel-motion.feature): terminal, terminal-close, highlights-close. `--busy` blocks each app's
 // main thread for that long straight after the click (the automation's
 // `stall`), as opening a heavy next thread would. Writes <scene>.mp4 at full
 // speed and <scene>-slow.mp4 at a quarter of it, both apps in dark mode.
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { GpuiDriver } from '../support/gpui.ts';
 import { SwiftDriver } from '../support/swift.ts';
@@ -66,6 +67,34 @@ const scenes: Record<string, { setup: (app: Driver) => Promise<void>; act: (app:
     },
     act: async (app) => {
       await app.do({ cmd: 'archive' });
+    },
+  },
+  // The Terminal coming up under the thread (⌘J), in a temp folder of its own
+  // (the demo threads' folders are Mike's), and going away again.
+  terminal: {
+    setup: async (app) => {
+      await scenes.archive.setup(app);
+      const d = await app.dump();
+      const folder = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-clip-')));
+      await app.do({ cmd: 'mock', method: 'terminal', params: { threadId: d.selection!.id, cwd: folder } });
+    },
+    act: async (app) => {
+      await app.do({ cmd: 'menu-key', key: 'j', modifiers: ['cmd'] });
+    },
+  },
+  'terminal-close': {
+    setup: async (app) => {
+      await scenes.terminal.setup(app);
+      await scenes.terminal.act(app);
+      await sleep(1200);
+    },
+    act: async (app) => scenes.terminal.act(app),
+  },
+  // The pane beside the thread, closed and opened from the right rail.
+  'highlights-close': {
+    setup: async (app) => scenes.archive.setup(app),
+    act: async (app) => {
+      await app.do({ cmd: 'click', tip: 'Highlights' });
     },
   },
   hibernate: {
