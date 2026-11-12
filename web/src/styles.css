@@ -520,7 +520,7 @@ button.fold:hover > svg:last-child, button.fold:focus-visible > svg:last-child {
 
 /* Another lab's review over its turn's reply (review-row.tsx): small and
    quiet, as on the Mac, since it happens in the background. */
-.lab-review { font-size: 12.5px; line-height: 1.5; margin: 2px 0 -4px; }
+.lab-review { font-size: 12.5px; line-height: 1.5; margin-top: 2px; margin-bottom: -4px; }
 .lab-review-head { display: block; color: var(--faint); text-decoration: none; }
 a.lab-review-head:hover { color: var(--muted); }
 .lab-finding { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
