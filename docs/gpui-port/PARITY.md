@@ -491,7 +491,9 @@ Fixes from Codex's review of the slice before:
   and list ones; the one left read Window's Fill and Center, which AppKit
   adds only as the menu opens (as for the Swift app), so that check came
   out and the `menu.*` and `tour.about` ones passed again, 7 of 7. The
-  Swift app passed the 11 it can run. `cargo test -p
+  Swift app passed the 11 it can run. ⌘W by hand on Tinker Desk's desktop
+  (the scripted app brought to the front, ⌘W pressed through its keys):
+  the app quit, exit 0. `cargo test -p
   threadbear-core` den and popover tests. Shots of the About window and the
   popover from the debug build on Tinker Desk. The menus Mike's installed
   app had before: read from the menu bar with System Events (Edit missing,

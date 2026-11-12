@@ -701,7 +701,7 @@ impl Threadbear {
             Command::Minimize => window.minimize_window(),
             Command::Zoom => window.zoom_window(),
             Command::BringAllToFront => crate::window_menu::bring_all_to_front(cx),
-            Command::Close => crate::window_menu::close_front_window(cx),
+            Command::Close => crate::window_menu::close_window(window, cx),
         }
         self.sync_menus(cx);
     }

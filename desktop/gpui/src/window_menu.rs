@@ -118,31 +118,62 @@ fn with_front_window(cx: &mut App, f: impl FnOnce(&mut Window)) {
     }
 }
 
-/// File > Close (⌘W): the window in front closes as its red button would,
-/// so each window does what it does on closing (Settings saves what's
-/// typed, a panel's window puts the panel away, the main window quits).
+/// File > Close (⌘W) from a window with no handler of its own: the one in
+/// front (`close_window`).
 pub(crate) fn close_front_window(cx: &mut App) {
+    if let Some(front) = cx.active_window() {
+        front.update(cx, |_, window, cx| close_window(window, cx)).ok();
+    }
+}
+
+/// File > Close (⌘W): the window closes as its red button would, so each
+/// does what it does on closing (Settings saves what's typed, a panel's
+/// window puts the panel away, the main window quits).
+pub(crate) fn close_window(window: &mut Window, cx: &mut App) {
     #[cfg(target_os = "macos")]
     {
-        use objc2::MainThreadMarker;
-        use objc2_app_kit::NSApplication;
-        let Some(mtm) = MainThreadMarker::new() else { return };
-        if let Some(key) = NSApplication::sharedApplication(mtm).keyWindow() {
-            key.performClose(None);
-        }
+        // `performClose:` asks GPUI's own window whether it may close, which
+        // needs the app this runs inside, so it's sent once this is over.
         let _ = cx;
+        if let Some(ns_window) = ns_window(window) {
+            after_this(&*ns_window, objc2::sel!(performClose:));
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
         // Off the Mac there's no asking the window as its button does, so
         // the main window quits and another just goes.
-        let Some(front) = cx.active_window() else { return };
-        if cx.try_global::<MainWindow>().is_some_and(|m| m.0 == front) {
+        if cx.try_global::<MainWindow>().is_some_and(|m| m.0 == window.window_handle()) {
             cx.quit();
         } else {
-            front.update(cx, |_, window, _| window.remove_window()).ok();
+            window.remove_window();
         }
     }
+}
+
+/// The window's own NSWindow, as an object to send to.
+#[cfg(target_os = "macos")]
+fn ns_window(window: &Window) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
+    use objc2_app_kit::NSView;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::AppKit(h) = handle.as_raw() else { return None };
+    // SAFETY: the window's content view, alive while the window is, which
+    // it is for this call.
+    let view: &NSView = unsafe { &*(h.ns_view.as_ptr() as *const NSView) };
+    view.window()
+}
+
+/// Sends `action:` (with no sender) to `target` from the run loop's next
+/// turn, outside the GPUI update this is called in: AppKit calls back into
+/// GPUI as it does it (asking a window to close, a window coming forward),
+/// and GPUI's app is busy until this update ends.
+#[cfg(target_os = "macos")]
+fn after_this<T: objc2::Message>(target: &T, action: objc2::runtime::Sel) {
+    let none: Option<&objc2::runtime::AnyObject> = None;
+    // SAFETY: NSObject's performSelector:withObject:afterDelay:, with a
+    // selector the target answers and a nil argument.
+    let _: () = unsafe { objc2::msg_send![target, performSelector: action, withObject: none, afterDelay: 0.0f64] };
 }
 
 /// Window > Bring All to Front: every one of the app's windows over other
@@ -152,11 +183,9 @@ pub(crate) fn bring_all_to_front(cx: &mut App) {
     {
         use objc2::MainThreadMarker;
         use objc2_app_kit::NSApplication;
-        let Some(mtm) = MainThreadMarker::new() else { return };
-        let app = NSApplication::sharedApplication(mtm);
-        app.activate();
-        app.arrangeInFront(None);
         let _ = cx;
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        after_this(&*NSApplication::sharedApplication(mtm), objc2::sel!(arrangeInFront:));
     }
     #[cfg(not(target_os = "macos"))]
     {
