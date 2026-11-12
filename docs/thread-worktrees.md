@@ -195,7 +195,10 @@ their own.
   are never put in anyone's check.
 - One whose tb goes during the check (killed: a session restart does
   that) still lands, as long as its worktree is still on what it asked to
-  land; its next `tb land` then says there's nothing to land. Only one
+  land; its branch is moved to what landed for it, or, if that worktree
+  is busy, `threadbear-land-done/<commit>` (beside the lock) says what
+  landed, and its next `tb land` moves it there first. Either way that
+  `tb land` then says there's nothing to land. Only one
   that has moved on means the check runs again without it. On 12 Nov
   restarts killed waiting landings again and again, and checking again
   for each meant two passing group checks in a row landed nothing.
@@ -384,10 +387,11 @@ can move main meanwhile, then:
 
 - only GitHub's has moved: fast-forwards main to it;
 - only this Mac's has: pushes main;
-- both have: rebases this Mac's commits onto GitHub's in a borrowed
+- both have: rebases this Mac's commits onto GitHub's (merges GitHub's
+  in instead when this Mac's have a merge, which a rebase would flatten) in a borrowed
   worktree, runs `./check.sh --quick` on that (a combination nobody has
-  checked), and only if it passes moves main to it (`git reset --keep`)
-  and pushes. A conflict or a failed check leaves main as it was, and
+  checked), and only if it passes moves main to it (`git reset --keep`,
+  refusing staged changes there, which that would unstage) and pushes. A conflict or a failed check leaves main as it was, and
   says which files or what failed.
 
 Don't rebase main in its own checkout. A rebase there leaves HEAD

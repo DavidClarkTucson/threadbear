@@ -71,16 +71,32 @@ give_back() {
 }
 trap give_back EXIT
 git -C "$wt" reset -q --hard main
-if ! git -C "$wt" rebase -q origin/main; then
+# A merge on this Mac's side (a release brought in) would be flattened by a
+# rebase, losing what only the merge holds, so GitHub's is merged in then.
+if [ -n "$(git rev-list --merges origin/main..main)" ]; then
+  join=(merge -q --no-edit origin/main)
+else
+  join=(rebase -q origin/main)
+fi
+if ! git -C "$wt" "${join[@]}"; then
   files="$(git -C "$wt" diff --name-only --diff-filter=U)"
   die "This Mac's commits conflict with GitHub's in:
 $files
-Nothing synced. Rebase them by hand in a worktree of your own, check, then land that."
+Nothing synced. Bring them together by hand in a worktree of your own, check, then land that."
 fi
 (cd "$wt" && ./check.sh --quick) || die "The check failed on this Mac's commits over GitHub's, so main wasn't touched."
 new="$(git -C "$wt" rev-parse HEAD)"
-# Under the lock nothing else moves main, but say so plainly if it did.
+# Under the lock no landing moves main, but something by hand could have
+# switched the checkout or started a rebase during the check: asked again.
+[ "$(git symbolic-ref -q HEAD || true)" = refs/heads/main ] || die "$MAIN isn't on main any more; nothing synced."
+for f in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD sequencer BISECT_LOG; do
+  [ -e "$GITDIR/$f" ] && die "$MAIN has something half done ($GITDIR/$f); nothing synced."
+done
 [ "$(git rev-parse main)" = "$here" ] || die "main moved while this ran; nothing synced."
+# reset --keep keeps unstaged changes but not what's staged: refuse those.
+git diff --cached --quiet || die "$MAIN has staged changes, which moving main would unstage; commit or unstage them. Nothing synced."
 git reset -q --keep "$new" || die "main's checkout has changes in files this would change; nothing synced."
+[ "$(git rev-parse main)" = "$new" ] && [ "$(git reflog -1 --format=%H refs/heads/main)" = "$new" ] &&
+  [ "$(git symbolic-ref -q HEAD || true)" = refs/heads/main ] || die "main didn't end up at the checked $new; look at git reflog in $MAIN. Not pushed."
 git push -q origin main:main
 echo "main is now GitHub's with this Mac's $(git log --oneline "$there..main" | wc -l | tr -d ' ') commits on top, checked and pushed."

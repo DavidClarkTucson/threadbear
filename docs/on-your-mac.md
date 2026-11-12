@@ -194,7 +194,8 @@ File references are where to look.
   `threadbear-land-queue/` there (branch, worktree, commits, process id),
   removed when it's done, and the lock's holder keeps
   `threadbear-land-running.json` (what it's checking, since when) while
-  its check runs.
+  its check runs. `threadbear-land-done/` there keeps, for a week, what
+  landed for a landing whose `tb` was stopped before it heard.
 - **The runner** listens on `127.0.0.1:8797` only, and needs a token
   (`runner/src/config.ts`). It starts the official `claude` and `codex`
   CLIs for your threads. Each thread's CLI gets a key of its own in its

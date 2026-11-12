@@ -298,3 +298,23 @@ test('a cherry-pick of several, stopped and then committed by hand, still holds 
   assert.match(c.err.join('\n'), /in the middle of a cherry-pick or revert .*sequencer/);
   sh(main, 'git cherry-pick --quit');
 });
+
+test("a branch that landed while its tb was stopped is moved to what landed by its next tb land, so nothing lands twice", async () => {
+  const { main } = makeRepo();
+  const [c] = branches(main, ['c']);
+  sh(c.path, 'git commit -q --allow-empty -m "Empty on c"');
+  const asked = sh(c.path, 'git rev-parse HEAD');
+  // What a group check landed for it (as a holder that couldn't move its
+  // branch leaves it): its commits on main.
+  sh(main, `git cherry-pick --allow-empty ${asked}~1 ${asked}`);
+  const landed = sh(main, 'git rev-parse main');
+  const done = path.join(main, '.git', 'threadbear-land-done');
+  fs.mkdirSync(done, { recursive: true });
+  fs.writeFileSync(path.join(done, asked), landed);
+  const out = capture();
+  assert.equal(await land({ ...c, check: 'true' }, out.opts), 0, out.err.join('\n'));
+  assert.match(out.out[0], /landed while its tb was stopped/);
+  assert.equal(out.out[1], `Nothing to land: ${c.branch} has no commits that aren't on main.`);
+  assert.equal(sh(main, 'git log --format=%s main | grep -c "Empty on c"'), '1');
+  assert.ok(!fs.existsSync(path.join(done, asked)));
+});

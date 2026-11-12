@@ -384,6 +384,7 @@ export async function land(t: LandTarget, opts: LandOptions = {}): Promise<numbe
   let entryHeld: (() => Promise<void>) | undefined;
   try {
     await recoverDetached(t, gitDir, out);
+    await recoverLandedFor(t, common, out);
 
     // Refusals, and conflicts with main as it is now, come straight away
     // rather than after the wait. It's done again with the lock held, as
@@ -417,6 +418,9 @@ export async function land(t: LandTarget, opts: LandOptions = {}): Promise<numbe
     try {
       const mine = entry && readEntry(common, entry.id);
       if (mine?.result) return await landedByAnother(t, mine, out);
+      // An earlier tb of this branch, killed, may have landed while this one
+      // waited.
+      await recoverLandedFor(t, common, out);
       return await landLocked(t, opts, { file: timesFile, waitedMs: Date.now() - asked }, common, gitDir, mine?.limit);
     } finally {
       await release();
@@ -426,6 +430,46 @@ export async function land(t: LandTarget, opts: LandOptions = {}): Promise<numbe
     await entryHeld?.();
     if (entry) fs.rmSync(entryLockFile(common, entry.id), { force: true });
     await mineOnly();
+  }
+}
+
+// What landed for a commit whose tb had gone by then (original commit ->
+// landed tip), in the git common dir, so its next tb land moves its branch
+// there before anything else, even if this one couldn't (the worktree was
+// busy or had changes). Otherwise that tb land would rebase the original
+// again, and a commit made empty on purpose would land twice.
+const landedForDir = (common: string): string => path.join(common, 'threadbear-land-done');
+
+function writeLandedFor(common: string, commit: string, landed: string): void {
+  try {
+    fs.mkdirSync(landedForDir(common), { recursive: true });
+    fs.writeFileSync(path.join(landedForDir(common), commit), landed);
+    // Old ones go: a branch moved on long since won't match them.
+    const old = Date.now() - 7 * 24 * 3600_000;
+    for (const f of fs.readdirSync(landedForDir(common))) {
+      const file = path.join(landedForDir(common), f);
+      if (fs.statSync(file).mtimeMs < old) fs.rmSync(file, { force: true });
+    }
+  } catch {
+    // moveGoneBranch still tries.
+  }
+}
+
+async function recoverLandedFor(t: LandTarget, common: string, out: (line: string) => void): Promise<void> {
+  const head = await gitOut(t.path, ['rev-parse', 'HEAD']);
+  if (!head || !/^[0-9a-f]{40,64}$/.test(head)) return;
+  const file = path.join(landedForDir(common), head);
+  let landed: string;
+  try {
+    landed = fs.readFileSync(file, 'utf8').trim();
+  } catch {
+    return;
+  }
+  if ((await gitOut(t.path, ['rev-parse', '--abbrev-ref', 'HEAD'])) !== t.branch) return;
+  if (!(await git(t.path, ['merge-base', '--is-ancestor', landed, `refs/heads/${MAIN}`])).ok) return;
+  if ((await git(t.path, ['reset', '-q', '--keep', landed])).ok) {
+    out(`An earlier tb land of ${t.branch} landed while its tb was stopped; the branch is moved to what landed.`);
+    fs.rmSync(file, { force: true });
   }
 }
 
@@ -1034,7 +1078,10 @@ async function landLocked(
         // One whose tb has gone never hears: move its branch here, as it
         // would have, or its next tb land would land a commit made empty
         // on purpose a second time (rebase keeps those).
-        if (!(await ownerWaiting(common, g.entry))) await moveGoneBranch(g.entry, g.tip);
+        if (!(await ownerWaiting(common, g.entry))) {
+          writeLandedFor(common, g.entry.commit, g.tip);
+          await moveGoneBranch(g.entry, g.tip);
+        }
       }
       const moved = (await git(t.path, ['update-ref', `refs/heads/${t.branch}`, checked, own])).ok &&
         (await git(t.path, ['checkout', '-q', t.branch])).ok;
