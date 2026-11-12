@@ -34,13 +34,22 @@ When("I'm looking at the app", async function (this: ThreadbearWorld) {
   await this.app.do({ cmd: 'focus' });
 });
 
-When('the agent asks to show the {string} panel', async function (this: ThreadbearWorld, panel: string) {
-  const d = await this.app.dump();
+async function askToShow(world: ThreadbearWorld, panel: string, reload: boolean): Promise<void> {
+  const d = await world.app.dump();
   const threadId = d.selection?.id;
   assert.ok(threadId, 'no thread open');
-  const out = await this.app.do({ cmd: 'mock', method: 'showPanel', params: { threadId, panel } });
+  const out = await world.app.do({ cmd: 'mock', method: 'showPanel', params: { threadId, panel, ...(reload ? { reload: true } : {}) } });
   const requestId = JSON.parse(out.replace(/^(\w+ )?ok /, '')).request.id as string;
-  requested.set(this, { threadId, requestId });
+  requested.set(world, { threadId, requestId });
+}
+
+When('the agent asks to show the {string} panel', async function (this: ThreadbearWorld, panel: string) {
+  await askToShow(this, panel, false);
+});
+
+// show_panel with reload: an agent that just changed the panel's page.
+When('the agent asks to show the {string} panel, reloaded', async function (this: ThreadbearWorld, panel: string) {
+  await askToShow(this, panel, true);
 });
 
 Then('the dock has the {string} panel', async function (this: ThreadbearWorld, panel: string) {

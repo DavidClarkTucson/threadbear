@@ -246,6 +246,25 @@ Feature: Web pages in a thread's panels
     When I press the control "Open in browser"
     Then the page server's page opened in the browser
 
+  # show_panel's reload: an agent that just changed its page puts the new
+  # version in front of Mike, from the panel's own address, wherever its
+  # links had taken it. The Swift app does it too, but its web views can't
+  # be read from a script.
+  @panel.web @panel.requests @web-runtime @swift-pending
+  Scenario: An agent's show_panel with reload brings the panel up on its own page again
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And I'm looking at the app
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When I click the panel page's link "#next"
+    Then the panel shows the page "Second page"
+    When I show the "threadbear.highlights" section of the pane
+    And the agent asks to show the "mock.page" panel, reloaded
+    Then the runner heard the panel was shown
+    And the panel shows the page "Panel home"
+
   # The Swift app has WebKit, so it never asks.
   @panel.web @web-prompt @swift-pending
   Scenario: Without the web runtime a url panel asks for it, and still opens in the browser

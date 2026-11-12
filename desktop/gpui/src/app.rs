@@ -580,6 +580,17 @@ impl Threadbear {
         // One the thread hasn't got is left for the runner to clear with
         // Mike's next message.
         let Some(panel) = requests::panel(&request, &thread) else { return };
+        if request.reload == Some(true) {
+            crate::web_panels::reload_requested(&thread, &request.panel, cx);
+            // A file opened over the panel from its page would still cover
+            // what the agent changed.
+            let (thread_id, from) = (thread.id.clone(), request.panel.clone());
+            self.side.update(cx, |side, cx| {
+                if side.previews.get(&thread_id).is_some_and(|pv| pv.from == from) {
+                    side.close_preview(&thread_id, cx);
+                }
+            });
+        }
         self.show_requested(&panel, &requests::place(&request), &thread, cx);
         self.tell_panel_shown(&request, &thread);
     }

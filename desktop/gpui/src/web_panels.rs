@@ -392,6 +392,25 @@ impl WebPanels {
     }
 }
 
+/// show_panel's `reload` (`reloadRequested`): a url panel's page back to
+/// its own address, so what the agent just changed is what Mike sees (the
+/// app closes a preview opened over it). A page not made yet loads fresh
+/// when it's drawn, so there's nothing to do for it.
+pub(crate) fn reload_requested(thread: &ThreadSummary, panel_id: &str, cx: &mut App) {
+    let Some(panel) = thread.panels().into_iter().find(|p| p.id == panel_id && p.kind == "url") else { return };
+    let Some(panels) = panels(cx) else { return };
+    let key = match &panel.convex {
+        Some(configured) => format!("convex:{}", panels.read(cx).selected(configured)),
+        None => match panel.url.clone().filter(|u| !u.trim().is_empty()) {
+            Some(url) => url,
+            None => return,
+        },
+    };
+    if let Some(page) = panels.read(cx).page(&key).cloned() {
+        page.reload();
+    }
+}
+
 /// The pane's slot for a page: a page kept from before, placed here this
 /// frame, or (the first time) one made just after it. `parent` is the
 /// window's view.

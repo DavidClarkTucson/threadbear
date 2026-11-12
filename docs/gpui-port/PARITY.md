@@ -2916,8 +2916,12 @@ Fixes from Codex's review of the slice before:
   that's there; a web address, another Mac's file or one that's gone stays a
   link with its alt text, "[alt]", as the Swift app's does. A web picture is
   never fetched.
-- Not here: `reload` (web panels aren't in this app yet), the Browser pane,
-  and the Swift app's 420 by 320 cap on a reply's picture (the kit draws it
+- `reload` on a web panel loads its page again from the panel's own address
+  as it comes up, wherever its links had taken it, and closes a file opened
+  over it (`web_panels::reload_requested`, as `reloadRequested`); a page not
+  made yet just loads when it's drawn. A spec in `web-panels.feature` checks
+  it on GPUI (the Swift app's pages can't be read from a script).
+- Not here: the Browser pane, and the Swift app's 420 by 320 cap on a reply's picture (the kit draws it
   the column's width).
 - Files: `desktop/core/src/{panel_requests,inbox,lib}.rs`,
   `desktop/gpui/src/{app,rows}.rs`, `desktop/gpui/src/rows/markdown.rs`,

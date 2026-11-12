@@ -1306,12 +1306,12 @@ async function dispatch(client, method, p) {
       return { highlight: list.highlights[0] };
     }
     case 'mock.showPanel': {
-      // As the agent's show_panel tool would: {threadId, panel, where?}
+      // As the agent's show_panel tool would: {threadId, panel, where?, reload?}
       // (docs/protocol.md, "Showing panels"). The panel isn't checked.
       const t = need(p.threadId);
       const named = { highlights: 'Highlights', patches: 'Patches', usage: 'Usage', updates: 'Updates' };
       const title = named[p.panel] ?? t.summary.panels?.find((x) => x.id === p.panel)?.title ?? String(p.panel);
-      t.summary.panelRequest = { id: 'pr_' + crypto.randomBytes(4).toString('hex'), panel: String(p.panel), title, ...(p.where ? { where: p.where } : {}), at: iso() };
+      t.summary.panelRequest = { id: 'pr_' + crypto.randomBytes(4).toString('hex'), panel: String(p.panel), title, ...(p.where ? { where: p.where } : {}), ...(p.reload ? { reload: true } : {}), at: iso() };
       broadcastSummary(t.summary.id);
       return { request: t.summary.panelRequest };
     }
