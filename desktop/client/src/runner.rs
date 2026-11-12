@@ -10,9 +10,9 @@ use crate::restart::{PendingRestart, RunnerRestart, PATIENCE};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -177,12 +177,39 @@ pub struct Resend {
     pub landed: Arc<dyn Fn(&Value) -> bool + Send + Sync>,
 }
 
-/// Counts a request waiting its turn behind a restart, until it's done.
-struct Queued<'a>(&'a AtomicUsize);
+/// The order of the requests about this runner's threads: each has a
+/// place from when it's made (`Client::place`) until it's gone, or has gone
+/// out with nothing ahead of it. A request waiting behind a restart goes
+/// when every place before its own has gone. A place is taken where the
+/// request is made, on the app's thread, rather than once its task first
+/// runs: two tasks started one after the other can run in either order, and
+/// the second could otherwise take the first one's turn (Codex's review, 12
+/// Nov).
+#[derive(Default)]
+struct Order {
+    places: Mutex<BTreeSet<u64>>,
+    next: AtomicU64,
+    turn: tokio::sync::Notify,
+}
 
-impl Drop for Queued<'_> {
+/// A request's place in the restart queue's order (`Order`). Dropping it
+/// gives it up.
+pub struct Place {
+    id: u64,
+    order: Arc<Order>,
+}
+
+impl Place {
+    /// Nothing made before this one is still waiting or going.
+    fn is_first(&self) -> bool {
+        self.order.places.lock().unwrap().first() == Some(&self.id)
+    }
+}
+
+impl Drop for Place {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+        self.order.places.lock().unwrap().remove(&self.id);
+        self.order.turn.notify_waiters();
     }
 }
 
@@ -210,10 +237,12 @@ pub struct Client {
     /// new each time, or 0 while there's none: what a held request waits on.
     session: watch::Sender<u64>,
     sessions: AtomicU64,
-    /// Requests for this runner's threads that a restart held, in the order
-    /// they were made, and how many are waiting (`restartQueue`).
-    restart_queue: tokio::sync::Mutex<()>,
-    queued: AtomicUsize,
+    /// Requests for this runner's threads, in the order they were made
+    /// (`restartQueue`).
+    order: Arc<Order>,
+    /// Set as the app quits (`stop_holding`): a held request no longer
+    /// goes, so one kept in the drafts file can't also have been sent.
+    holding_stopped: Mutex<bool>,
     /// How long a message sent while the runner's down waits for it, and
     /// one a restart turned away waits for the new runner. Only tests
     /// change them.
@@ -237,8 +266,8 @@ impl Client {
             restart: Mutex::new(RunnerRestart::default()),
             session: watch::channel(0).0,
             sessions: AtomicU64::new(0),
-            restart_queue: tokio::sync::Mutex::new(()),
-            queued: AtomicUsize::new(0),
+            order: Arc::new(Order::default()),
+            holding_stopped: Mutex::new(false),
             waits: Mutex::new((PATIENCE, Duration::from_secs(30))),
             last_down: Mutex::new(None),
         })
@@ -349,7 +378,40 @@ impl Client {
     /// model he picked first. `progress` hears when it's held and when it
     /// goes.
     pub async fn call_in_restart_order(&self, method: &str, params: Value, progress: ProgressFn) -> Result<Value, RpcError> {
-        self.in_restart_order(method, params, &progress, None).await.map(|v| v.unwrap_or(Value::Null))
+        self.call_in_restart_order_at(self.place(), method, params, progress).await
+    }
+
+    /// `call_in_restart_order` from a place taken when the request was made.
+    pub async fn call_in_restart_order_at(&self, place: Place, method: &str, params: Value, progress: ProgressFn) -> Result<Value, RpcError> {
+        self.in_restart_order(place, method, params, &progress, None).await.map(|v| v.unwrap_or(Value::Null))
+    }
+
+    /// A place in the order of requests about this runner's threads, to
+    /// take where the request is made (`Order`) and hand to
+    /// `send_through_restart` or `call_in_restart_order_at`.
+    pub fn place(&self) -> Place {
+        let id = self.order.next.fetch_add(1, Ordering::SeqCst);
+        self.order.places.lock().unwrap().insert(id);
+        Place { id, order: self.order.clone() }
+    }
+
+    /// As the app quits: requests still held for a restarting runner stay
+    /// held, as their words go in the drafts file. One that has already said
+    /// it's going (`Progress::Sending`) goes.
+    pub fn stop_holding(&self) {
+        *self.holding_stopped.lock().unwrap() = true;
+    }
+
+    /// A held request about to go: it says so, unless the app is quitting.
+    /// The two under one lock, so after `stop_holding` returns every held
+    /// request has either said it's going or never will.
+    fn go(&self, progress: &ProgressFn) -> Result<(), RpcError> {
+        let stopped = self.holding_stopped.lock().unwrap();
+        if *stopped {
+            return Err(RpcError::local(NOT_CONNECTED, "The app is quitting"));
+        }
+        progress(Progress::Sending);
+        Ok(())
     }
 
     /// A message to one of this runner's threads (`AppModel.post`):
@@ -358,11 +420,11 @@ impl Client {
     /// and goes again there, unless the thread shows it arrived. Only for an
     /// idle thread with nothing else on its way to it (`Resend::was_idle`).
     /// Ok(None) when it had arrived after all.
-    pub async fn send_through_restart(&self, params: Value, resend: Resend, progress: ProgressFn) -> Result<Option<Value>, RpcError> {
-        self.in_restart_order("threads.send", params, &progress, Some(&resend)).await
+    pub async fn send_through_restart(&self, place: Place, params: Value, resend: Resend, progress: ProgressFn) -> Result<Option<Value>, RpcError> {
+        self.in_restart_order(place, "threads.send", params, &progress, Some(&resend)).await
     }
 
-    async fn in_restart_order(&self, method: &str, params: Value, progress: &ProgressFn, resend: Option<&Resend>) -> Result<Option<Value>, RpcError> {
+    async fn in_restart_order(&self, place: Place, method: &str, params: Value, progress: &ProgressFn, resend: Option<&Resend>) -> Result<Option<Value>, RpcError> {
         let Some(session) = self.connected_session() else {
             if !self.restart_under_way() {
                 return Err(RpcError::not_connected());
@@ -371,21 +433,21 @@ impl Client {
             progress(Progress::Held);
             log::write("restart", &format!("holding {method} for the new runner"));
             return self
-                .behind_restart(async {
+                .behind_restart(place, async {
                     let hold = self.waits.lock().unwrap().0;
                     let Some(now) = self.wait_for_session(None, hold).await else {
                         return Err(RpcError::local(NOT_CONNECTED, "The runner didn't come back"));
                     };
-                    progress(Progress::Sending);
+                    self.go(progress)?;
                     let first = self.call(method, params.clone()).await;
                     self.settle(first, now, method, &params, progress, resend).await
                 })
                 .await;
         };
-        if self.queued.load(Ordering::SeqCst) > 0 {
+        if !place.is_first() {
             progress(Progress::Held);
             return self
-                .behind_restart(async {
+                .behind_restart(place, async {
                     // The connection by the time its turn comes. The one
                     // ahead may have given up waiting while the old runner
                     // still answers, so this one gets its own wait.
@@ -396,13 +458,24 @@ impl Client {
                             self.wait_for_session(Some(session), resend_wait).await.ok_or_else(RpcError::not_connected)?
                         }
                     };
-                    progress(Progress::Sending);
+                    self.go(progress)?;
                     let first = self.call(method, params.clone()).await;
                     self.settle(first, now, method, &params, progress, resend).await
                 })
                 .await;
         }
-        let first = self.call(method, params.clone()).await;
+        // Nothing made before it is waiting: it goes now, and gives up its
+        // place once it's on its way, so one made after it can't get there
+        // first.
+        let first = {
+            let mut call = std::pin::pin!(self.call(method, params.clone()));
+            let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(call.as_mut().poll(cx))).await;
+            drop(place);
+            match polled {
+                std::task::Poll::Ready(done) => done,
+                std::task::Poll::Pending => call.await,
+            }
+        };
         let again = matches!(&first, Err(e) if self.restart_under_way() && (e.turned_away_by_restart() || Self::may_resend(e, method, resend)));
         if !again {
             return first.map(Some);
@@ -412,7 +485,7 @@ impl Client {
         if first.as_ref().is_err_and(RpcError::turned_away_by_restart) {
             progress(Progress::Held);
         }
-        self.behind_restart(self.settle(first, session, method, &params, progress, resend)).await
+        self.behind_restart(self.place(), self.settle(first, session, method, &params, progress, resend)).await
     }
 
     /// A message cut off on its way that may have never arrived, to an idle
@@ -475,7 +548,7 @@ impl Client {
             }
         }
         log::write("send", &format!("sending again after the restart cut it off: {id}"));
-        progress(Progress::Sending);
+        self.go(progress)?;
         self.call("threads.send", params).await.map(Some)
     }
 
@@ -492,17 +565,27 @@ impl Client {
             return Err(error);
         }
         log::write("restart", &format!("sending {method} again after the restart"));
-        progress(Progress::Sending);
+        self.go(progress)?;
         self.call(method, params.clone()).await
     }
 
-    /// Runs `step` once everything already waiting behind the restart has
-    /// gone (`behindRestart`). The queue is first come, first served.
-    async fn behind_restart<T>(&self, step: impl Future<Output = T>) -> T {
-        self.queued.fetch_add(1, Ordering::SeqCst);
-        let _counted = Queued(&self.queued);
-        let _turn = self.restart_queue.lock().await;
-        step.await
+    /// Runs `step` once every request made before `place` has gone
+    /// (`behindRestart`), then gives the place up.
+    async fn behind_restart<T>(&self, place: Place, step: impl Future<Output = T>) -> T {
+        loop {
+            // Listening before looking, so a place given up in between
+            // still wakes it.
+            let turn = self.order.turn.notified();
+            let mut turn = std::pin::pin!(turn);
+            turn.as_mut().enable();
+            if place.is_first() {
+                break;
+            }
+            turn.await;
+        }
+        let out = step.await;
+        drop(place);
+        out
     }
 
     /// A connection that's signed in and isn't `old`, within `wait`

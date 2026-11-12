@@ -31,10 +31,12 @@ Feature: Staying connected to the runner
   # The runner restarts onto main several times a day. A message sent while it's
   # away waits in the transcript and goes once it's back, rather than bouncing
   # back into the box (Mike, 9 Nov).
+  # Gone long enough for the typing: a scripted app on a check host's software
+  # renderer types about ten characters a second.
   @transcript.pending
   Scenario: A message sent while the runner restarts waits for it and goes once it's back
     When I open the thread "Morning brief"
-    And the runner restarts and is gone for 6 seconds
+    And the runner restarts and is gone for 12 seconds
     And the app has lost the runner
     And I send "Check the backups once you're back"
     Then the transcript's last row reads "(waiting for the runner) Check the backups once you're back"

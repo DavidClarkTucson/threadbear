@@ -328,6 +328,9 @@ impl Threadbear {
         let frame = cx.observe_window_bounds(window, |this, window, cx| this.window_frame_changed(window, cx));
         // What's typed and not sent is written as the app quits (drafts.rs).
         let quitting = cx.on_app_quit(|this, cx| {
+            // Messages still held for a restarting runner stay held, so the
+            // drafts written next can keep them without one also going.
+            this.client.stop_holding();
             this.save_drafts(cx);
             // A setting changed in the last moment waits for the throttled
             // save (`save_settings_soon`), which a quit would otherwise lose.
@@ -1169,8 +1172,9 @@ impl Threadbear {
         params["threadId"] = json!(id);
         let client = self.client.clone();
         let remote = before.as_ref().is_some_and(|t| t.runner_id.is_some());
+        let going = crate::call_for_thread(client, remote, "threads.update", params);
         cx.spawn(async move |this, cx| {
-            let res = crate::call_for_thread(client, remote, "threads.update", params).await;
+            let res = going.await;
             this.update(cx, |this, cx| {
                 if let Some(key) = &busy {
                     this.chip_busy.remove(key);

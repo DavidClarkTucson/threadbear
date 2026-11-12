@@ -309,12 +309,14 @@ impl Threadbear {
             params["answers"] = answers;
         }
         let client = self.client.clone();
+        // Its place in the order of this runner's requests, from the click.
+        let place = (!remote).then(|| client.place());
         cx.spawn(async move |this, cx| {
             // The card says "Sending to" with its spinner meanwhile, held or not.
-            let res = if remote {
-                call(client, "threads.send", params).await
+            let res = if let Some(place) = place {
+                crate::RT.spawn(async move { client.call_in_restart_order_at(place, "threads.send", params, Arc::new(|_| {})).await }).await.unwrap_or_else(|e| Err(threadbear_client::runner::RpcError { code: -1, message: e.to_string(), data: None }))
             } else {
-                crate::RT.spawn(async move { client.call_in_restart_order("threads.send", params, Arc::new(|_| {})).await }).await.unwrap_or_else(|e| Err(threadbear_client::runner::RpcError { code: -1, message: e.to_string(), data: None }))
+                call(client, "threads.send", params).await
             };
             this.update(cx, |this, cx| {
                 if let Err(e) = res {

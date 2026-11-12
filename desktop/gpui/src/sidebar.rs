@@ -512,8 +512,9 @@ impl Threadbear {
         params["threadId"] = json!(id);
         let client = self.client.clone();
         let remote = before.as_ref().is_some_and(|t| t.runner_id.is_some());
+        let going = crate::call_for_thread(client, remote, "threads.update", params);
         cx.spawn(async move |this, cx| {
-            let res = crate::call_for_thread(client, remote, "threads.update", params).await;
+            let res = going.await;
             this.update(cx, |this, cx| {
                 if let Err(e) = res {
                     this.list_error = Some(e.message);

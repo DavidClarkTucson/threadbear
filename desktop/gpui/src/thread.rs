@@ -109,16 +109,18 @@ thread_local! {
     /// its thread, so one still held for a restarting runner when the app
     /// quits is kept with the drafts and comes back in the box next time
     /// (Swift's `heldForResend` into DraftStore), rather than lost.
-    static OUTBOX_DRAFTS: std::cell::RefCell<HashMap<String, (String, crate::composer::RestoreDraft)>> = std::cell::RefCell::new(HashMap::new());
+    /// With whether it's held now: set from the connection's task as it
+    /// says so, not from the transcript's copy, which hears a moment later.
+    static OUTBOX_DRAFTS: std::cell::RefCell<HashMap<String, (String, crate::composer::RestoreDraft, Arc<std::sync::atomic::AtomicBool>)>> = std::cell::RefCell::new(HashMap::new());
 }
 
 /// The boxes' words of a thread's messages still held for the new runner,
 /// oldest first, for the drafts file.
 pub(crate) fn held_drafts(thread_id: &str) -> Vec<crate::composer::RestoreDraft> {
+    use std::sync::atomic::Ordering;
     outbox(thread_id)
         .iter()
-        .filter(|m| m.waiting_for_runner)
-        .filter_map(|m| OUTBOX_DRAFTS.with(|d| d.borrow().get(&m.id).filter(|(t, _)| t == thread_id).map(|(_, draft)| draft.clone())))
+        .filter_map(|m| OUTBOX_DRAFTS.with(|d| d.borrow().get(&m.id).filter(|(t, _, held)| t == thread_id && held.load(Ordering::SeqCst)).map(|(_, draft, _)| draft.clone())))
         .collect()
 }
 
@@ -706,8 +708,17 @@ impl ThreadPane {
         // sent again if it never arrived (`Resend::was_idle`).
         let was_idle = !self.summary.busy() && list.len() == 1;
         set_outbox(&thread_id, list);
+        let held = Arc::new(std::sync::atomic::AtomicBool::new(holding));
         if let Some(draft) = &draft {
-            OUTBOX_DRAFTS.with(|d| d.borrow_mut().insert(pending_id.clone(), (thread_id.clone(), draft.clone())));
+            // A card's answers aren't in the box's words: the message as it
+            // goes, back in the box's form, so a quit keeps them too.
+            let kept = if draft.card.is_some() {
+                let (words, order) = threadbear_core::composer::edit_draft(&text, images.len());
+                crate::composer::RestoreDraft { text: words, images: order.into_iter().filter_map(|i| images.get(i).cloned()).collect(), card: None }
+            } else {
+                draft.clone()
+            };
+            OUTBOX_DRAFTS.with(|d| d.borrow_mut().insert(pending_id.clone(), (thread_id.clone(), kept, held.clone())));
         }
         self.show_outbox(cx);
         self.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
@@ -722,13 +733,21 @@ impl ThreadPane {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<SendStep>();
         let told = tx.clone();
         let progress: ProgressFn = Arc::new(move |p| {
+            // At once, from the connection's task: the quit's drafts read it
+            // straight after `stop_holding` (`held_drafts`).
+            held.store(p == Progress::Held, std::sync::atomic::Ordering::SeqCst);
             let _ = told.unbounded_send(SendStep::Progress(p));
         });
         let probe = message.clone();
         let resend = Resend { thread_id: thread_id.clone(), after_seq: message.after_seq, was_idle, landed: Arc::new(move |v: &Value| Event::decode(v).is_some_and(|e| probe.is_landed_by(&e))) };
         let client = self.client.clone();
+        // Its place among this runner's requests, from the click (`Place`).
+        let place = (!remote).then(|| client.place());
         RT.spawn(async move {
-            let res = if remote { client.call("threads.send", params).await.map(Some) } else { client.send_through_restart(params, resend, progress).await };
+            let res = match place {
+                Some(place) => client.send_through_restart(place, params, resend, progress).await,
+                None => client.call("threads.send", params).await.map(Some),
+            };
             let _ = tx.unbounded_send(SendStep::Done(res));
         });
         let title = self.summary.title.clone();

@@ -498,6 +498,63 @@ Fixes from Codex's review of the slice before:
   popover from the debug build on Tinker Desk. The menus Mike's installed
   app had before: read from the menu bar with System Events (Edit missing,
   Window with Fill, Center and the window list from AppKit already).
+### 2026-11-12 Sending through a runner restart, the runner's notices, the restart banner, and an app log (`transcript.pending`, `banner.connection`, `banner.error`, `patches.run`, `system.applog`)
+
+- A message, a card's answers or a decision sent while the runner restarts
+  waits under its bubble ("Runner restarting. Sends when it's back.") and
+  goes on the new runner, as the Swift app's `post` does: the connection
+  keeps the Swift `RunnerRestart` (`desktop/client/src/restart.rs`), holds
+  requests for this runner's threads in the order they were made, sends
+  again one the old runner turned away (thread not found, handing over,
+  restarting), and sends again one cut off on its way to an idle thread
+  only if the thread doesn't show it arrived. Messages on their way live in
+  a per-thread outbox, so switching threads, the reload after reconnecting
+  and a quit (held ones go in the drafts file) keep them. `threads.update`
+  goes in restart order too.
+- A send that fails puts its words back (joined with anything typed since)
+  and says so in the error bar, naming the thread, until it's dismissed.
+  With no runner and no restart under way, the words stay in the box.
+- It reconnects every half second while a restart is under way, and never
+  waits more than 2 s between tries on this Mac's own runner. The sidebar no
+  longer shows the connection's raw error; an unexpected drop goes
+  unmentioned for 3 s, then the banner says "Can't reach the runner." with
+  why in plain words in its tooltip (Mike, 12 Nov; the Swift app warns at
+  once, so that scenario is `@swift-pending`).
+- Per-call timeouts as `RunnerAPI`'s: Land 61 minutes, other command chips
+  11, `threads.hibernateWhen` and the Convex panel's slow calls 150 s, the
+  rest 2 minutes, so a chip keeps its spinner until the real answer.
+- `runner.notice` warnings and errors go in the error bar. The restart
+  banner says how many threads it waits for and which on hover, then a CLI
+  update under way or failed (with Dismiss). A click from a menu says what
+  it's doing in the banner (copying the transcript, deleting a chat,
+  cancelling a move), and "Transcript copied" after.
+- The app log: `~/Library/Logs/Threadbear/desktop.log` for the installed
+  app, `app.log` beside a scripted app's automation file; the connection,
+  failed requests, notices, held sends and scripted commands, never a
+  message's words.
+- Not done: the Swift app's "Getting <file> from <Mac>…" note (GPUI opens
+  another Mac's file only in the pane, which shows its own loading state).
+- Files: `desktop/client/src/{restart,log,runner}.rs`,
+  `desktop/client/tests/restart_hold.rs`, `desktop/core/src/reducer/pending.rs`,
+  `desktop/core/tests/pending_message_tests.rs`, `desktop/gpui/src/{thread,
+  composer,header,app,sidebar,shell,main,app_log,automation,move_sheet,
+  project_decisions}.rs`, `desktop/gpui/src/rows/export.rs`,
+  `app/Tools/mock-runner/server.mjs`, `features/connection.feature`,
+  `features/steps/connection.steps.ts`, `features/support/{driver,gpui,swift}.ts`.
+- Codex reviewed it twice (gpt-6.1-sol, high). Fixed from those: a failed
+  held message joins what's in the box, and waits while an older message
+  is being edited; held messages go in the drafts file at a quit (a card's
+  answers as the message's words), and a quit stops them going so they
+  can't go twice; one echo lands only one of two identical messages; the
+  runner's "restarting, send again" refusal goes again; and each request
+  takes its place in the restart queue where it's made (`Client::place`),
+  so a held message can't be overtaken by a later one, even when it's cut
+  off again.
+- Verification: `cargo test -p threadbear-client -p threadbear-core` on the
+  cloud box (`restart_hold.rs` 19 tests, `pending_message_tests.rs`), and
+  `TB_APP=gpui` cucumber for `@transcript.pending`, `@banner.connection`,
+  `@banner.error` and `@system.applog`: 14 scenarios passed, including the
+  one that fails if the raw connection error shows during a restart.
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 

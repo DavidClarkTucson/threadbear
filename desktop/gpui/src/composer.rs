@@ -1333,11 +1333,18 @@ impl Composer {
 
 impl Render for Composer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Some(restore) = self.restore.take() {
-            self.apply_restore(restore, window, cx);
-        }
+        // The box as it was before an edit that's just gone, first: it
+        // replaces what's there, so anything given back goes after it.
         if let Some((text, images)) = self.pending_box.take() {
             self.set_box(text, images, window, cx);
+        }
+        // While an older message is being edited, what's given back waits
+        // for the edit to end, rather than join it and go with it, or be
+        // lost with it on Cancel (Codex's review, 12 Nov).
+        if self.editing.is_none() {
+            if let Some(restore) = self.restore.take() {
+                self.apply_restore(restore, window, cx);
+            }
         }
         self.renumber_chips(cx);
         // With answers picked the box is for anything else; under asks with

@@ -158,13 +158,18 @@ pub async fn call(client: Arc<Client>, method: impl Into<String>, params: Value)
 /// so a pick the restarting runner turns away goes again on the new one,
 /// and nothing made later lands before it. With no connection it fails, as
 /// before; another Mac's thread goes as it is.
-pub async fn call_for_thread(client: Arc<Client>, remote: bool, method: &'static str, params: Value) -> Result<Value, RpcError> {
-    if remote || client.connected_session().is_none() {
-        return call(client, method, params).await;
+/// Its place in that order is taken as this is called, where the click is
+/// handled, so call it there and await it later, not inside a task.
+pub fn call_for_thread(client: Arc<Client>, remote: bool, method: &'static str, params: Value) -> impl std::future::Future<Output = Result<Value, RpcError>> + 'static {
+    let place = (!remote && client.connected_session().is_some()).then(|| client.place());
+    async move {
+        let Some(place) = place else {
+            return call(client, method, params).await;
+        };
+        RT.spawn(async move { client.call_in_restart_order_at(place, method, params, Arc::new(|_| {})).await })
+            .await
+            .unwrap_or_else(|e| Err(RpcError { code: -1, message: e.to_string(), data: None }))
     }
-    RT.spawn(async move { client.call_in_restart_order(method, params, Arc::new(|_| {})).await })
-        .await
-        .unwrap_or_else(|e| Err(RpcError { code: -1, message: e.to_string(), data: None }))
 }
 
 pub fn now_ms() -> i64 {
