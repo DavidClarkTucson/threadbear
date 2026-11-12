@@ -147,6 +147,15 @@ export class GpuiDriver implements Driver {
     });
   }
 
+  /** Beside the automation file, where a scripted app writes its log (app_log.rs). */
+  async appLog(): Promise<string> {
+    try {
+      return fs.readFileSync(path.join(this.home, 'app.log'), 'utf8');
+    } catch {
+      return '';
+    }
+  }
+
   async relaunch(): Promise<void> {
     this.socket?.destroy();
     this.socket = undefined;

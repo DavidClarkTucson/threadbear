@@ -1729,9 +1729,22 @@ async function dispatch(client, method, p) {
       failingEvents.set(t.summary.id, Number(p.times ?? 1));
       return { ok: true };
     }
-    case 'mock.clis':
+    case 'mock.clis': {
       if (p.wentBack) return wentBack();
+      // { failed: { provider, message } }: that CLI's update failed, as the
+      // runner reports one (the apps' banner says so until it's dismissed).
+      const cli = p.failed && clis.find((c) => c.provider === p.failed.provider);
+      if (cli) {
+        cli.update = { state: 'failed', targetVersion: cli.latestVersion, finishedAt: iso(), message: String(p.failed.message ?? '') };
+        broadcastClis();
+      }
       return { clis };
+    }
+    // A runner.notice to every client, as the runner sends its warnings and
+    // errors: { level: "info" | "warning" | "error", message }.
+    case 'mock.notice':
+      broadcastNotice(p.level ?? 'warning', String(p.message ?? ''));
+      return { ok: true };
     case 'mock.stream':
       return startStream(need(p.threadId).summary.id, p);
     // A thread with the id and title given, idle with nothing in it, for a
