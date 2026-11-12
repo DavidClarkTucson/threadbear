@@ -387,6 +387,9 @@ pub(crate) fn select_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_j
 /// item the kit laid out as its own text, in window points: "ok [{text, x,
 /// y, w, h}]". For a script that drags across them with the real pointer
 /// (features/tools/real-select.ts), which needs to know where to press.
+/// The row's place is its index in its own thread, so with two threads'
+/// panels open this finds the same row of both, as `find_link` would
+/// (reply_links.rs): open the one thread.
 #[cfg(feature = "automation")]
 pub(crate) fn text_lines_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_json::Value, window: &mut Window, cx: &mut App) -> Result<serde_json::Value, String> {
     use gpui_kit::test::TestWindowExt as _;

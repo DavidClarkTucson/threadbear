@@ -84,14 +84,23 @@ try {
     const during: Selection[] = [];
     let done = false;
     child.stdout.on('data', (d) => d.toString().includes('releasing') && (done = true));
-    const exited = new Promise((resolve) => child.on('exit', resolve));
+    // Done too if it ends without saying so (a crash), and in any case well
+    // after the drag should have: never a poll that goes on for ever.
+    let code: number | null = null;
+    const exited = new Promise((resolve) => child.on('exit', (c) => { code = c; done = true; resolve(c); }));
+    const deadline = Date.now() + (press + steps * step) * 1000 + 15_000;
     // Not the first moment: the press itself.
     await sleep(450);
     while (!done) {
+      if (Date.now() > deadline) {
+        child.kill();
+        throw new Error('the drag never said it was releasing');
+      }
       during.push(await selection());
       await sleep(120);
     }
     await exited;
+    if (code !== 0) throw new Error(`realselect drag ended with ${code}`);
     await sleep(400);
     return { during, after: await selection() };
   }
