@@ -696,7 +696,7 @@ mod highlighter_tests {
 /// can't select across rows: each is a text view of its own.)
 #[cfg(all(test, feature = "automation"))]
 mod across_tests {
-    use gpui_kit::base::{SelectableText, TextSelection, TextView, TextViewState};
+    use gpui_kit::base::{SelectableText, TextSelection, TextViewState};
     use gpui_kit::prelude::*;
     use gpui_kit::test::{TestEventExt as _, TestWindowExt as _};
     // By name: a glob of the kit would bring its `test` over the one the
@@ -712,7 +712,7 @@ mod across_tests {
             div()
                 .size_full()
                 .child(div().w(px(320.)).child(SelectableText::new(("user-text", 0usize), "Where do things stand")))
-                .child(div().w(px(320.)).child(TextView::new(&self.reply).selectable(true).shared_code_block_highlighter(super::plain_code_blocks())))
+                .child(div().w(px(320.)).child(crate::open_gate::text_view(&self.reply, crate::open_gate::Origin::ThisMac, "").selectable(true).shared_code_block_highlighter(super::plain_code_blocks())))
         }
     }
 
