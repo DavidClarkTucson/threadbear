@@ -163,6 +163,7 @@ impl Threadbear {
                 // Its page takes the thread's place, and the list the
                 // keyboard, so Esc there goes back to the Inbox.
                 window.focus(&this.sidebar.focus, cx);
+                crate::web_panels::keyboard_to_app(window);
             }, cx));
         }
         if self.projects_supported {
@@ -175,6 +176,7 @@ impl Threadbear {
                 // Its page takes the thread's place, and the list the
                 // keyboard, so Esc there goes back to the Inbox.
                 window.focus(&this.sidebar.focus, cx);
+                crate::web_panels::keyboard_to_app(window);
             }, cx));
             let mut button = RailButton::new("rail-librarian", "books.vertical", "Librarian", mode == SidebarMode::Librarian);
             button.tip = self.shortcut_tip("Librarian", ShortcutCommand::ShowLibrarian);
@@ -187,6 +189,7 @@ impl Threadbear {
                 // Its page takes the thread's place, and the list the
                 // keyboard, so Esc there goes back to the Inbox.
                 window.focus(&this.sidebar.focus, cx);
+                crate::web_panels::keyboard_to_app(window);
             }, cx));
         }
         // Connectors, Runners and Updates at the foot (activity_panels.rs),

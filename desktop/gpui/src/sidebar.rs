@@ -128,6 +128,7 @@ impl Threadbear {
         self.open(next.clone(), window, cx);
         // Opening puts the cursor in the thread's box; the arrows keep it here.
         window.focus(&self.sidebar.focus, cx);
+        crate::web_panels::keyboard_to_app(window);
         self.reveal_row(&next, cx);
     }
 

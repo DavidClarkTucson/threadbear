@@ -303,6 +303,7 @@ impl SettingsWindow {
         };
         bind_sidebar_keys(cx);
         window.focus(&this.sidebar_focus, cx);
+        crate::web_panels::keyboard_to_app(window);
         this.follow_saved_instructions(instructions_now, window, cx);
         this
     }

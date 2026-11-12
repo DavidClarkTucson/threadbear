@@ -331,6 +331,7 @@ impl Threadbear {
         if panel.popover {
             let focus = panel.popover_focus.get_or_insert_with(|| cx.focus_handle()).clone();
             window.focus(&focus, cx);
+            crate::web_panels::keyboard_to_app(window);
         }
         cx.notify();
     }
