@@ -229,3 +229,30 @@ test("a target whose copy is being written to stays, though nothing in the targe
   assert.deepEqual(h.left(), ['target-aaa', 'target-bbb']);
   assert.ok(fs.existsSync(path.join(h.base, 'src-bbb', 'just-copied')));
 });
+
+test("old temp files go, but a SwiftPM lock file stays while the copy it's named for is here", (t) => {
+  const h = host(t, 400, { 'src-aaa': 0, 'target-aaa': 0 });
+  fs.mkdirSync(path.join(h.base, 'tmp'));
+  // Only holding a lock file open shows it's in use, not its time.
+  const live = '_Users_x_.cache_threadbear-check_gpui_src-aaa_app_.build.lock';
+  const dead = '_Users_x_.cache_threadbear-check_gpui_src-zzz_app_.build.lock';
+  for (const [name, hoursAgo] of [['old.txt', 72], ['new.txt', 1], [live, 72], [dead, 72]] as const) {
+    const p = path.join(h.base, 'tmp', name);
+    fs.writeFileSync(p, '');
+    const when = new Date(Date.now() - hoursAgo * HOUR);
+    fs.utimesSync(p, when, when);
+  }
+  assert.equal(h.trim().status, 0);
+  assert.deepEqual(fs.readdirSync(path.join(h.base, 'tmp')).sort(), [live, 'new.txt']);
+});
+
+test("a trim waits for another one on the same host, so a run can't start between its look and its move", (t) => {
+  const h = host(t, 40, {});
+  // Another trim holding the lock for 3 s. Only the trim's own time counts:
+  // the pipe waits for the holder either way.
+  const holder = path.join(h.root, 'hold.pl');
+  fs.writeFileSync(holder, 'use Fcntl ":flock"; open(my $f, "<", ".") or die; flock($f, LOCK_EX) or die; $| = 1; print "held\\n"; sleep 3;');
+  const r = spawnSync('/bin/bash', ['-c', `perl ${JSON.stringify(holder)} | { read -r _; SECONDS=0; bash ${JSON.stringify(TRIM)} aaa; echo "took $SECONDS"; }`], { cwd: h.base, env: h.env, encoding: 'utf8', timeout: 20_000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(Number(/took (\d+)/.exec(r.stdout)![1]) >= 2, r.stdout);
+});

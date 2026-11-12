@@ -86,6 +86,39 @@ evict() {
   return 0
 }
 
+# One trim at a time on a host, holding a lock (fd 8, so it goes when this
+# does, however it ends) from before it decides a folder is idle until it's
+# gone, and this checkout's own folders are marked used under the same lock.
+# That closes the instant the second look in evict leaves: a run starting
+# between another trim's look and its move. A remote.sh from before this lock
+# still has that instant. The lock is on this folder itself, not a file in it,
+# so a disk too full to make a file still takes turns. perl for macOS, which
+# has no flock command.
+exec 8<.
+if command -v flock >/dev/null 2>&1; then flock 8
+else perl -e 'use Fcntl ":flock"; open(my $f, "<&=", 8) or die "trim: no lock: $!\n"; flock($f, LOCK_EX) or die "trim: lock: $!\n"' || exit 1; fi
+if [ "$own" != - ]; then
+  mkdir -p "src-$own" "target-$own" 2>/dev/null
+  touch "src-$own" "target-$own" 2>/dev/null
+fi
+
+# Runs' temp files (TMPDIR for every remote.sh run) that nothing has touched for
+# a couple of days: 19,000 of them on Tinker Desk, 12 Nov. SwiftPM's lock files
+# are kept while the copy they're named for is here: one is reused by every
+# Swift build in that copy, and only holding it open shows it's in use, not its
+# time, so deleting it would let two builds each take a lock of their own.
+if [ -d tmp ]; then
+  find tmp -mindepth 1 -maxdepth 1 -mtime +2 2>/dev/null | while IFS= read -r f; do
+    case "$f" in
+      *.lock)
+        k="${f#*_gpui_src-}"
+        if [ "$k" != "$f" ]; then [ -e "src-${k%%_*}" ] && continue
+        else case "$f" in *_gpui_src_*) [ -e src ] && continue ;; esac; fi ;;
+    esac
+    rm -rf "$f"
+  done
+fi
+
 # The one folder every checkout shared before they each got their own.
 evict target
 # Past the cap first, whatever the room: the newest MAX_TARGETS stay (this

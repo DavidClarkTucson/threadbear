@@ -410,11 +410,13 @@ LOW="" LOW_COPY=""
 # folder: as its probe gave it, already checked as a plain path, or \$HOME's
 # when the probe couldn't run, for the host to expand. Sent in the command,
 # not on stdin, as watched runs ssh in the background, where stdin is empty.
+# Under a time limit of its own, so a host stuck deleting doesn't keep the
+# other hosts from being tried.
 TRIM="$ROOT/desktop/scripts/trim-remote-cache.sh"
 make_room() {
   [ -f "$TRIM" ] || return 1
   local kb
-  watched "$1" "${SSH[@]}" "$1" "cd \"$2/gpui\" 2>/dev/null || exit 0; bash -c \"\$(printf %s '$(base64 <"$TRIM" | tr -d '\n')' | base64 -d)\" trim -" </dev/null || true
+  timed 600 "${SSH[@]}" "$1" "cd \"$2/gpui\" 2>/dev/null || exit 0; bash -c \"\$(printf %s '$(base64 <"$TRIM" | tr -d '\n')' | base64 -d)\" trim -" </dev/null || true
   kb="$(watched "$1" "${SSH[@]}" "$1" "cd \"$2\" && $free_cmd" 2>/dev/null)" || return 1
   low_on_room "$kb"
   [ $? = 1 ]
