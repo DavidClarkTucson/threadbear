@@ -350,7 +350,14 @@ if `tb` isn't found (an older runner, or outside a thread), use
   (`--dry-run` first if you like; it never pushes). Mike's Land chip does
   the same. If it refuses, it says why and what to fix: commit your
   changes, sort out the conflicting files, fix the check, or wait for
-  whoever has uncommitted changes in main's checkout. You can carry on
+  whoever has uncommitted changes in main's checkout. It also holds a
+  landing that changes what the Desktop app workflow checks (desktop/,
+  features/ and its other paths) while that workflow's last run on main
+  failed on GitHub, naming the run and what failed: the quick check can't
+  see what only GitHub's Macs, Linux and Windows do (red for two days of
+  GPUI landings, 10 to 12 Nov). Fix that red first; `tb land
+  --despite-red` is for the landing that's the fix
+  (docs/thread-worktrees.md, "Red on GitHub"). You can carry on
   after landing; the next `tb land` lands only what's new. Changing a
   `package.json`? Replace the link first: `rm runner/node_modules` (no
   trailing slash, so only the link goes), then `npm ci` there. When the

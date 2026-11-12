@@ -4,6 +4,12 @@
 # for each to download from the run's artifacts.
 # Nothing is signed: the Mac app needs right-click Open the first time, and
 # Windows SmartScreen asks once.
+#
+# tb land holds a landing that changes what this checks while its last run on
+# main failed (runner/src/land-gate.ts, docs/thread-worktrees.md): it was red
+# for two days of GPUI landings (10 to 12 Nov) over what only GitHub's Macs,
+# Linux and Windows see, which tb land's quick check on Tinker Desk can't.
+# tb land: hold while red
 name: Desktop app
 
 on:

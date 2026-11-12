@@ -91,7 +91,9 @@ crash; the empty lock file stays. Separate repos do not block one another.
    into it instead, with the same undo-and-name-the-files on a conflict.
    Then it refuses a commit whose `Important:` line git doesn't read as a
    trailer (not in the last paragraph with `Co-Authored-By`), as a release
-   would not flag it and forks wouldn't hear.
+   would not flag it and forks wouldn't hear. And it holds a landing while
+   a GitHub workflow it would set off is red on main (below, "Red on
+   GitHub").
 3. Reads the patch's `check` after rebasing, and runs it in the worktree,
    if there is one. A patch load error or failing check stops here, with
    the last lines of its output. Changing the branch or leaving changed
@@ -114,6 +116,42 @@ command limit, run `tb land` in the background and collect its result.
 After landing, the branch stays and the thread can carry on: the next
 `tb land` lands only what's new. `tb land --dry-run` does steps 1 to 3 and
 says what would land.
+
+### Red on GitHub
+
+The quick check runs on Tinker Desk or the cloud box, so it can't see what
+only GitHub's machines do: the Desktop app workflow (`desktop.yml`) was red
+on every push of main for two days (10 to 12 Nov) while GPUI landings went
+on top of it, over a Windows link error, GitHub's Macs' bash 3.2 and Linux's
+words for Finder and ⌘Q. Running the behaviour specs in the quick check
+wouldn't have caught any of that (they pass on Tinker Desk), and all of them
+take 15 to 30 minutes a system, so instead the workflow's own result holds
+the next landing.
+
+A workflow opts in with a line of its own in its file:
+
+```yaml
+# tb land: hold while red
+```
+
+After rebasing, `tb land` lists what the branch changes (`git diff
+--name-only main...<branch>`), and for each marked workflow whose `on: push:
+paths:` match any of it (any file at all, with no paths) asks GitHub, with
+`gh run list --workflow <file> --branch main --event push`, how its last
+finished run on main went, past runs cancelled for a newer push. If that
+failed, nothing lands, before the check runs: it names the run, which jobs
+and steps failed, any newer run still going, and the files of the branch the
+workflow checks (`runner/src/land-gate.ts`). It asks again once the check
+has passed, just before main moves, as a run going when it started may have
+failed since. A trigger it can't read (an alias, a list over several lines)
+counts as every file, and a whole page of cancelled runs as "couldn't ask".
+
+Fix what failed first (`gh run view <id> --log-failed`). The landing that is
+that fix, or one made while main already has a fix GitHub hasn't run yet
+(main is only pushed now and then), goes in with `tb land --despite-red`.
+When `gh` isn't installed, isn't signed in or can't reach GitHub, the
+landing goes ahead and says it couldn't ask. Only `desktop.yml` has the mark
+so far.
 
 ### Where a landing's time goes
 

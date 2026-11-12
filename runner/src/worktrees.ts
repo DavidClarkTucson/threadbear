@@ -325,6 +325,11 @@ export type LandOptions = {
   // The CLI reads the patch after rebasing, including changes to the
   // required check made by a landing it just waited for.
   readCheck?: () => Promise<string | undefined>;
+  // Why these files (what the landing changes, from the worktree's root)
+  // can't land now, or undefined: the CLI's is a GitHub workflow that's red
+  // on main (land-gate.ts). Asked after the rebase, before the check, so a
+  // held landing doesn't wait out a check first.
+  hold?: (root: string, files: string[]) => Promise<string | undefined>;
 };
 
 // How many lines of a failed check's output are shown.
@@ -543,6 +548,18 @@ async function landLocked(t: LandTarget, opts: LandOptions, times: { file: strin
     );
   }
 
+  // 2c. Held while something it would set off on GitHub is red on main.
+  // NUL-separated: git quotes a name with other letters in it otherwise
+  // ("desktop/caf\303\251.rs"), which no path filter matches.
+  let changedFiles: string[] = [];
+  if (opts.hold) {
+    const changed = await git(t.path, ['diff', '--name-only', '-z', `${MAIN}...${t.branch}`]);
+    if (!changed.ok) return fail(`Couldn't read what ${t.branch} changes in ${t.path}, so nothing landed. Run tb land again.`);
+    changedFiles = changed.stdout.split('\0').filter(Boolean);
+    const held = await opts.hold(t.path, changedFiles);
+    if (held) return fail(held);
+  }
+
   // 3. The repo's check, in the worktree. Pin what passed, rather than
   // merging a branch name that another process could move during checks.
   const checked = await gitOut(t.path, ['rev-parse', 'HEAD']);
@@ -585,6 +602,13 @@ async function landLocked(t: LandTarget, opts: LandOptions, times: { file: strin
       (await gitOut(t.path, ['rev-parse', '--abbrev-ref', 'HEAD'])) !== t.branch ||
       (await gitOut(t.path, ['status', '--porcelain', '--untracked-files=all'])) !== '') {
     return fail(`The branch or files in ${t.path} changed while the check ran, so nothing landed. Commit the changes and run tb land again.`);
+  }
+
+  // Asked again now the check is done: a run that was going when it started
+  // may have failed since.
+  if (opts.hold && !opts.dryRun) {
+    const held = await opts.hold(t.path, changedFiles);
+    if (held) return fail(held);
   }
 
   if (opts.dryRun) {

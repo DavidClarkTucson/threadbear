@@ -17,6 +17,7 @@ import { findWorktreePatch, isInside } from './patches.ts';
 import { TRUST_ALL } from './patch-trust.ts';
 import { checkoutTop, land, landTargetFromGit, realpath, type LandTarget } from './worktrees.ts';
 import { landRefusal } from './follow-origin.ts';
+import { landHold } from './land-gate.ts';
 import { activityCommand } from './activity.ts';
 import { pairCommand } from './pair.ts';
 import { runnerKeysCommand } from './runner-keys.ts';
@@ -55,6 +56,7 @@ const OPTIONS = {
   system: { type: 'string' },
   remove: { type: 'boolean' },
   'dry-run': { type: 'boolean' },
+  'despite-red': { type: 'boolean' },
   // tb-dev.ts
   last: { type: 'string' },
   tools: { type: 'boolean' },
@@ -142,9 +144,13 @@ const HELP = `tb: talk to the Threadbear runner
   tb models try <job> "text" [--labels a,b] [--field name=description]... [--system S] [--cwd DIR]
                                   one call by hand: classify (--labels), extract (--field),
                                   summarize or generate. It spends like any other
-  tb land [--dry-run]             in a thread's own worktree: rebase its branch on main, run
+  tb land [--dry-run] [--despite-red]
+                                  in a thread's own worktree: rebase its branch on main, run
                                   the repo's check, then move main to it (never pushes);
-                                  --dry-run stops before main moves
+                                  --dry-run stops before main moves. A GitHub workflow
+                                  marked "# tb land: hold while red" holds the landings it
+                                  would run for while it's red on main; --despite-red
+                                  lands anyway, for the fix
   tb pair                         what to copy to another Mac (this runner's token file and
                                   host) so its app can open this Mac's threads
   tb runner add <name> (--ssh <host> | --out <file>) [--id <runnerId>]
@@ -210,7 +216,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   activity: ['since', 'thread', 'summary', 'json'],
   export: ['out'],
   rpc: [],
-  land: ['dry-run'],
+  land: ['dry-run', 'despite-red'],
   pair: [],
   runner: ['ssh', 'out', 'id', 'json', 'finish', 'replace', 'drop', 'snapshot', 'keys-checked', 'lock-out', 'purge'],
 };
@@ -276,7 +282,7 @@ async function main(argv: string[]): Promise<number> {
   // The app's activity log is files on this Mac: no runner needed.
   if (cmd === 'activity') return activityCommand(cfg, values);
   // Works with no runner too: from any thread/ worktree, by git alone.
-  if (cmd === 'land') return landCommand(cfg, Boolean(values['dry-run']));
+  if (cmd === 'land') return landCommand(cfg, Boolean(values['dry-run']), Boolean(values['despite-red']));
   // tb pair and tb runner use this Mac's keys straight from disk, so the
   // runner never sees them to refuse them (tb-connect.ts).
   if (cmd === 'pair' || cmd === 'runner') {
@@ -333,7 +339,7 @@ type Flags = Record<string, string | boolean | string[] | undefined>;
 // worktrees of their own with its THREADBEAR_THREAD_ID, and went for the
 // parent's (GPUI port thread, 11 Nov). The check is the one in that
 // worktree's own patch, so a branch that changes it lands under its own.
-async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean): Promise<number> {
+async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean, despiteRed = false): Promise<number> {
   const here = process.cwd();
   let target: Omit<LandTarget, 'check'> | undefined;
   let from = here;
@@ -378,6 +384,8 @@ async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean):
     // Read after the landing lock and rebase: main may have changed the
     // check while we waited. Running tb land asks for this patch's check.
     readCheck: async () => (await findWorktreePatch(from, undefined, undefined, undefined, TRUST_ALL, true))?.check,
+    // A workflow red on main holds what it would run for (land-gate.ts).
+    hold: despiteRed ? undefined : (root, files) => landHold(root, files, (line) => console.log(line)),
   });
 }
 
