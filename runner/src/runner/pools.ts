@@ -30,6 +30,8 @@ export const poolsPart = {
     if (key === this.poolsShown) return;
     this.poolsShown = key;
     this.notify({ method: 'pools.updated', params: { pools } });
+    // A login added to a pool can carry on its waiting threads.
+    this.armRoomTimer();
   },
 
   listPools(this: Runner): { pools: Pool[] } {
@@ -68,6 +70,7 @@ export const poolsPart = {
       const pools = this.pools();
       this.poolsShown = JSON.stringify(pools);
       this.notify({ method: 'pools.updated', params: { pools } });
+      this.armRoomTimer();
       return { pools };
     }
     const json = readRunnerJson(this.cfg.home);
@@ -78,6 +81,7 @@ export const poolsPart = {
     const pools = this.pools();
     this.poolsShown = JSON.stringify(pools);
     this.notify({ method: 'pools.updated', params: { pools } });
+    this.armRoomTimer();
     return { pools };
   },
 
@@ -164,8 +168,7 @@ export const poolsPart = {
 
   // A turn ended failed with errorKind usageLimit. A pool thread marks the
   // login blocked, moves to the next login with room and carries on by
-  // itself, once; a carry-on that runs dry too waits instead of moving
-  // again, as does a pool with nothing left. A pinned thread never moves:
+  // itself; a pool with nothing left waits. A pinned thread never moves:
   // it waits for its own login to reset and carries on then. Either wait
   // is skipped when Mike turned carrying on off (carryOnAtReset).
   onUsageLimit(this: Runner, st: ThreadState, turnId: string): void {
@@ -188,10 +191,9 @@ export const poolsPart = {
     const accounts = this.usableAccounts();
     const title = was?.title ?? rec.accountId;
     const waits = rec.carryOnAtReset !== false;
-    if (rec.autoCarryOn === turnId) {
-      if (waits) this.startWait(st, roomWait(pool, accounts, now), `${title} hit its usage limit too, so this thread waits rather than move again.`);
-      return;
-    }
+    // A carry-on that runs dry too moves on again while another login has
+    // room (Mike, 12 Nov: it should just carry on). It can't loop: each
+    // login that runs dry is marked blocked until its window resets.
     const next = nextLogin(pool, accounts, rec, now);
     if ('waitUntil' in next) {
       if (waits) this.startWait(st, next, `Every login in ${pool.title} is out of room.`);
@@ -336,8 +338,7 @@ export const poolsPart = {
     this.carryOn(st, moved ? CARRY_ON_MOVED : CARRY_ON_BACK);
   },
 
-  // The runner's own message after a move or a wait. Its turn id is kept,
-  // so if it runs dry too the thread waits rather than move again. While
+  // The runner's own message after a move or a wait. While
   // a restart refuses new turns it waits a minute instead, which the next
   // runner picks up from thread.json.
   carryOn(this: Runner, st: ThreadState, text: string): void {
@@ -349,15 +350,34 @@ export const poolsPart = {
       return;
     }
     try {
-      rec.autoCarryOn = this.sendTo(st, text, [], { origin: 'runner', queue: true });
-      this.markDirty(st);
+      this.sendTo(st, text, [], { origin: 'runner', queue: true });
     } catch (e) {
       this.log.error('could not carry on after a move', { threadId: rec.id, error: String(e) });
     }
   },
 
+  // A pool thread waiting for room whose pool has a login with room now,
+  // so the wait can end early. The time a wait was given is only a guess
+  // from what this runner knew then. On 12 Nov a thread hit its limit
+  // while its turn finished on a draining runner that had started before
+  // a new login joined the pool. That runner said "every login is out of
+  // room" and set a wait for 1 pm, though the new login had 81% left, and
+  // the runner that took the thread over kept the wait.
+  poolHasRoomFor(this: Runner, st: ThreadState): boolean {
+    const { rec } = st;
+    if (rec.carryOnAtReset === false) return false;
+    const pool = this.poolById(rec.poolId);
+    if (!pool) return false;
+    const accounts = this.usableAccounts();
+    const current = accounts.find((a) => a.id === rec.accountId);
+    if (current && pool.accountIds.includes(current.id) && loginOk(current)) return true;
+    return !('waitUntil' in nextLogin(pool, accounts, rec, this.clock.now()));
+  },
+
   // One timer for every thread waiting for room, at the earliest `until`
-  // (looked at again at least hourly, like snoozes).
+  // (looked at again at least hourly, like snoozes). Also run when the
+  // logins, their usage or the pools change, and when a thread comes over
+  // from another runner, so a pool wait ends as soon as there's room.
   armRoomTimer(this: Runner): void {
     if (this.armingRoom) return;
     this.armingRoom = true;
@@ -371,7 +391,7 @@ export const poolsPart = {
         const w = st.rec.waitingForRoom;
         if (!w) continue;
         const t = Date.parse(w.until);
-        if (!(t > now)) this.endWait(st);
+        if (!(t > now) || this.poolHasRoomFor(st)) this.endWait(st);
       }
       let next = Infinity;
       for (const st of this.threads.values()) {

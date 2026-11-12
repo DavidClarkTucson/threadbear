@@ -2125,13 +2125,20 @@ thread to another login when the one it's on runs out of room.
   at its limit resets, or 30 minutes if no reset is known), moves, and
   sends a runner-origin message: "Your last login hit its usage limit
   partway through that turn, so this thread has moved to another one.
-  Carry on from where you left off." Only once per turn: if that carry-on
-  turn hits the limit too, the thread waits rather than move again.
+  Carry on from where you left off." If that carry-on turn hits the limit
+  too, it moves on again while another login has room (since 12 Nov 2026;
+  it used to wait after one move). It can't loop: each login that runs dry
+  stays blocked until its window resets.
 - **Waiting.** When nothing in the pool has room the thread gets
   `waitingForRoom: { until, accountId? }`: the earliest time one of the
   pool's logins is back, plus a minute (30 minutes from now if no reset
   time is known). At `until` it looks again: if a login has room it moves
-  there if need be and carries on by itself; if not, it waits again. Any
+  there if need be and carries on by itself; if not, it waits again. It
+  also looks again, and stops waiting early, whenever the logins, their
+  usage readings or the pools change, and when a thread comes over from
+  another runner: `until` is only a guess from what the runner knew then
+  (12 Nov 2026: a draining runner that had started before a new login
+  joined the pool set a wait though that login had 81% left). Any
   message that starts a turn ends the wait (and goes through the before-a-
   turn check). The wait is kept in `thread.json`, so it survives a restart.
 - **A pinned thread at its limit** (since 10 Nov 2026). A thread with no

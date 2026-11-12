@@ -936,6 +936,9 @@ export class Runner {
   }
 
   sendAccounts(): void {
+    // A login added, or a usage reading that shows room again, can carry
+    // on a thread waiting for room in its pool.
+    this.armRoomTimer();
     const accounts = this.safeAccounts();
     // The built-in pools follow the login list.
     const pools = this.pools(accounts);

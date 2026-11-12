@@ -1,7 +1,7 @@
 // Pools in the runner (docs/protocol.md, "Pools"), with fake adapters and
 // the fake clock: picking a pool and login on create (the named model's
 // provider decides), the move before a turn, the move after a usageLimit
-// failure and its one carry-on, the wait and its timer (across a restart),
+// failure and its carry-on, the wait and its timer (across a restart),
 // the spill to another provider, pinned threads, threads.update poolId,
 // and pools.list / pools.save.
 import { test } from 'node:test';
@@ -253,7 +253,7 @@ test('carryOnAtReset: off ends the wait and stops the next one; on again waits w
 
 // ------------------------------------------------------- during a turn
 
-test('a turn that hits the limit marks the login, moves and carries on once; the carry-on hitting it too waits', async () => {
+test('a turn that hits the limit marks the login, moves and carries on; the carry-on hitting it too with nothing left waits', async () => {
   const h = poolHarness();
   h.setUsage('claude-main', room(80, 300));
   h.setUsage('claude-3', room(40, 120));
@@ -276,7 +276,8 @@ test('a turn that hits the limit marks the login, moves and carries on once; the
   const carry = userMessages(h, thread.id).at(-1);
   assert.equal(carry.origin, 'runner');
   assert.match(notes(h, thread.id)[0], /^Moved to three@example\.com: main@example\.com hit its 5-hour limit, back at /);
-  // The new login fails the same way straight away: no loop, a wait.
+  // The new login fails the same way straight away: both are marked, so
+  // no loop back to main, a wait.
   s2.init();
   limit(s2);
   await tick();
@@ -285,13 +286,89 @@ test('a turn that hits the limit marks the login, moves and carries on once; the
   assert.deepEqual(checkSummary(t), []);
   assert.equal(t.waitingForRoom?.accountId, 'claude-3', 'claude-3 is back first');
   assert.equal(t.waitingForRoom?.until, new Date(START + 121 * MIN).toISOString());
-  assert.match(notes(h, thread.id).at(-1)!, /^three@example\.com hit its usage limit too, so this thread waits rather than move again\. Carrying on at .* when three@example\.com is back\.$/);
+  assert.match(notes(h, thread.id).at(-1)!, /^Every login in Claude is out of room\. Carrying on at .* when three@example\.com is back\.$/);
   // At that time it looks again: claude-3 has reset, so it stays and carries on.
   h.setUsage('claude-3', room(100, 420));
   h.clock.advance(122 * MIN);
   await tick();
   assert.equal(h.runner.get(thread.id).waitingForRoom, undefined);
   assert.equal(h.adapter.last.sent.at(-1)?.text, CARRY_ON_BACK);
+  assert.equal(h.adapter.last.opts.account.id, 'claude-3');
+});
+
+test('a carry-on that runs dry too moves on again while another login in the pool has room', async () => {
+  const one: Account = { id: 'claude-1', provider: 'claude', title: 'one@example.com', configDir: '/tmp/one' };
+  const pools: Pool[] = [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3', 'claude-1'] }];
+  const h = poolHarness({ accounts: [...withCodex(), one], pools });
+  h.setUsage('claude-main', room(80, 300));
+  h.setUsage('claude-3', room(60, 120));
+  h.setUsage('claude-1', room(40, 200));
+  const { thread } = h.runner.create({ text: 'x', poolId: 'claude' });
+  const first = h.runner.get(thread.id).accountId;
+  h.adapter.last.init();
+  limit(h.adapter.last);
+  await tick();
+  const second = h.adapter.last;
+  assert.notEqual(second.opts.account.id, first);
+  second.init();
+  limit(second);
+  await tick();
+  // Mike, 12 Nov: it should just carry on while the pool has a login with room.
+  const third = h.adapter.last;
+  assert.equal(h.adapter.sessions.length, 3);
+  const used = new Set([first, second.opts.account.id, third.opts.account.id]);
+  assert.equal(used.size, 3, 'each login once');
+  assert.equal(third.sent[0].text, CARRY_ON_MOVED);
+  assert.equal(h.runner.get(thread.id).waitingForRoom, undefined);
+  // The last one dry too: now it waits.
+  third.init();
+  limit(third);
+  await tick();
+  assert.equal(h.adapter.sessions.length, 3, 'no fourth session');
+  assert.ok(h.runner.get(thread.id).waitingForRoom);
+});
+
+test('a waiting pool thread carries on as soon as a login with room joins the pool, not at its wait time', async () => {
+  // 12 Nov: a thread's turn hit its limit on a draining runner that had
+  // started before a new login joined the pool, so it set a wait for 1 pm
+  // though that login had 81% left, and the runner that took it over kept
+  // the wait.
+  const h = poolHarness();
+  h.setUsage('claude-main', room(60, 200));
+  h.setUsage('claude-3', room(0.2, 90));
+  const { thread } = h.runner.create({ text: 'x', poolId: 'claude' });
+  h.adapter.last.init();
+  limit(h.adapter.last);
+  await tick();
+  assert.ok(h.runner.get(thread.id).waitingForRoom, 'nothing has room yet');
+  assert.equal(h.adapter.sessions.length, 1);
+  // A new login turns up with room, and is added to the pool.
+  const four: Account = { id: 'claude-4', provider: 'claude', title: 'four@example.com', configDir: '/tmp/four', usage: room(81, 300) };
+  h.fake.base = [...h.fake.base, four];
+  h.runner.rescanAccounts();
+  await h.runner.savePools([{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3', 'claude-4'] }, { id: 'codex', title: 'Codex', accountIds: ['codex-main'] }]);
+  await tick();
+  const t = h.runner.get(thread.id);
+  assert.equal(t.waitingForRoom, undefined, 'the wait ended early');
+  assert.equal(t.accountId, 'claude-4');
+  assert.equal(h.adapter.last.opts.account.id, 'claude-4');
+  assert.equal(h.adapter.last.sent.at(-1)?.text, CARRY_ON_MOVED);
+});
+
+test('a waiting pool thread carries on as soon as a usage reading shows a login has room again', async () => {
+  const h = poolHarness();
+  h.setUsage('claude-main', room(60, 200));
+  h.setUsage('claude-3', room(0.2, 90));
+  const { thread } = h.runner.create({ text: 'x', poolId: 'claude' });
+  h.adapter.last.init();
+  limit(h.adapter.last);
+  await tick();
+  assert.ok(h.runner.get(thread.id).waitingForRoom);
+  // claude-3's 5-hour window reset early, as far as the wait's guess went.
+  h.setUsage('claude-3', room(100, 400));
+  h.runner.sendAccounts();
+  await tick();
+  assert.equal(h.runner.get(thread.id).waitingForRoom, undefined);
   assert.equal(h.adapter.last.opts.account.id, 'claude-3');
 });
 
@@ -312,10 +389,11 @@ test('nothing in the pool has room: the thread waits, and the wait outlives a re
   // A new runner on the same data dir (its clock starts at START again).
   const h2 = h.restart();
   assert.deepEqual(h2.runner.get(thread.id).waitingForRoom, w, 'kept in thread.json');
-  h.fake.base = h.fake.base.map((a) => (a.id === 'claude-3' ? { ...a, usage: room(100) } : a));
   h2.clock.advance(80 * MIN);
   await tick();
   assert.equal(h2.adapter.sessions.length, 0, 'not yet');
+  // claude-3 resets; the new runner carries on by itself.
+  h.fake.base = h.fake.base.map((a) => (a.id === 'claude-3' ? { ...a, usage: room(100) } : a));
   h2.clock.advance(12 * MIN);
   await tick();
   assert.equal(h2.adapter.sessions.length, 1);

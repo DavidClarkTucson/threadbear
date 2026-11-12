@@ -75,7 +75,7 @@ pools.updated { pools: Pool[] }     // after pools.save, and when the login list
 
 - `runner/src/pools.ts`: `defaultPools(accounts, notes, folders)`, `readPools(cfg, accounts)`, `validatePools`, `poolForFolder(pools, cwd)`, `pickInPool(pool, accounts, { provider, exclude, current })` (built on `usage.ts`'s `accountRoom` and `MIN_ROOM_PERCENT`), `nextLogin(pool, accounts, thread)` → `{ accountId, provider } | { waitUntil, accountId? }`. Pure functions with unit tests.
 - `config.ts`: `pools?` from runner.json, `DEFAULT_POOL_FOLDERS`.
-- `store.ts` `ThreadRecord`: `poolId?`, `waitingForRoom?`, `autoCarryOn?: string` (the turn id that already had its one automatic carry-on).
+- `store.ts` `ThreadRecord`: `poolId?`, `waitingForRoom?`, `autoCarryOn?: string` (the turn id that already had its one automatic carry-on; dropped 12 Nov 2026, when a carry-on that runs dry started moving on again).
 - `runner.ts`:
   - `threads.create` picks the pool (explicit, else folder, else the model's provider, else `defaults.poolId`) and the login;
   - a `beforeTurn` check where queued sends start;
