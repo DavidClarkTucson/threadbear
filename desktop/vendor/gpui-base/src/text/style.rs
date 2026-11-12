@@ -36,6 +36,10 @@ pub struct TextViewStyle {
     /// show that surface.
     table_background: Option<Hsla>,
     is_dark: bool,
+    /// Whether links get the kit's translucent hairline underneath. On by
+    /// default, as published; Threadbear turns it off to match macOS, whose
+    /// text views draw links in the link colour alone.
+    link_underline: bool,
 }
 
 impl PartialEq for TextViewStyle {
@@ -59,6 +63,7 @@ impl PartialEq for TextViewStyle {
             && self.blockquote_style == other.blockquote_style
             && self.table_background == other.table_background
             && self.is_dark == other.is_dark
+            && self.link_underline == other.link_underline
     }
 }
 
@@ -105,6 +110,7 @@ impl TextViewStyle {
             blockquote_style: StyleRefinement::default(),
             table_background: None,
             is_dark,
+            link_underline: true,
         }
     }
 
@@ -123,6 +129,12 @@ impl TextViewStyle {
     /// Sets the link text color.
     pub fn with_link(mut self, color: Hsla) -> Self {
         self.link = color;
+        self
+    }
+
+    /// Sets whether links get a hairline underline (on by default).
+    pub fn with_link_underline(mut self, underline: bool) -> Self {
+        self.link_underline = underline;
         self
     }
 
@@ -273,6 +285,11 @@ impl TextViewStyle {
     /// The link text color.
     pub fn link(&self) -> Hsla {
         self.link
+    }
+
+    /// Whether links are underlined.
+    pub fn link_underline(&self) -> bool {
+        self.link_underline
     }
 
     /// The background painted behind selected text.
