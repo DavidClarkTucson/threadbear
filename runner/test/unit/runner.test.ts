@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
+import { FakeAccounts, makeHarness, tick, tmpDir, withCodex } from '../helpers/fakes.ts';
 import { checkSequence, checkSummary } from '../helpers/protocol-check.ts';
 import { makePng } from '../helpers/png.ts';
 import { RpcError } from '../../src/protocol.ts';
@@ -1402,6 +1402,44 @@ test('a fresh CLI asked for during a turn waits for background work to finish', 
   s.result();
   await tick();
   assert.equal(s.ended, true, 'released once it finished');
+  assert.equal(s.endedHard, false);
+});
+
+test('another login picked between turns waits for background work too', async () => {
+  const h = makeHarness();
+  const { thread } = create(h);
+  const s = h.adapter.last;
+  s.init();
+  s.out({ kind: 'tasks', tasks: [{ id: 'a1', type: 'local_agent', kind: 'agent', description: 'Check the docs' }] });
+  s.result();
+  h.runner.update({ threadId: thread.id, accountId: 'claude-main' });
+  await tick();
+  assert.equal(s.ended, false, 'kept while the sub-agent works');
+  s.out({ kind: 'tasks', tasks: [] });
+  s.out({ kind: 'cliTurn', note: 'Agent "Check the docs" completed' });
+  s.result();
+  await tick();
+  assert.equal(s.ended, true, 'released once it finished');
+  assert.equal(s.endedHard, false);
+});
+
+// Moved to Codex during the turn: the Claude CLI still live wakes to read
+// its sub-agent's result, though the record now says Codex, which doesn't.
+test('a move to another provider keeps the old CLI for the turn that reads its result', async () => {
+  const h = makeHarness(undefined, {}, { accounts: new FakeAccounts(withCodex()) });
+  const { thread } = create(h);
+  const s = h.adapter.last;
+  s.init();
+  s.out({ kind: 'tasks', tasks: [{ id: 'a1', type: 'local_agent', kind: 'agent', description: 'Check the docs' }] });
+  h.runner.update({ threadId: thread.id, accountId: 'codex-main' });
+  s.result();
+  await tick();
+  s.out({ kind: 'tasks', tasks: [] });
+  assert.equal(s.ended, false, 'kept for the turn that reads the result');
+  s.out({ kind: 'cliTurn', note: 'Agent "Check the docs" completed' });
+  s.result();
+  await tick();
+  assert.equal(s.ended, true);
   assert.equal(s.endedHard, false);
 });
 

@@ -372,6 +372,9 @@ type Runtime = {
   // Where the live session's transcript was carried from, if it moved
   // folder; used only if resuming the copy fails.
   carried?: ThreadRecord['handoff'];
+  // The provider the live CLI runs, which a move to another provider
+  // changes on the record before this CLI has gone.
+  sessionProvider?: Provider;
   deleted?: boolean; // anything the old CLI still reports is dropped
   turn?: Turn;
   // When the live CLI last said anything, and whether it looks frozen
@@ -1902,6 +1905,7 @@ export class Runner {
     // This CLI is the fresh one anything asked for; a release asked of the
     // last one doesn't carry over to it (thread 8a971407).
     rt.releaseWhenIdle = false;
+    rt.sessionProvider = rec.provider;
     rt.started = false;
     rt.startVersion = this.cliList()?.find((c) => c.provider === rec.provider)?.installedVersion;
     // Read now, not from the patch list's cache: a pull just before this
@@ -2153,7 +2157,9 @@ export class Runner {
         // Claude starts a turn of its own to read a finished task's result;
         // Codex doesn't (wakesAfterTasks: false), so there it would only
         // look busy for WAKE_GRACE_MS for nothing.
-        const wakes = this.adapters[rec.provider]?.wakesAfterTasks !== false;
+        // The live CLI's provider: a thread switched to Codex during the
+        // turn still has its Claude CLI here, which wakes.
+        const wakes = this.adapters[rt.sessionProvider ?? rec.provider]?.wakesAfterTasks !== false;
         const ended = endedTasks.length > 0 && wakes;
         rt.tasks = o.tasks;
         if (wakes) rt.finished.push(...endedTasks);
@@ -2835,9 +2841,10 @@ export class Runner {
       const session = rt.session;
       if (session && !rt.closing) {
         const fallback = () => {
-          // Couldn't move the live session: a fresh CLI resumes there.
+          // Couldn't move the live session: a fresh CLI resumes there,
+          // once any background work is done (scheduleIdle).
           rt.releaseWhenIdle = true;
-          if (!rt.turn) this.releaseSession(st);
+          if (!rt.turn) this.scheduleIdle(st);
         };
         if (session.setCwd) session.setCwd(rec.cwd).catch(fallback);
         else fallback();
@@ -3003,8 +3010,11 @@ export class Runner {
       if (rt.turn) this.interrupt(rec.id);
       else this.releaseSession(st);
     } else if (release) {
+      // Another login or folder: the CLI goes now, or once its background
+      // work is done (scheduleIdle). The next message gets the fresh one
+      // either way.
       rt.releaseWhenIdle = true;
-      if (!rt.turn) this.releaseSession(st);
+      if (!rt.turn) this.scheduleIdle(st);
     }
     // Archived here, archived in the CLI's own app too (Codex Desktop's
     // list), once the session has let go of it: a turn is interrupted
