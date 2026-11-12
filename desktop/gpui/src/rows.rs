@@ -463,10 +463,13 @@ impl ThreadPane {
             return column(card(border).child(col)).into_any_element();
         }
         let mut card = card(if asks.is_open { warning } else { border });
+        // The reading column's style, so a link in a why is drawn as in a
+        // reply (no underline, the link blue), in the card's muted text.
+        let why_style = self.reading_style(cx).with_foreground(muted);
         for (ai, ask) in asks.asks.iter().enumerate() {
             let mut block = v_flex().gap_1().child(div().font_semibold().child(ask.action.clone()));
             if let Some(why) = &ask.why {
-                block = block.child(div().text_sm().text_color(muted).child(crate::open_gate::markdown_view(("why", ix * 10 + ai), why.clone(), self.origin(), &self.summary.cwd)));
+                block = block.child(div().text_sm().text_color(muted).child(crate::open_gate::reading_markdown_view(("why", ix * 10 + ai), why.clone(), self.origin(), &self.summary.cwd).style(why_style.clone())));
             }
             if asks.is_open && !ask.options.is_empty() {
                 let mut buttons = h_flex().gap_2().flex_wrap().pt_1();

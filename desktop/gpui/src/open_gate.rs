@@ -211,12 +211,6 @@ pub(crate) fn text_view(state: &Entity<gpui_kit::base::TextViewState>, origin: O
     gpui_kit::base::TextView::new(state).on_link_click(move |url: &SharedString, event: &ClickEvent, _: &mut Window, cx: &mut App| clicked(url, event, origin, &base, cx))
 }
 
-/// The same for the kit's markdown text made from a string.
-pub(crate) fn markdown_view(id: impl Into<ElementId>, text: impl Into<SharedString>, origin: Origin, base: &str) -> gpui_kit::component::text::TextView {
-    let base = base.to_owned();
-    gpui_kit::component::text::TextView::markdown(id, text).on_link_click(move |url: &SharedString, event: &ClickEvent, _: &mut Window, cx: &mut App| clicked(url, event, origin, &base, cx))
-}
-
 /// The base kit's markdown text made from a string, for text that takes the
 /// reading column's style (`rows::reading_style`), as the asks card's
 /// paragraphs do.

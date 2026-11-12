@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 /// What reaches the system's opener, or starts a program, directly. The
 /// kit's own rich text, links and menu links count: with no handler of their
 /// own they call `open_url` themselves (Codex review of the 10 Nov fix), so
-/// they're made only by the gate's `text_view` and `markdown_view`.
+/// they're made only by the gate's `text_view` and `reading_markdown_view`.
 const OPENERS: &[&str] = &[
     ".open_url(",
     ".reveal_path(",

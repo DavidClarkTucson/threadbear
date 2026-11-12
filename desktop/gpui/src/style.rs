@@ -374,9 +374,12 @@ pub fn control_accent(cx: &App) -> Hsla {
     pick(cx, srgb(0.04, 0.52, 1.0, 1.0), srgb(0.0, 0.48, 1.0, 1.0))
 }
 
-/// NSColor.linkColor.
+/// NSColor.linkColor, as macOS 27 gives it in sRGB: a lighter blue than the
+/// accent in the dark, a deeper one in the light (measured from the Swift app's
+/// own colour, 12 Nov; this was the accent's blue before and read deeper than
+/// the Swift app's links).
 pub fn link_text(cx: &App) -> Hsla {
-    pick(cx, srgb(0.04, 0.52, 1.0, 1.0), srgb(0.0, 0.40, 0.8, 1.0))
+    pick(cx, srgb(0.255, 0.612, 1.0, 1.0), srgb(0.0, 0.408, 0.855, 1.0))
 }
 
 /// A little of the accent over the faint fill behind Mike's own messages.

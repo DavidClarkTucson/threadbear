@@ -56,6 +56,9 @@ pub(crate) fn reading_style(cx: &App) -> TextViewStyle {
         .with_foreground(label)
         .with_muted_foreground(muted)
         .with_link(link)
+        // Swift's text views draw a link in the link colour alone, with no
+        // line under it, even on hover (TextKit's linkTextAttributes).
+        .with_link_underline(false)
         .with_selection(cx.theme().selection)
         .with_code_background(code_bg)
         .with_border(hairline)
