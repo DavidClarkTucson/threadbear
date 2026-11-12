@@ -171,6 +171,8 @@ type Watch = {
   shareSaid?: string;
   // The loose ends the app was last told of (noteLooseEnds), as JSON.
   endsSaid?: string;
+  // A recheckPlans read under way.
+  rechecking?: boolean;
 };
 
 export type RelayEvent = { seq: number; ts: string; threadId: string; turnId?: string; type: string; [k: string]: unknown };
@@ -740,7 +742,41 @@ export class Relay {
         if (w.filling === fill) w.filling = undefined;
       }
     }
+    if (!w.rechecking) {
+      w.rechecking = true;
+      try {
+        await this.recheckPlans(w, tail);
+      } finally {
+        w.rechecking = false;
+      }
+    }
     this.emit(w);
+  }
+
+  /**
+   * Plans held here as still waiting that the live tail no longer covers,
+   * read again: their row gets its decision when they're resolved (API 75),
+   * and only the tail is watched, so one answered while this Mac wasn't
+   * looking, with more than a tail's rows since, would wait here for ever
+   * (Codex's review, 12 Nov). Rows after a plan almost always mean it was
+   * answered, so this is a read or two, not one per tail.
+   */
+  private async recheckPlans(w: Watch, tail: Page): Promise<void> {
+    const oldest = tail.messages[0]?.seq;
+    if (oldest === undefined) return;
+    const sorted = [...w.rows.values()].sort((a, b) => a.seq - b.seq);
+    // A newer plan after one sends it back: no need to ask.
+    const lastPlan = sorted.findLast((r) => r.plan)?.seq;
+    const stale = sorted.filter((r) => r.plan && !r.planDecision && r.seq < oldest && r.seq === lastPlan);
+    for (const r of stale) {
+      try {
+        const page = (await this.read('relay:remoteMessages', { threadId: w.threadId, afterSeq: r.seq - 1, limit: 1 })) as Page;
+        const m = page.messages[0];
+        if (m?.seq === r.seq) w.rows.set(m.seq, m);
+      } catch {
+        // Asked again with the next tail.
+      }
+    }
   }
 
   // Reads a hole's rows page by page, however many: bounded by the thread,

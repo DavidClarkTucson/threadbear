@@ -2295,7 +2295,10 @@ Ayush's "Plan View UI".
   row again with `planDecision` (`go` or `revise`) once it's resolved
   (API 75), and a newer plan sends an older one back. Nothing is guessed
   from the rows after it (a denied plan's revision reads files too, and a
-  schedule's message isn't Mike's answer). It can't take `plans.approve`
+  schedule's message isn't Mike's answer). The relay reads a plan it still
+  holds as waiting again once the live tail has moved past it. A plan
+  resolved before the runner had this (12 Nov 2026) has no decision on its
+  row, so another Mac shows it waiting until a newer plan follows it. It can't take `plans.approve`
   yet, so the Mac offers only Send back there; writing to it still works.
 - **On the phone.** Sync sends each `plan.proposed` as a message row with
   `plan: true` (backend API 72): the whole plan, scrubbed as a reply is,

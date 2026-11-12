@@ -773,6 +773,23 @@ test("plans: a resolved plan's row goes again with its decision, from API 75", a
     assert.equal(again.at(-1)!.text, plan[0]!.text, 'the same row, so the backend takes it as a change');
     await f.sync.stop();
   }
+  // Proposed and approved inside one flush: the row that goes has it.
+  const f = setupFull({ apiVersion: RELAY_CARDS_API_VERSION });
+  const rows = () => f.calls.filter((c) => c.fn === 'sync:appendMessages').flatMap((c) => c.args.messages as MessageDoc[]);
+  f.sync.start();
+  await f.sync.flushNow();
+  const t = f.h.runner.create({ text: 'go', cwd: f.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  const s = session(f.h, t.id);
+  s.init();
+  s.out({ kind: 'planProposed', itemId: 'toolu_c', text: '# Quick\n\n1. Do it' } as never);
+  s.out({ kind: 'event', event: { type: 'approval.requested', approvalId: 'ap2', itemId: 'toolu_c', name: 'ExitPlanMode', title: 'Finish the plan', input: { plan: '# Quick' }, options: ['allow', 'deny'] } as never });
+  f.h.runner.approvePlan({ threadId: t.id, itemId: 'toolu_c' });
+  f.h.clock.advance(SYNC_COALESCE_MS);
+  await tick();
+  const sent = rows().filter((m) => m.threadId === t.id && m.plan);
+  assert.ok(sent.length >= 1);
+  assert.ok(sent.every((m) => m.planDecision === 'go'), 'kept with its decision');
+  await f.sync.stop();
 });
 
 test('inputSummary picks the command or path, one line, never the whole input', () => {

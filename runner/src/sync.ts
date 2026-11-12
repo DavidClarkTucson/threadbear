@@ -330,6 +330,10 @@ export const LOOSE_ENDS_API_VERSION = 73;
 // what became of a plan (`planDecision` on its message row). An older
 // backend's validator would turn the rows down, so they go without.
 export const RELAY_CARDS_API_VERSION = 75;
+// How far back a plan's resolution looks for its plan when planSeqs doesn't
+// have it (planEvent): a plan waits while Mike's away, and background work
+// goes on writing events meanwhile.
+const PLAN_LOOKBACK = 20_000;
 // From this one a thread's row and its threadIndex row carry `keywords`, the
 // librarian's search words (keywords.ts), and phone:search matches them and
 // every message's text. An older backend's validator would turn the row
@@ -2725,15 +2729,29 @@ export class ConvexSync {
   }
 
   // A plan's plan.proposed, by its itemId: from planSeqs, or looked for in
-  // the events before its resolution (planSeqs keeps only the newest).
+  // the events before its resolution (planSeqs keeps only the newest, and
+  // not across a restart), a page at a time, up to PLAN_LOOKBACK events.
   private planEvent(threadId: string, itemId: string, before: number): PersistedEvent | undefined {
     try {
       const seq = this.planSeqs.get(`${threadId} ${itemId}`);
-      const { events } = this.deps.runner.events(threadId, seq !== undefined ? { afterSeq: seq - 1, limit: 1 } : { beforeSeq: before, limit: 500 });
-      return events.findLast((p) => p.type === 'plan.proposed' && p.itemId === itemId);
+      if (seq !== undefined) {
+        const found = this.deps.runner.events(threadId, { afterSeq: seq - 1, limit: 1 }).events[0];
+        if (found?.type === 'plan.proposed' && found.itemId === itemId) return found;
+      }
+      let until = before;
+      for (let read = 0; read < PLAN_LOOKBACK && until > 1; ) {
+        const { events } = this.deps.runner.events(threadId, { beforeSeq: until, limit: 500 });
+        if (!events.length) break;
+        const found = events.findLast((p) => p.type === 'plan.proposed' && p.itemId === itemId);
+        if (found) return found;
+        read += events.length;
+        if (events[0]!.seq >= until) break;
+        until = events[0]!.seq;
+      }
     } catch {
-      return undefined;
+      // Not found: the row stays as it was.
     }
+    return undefined;
   }
 
   // What the last turn ended with, while it's the last word (the thread is
@@ -3027,12 +3045,19 @@ export class ConvexSync {
       if (this.sharesCheckDue()) await this.reconcileShares(key);
       this.historiesDue = false;
       const { docs: history, threadIds: filling } = this.histories();
-      // A new thread's first messages are both live and its history: once each.
-      const seen = new Set<string>();
+      // A new thread's first messages are both live and its history: once
+      // each. A plan's row sent again with its decision in the same flush as
+      // the row itself gives the one kept its decision (Codex's review, 12
+      // Nov: kept first, the decision was lost and the plan waited for ever).
+      const seen = new Map<string, MessageDoc>();
       messages = [...history, ...messages].filter((m) => {
         const k = `${m.threadId}:${m.seq}`;
-        if (seen.has(k)) return false;
-        seen.add(k);
+        const kept = seen.get(k);
+        if (kept) {
+          if (m.planDecision) kept.planDecision = m.planDecision;
+          return false;
+        }
+        seen.set(k, m);
         return true;
       });
       const notFilled = await this.appendMessages(messages);
