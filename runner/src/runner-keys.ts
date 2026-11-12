@@ -87,7 +87,7 @@ export function sshTrouble(host: string, err: string): string {
   // The suggested commands keep the forwarding off, as SSH_OPTIONS does: a
   // plain ssh takes ForwardAgent from ~/.ssh/config, and a tampered Mac
   // could use a forwarded agent to log back in here.
-  const sshSafe = `ssh -o ForwardAgent=no -o ClearAllForwardings=yes ${h}`;
+  const sshSafe = `ssh -o ForwardAgent=no -o ClearAllForwardings=yes -o ForwardX11=no ${h}`;
   // A command that ran there and failed (cat: ...: Permission denied) is not ssh's own trouble.
   const lines = err.split('\n').filter((l) => !/^(cat|mkdir|chmod|mv|sh|\/bin\/sh): /.test(l.trim())).join('\n');
   if (/could not resolve hostname|nodename nor servname|name or service not known/i.test(lines))
@@ -97,7 +97,7 @@ export function sshTrouble(host: string, err: string): string {
   if (/host key verification failed|no .*host key is known/i.test(lines))
     return `This Mac hasn't seen ${h}'s host key before, and tb runner add can't stop to ask about it. Run ${sshSafe} once by hand and answer yes only if the fingerprint it shows matches that Mac's own (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub, run on that Mac), then run this again.`;
   if (/permission denied \(/i.test(lines))
-    return `${h} didn't take this Mac's ssh key, and tb runner add can't type a password. Run ssh-copy-id ${h} once (it asks for that Mac's password; make a key first with ssh-keygen if this Mac has none), then run this again.`;
+    return `${h} didn't take this Mac's ssh key, and tb runner add can't type a password. Run ssh-copy-id -o ClearAllForwardings=yes ${h} once (it asks for that Mac's password; make a key first with ssh-keygen if this Mac has none), then run this again.`;
   if (/connection refused|no route to host|timed out|network is unreachable|connection closed|connection reset|kex_exchange_identification/i.test(lines))
     return `${h} didn't answer on the ssh port. Either it's asleep or off this network, or Remote Login is off there: turn it on in System Settings > General > Sharing > Remote Login on that Mac, then run this again.`;
   if (lines.trim() !== err.trim()) return `ssh reached ${h}, but the command there failed (above). Check Threadbear's data folder there is readable by that user.`;

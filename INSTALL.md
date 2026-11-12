@@ -159,11 +159,12 @@ and say yes to joining (`setup --existing`), then on the first Mac run
 one; setup prints the exact command at the end. The new Mac needs Remote Login
 on (System Settings > General > Sharing > Remote Login; setup says if it's off),
 and the first Mac has to reach it by ssh without a password or a question, as
-`tb runner add` can't answer either: run `ssh -o ForwardAgent=no
-<user>@<that Mac>.local` once by hand and say yes to its host key only if the
+`tb runner add` can't answer either: run `ssh -o ForwardAgent=no -o
+ClearAllForwardings=yes -o ForwardX11=no <user>@<that Mac>.local` once by hand and say yes to its host key only if the
 fingerprint matches the new Mac's own (`ssh-keygen -lf
-/etc/ssh/ssh_host_ed25519_key.pub` there), and run `ssh-copy-id
-<user>@<that Mac>.local` if it asks for a password. (With no
+/etc/ssh/ssh_host_ed25519_key.pub` there), and run `ssh-copy-id -o
+ClearAllForwardings=yes <user>@<that Mac>.local` if it asks for a password.
+Setup prints both with the right names filled in. (With no
 ssh between them, `--out <file> --id <runnerId>` writes the key to a file, which
 goes in the new Mac's `secrets/convex-key`.) Only the first Mac's app lists every
 machine's threads, so that's best as the Mac they sit at; the phone and website

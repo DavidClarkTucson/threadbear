@@ -150,7 +150,7 @@ test('a failed ssh says which case it is and the fix', async () => {
     ['Host key verification failed.', /ssh-keygen -lf .*ssh_host_ed25519_key/],
     ['kex_exchange_identification: Connection closed by remote host', /Remote Login/],
     ['cat: /Users/w/Library/Application Support/Threadbear/runner.json: Permission denied', /command there failed/],
-    ['wayne@waynes-mac.local: Permission denied (publickey,password,keyboard-interactive).', /ssh-copy-id wayne@waynes-mac\.local/],
+    ['wayne@waynes-mac.local: Permission denied (publickey,password,keyboard-interactive).', /ssh-copy-id -o ClearAllForwardings=yes wayne@waynes-mac\.local/],
     ['@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@\nHost key verification failed.', /ssh-keygen -R waynes-mac\.local/],
   ];
   for (const [err, want] of cases) assert.match(sshTrouble(err.includes('wayne@') ? 'wayne@waynes-mac.local' : err.includes('resolve') ? 'waynes-mac' : 'waynes-mac.local', err), want, err);
@@ -163,7 +163,7 @@ test('a failed ssh says which case it is and the fix', async () => {
   const s = setup();
   s.deps.ssh = () => ({ ok: false, out: '', err: 'Host key verification failed.' });
   assert.equal(await runnerKeysCommand(s.cfg, ['add', 'bruce'], { ssh: 'bruce' }, s.deps), 1);
-  assert.match(s.printed.join('\n'), /ssh -o ForwardAgent=no -o ClearAllForwardings=yes bruce/);
+  assert.match(s.printed.join('\n'), /ssh -o ForwardAgent=no -o ClearAllForwardings=yes -o ForwardX11=no bruce/);
   assert.deepEqual(s.calls.filter((c) => c.fn === 'sync:addRunnerKey'), []);
   const none = setup();
   none.deps.ssh = () => ({ ok: false, out: '', err: 'cat: /Users/w/Library/Application Support/Threadbear/runner.json: No such file or directory' });
@@ -211,8 +211,8 @@ test("setup's join step names this Mac as user@name.local and says when Remote L
   const on = joinSteps({ localHost: 'Waynes-MacBook-Pro', hostname: 'Waynes-MacBook-Pro.local', user: 'wayne', sshOn: true }).join('\n');
   assert.match(on, /tb runner add Waynes-MacBook-Pro --ssh wayne@Waynes-MacBook-Pro\.local\b/);
   assert.doesNotMatch(on, /Remote Login is off/);
-  assert.match(on, /ssh-copy-id wayne@Waynes-MacBook-Pro\.local/);
-  assert.match(on, /ssh -o ForwardAgent=no wayne@/);
+  assert.match(on, /ssh -o ForwardAgent=no -o ClearAllForwardings=yes -o ForwardX11=no wayne@/);
+  assert.match(on, /ssh-copy-id -o ClearAllForwardings=yes wayne@/);
   const off = joinSteps({ localHost: 'mini', hostname: 'mini.local', user: 'w', name: 'studio', sshOn: false });
   assert.match(off[0]!, /System Settings > General > Sharing > Remote Login/);
   assert.match(off.join('\n'), /tb runner add studio --ssh w@mini\.local/);

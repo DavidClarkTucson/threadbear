@@ -60,6 +60,9 @@ exec $(q "$NODE") "\$t" "\$@"
 EOF
 chmod 755 "$tmp"
 if ours; then
+  # Something replacing our own tb in the moment between the check and the
+  # mv would be overwritten; nothing short of a lock shared with every other
+  # installer closes that, and it's our file a moment before.
   mv -f "$tmp" "$DEST"
 # A hard link never replaces a file, so a tb something else put there since
 # the check above stays.
