@@ -1039,7 +1039,20 @@ impl Composer {
         let mut lines = vec![format!("{} picked", self.card.picks.len())];
         for (i, ask) in card.asks.iter().enumerate() {
             let options = composer::choices(ask);
-            let choices: Vec<String> = options.iter().enumerate().map(|(n, o)| if ask.suggested == Some(n) { format!("*{o}") } else { o.clone() }).collect();
+            // Each with what it does in brackets, when the agent said, and the
+            // ask's links after, as the Swift dump's `decisions` has them (the
+            // nightly parity run, scripts/parity, reads them here).
+            let notes_fit = ask.option_notes.len() == ask.options.len();
+            let choices: Vec<String> = options
+                .iter()
+                .enumerate()
+                .map(|(n, o)| {
+                    let star = if ask.suggested == Some(n) { "*" } else { "" };
+                    let note = if notes_fit { ask.option_notes.get(n).map(|s| s.trim()).unwrap_or("") } else { "" };
+                    if note.is_empty() { format!("{star}{o}") } else { format!("{star}{o} ({note})") }
+                })
+                .collect();
+            let links = if ask.links.is_empty() { String::new() } else { format!(" links: {}", ask.links.iter().map(|l| l.title.as_str()).collect::<Vec<_>>().join(", ")) };
             let picked = self.card.picks.get(&(i as i64));
             let answer = match picked {
                 // Its pictures after the words, as the Swift dump's ownAnswer.
@@ -1055,7 +1068,7 @@ impl Composer {
                 Some(n) => options.get(*n as usize).cloned().unwrap_or_else(|| "no answer".to_owned()),
                 None => "no answer".to_owned(),
             };
-            lines.push(format!("  {}. {} [{}] -> {}", i + 1, ask.action, choices.join(" | "), answer));
+            lines.push(format!("  {}. {} [{}]{links} -> {}", i + 1, ask.action, choices.join(" | "), answer));
         }
         Some(lines)
     }
