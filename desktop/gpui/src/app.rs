@@ -1244,6 +1244,8 @@ impl Threadbear {
         // The last archive or hibernate flight: where it started and aimed,
         // and once it's landed, where the heading's box was (archive_flight.rs).
         dump["flight"] = self.flight.dump();
+        // Whether motion is reduced (automation.rs): no flights or glides then.
+        dump["reduceMotion"] = json!(cx.reduce_motion());
         // The last time the panels moved (a panel opened or closed): where
         // each panel was and went, and whether they're still on their way.
         dump["panelMotion"] = self.dock_view.read(cx).last_motion().map_or(Value::Null, |(from, to, moving)| {

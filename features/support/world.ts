@@ -70,7 +70,7 @@ export class ThreadbearWorld extends World {
 export function describe(d: Dump): string {
   const side = d.sidebar.sections.map((s) => `${s.name}${s.collapsed ? ' (folded)' : ''}: ${s.threads.map((t) => t.title).join(' | ') || '(none)'}`).join('\n');
   const rows = d.transcript.rows.map((r: Row) => `  ${r.kind}${r.expanded ? ' (open)' : ''}: ${r.text}`).join('\n');
-  return `connection: ${d.connection}\nbanner: ${d.banner?.text ?? '(none)'}\n${side}\nopen: ${d.selection?.title ?? '(none)'}, composer: ${JSON.stringify(d.composer.text)}\n${rows}`;
+  return `${d.reduceMotion ? 'Reduce Motion: on\n' : ''}connection: ${d.connection}\nbanner: ${d.banner?.text ?? '(none)'}\n${side}\nopen: ${d.selection?.title ?? '(none)'}, composer: ${JSON.stringify(d.composer.text)}\n${rows}`;
 }
 
 setWorldConstructor(ThreadbearWorld);

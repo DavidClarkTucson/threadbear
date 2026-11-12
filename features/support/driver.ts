@@ -113,6 +113,8 @@ export type Dump = {
    * transcript, in window points from the top left) and aimed, and once it
    * landed, where the heading's box was. */
   flight?: Flight | null;
+  /** Whether motion is reduced, so flights and glides don't play (GPUI only). */
+  reduceMotion?: boolean;
   /** The last time the panels moved with their glide: where each panel was
    * drawn and where it is (or, in the GPUI app, is going), by panel
    * ("thread", "terminal"), and whether it's still moving (GPUI only). */

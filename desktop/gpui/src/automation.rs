@@ -23,6 +23,17 @@ type Request = (Value, oneshot::Sender<Value>);
 /// Starts listening if THREADBEAR_AUTOMATION names a file to say where.
 pub fn serve(app: WeakEntity<Threadbear>, window: AnyWindowHandle, cx: &mut App) {
     let Ok(file) = std::env::var("THREADBEAR_AUTOMATION") else { return };
+    // Reduce Motion as the script asks ("on" or "off"), not as the machine
+    // has it: gpui-base reads the system's switch at start, and GitHub's
+    // macos-26 runners have it on, so the panels never glided and the archive
+    // flight only faded there while every other Mac played them (12 Nov).
+    // Set after gpui-base's reading, it's the app's from then on, and a later
+    // reading leaves it alone (gpui-base's reduce_motion.rs).
+    match std::env::var("THREADBEAR_REDUCE_MOTION").as_deref() {
+        Ok("on") => cx.set_reduce_motion(true),
+        Ok("off") => cx.set_reduce_motion(false),
+        _ => {}
+    }
     let (tx, mut rx) = mpsc::unbounded_channel::<Request>();
     RT.spawn(listen(file, tx));
     cx.spawn(async move |cx| {

@@ -87,6 +87,11 @@ export class GpuiDriver implements Driver {
     const env: NodeJS.ProcessEnv = {
       THREADBEAR_HOME: this.home,
       THREADBEAR_AUTOMATION: file,
+      // Motion plays whatever the machine's Reduce Motion switch says:
+      // GitHub's Macs have it on, and the scenarios about the panels gliding
+      // and the archive flight failed only there (12 Nov). TB_REDUCE_MOTION=on
+      // to see the reduced versions.
+      THREADBEAR_REDUCE_MOTION: process.env.TB_REDUCE_MOTION ?? 'off',
       ...specShell(),
     };
     if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
