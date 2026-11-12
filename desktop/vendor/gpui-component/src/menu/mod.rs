@@ -3,6 +3,7 @@ use gpui::App;
 mod app_menu_bar;
 mod context_menu;
 mod dropdown_menu;
+mod mac_look;
 mod menu_item;
 mod popup_menu;
 

@@ -18,6 +18,9 @@ pub(crate) struct MenuItemElement {
     on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
     on_hover: Option<Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>>,
     children: SmallVec<[AnyElement; 2]>,
+    /// Threadbear's change: a popup menu's line takes macOS's colours
+    /// (mac_look.rs); the input's completion list keeps the kit's.
+    look: Option<super::mac_look::Colors>,
 }
 
 impl MenuItemElement {
@@ -34,7 +37,15 @@ impl MenuItemElement {
             on_click: None,
             on_hover: None,
             children: SmallVec::new(),
+            look: None,
         }
+    }
+
+    /// Draw it in a macOS menu's colours: its title, the highlight and a
+    /// disabled line's grey.
+    pub(crate) fn mac_look(mut self, look: super::mac_look::Colors) -> Self {
+        self.look = Some(look);
+        self
     }
 
     /// Set ListItem as the selected item style.
@@ -101,6 +112,10 @@ impl ParentElement for MenuItemElement {
 
 impl RenderOnce for MenuItemElement {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let (label, highlight, highlight_label, disabled) = match self.look {
+            Some(look) => (look.label, look.highlight, look.highlight_label, look.disabled),
+            None => (cx.theme().foreground, cx.theme().accent, cx.theme().accent_foreground, cx.theme().muted_foreground),
+        };
         h_flex()
             .id(self.id)
             .test_support()
@@ -118,7 +133,7 @@ impl RenderOnce for MenuItemElement {
             .py_1()
             .px_2()
             .text_base()
-            .text_color(cx.theme().foreground)
+            .text_color(label)
             .relative()
             .items_center()
             .justify_between()
@@ -130,14 +145,8 @@ impl RenderOnce for MenuItemElement {
                 // Not `group_hover` on the item's own group: GPUI styles an
                 // element before registering its group, and that fallback keeps
                 // the pointer's item lit after a key moves the highlight away.
-                this.hover(|this| {
-                    this.bg(cx.theme().tokens.accent)
-                        .text_color(cx.theme().accent_foreground)
-                })
-                .when(self.selected, |this| {
-                    this.bg(cx.theme().tokens.accent)
-                        .text_color(cx.theme().accent_foreground)
-                })
+                this.hover(|this| this.bg(highlight).text_color(highlight_label))
+                    .when(self.selected, |this| this.bg(highlight).text_color(highlight_label))
                 .when_some(self.on_click, |this, on_click| {
                     this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                         cx.stop_propagation();
@@ -145,9 +154,7 @@ impl RenderOnce for MenuItemElement {
                     .on_click(on_click)
                 })
             })
-            .when(self.disabled, |this| {
-                this.text_color(cx.theme().muted_foreground)
-            })
+            .when(self.disabled, |this| this.text_color(disabled))
             .children(self.children)
     }
 }

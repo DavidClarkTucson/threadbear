@@ -145,18 +145,18 @@ impl MenuRow {
     }
     /// A line of the new-thread box's Runs on menu: `star` marks the default
     /// (`markDefault`'s ★, drawn on the title; this menu has no badge yet).
-    /// A ticked line has no symbol: the kit's menu shows the tick in the
-    /// icon's place, and draws no tick at all beside one.
+    /// A ticked line keeps its symbol: the menu draws the tick in a column of
+    /// its own beside the icon, as macOS's do (desktop/vendor's mac_look.rs).
     pub(crate) fn runner(title: impl Into<String>, symbol: &'static str, checked: bool, star: bool, action: MenuAction) -> Self {
         let mut title: String = title.into();
         if star {
             title.push_str("  ★");
         }
-        Self { title, symbol: (!checked).then_some(symbol), action: Some(action), checked, enabled: true, children: vec![], separator: false }
+        Self { title, symbol: Some(symbol), action: Some(action), checked, enabled: true, children: vec![], separator: false }
     }
     /// A folder on the runner a new thread will start on (Runs on's Folder).
     pub(crate) fn runner_folder(folder: String, checked: bool) -> Self {
-        Self { title: folder.clone(), symbol: (!checked).then_some("folder"), action: Some(MenuAction::DraftFolder(folder)), checked, enabled: true, children: vec![], separator: false }
+        Self { title: folder.clone(), symbol: Some("folder"), action: Some(MenuAction::DraftFolder(folder)), checked, enabled: true, children: vec![], separator: false }
     }
 }
 
@@ -237,6 +237,9 @@ pub(crate) struct SidebarState {
     pub(crate) motion: std::rc::Rc<crate::row_motion::RowMotion>,
     /// A row swiped or dragged with the mouse (row_swipe.rs).
     pub(crate) gestures: crate::row_swipe::RowGestures,
+    /// Where the Inbox's sort button was last drawn, for its menu to hang
+    /// from the button, as a macOS pull-down does, wherever the click was.
+    sort_button: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>>,
     _tick: Task<()>,
 }
 
@@ -295,6 +298,7 @@ impl SidebarState {
             scroll: ScrollHandle::new(),
             motion: Default::default(),
             gestures: Default::default(),
+            sort_button: Default::default(),
             _tick: tick,
         }
     }
@@ -1084,6 +1088,7 @@ impl Threadbear {
     }
 
     pub(crate) fn render_open_menu(&self) -> Option<AnyElement> {
+        crate::tips::menu_up(1, self.sidebar.menu.is_some());
         self.sidebar.menu.as_ref().map(|m| deferred(anchored().position(m.position).snap_to_window_with_margin(px(8.)).child(div().occlude().child(m.view.clone()))).with_priority(1).into_any_element())
     }
 
@@ -1255,13 +1260,23 @@ impl Threadbear {
     fn render_sort_button(&mut self, p: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let order = self.sidebar.order;
         let color = if order == InboxOrder::NeedsYou { p.faint } else { p.secondary };
-        let (fg, hover) = (p.fg, p.icon_hover);
-        tipped!(div().flex_none().mt(px(12.)).size(px(16.)).rounded(px(4.)).flex().items_center().justify_center().text_color(color).hover(move |s| s.bg(hover).text_color(fg)), "sort-inbox", format!("Sort: {}", order.title()))
-            .on_click(cx.listener(|this, ev: &ClickEvent, window, cx| {
+        let fg = p.fg;
+        let placed = self.sidebar.sort_button.clone();
+        // A hover brightens the arrows and draws no square behind them, as
+        // `InboxOrderMenu`'s `hovering` does.
+        tipped!(div().flex_none().mt(px(12.)).size(px(16.)).flex().items_center().justify_center().text_color(color).hover(move |s| s.text_color(fg)), "sort-inbox", format!("Sort: {}", order.title()))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 let menu_rows = this.sort_menu_rows();
-                this.open_menu(None, menu_rows, below(ev.position()), false, window, cx);
+                // As the Swift app's pull-down (a SwiftUI Menu) hangs: its
+                // edge a point left of the button's and 9 below it,
+                // measured off macOS 26's screen (features/tools/menu-shot.ts).
+                let button = this.sidebar.sort_button.get();
+                let at = point(button.left() - px(1.), button.bottom() + px(9.));
+                this.open_menu(None, menu_rows, at, false, window, cx);
             }))
-            .child(icon("arrow.up.arrow.down", 10., color))
+            .child(canvas(move |bounds, _, _| placed.set(bounds), |_, _, _, _| {}).absolute().top_0().left_0().size_full())
+            // In the button's colour, so the hover above brightens it.
+            .child(icons::symbol("arrow.up.arrow.down").with_size(px(10.)))
     }
 
     fn render_show_more(&mut self, more: usize, p: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1412,7 +1427,13 @@ impl Threadbear {
             // Dragged any way but left, it's the thread, to drop into a
             // thread's message as its chip (`drag.threadout`).
             .on_drag(self.dragged_thread(&id), |drag, grabbed, _, cx| crate::row_swipe::RowDragChip::new(drag, grabbed, cx))
-            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.open_row_menu(menu_id.clone(), ev.position, window, cx)))
+            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                // The row's menu alone: the press went on to the sidebar
+                // panel's own menu (Hide Title, Open in New Window), which
+                // came up over it from a real right-click (12 Nov).
+                cx.stop_propagation();
+                this.open_row_menu(menu_id.clone(), ev.position, window, cx)
+            }))
             .child(tile)
             .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(h_flex().child(title_el).when(show_buttons, |s| s.child(div().flex_none().w(px(actions.len() as f32 * 24.)).h(px(1.))))).child(second_line))
             .when_some(buttons, |s, b| s.child(h_flex().absolute().right(px(TRAILING - 5.)).top_0().bottom_0().items_center().gap(px(2.)).child(b)))
@@ -1930,21 +1951,36 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
             window.pointer_up(at, MouseButton::Left, cx);
             Ok(json!("ok"))
         }
-        // The row's right-click menu, opened the way a right-click does and
-        // read back; `tipPrefix` names the row by the start of its tip.
+        // A row's right-click menu or a button's menu, opened the way a click
+        // does and read back; `tipPrefix` names the control by the start of
+        // its tip. As the Swift app's: `right` right-clicks (a left click otherwise,
+        // the sort button's) and `ticks` puts "[x] " before a ticked line.
         "realMenu" => {
             let prefix = cmd["tipPrefix"].as_str().ok_or("realMenu here takes tipPrefix")?;
-            // A right-click through real events and hit testing, as a person's
-            // goes, on the row whose tooltip starts with this.
+            let button = if cmd["right"].as_bool() == Some(true) { MouseButton::Right } else { MouseButton::Left };
+            // A click through real events and hit testing, as a person's
+            // goes, on the control whose tooltip starts with this.
             window.render_frame(cx);
             let Some(row) = window.elements().into_iter().filter(|e| e.visible() && e.label().is_some_and(|l| l.starts_with(prefix))).last() else {
                 return Err(format!("no row with the tip {prefix:?} on screen"));
             };
             let at = row.bounds().center();
             window.pointer_move(at, None, cx);
-            window.pointer_down(at, MouseButton::Right, cx);
-            window.pointer_up(at, MouseButton::Right, cx);
-            let titles: Vec<String> =app.read(cx).sidebar.menu.iter().flat_map(|m| m.rows.iter()).filter(|r| !r.separator).map(|r| if r.children.is_empty() { r.title.clone() } else { format!("{} >", r.title) }).collect();
+            window.pointer_down(at, button, cx);
+            window.pointer_up(at, button, cx);
+            let ticks = cmd["ticks"].as_bool() == Some(true);
+            let titles: Vec<String> = app
+                .read(cx)
+                .sidebar
+                .menu
+                .iter()
+                .flat_map(|m| m.rows.iter())
+                .filter(|r| !r.separator)
+                .map(|r| format!("{}{}{}", if ticks && r.checked { "[x] " } else { "" }, r.title, if r.children.is_empty() { "" } else { " >" }))
+                .collect();
+            if titles.is_empty() {
+                return Err("no menu opened".into());
+            }
             app.update(cx, |t, cx| {
                 t.sidebar.menu = None;
                 cx.notify();

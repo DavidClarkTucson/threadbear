@@ -216,6 +216,14 @@ gpui-kit stock, pinned to exact versions, no fork. Ghostex forked both gpui and
 its component library and has had to re-merge them many times since. We take a
 fork only when a shim can't do the job, and write down why.
 
+The one so far (12 Nov): `desktop/vendor/gpui-component`, the components crate
+at the pinned version with its popup menus drawn as macOS draws its own. The
+kit draws every menu's rows itself (their height, padding and gaps, the tick
+in the icon's place) and nothing outside the crate reaches them, and every
+dropdown, context menu and the sidebar's menus go through it. Its first commit
+is the crate as published, so `git log -p desktop/vendor` is the whole fork;
+a gpui-kit bump copies the new version in and puts that back.
+
 ### Borrowed from Ghostex (MIT, notice kept)
 
 - The parity log format, tightened (below).

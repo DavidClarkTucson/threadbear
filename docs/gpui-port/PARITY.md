@@ -286,6 +286,65 @@ built parsers and gates with no launch of the app, which is the trap.)
   apps side by side, at speed, a quarter speed and with the main thread
   stalled 0.3 s after the click, in
   `~/Library/Caches/Threadbear/gpui-compare/archive-flight/`.
+### 2026-11-12 Menus drawn as macOS draws its own (`sidebar.sort`, every popup menu)
+
+- Mike: the Inbox's sort menu was "not spaced properly" beside the Swift
+  app's, and had no tick on the order it's in. The Swift app's menus are real
+  macOS menus; the GPUI app's are gpui-kit's, which put a ticked line's tick
+  in its icon's place (so a line with an icon never showed one), with rows 26
+  tall and 2 apart, a grey highlight, and 14 point titles.
+- Every popup menu now has macOS 26's look, measured off real menus on
+  Tinker Desk's screen: a tick column (only while a line is ticked) left of
+  the icon column (only while a line has an icon), the title at 13 points,
+  24 point rows with no gap, the highlight 6 in from the edge with 7 point
+  corners in the system blue and the title white on it, 13 point outer
+  corners, a dark 1 point edge with a light one inside it (2 points on
+  light), separators 11 tall with their line 17 in from each side, keys grey
+  and a submenu's chevron in the title's colour (both white on the
+  highlight), disabled lines at a quarter. The menu's width follows the
+  titles as macOS's does (18 points after the longest).
+- The kit can't be changed from outside, so desktop/vendor/gpui-component is
+  gpui-kit's component crate as published, patched in through Cargo; its
+  first commit is the crate untouched, so `git log -p desktop/vendor` shows
+  only the change (`src/menu/mac_look.rs` has the numbers). A gpui-kit bump
+  copies the new version in and puts that change back.
+- The sort menu hangs from its button as the Swift pull-down does (a point
+  left of it, 9 below), not from the pointer. No tooltip shows while a
+  sidebar menu is up, as on macOS: the button's came up over its own menu.
+  The button brightens on hover with no square behind it (`InboxOrderMenu`).
+- A real right-click on a sidebar row opened the sidebar panel's own menu
+  (Hide Title, Open in New Window) over the row's: the press went on past
+  the row. It stops at the row now.
+- The Runs on menu's ticked line keeps its icon now (it was dropped so the
+  kit would show the tick).
+- Not the same: the icons are Lucide's, not SF Symbols (the hand is a little
+  wider, the arrows a point shorter); the menu is a flat colour, not macOS's
+  translucent material; macOS 27's menus weren't measured (Tinker Desk is on
+  26); the GPUI app's colours come out a few levels darker on screen than
+  the Swift app's everywhere, the menu's included (its background 32 against
+  35, the highlight 0,69,162 against 9,77,176).
+- Scripts: `realMenu` in GPUI takes `right` (a left click otherwise) and
+  `ticks` ("[x] " before a ticked line), which the Swift app's takes too now;
+  `label-point` is in both apps, with `prefix`. The scenario chooses the new
+  order with `sort`: the Swift app's `realMenu` `pick` chose the wrong line
+  of a SwiftUI Picker's menu about one time in three (its item action, and
+  arrow keys posted into the menu, alike), while a real click on the line
+  (menu-shot.ts) works in both.
+- Files: `desktop/Cargo.toml`, `desktop/Cargo.lock`, `desktop/vendor/gpui-component/src/menu/{mac_look,popup_menu,menu_item,mod}.rs`,
+  `desktop/gpui/src/{sidebar,tips,automation}.rs`,
+  `app/Sources/Threadbear/{Automation,Automation+Commands}.swift`,
+  `app/README.md`, `features/sidebar-sections.feature` and its steps,
+  `features/tools/menu-shot.ts` (the pictures).
+- Verification: on Tinker Desk, `@sidebar.sort`, `@sidebar.row.menu` and
+  `@sidebar.sections`, GPUI 11 of 11 and Swift 11 of 11, twice each (the new
+  scenario reads the tick through a real click on the button in both), and
+  `cargo test -p threadbear-core`. `features/tools/menu-shot.ts` opened the
+  sort menu with the real pointer in both apps and took the screen around
+  it: before, the GPUI menu sat 6 points higher and 8 to the right, its rows 28
+  apart against 24, with no tick; after, its edges, rows, titles and
+  highlight land on the Swift menu's pixels in dark and light (the tick a
+  point wider, the arrows a point shorter). The row's right-click menu
+  matches too. Pictures: `~/Library/Caches/Threadbear/gpui-compare/menus`.
 
 ### 2026-11-12 Opening a thread whose agent had shown a pin crashed the app (`panel.requests`)
 
@@ -348,7 +407,6 @@ built parsers and gates with no launch of the app, which is the trap.)
   `testLabels` and `testALabelIsOneLine`, and Swift's TurnGapTests, pass.
   compare.ts on an export of a92fcf9a scrolled to both wait lines: each is
   one line between the replies in both apps.
-
 ### 2026-11-12 Another Mac's picture chips open nothing here (`rich.picturechips`)
 
 - A picture's chip in a message on another Mac's thread named that Mac's

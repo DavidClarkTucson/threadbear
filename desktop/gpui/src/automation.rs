@@ -311,11 +311,13 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // trackpad's included (features/tools/real-gestures.ts).
         "row-swipe" => Ok(json!(format!("ok {}", app.read(cx).sidebar.gestures.along()))),
         // Where a control is on screen by its label (a Highlights row's is
-        // its title): "ok x y".
+        // its title): "ok x y". `prefix`: a label that starts so (a sidebar
+        // row's is its title, then a newline).
         "label-point" => {
             window.render_frame(cx);
             let label = text(cmd, "label");
-            let found = window.elements().into_iter().filter(|e| e.visible() && e.label().is_some_and(|l| l == label)).last().ok_or_else(|| format!("nothing labelled {label:?} on screen"))?;
+            let prefix = cmd["prefix"].as_bool() == Some(true);
+            let found = window.elements().into_iter().filter(|e| e.visible() && e.label().is_some_and(|l| if prefix { l.starts_with(label) } else { l == label })).last().ok_or_else(|| format!("nothing labelled {label:?} on screen"))?;
             let at = found.bounds().center();
             Ok(json!(format!("ok {} {}", f32::from(at.x).round(), f32::from(at.y).round())))
         }

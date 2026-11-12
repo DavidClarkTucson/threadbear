@@ -19,6 +19,9 @@ pub(crate) trait Tip: ParentElement + StatefulInteractiveElement + Sized {
         let text: SharedString = text.into();
         let shown = text.clone();
         self.tooltip(move |window, cx| {
+            if MENU_UP.with(|m| m.get() != 0) {
+                return cx.new(|_| NoTip).into();
+            }
             // The pointer stopped on it to find out what it is.
             crate::activity::hover(&shown, window, cx);
             Tooltip::new(shown.clone()).build(window, cx)
@@ -28,6 +31,28 @@ pub(crate) trait Tip: ParentElement + StatefulInteractiveElement + Sized {
 }
 
 impl<E: ParentElement + StatefulInteractiveElement + Sized> Tip for E {}
+
+thread_local! {
+    /// Which of the app's own menus are up, one bit each (`menu_up`).
+    static MENU_UP: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
+
+/// A menu of the app's is up (or has gone): no tooltip shows meanwhile, as
+/// on macOS, where a menu's tracking holds them back. The sort button's tip
+/// came up over its own menu, the pointer still on the button (12 Nov).
+/// `which` is the menu's bit: 1, the sidebar's (its row and heading menus).
+pub(crate) fn menu_up(which: u8, up: bool) {
+    MENU_UP.with(|m| m.set(if up { m.get() | which } else { m.get() & !which }));
+}
+
+/// What a tooltip shows while a menu is up: nothing.
+struct NoTip;
+
+impl Render for NoTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
 
 fn anchor(text: SharedString) -> impl IntoElement {
     canvas(

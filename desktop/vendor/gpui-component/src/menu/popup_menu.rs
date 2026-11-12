@@ -1,17 +1,17 @@
-use crate::ThemeStyled as _;
 use crate::actions::{Cancel, Confirm, SelectDown, SelectUp};
 use crate::actions::{SelectLeft, SelectRight};
+use crate::menu::mac_look;
 use crate::menu::menu_item::MenuItemElement;
 use crate::scroll::ScrollableElement;
-use crate::{ActiveTheme, ElementExt, Icon, IconName, Sizable as _, h_flex, v_flex};
+use crate::{ElementExt, Icon, IconName, Sizable as _, h_flex, v_flex};
 use crate::{Side, Size, kbd::Kbd};
 use gpui::{
     Action, Anchor, AnyElement, App, AppContext, Bounds, Context, DismissEvent, Edges, Entity,
     EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding,
     ParentElement, Pixels, Render, Role, ScrollHandle, SharedString, StatefulInteractiveElement,
-    Styled, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px, rems,
+    Styled, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px,
 };
-use gpui::{ClickEvent, Half, MouseDownEvent, OwnedMenuItem, Point, Subscription};
+use gpui::{ClickEvent, MouseDownEvent, OwnedMenuItem, Point, Subscription};
 use gpui_base::TestSupportExt as _;
 
 use std::collections::HashSet;
@@ -177,7 +177,8 @@ impl PopupMenuItem {
 
     /// Set checked state for the menu item.
     ///
-    /// NOTE: If `check_side` is [`Side::Left`], the icon will replace with a check icon.
+    /// Threadbear's change: the tick has its own column left of the icon's,
+    /// as macOS's menus have it, whatever `check_side` says (mac_look.rs).
     pub fn checked(mut self, checked: bool) -> Self {
         match &mut self {
             PopupMenuItem::Item { checked: c, .. } => {
@@ -248,15 +249,12 @@ impl PopupMenuItem {
         matches!(self, PopupMenuItem::Separator)
     }
 
-    fn has_left_icon(&self, check_side: Side) -> bool {
+    /// Whether the line has an icon of its own (mac_look.rs's icon column).
+    fn has_icon(&self) -> bool {
         match self {
-            PopupMenuItem::Item { icon, checked, .. } => {
-                icon.is_some() || (check_side.is_left() && *checked)
-            }
-            PopupMenuItem::ElementItem { icon, checked, .. } => {
-                icon.is_some() || (check_side.is_left() && *checked)
-            }
-            PopupMenuItem::Submenu { icon, .. } => icon.is_some(),
+            PopupMenuItem::Item { icon, .. }
+            | PopupMenuItem::ElementItem { icon, .. }
+            | PopupMenuItem::Submenu { icon, .. } => icon.is_some(),
             _ => false,
         }
     }
@@ -299,7 +297,12 @@ pub struct PopupMenu {
     max_width: Option<Pixels>,
     max_height: Option<Pixels>,
     bounds: Bounds<Pixels>,
+    // Threadbear's change: every menu is macOS's size now (mac_look.rs).
+    #[allow(dead_code)]
     size: Size,
+    /// Kept for the builder; the tick's column is always on the left now
+    /// (Threadbear's change, mac_look.rs).
+    #[allow(dead_code)]
     check_side: Side,
     /// Indexes of the items added as options that can be checked, so an
     /// unchecked one reports its state rather than reading as a command.
@@ -1201,28 +1204,6 @@ impl PopupMenu {
         })
     }
 
-    fn render_icon(
-        has_icon: bool,
-        checked: bool,
-        icon: Option<Icon>,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
-        if !has_icon {
-            return None;
-        }
-
-        let icon = if let Some(icon) = icon {
-            icon.clone()
-        } else if checked {
-            Icon::new(IconName::Check)
-        } else {
-            Icon::empty()
-        };
-
-        Some(icon.xsmall())
-    }
-
     #[inline]
     fn max_width(&self) -> Pixels {
         self.max_width.unwrap_or(px(500.))
@@ -1264,31 +1245,31 @@ impl PopupMenu {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> MenuItemElement {
-        let has_left_icon = options.has_left_icon;
-        let is_left_check = options.check_side.is_left() && item.is_checked();
-        let right_check_icon = if options.check_side.is_right() && item.is_checked() {
-            Some(Icon::new(IconName::Check).xsmall())
-        } else {
-            None
-        };
-
+        // Threadbear's change: a line of a macOS menu (mac_look.rs). The tick
+        // has a column of its own, left of the icon's, so a ticked line with
+        // an icon shows both, as macOS's do; the kit put the tick in the
+        // icon's place, and drew none beside an icon.
+        let look = options.look;
+        let columns = options.columns;
         let selected = self.selected_index == Some(ix);
         const EDGE_PADDING: Pixels = px(4.);
-        const INNER_PADDING: Pixels = px(8.);
-
+        let item_height = mac_look::ROW_HEIGHT;
         let is_submenu = matches!(item, PopupMenuItem::Submenu { .. });
-
-        let (item_height, radius) = match self.size {
-            Size::Small => (px(20.), options.radius.half()),
-            _ => (px(26.), options.radius),
-        };
+        // A key is grey, and white on the highlight with the title.
+        let secondary = if selected { look.highlight_label } else { look.secondary };
 
         let this = MenuItemElement::new(ix)
+            .mac_look(look)
             .relative()
-            .text_sm()
-            .py_0()
-            .px(INNER_PADDING)
-            .rounded(radius)
+            .text_size(mac_look::TEXT_SIZE)
+            // The title sits a point below the line's middle, as macOS's does.
+            .pt(px(2.))
+            .pb_0()
+            .pl(px(columns.title - mac_look::TITLE_BEARING))
+            // A title's advance runs about a point past its ink.
+            .pr(px(mac_look::TRAILING - 1.))
+            .gap_0()
+            .rounded(mac_look::ROW_RADIUS)
             .items_center()
             .selected(selected)
             .on_hover(cx.listener(move |this, hovered, window, cx| {
@@ -1320,23 +1301,34 @@ impl PopupMenu {
                 (item.is_checked() || self.checkable.contains(&ix)).then(|| item.is_checked()),
             );
 
+        // The tick and the icon at their columns, out of the title's way.
+        let leading = |checked: bool, icon: Option<Icon>| -> Vec<AnyElement> {
+            let at = |x: f32| div().absolute().top_0().bottom_0().left(px(x)).flex().items_center();
+            let check = columns.check.filter(|_| checked).map(|x| {
+                // SF's tick sits a point low, on the title's baseline side.
+                at(x - mac_look::CHECK_BEARING)
+                    .pt(px(2.))
+                    .child(Icon::default().data(mac_look::CHECKMARK).with_size(mac_look::ICON_SIZE))
+                    .into_any_element()
+            });
+            let icon = columns.icon.zip(icon).map(|(x, icon)| {
+                at(x - mac_look::ICON_BEARING).child(icon.with_size(mac_look::ICON_SIZE)).into_any_element()
+            });
+            check.into_iter().chain(icon).collect()
+        };
+
         match item {
             PopupMenuItem::Separator => this
-                .h_auto()
+                .h(mac_look::SEPARATOR_HEIGHT)
                 .p_0()
-                .my_0p5()
-                .mx_neg_1()
-                .border_b(px(2.))
-                .border_color(cx.theme().border)
+                .px(mac_look::SEPARATOR_INSET)
+                .child(div().w_full().h(px(1.)).bg(look.separator))
                 .disabled(true),
-            PopupMenuItem::Label(label) => this.disabled(true).cursor_default().child(
-                h_flex()
-                    .cursor_default()
-                    .items_center()
-                    .gap_x_1()
-                    .children(Self::render_icon(has_left_icon, false, None, window, cx))
-                    .child(div().flex_1().child(label.clone())),
-            ),
+            PopupMenuItem::Label(label) => this
+                .disabled(true)
+                .cursor_default()
+                .h(item_height)
+                .child(div().flex_1().child(label.clone())),
             PopupMenuItem::ElementItem {
                 render,
                 icon,
@@ -1349,21 +1341,14 @@ impl PopupMenu {
                     }))
                 })
                 .disabled(*disabled)
+                .min_h(item_height)
+                .children(leading(item.is_checked(), icon.clone()))
                 .child(
                     h_flex()
                         .flex_1()
                         .min_h(item_height)
                         .items_center()
-                        .gap_x_1()
-                        .children(Self::render_icon(
-                            has_left_icon,
-                            is_left_check,
-                            icon.clone(),
-                            window,
-                            cx,
-                        ))
-                        .child((render)(window, cx))
-                        .children(right_check_icon.map(|icon| icon.ml_3())),
+                        .child((render)(window, cx)),
                 ),
             PopupMenuItem::Item {
                 icon,
@@ -1375,7 +1360,9 @@ impl PopupMenu {
             } => {
                 let show_link_icon = *is_link && self.external_link_icon;
                 let action = action.as_ref().map(|action| action.boxed_clone());
-                let key = self.render_key_binding(action, window, cx);
+                let key = self
+                    .render_key_binding(action, window, cx)
+                    .map(|key| key.text_color(secondary));
 
                 this.when(!disabled, |this| {
                     this.on_click(cx.listener(move |this, event, window, cx| {
@@ -1384,34 +1371,19 @@ impl PopupMenu {
                 })
                 .disabled(*disabled)
                 .h(item_height)
-                .gap_x_1()
-                .children(Self::render_icon(
-                    has_left_icon,
-                    is_left_check,
-                    icon.clone(),
-                    window,
-                    cx,
-                ))
+                .children(leading(item.is_checked(), icon.clone()))
                 .child(
                     h_flex()
                         .w_full()
-                        .gap_3()
+                        .gap(px(mac_look::KEY_GAP))
                         .items_center()
                         .justify_between()
-                        .when(!show_link_icon, |this| this.child(label.clone()))
-                        .children(right_check_icon)
+                        .child(label.clone())
                         .when(show_link_icon, |this| {
                             this.child(
-                                h_flex()
-                                    .w_full()
-                                    .justify_between()
-                                    .gap_1p5()
-                                    .child(label.clone())
-                                    .child(
-                                        Icon::new(IconName::ExternalLink)
-                                            .xsmall()
-                                            .text_color(cx.theme().muted_foreground),
-                                    ),
+                                Icon::new(IconName::ExternalLink)
+                                    .with_size(mac_look::ICON_SIZE)
+                                    .text_color(secondary),
                             )
                         })
                         .children(key),
@@ -1430,32 +1402,22 @@ impl PopupMenu {
                 })
                 .selected(selected)
                 .disabled(*disabled)
-                .items_start()
+                .h(item_height)
+                .children(leading(false, icon.clone()))
                 .child(
                     h_flex()
-                        .min_h(item_height)
                         .size_full()
+                        .gap(px(mac_look::KEY_GAP))
                         .items_center()
-                        .gap_x_1()
-                        .children(Self::render_icon(
-                            has_left_icon,
-                            false,
-                            icon.clone(),
-                            window,
-                            cx,
-                        ))
+                        .justify_between()
+                        .child(label.clone())
                         .child(
-                            h_flex()
-                                .flex_1()
-                                .gap_2()
-                                .items_center()
-                                .justify_between()
-                                .child(label.clone())
-                                .child(
-                                    Icon::new(IconName::ChevronRight)
-                                        .xsmall()
-                                        .text_color(cx.theme().muted_foreground),
-                                ),
+                            // Its ink's right end where a title's would be.
+                            // In the title's colour, as macOS draws it; only keys are grey.
+                            Icon::new(IconName::ChevronRight)
+                                .with_size(mac_look::CHEVRON_SIZE)
+                                .text_color(if selected { look.highlight_label } else { look.label })
+                                .mr(px(mac_look::CHEVRON_BEARING - (mac_look::TRAILING - 1.))),
                         ),
                 )
                 .when(selected, |this| {
@@ -1463,22 +1425,27 @@ impl PopupMenu {
                         let (anchor, left) = self.submenu_anchor;
                         let is_bottom_pos =
                             matches!(anchor, Anchor::BottomLeft | Anchor::BottomRight);
-                        deferred(
-                            anchored()
-                                .anchor(anchor)
-                                .child(
-                                    div()
-                                        .id("submenu")
-                                        .test_support()
-                                        .occlude()
-                                        .when(is_bottom_pos, |this| this.bottom_0())
-                                        .when(!is_bottom_pos, |this| this.top_neg_1())
-                                        .left(left)
-                                        .child(menu.clone()),
-                                )
-                                .snap_to_window_with_margin(Edges::all(EDGE_PADDING)),
+                        // From the line's own left edge, whatever its
+                        // padding, and a submenu's first line level with
+                        // this one (its own padding and edge above it).
+                        div().absolute().top_0().bottom_0().left_0().child(
+                            deferred(
+                                anchored()
+                                    .anchor(anchor)
+                                    .child(
+                                        div()
+                                            .id("submenu")
+                                            .test_support()
+                                            .occlude()
+                                            .when(is_bottom_pos, |this| this.bottom(px(-6.)))
+                                            .when(!is_bottom_pos, |this| this.top(px(-6.)))
+                                            .left(left)
+                                            .child(menu.clone()),
+                                    )
+                                    .snap_to_window_with_margin(Edges::all(EDGE_PADDING)),
+                            )
+                            .with_priority(self.priority + 1),
                         )
-                        .with_priority(self.priority + 1)
                     })
                 }),
         }
@@ -1495,9 +1462,8 @@ impl Focusable for PopupMenu {
 
 #[derive(Clone, Copy)]
 struct RenderOptions {
-    has_left_icon: bool,
-    check_side: Side,
-    radius: Pixels,
+    columns: mac_look::Columns,
+    look: mac_look::Colors,
 }
 
 impl Render for PopupMenu {
@@ -1530,16 +1496,15 @@ impl Render for PopupMenu {
             window_half_height.min(px(450.))
         });
 
-        let has_left_icon = self
-            .menu_items
-            .iter()
-            .any(|item| item.has_left_icon(self.check_side));
-
+        // A tick column only while a line is ticked, and an icon column only
+        // while one has an icon, as macOS lays out its menus.
+        let ticks = self.menu_items.iter().any(|item| item.is_checked());
+        let icons = self.menu_items.iter().any(|item| item.has_icon());
+        let look = mac_look::colors(cx);
         let max_width = self.max_width();
         let options = RenderOptions {
-            has_left_icon,
-            check_side: self.check_side,
-            radius: cx.theme().radius.min(px(8.)),
+            columns: mac_look::columns(ticks, icons),
+            look,
         };
 
         v_flex()
@@ -1555,16 +1520,31 @@ impl Render for PopupMenu {
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::dismiss))
             .on_mouse_down_out(cx.listener(Self::on_mouse_down_out))
-            .popover_style(cx)
-            .text_color(cx.theme().popover_foreground)
+            // macOS's menu: its colour, a dark 1 point edge with a light one
+            // just inside it, round corners and a soft shadow (mac_look.rs).
+            .bg(look.background)
+            .border_1()
+            .border_color(look.edge)
+            .rounded(mac_look::RADIUS)
+            .shadow(mac_look::shadow(cx))
+            .text_color(look.label)
             .relative()
             .occlude()
             .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .rounded(mac_look::RADIUS - px(1.))
+                    .map(|rim| if look.rim_width > px(1.) { rim.border_2() } else { rim.border_1() })
+                    .border_color(look.rim),
+            )
+            .child(
                 v_flex()
                     .id("items")
-                    .p_1()
-                    .gap_y_0p5()
-                    .min_w(rems(8.))
+                    .p(mac_look::PADDING)
                     .when_some(self.min_width, |this, min_width| this.min_w(min_width))
                     .max_w(max_width)
                     .when(self.scrollable, |this| {

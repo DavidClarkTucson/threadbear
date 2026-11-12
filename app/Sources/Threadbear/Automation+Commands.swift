@@ -777,7 +777,10 @@ extension Automation {
             guard let menu = note.object as? NSMenu else { return }
             let isSub = menu === submenu
             if !isSub {
-                titles = menu.items.map { $0.isSeparatorItem ? "---" : $0.title + ($0.submenu != nil ? " >" : "") }
+                // `ticks`: a ticked line reads "[x] " first, as the GPUI app's
+                // menus say it (the Inbox's sort, @sidebar.sort).
+                let ticks = c["ticks"] as? Bool == true
+                titles = menu.items.map { $0.isSeparatorItem ? "---" : (ticks && $0.state == .on ? "[x] " : "") + $0.title + ($0.submenu != nil ? " >" : "") }
                 if let sub { submenu = menu.items.first { $0.title == sub }?.submenu }
                 if let pick, let index = menu.items.firstIndex(where: { $0.title == pick }) { picked = (menu, index) }
             }

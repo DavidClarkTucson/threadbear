@@ -399,6 +399,20 @@ enum Automation {
             guard let edge = DockEdge(rawValue: c["edge"] as? String ?? "right") else { return "error edge is left, right, top or bottom" }
             app.dock.layout.move(panel, .window(edge))
             return "ok " + app.dock.layout.summary
+        case "label-point":
+            // Where the control whose tooltip is exactly `label` sits: "ok x y",
+            // its middle in points from the window's top left, as the GPUI
+            // app's command says it. For tools that click it with the real
+            // pointer (features/tools/menu-shot.ts).
+            guard let window, let content = window.contentView else { return "error no window" }
+            let label = c["label"] as? String ?? ""
+            // `prefix`: a control whose tooltip starts so (a row's is its title, then a newline).
+            let prefix = c["prefix"] as? Bool == true
+            guard let anchor = all(TipAnchorView.self, in: content).last(where: { (prefix ? $0.text.hasPrefix(label) : $0.text == label) && !$0.isHiddenOrHasHiddenAncestor }) else {
+                return "error nothing labelled \(label) on screen"
+            }
+            let middle = anchor.convert(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: nil)
+            return "ok \(Int(middle.x.rounded())) \(Int((window.frame.height - middle.y).rounded()))"
         case "point":
             // Real events at a spot in the window, for SwiftUI controls with
             // nothing to find them by: {"cmd":"point","x":956,"y":265} clicks
