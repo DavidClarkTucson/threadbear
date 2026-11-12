@@ -1372,7 +1372,7 @@ impl ThreadPane {
 }
 
 impl Render for ThreadPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let (muted, danger, bg) = (theme.muted_foreground, theme.danger, theme.background);
         self.rows.list_width = f32::from(self.scroller.read(cx).viewport().size.width);
@@ -1453,7 +1453,7 @@ impl Render for ThreadPane {
             // The card of a link the pointer's resting on (reply_links.rs), and
             // the bar over selected words (selection_bar.rs).
             .children(crate::reply_links::peek_overlay(self, cx))
-            .children(crate::selection_bar::overlay(self, cx))
+            .children(crate::selection_bar::overlay(self, window, cx))
     }
 }
 

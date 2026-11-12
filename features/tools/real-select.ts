@@ -118,7 +118,7 @@ try {
   const check = (name: string, got: Selection, want: string | { startsWith: string }, during: Selection[] = []) => {
     const words = got.text.trim();
     const right = typeof want === 'string' ? words === want : words.startsWith(want.startsWith) && words.length > want.startsWith.length;
-    const ok = right && got.bar !== null && got.panelDrag === null && during.every((d) => d.bar === null && d.panelDrag === null);
+    const ok = right && got.bar !== null && got.bar.trim() === words && got.panelDrag === null && during.every((d) => d.bar === null && d.panelDrag === null);
     if (!ok) failed += 1;
     const seen = during.map((d) => `${JSON.stringify(d.text.slice(0, 40))}${d.bar !== null ? ' +bar' : ''}${d.panelDrag !== null ? ` +picked up ${d.panelDrag}` : ''}`);
     console.log(`${ok ? 'pass' : 'FAIL'}  ${name}\n      got ${JSON.stringify(got.text)}${got.bar === null ? ' (no bar)' : ''}, want ${JSON.stringify(want)}`);
@@ -166,6 +166,7 @@ try {
       execFileSync('screencapture', ['-x', '-R', `${Math.round(one.left - 20)},${Math.round(one.mid - 80)},520,200`, file]);
     }
     check(`${label}: a drag along another item after a selection`, r.after, three.line.text.trim(), r.during);
+    barOver(`${label}: the bar over the other item`, r.after, three.line);
   }
 
   // A plain click on words after a selection puts it away, bar and all. In
@@ -184,6 +185,15 @@ try {
     }
   }
 
+  // The bar just over `line`, the selection's first: clear of it (the bar's
+  // 29 points tall, 6 above the line), not over it as it was after a
+  // Shift-click, and not stranded somewhere above either.
+  const barOver = (name: string, got: Selection, line: Line) => {
+    const ok = got.barTop !== null && got.barTop + 29 <= line.y + 2 && got.barTop >= line.y - 29 - 16;
+    if (!ok) failed += 1;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${name}\n      bar top ${got.barTop}, the line's top ${line.y}`);
+  };
+
   // A Shift-click after a drag carries the selection on to it, three times
   // over, as one that wasn't drawn failed some times and not others.
   async function shiftClick(label: string, s: Awaited<ReturnType<typeof screen>>) {
@@ -195,11 +205,7 @@ try {
       await drag([one.left, one.mid], [one.right, one.mid], 0.05, 20, 0.015);
       const got = await click([two.left + 30, two.mid], 1, true);
       check(`${label}: Shift-click extends (${i})`, got, { startsWith: 'still active on the main branch\np' });
-      // The bar over where the selection starts, clear of its first line
-      // (29 points tall), not over the line the Shift-click was on.
-      const above = got.barTop !== null && got.barTop + 29 <= one.line.y + 2;
-      if (!above) failed += 1;
-      console.log(`${above ? 'pass' : 'FAIL'}  ${label}: the bar over the selection's start after a Shift-click (${i})\n      bar top ${got.barTop}, first line's top ${one.line.y}`);
+      barOver(`${label}: the bar over the selection's start after a Shift-click (${i})`, got, one.line);
     }
   }
 

@@ -49,11 +49,6 @@ struct Bar {
 
 thread_local! {
     static PRESS: RefCell<Option<Press>> = const { RefCell::new(None) };
-    /// Where the last plain press went down: where a selection starts, so a
-    /// Shift-click that carries it on puts the bar over its start, not over
-    /// the Shift-click's line (which covered the line above, the selection's
-    /// own start).
-    static ANCHOR: RefCell<Option<Point<Pixels>>> = const { RefCell::new(None) };
     static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
 }
 
@@ -91,8 +86,7 @@ fn message_of(row: &Row) -> Option<String> {
 pub(crate) fn pressed(thread: String, row: &Row) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
     let (row_id, is_message) = (row.id.clone(), message_of(row).is_some());
     move |event: &MouseDownEvent, _, _| {
-        let at = if extends(event) { ANCHOR.with(|a| *a.borrow()).unwrap_or(event.position) } else { event.position };
-        PRESS.with(|p| *p.borrow_mut() = is_message.then(|| Press { thread: thread.clone(), row: row_id.clone(), at }));
+        PRESS.with(|p| *p.borrow_mut() = is_message.then(|| Press { thread: thread.clone(), row: row_id.clone(), at: event.position }));
     }
 }
 
@@ -114,17 +108,12 @@ pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
             let pressed = pane.clone();
             window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
                 if phase.capture() && !on_bar(event.position) {
-                    if event.button == MouseButton::Left && !extends(event) {
-                        ANCHOR.with(|a| *a.borrow_mut() = Some(event.position));
-                    }
                     hide(&pressed, cx);
                 }
             });
             let scrolled = pane.clone();
             window.on_mouse_event(move |_: &ScrollEvent, phase, _, cx| {
                 if phase.capture() {
-                    // The words have moved from under where it went down.
-                    ANCHOR.with(|a| a.borrow_mut().take());
                     hide(&scrolled, cx);
                 }
             });
@@ -134,11 +123,6 @@ pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
     // listeners hear every press and release in the window.
     .absolute()
     .inset_0()
-}
-
-/// A Shift-click, which the kit takes as carrying the selection on.
-fn extends(event: &MouseDownEvent) -> bool {
-    event.modifiers.shift && event.click_count == 1
 }
 
 fn on_bar(at: Point<Pixels>) -> bool {
@@ -270,8 +254,14 @@ fn quote_in_composer(pane: &Entity<ThreadPane>, words: &str, window: &mut Window
 }
 
 /// The bar, over the selection it was made for, if it's this thread's.
-pub(crate) fn overlay(pane: &ThreadPane, cx: &mut Context<ThreadPane>) -> Option<AnyElement> {
+pub(crate) fn overlay(pane: &ThreadPane, window: &Window, cx: &mut Context<ThreadPane>) -> Option<AnyElement> {
     let (first, last) = BAR.with(|b| b.borrow().as_ref().filter(|b| b.thread == pane.summary.id).map(|b| (b.first, b.last)))?;
+    // Where the selection was drawn, when its words say (a reply's do):
+    // the press and release are only its ends for a plain drag. A
+    // Shift-click's press is the far end, which put the bar over the
+    // selection's own first line; and the words can have moved since.
+    let (first, last) = TextSelection::painted_edges(window, cx)
+        .map_or((first, last), |(start, end)| (point(start.left(), start.center().y), point(end.left(), end.center().y)));
     let weak = cx.weak_entity();
     let line = gpui_kit::px(style::zoomed(size::BODY_LINE));
     let height = gpui_kit::px(style::zoomed(BAR_HEIGHT));
