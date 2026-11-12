@@ -324,10 +324,12 @@ export const RUN_ASKS_API_VERSION = 71;
 // row, for the phone's done card. An older backend's validator would turn
 // the row down, so it goes without.
 export const LOOSE_ENDS_API_VERSION = 73;
-// Another lab's review ledger from the last turn (`review` on a thread row),
-// for another Mac's relay to draw. An older backend's validator would turn
-// the row down, so it goes without.
-export const REVIEW_API_VERSION = 75;
+// What another Mac's relay needs to draw a thread's cards as its own Mac
+// does: another lab's review ledger from the last turn and the turn the
+// done card's fields are from (`review` and `cardTurn` on a thread row), and
+// what became of a plan (`planDecision` on its message row). An older
+// backend's validator would turn the rows down, so they go without.
+export const RELAY_CARDS_API_VERSION = 75;
 // From this one a thread's row and its threadIndex row carry `keywords`, the
 // librarian's search words (keywords.ts), and phone:search matches them and
 // every message's text. An older backend's validator would turn the row
@@ -430,6 +432,7 @@ export type ThreadDoc = {
   next?: string[];
   looseEnds?: { kind: string; text: string; threadId?: string; at?: string }[];
   review?: LabReviewLedger;
+  cardTurn?: string;
   needs?: 'you' | 'nothing';
   pendingReviews?: number;
   waitingForRoom?: { until: string; accountId?: string };
@@ -446,7 +449,7 @@ export type PhoneAsk = { action: string; why?: string; reply?: string; options?:
 // A text message, or one line for a tool call (role "tool", since backend
 // API 2): what the phone and the website show of a thread.
 export type WokeByDoc = { kind: string; description: string };
-export type MessageDoc = { threadId: string; seq: number; role: 'user' | 'assistant' | 'tool'; text: string; origin?: string; toolKind?: string; summary?: true; plan?: true; turn?: string; wokeBy?: WokeByDoc[]; buttons?: MessageButton[]; at: string; pagedAt?: number };
+export type MessageDoc = { threadId: string; seq: number; role: 'user' | 'assistant' | 'tool'; text: string; origin?: string; toolKind?: string; summary?: true; plan?: true; planDecision?: 'go' | 'revise'; turn?: string; wokeBy?: WokeByDoc[]; buttons?: MessageButton[]; at: string; pagedAt?: number };
 // A reply button as a message row carries it (API 59): enough to draw it
 // and say where it goes, never its brief or message, which stay on the Mac.
 // target: the new thread's folder name, or the title of the thread it messages.
@@ -851,7 +854,7 @@ export function holdAllowIfScrubbed(doc: ThreadDoc, scrub: (text: string) => str
   return { ...doc, pendingApproval: { ...p, title: `${p.title}. ${REMOTE_ALLOW_REFUSED}`, options: p.options.filter((o) => o !== 'allow' && o !== 'allowAlways') } };
 }
 
-export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pending?: PendingApproval, earliestSeq?: number, next?: string[], scrub?: (text: string) => string, review?: LabReviewLedger): ThreadDoc {
+export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pending?: PendingApproval, earliestSeq?: number, next?: string[], scrub?: (text: string) => string, review?: LabReviewLedger, cardTurn?: string): ThreadDoc {
   const doc: ThreadDoc = {
     threadId: t.id,
     runnerId,
@@ -906,6 +909,9 @@ export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pen
   // Another lab's review of the last turn, for another Mac (the relay draws
   // it on that turn's end, as this runner's own Mac does), scrubbed as a
   // reply is: a finding can quote the code it's about.
+  // Which turn those are from, for another Mac's relay to put them on that
+  // turn's end and no other (its rows can lag the row).
+  if (cardTurn && (doc.looseEnds || review)) doc.cardTurn = cardTurn;
   // Field by field, as the backend's validator lists them: a field the
   // ledger gains later would otherwise have every backend turn the whole
   // row down.
@@ -1008,7 +1014,7 @@ function phoneAnswers(raw: unknown): AskAnswer[] | undefined {
 export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   const asks = d.asks !== undefined || d.asksSeq !== undefined || d.next !== undefined;
   const sections = d.needs !== undefined || d.pendingReviews !== undefined || d.waitingForRoom !== undefined;
-  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= LOOSE_ENDS_API_VERSION || !d.looseEnds) && (v >= REVIEW_API_VERSION || !d.review) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= KEYWORDS_API_VERSION || !d.keywords) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
+  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= LOOSE_ENDS_API_VERSION || !d.looseEnds) && (v >= RELAY_CARDS_API_VERSION || (!d.review && !d.cardTurn)) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= KEYWORDS_API_VERSION || !d.keywords) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
   const out = { ...d };
   if (v < SECTIONS_API_VERSION) {
     delete out.needs;
@@ -1043,7 +1049,10 @@ export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
     out.asks = out.asks.map(({ run: _run, ...a }) => a);
   }
   if (v < LOOSE_ENDS_API_VERSION) delete out.looseEnds;
-  if (v < REVIEW_API_VERSION) delete out.review;
+  if (v < RELAY_CARDS_API_VERSION) {
+    delete out.review;
+    delete out.cardTurn;
+  }
   if (v < OPTION_NOTES_API_VERSION && out.asks?.some((a) => a.optionNotes)) {
     out.asks = out.asks.map(({ optionNotes: _notes, ...a }) => a);
   }
@@ -1309,7 +1318,7 @@ export class ConvexSync {
   // together and for a long time, so the rest wait here for it to close.
   private cardsBehind = new Map<string, PendingApproval[]>();
   private earliest = new Map<string, number | null>(); // threadId -> seq of its first text message (null: none yet)
-  private nexts = new Map<string, { lastSeq: number; next?: string[]; review?: LabReviewLedger }>(); // threadId -> its last turn's next steps and review, as of lastSeq
+  private nexts = new Map<string, { lastSeq: number; next?: string[]; review?: LabReviewLedger; turn?: string }>(); // threadId -> its last turn's next steps, review and turn, as of lastSeq
   private lists: { projects?: Project[]; schedules?: Schedule[]; accounts?: Account[] } = {};
   private dirtyLists = new Set<ListName>();
   // Each project as the backend has it, id -> digest of its doc without
@@ -2226,6 +2235,19 @@ export class ConvexSync {
       // Only the newest few are ever waited on.
       if (this.planSeqs.size > 100) this.planSeqs.delete(this.planSeqs.keys().next().value!);
     }
+    // What became of a plan, on its row (sent again, which the backend takes
+    // as a change to that row), so another Mac's relay draws its card as
+    // resolved rather than guessing from what came after (Codex's review,
+    // 12 Nov: a guess read a denied plan as gone ahead).
+    if (e.type === 'plan.resolved') {
+      const plan = this.planEvent(threadId, e.itemId, e.seq);
+      const row = plan && toMessageDoc(threadId, plan, this.scrubber.safeText);
+      if (row) {
+        this.messages.push({ ...row, planDecision: e.decision });
+        this.scheduleFlush();
+      }
+      return;
+    }
     const m = toMessageDoc(threadId, e, this.scrubber.safeText);
     if (m) {
       this.messages.push(this.woke.take(m, e));
@@ -2339,7 +2361,7 @@ export class ConvexSync {
     if (t.status === 'idle' || t.status === 'error' || t.status === 'stopped') this.forgetCards(t.id);
     this.noteShared(t);
     const end = this.lastEnd(t);
-    const doc = toThreadDoc(t, this.runnerId, this.deps.clock.now(), this.pending.get(t.id), this.earliestSeq(t), t.needs === 'nothing' ? end?.next : undefined, this.scrubber.safeText, end?.review);
+    const doc = toThreadDoc(t, this.runnerId, this.deps.clock.now(), this.pending.get(t.id), this.earliestSeq(t), t.needs === 'nothing' ? end?.next : undefined, this.scrubber.safeText, end?.review, end?.turn);
     const now = this.deps.clock.now();
     // Against the row as this backend took it: `sent` holds that, without
     // the fields an older one doesn't know, which would otherwise make every
@@ -2702,17 +2724,30 @@ export class ConvexSync {
     }
   }
 
+  // A plan's plan.proposed, by its itemId: from planSeqs, or looked for in
+  // the events before its resolution (planSeqs keeps only the newest).
+  private planEvent(threadId: string, itemId: string, before: number): PersistedEvent | undefined {
+    try {
+      const seq = this.planSeqs.get(`${threadId} ${itemId}`);
+      const { events } = this.deps.runner.events(threadId, seq !== undefined ? { afterSeq: seq - 1, limit: 1 } : { beforeSeq: before, limit: 500 });
+      return events.findLast((p) => p.type === 'plan.proposed' && p.itemId === itemId);
+    } catch {
+      return undefined;
+    }
+  }
+
   // What the last turn ended with, while it's the last word (the thread is
   // idle, not archived, nothing sent since): its suggested follow-ups
   // (end_turn's `next`, for the phone's done card, sent only on a turn that
   // needs nothing) and another lab's review ledger (for another Mac's relay).
   // Read from the end of its log once per lastSeq.
-  private lastEnd(t: ThreadSummary): { next?: string[]; review?: LabReviewLedger } | undefined {
+  private lastEnd(t: ThreadSummary): { next?: string[]; review?: LabReviewLedger; turn?: string } | undefined {
     if (t.status !== 'idle' || t.archivedAt) return undefined;
     const known = this.nexts.get(t.id);
     if (known && known.lastSeq === t.lastSeq) return known;
     let next: string[] | undefined;
     let review: LabReviewLedger | undefined;
+    let turn: string | undefined;
     try {
       const { events } = this.deps.runner.events(t.id, { beforeSeq: t.lastSeq + 1, limit: 20 });
       for (let i = events.length - 1; i >= 0; i--) {
@@ -2720,6 +2755,8 @@ export class ConvexSync {
         if (e.type === 'turn.completed') {
           if (e.next?.length) next = e.next;
           if (e.review) review = e.review;
+          // As message rows name it (toMessageDoc).
+          if (e.turnId) turn = e.turnId.slice(0, 8);
           break;
         }
         // A message after the turn means it's no longer the last word.
@@ -2728,7 +2765,7 @@ export class ConvexSync {
     } catch {
       return undefined;
     }
-    const end = { lastSeq: t.lastSeq, next, review };
+    const end = { lastSeq: t.lastSeq, next, review, turn };
     this.nexts.set(t.id, end);
     return end;
   }
@@ -3362,6 +3399,8 @@ export class ConvexSync {
     if (v === undefined || v < WOKE_BY_API_VERSION) messages = messages.map((m) => (m.wokeBy ? (({ wokeBy, ...rest }) => rest)(m) : m));
     // Before API 72 a plan goes as an ordinary reply, still readable whole.
     if (v === undefined || v < PLAN_API_VERSION) messages = messages.map((m) => (m.plan ? (({ plan, ...rest }) => rest)(m) : m));
+    // Before API 75 a plan's row says nothing of what became of it.
+    if (v === undefined || v < RELAY_CARDS_API_VERSION) messages = messages.map((m) => (m.planDecision ? (({ planDecision, ...rest }) => rest)(m) : m));
     // The buttons' state as it is now, not when the row was made: a press
     // while the row waited would otherwise go up stale.
     if (v !== undefined && v >= BUTTONS_API_VERSION) messages = messages.map((m) => this.withButtons(m));
@@ -3441,6 +3480,8 @@ export class ConvexSync {
     if (t.lastSeq > after) this.scrubber.known.noteFolder(t.cwd, true);
     const out: MessageDoc[] = [];
     const woke = new WokeRows();
+    // Where each plan's row is in out, by itemId, for its plan.resolved.
+    const plans = new Map<string, number>();
     while (t.lastSeq > after) {
       let events: PersistedEvent[];
       try {
@@ -3456,7 +3497,20 @@ export class ConvexSync {
       for (const e of events) {
         if (e.seq <= after || cuts.some((c) => e.seq >= c.from && e.seq <= c.to)) continue;
         woke.see(e);
+        // What became of a plan goes on its row (onEvent says why): the row
+        // here if it's in this read, else that row sent again.
+        if (e.type === 'plan.resolved') {
+          const at = plans.get(e.itemId);
+          if (at !== undefined) out[at] = { ...out[at]!, planDecision: e.decision };
+          else {
+            const plan = this.planEvent(t.id, e.itemId, e.seq);
+            const row = plan && toMessageDoc(t.id, plan, this.scrubber.safeText);
+            if (row) out.push({ ...row, planDecision: e.decision });
+          }
+          continue;
+        }
         const m = toMessageDoc(t.id, e, this.scrubber.safeText);
+        if (m && e.type === 'plan.proposed') plans.set(e.itemId, out.length);
         if (m) out.push(woke.take(m, e));
       }
       after = next;

@@ -36,10 +36,6 @@ import { ErrorCode, RpcError, remoteCreateMode, type LabReviewLedger } from './p
 import { seal } from './secrets.ts';
 
 export const SCALE = 8;
-// What the runner sends as Mike when he approves a plan with no call
-// waiting on it (runner/approvals.ts PLAN_GO_AHEAD, which relay-plan.test.ts
-// checks this against): a plan followed by it went ahead.
-export const PLAN_GO_AHEAD = 'Go ahead with the plan.';
 // The thread's row says it has stopped a moment before its last messages
 // arrive (the other runner writes rows, then messages): its turn ends only
 // once it has said so for this long.
@@ -109,6 +105,8 @@ export type RelayRow = {
   // A Plan first plan in full (backend API 72's row; the relay's rows say so
   // from 75): drawn as its plan card, not folded into the turn's work.
   plan?: boolean;
+  // What became of that plan, once its runner knows (API 75).
+  planDecision?: 'go' | 'revise';
   turn?: string;
   wokeBy?: { kind: string; description: string }[];
   // The reply buttons its text links, as they are now (backend API 59; the
@@ -135,6 +133,8 @@ export type RelayThreadRow = {
   looseEnds?: { kind: string; text: string; threadId?: string; at?: string }[];
   // Another lab's review of the last turn (backend API 75).
   review?: LabReviewLedger;
+  // The turn review and looseEnds are from (API 75): they go on its end only.
+  cardTurn?: string;
   lastActivityAt?: string;
   // Whether it's shared (the threads row's `share`; the sidebar's table has none).
   share?: { access?: string; slug?: unknown };
@@ -205,26 +205,17 @@ const RUNNING = new Set(['running', 'starting', 'waiting']);
 const TOOL_NAMES: Record<string, string> = { command: 'Bash', read: 'Read', edit: 'Edit', write: 'Write', search: 'Grep', web: 'WebFetch', task: 'Task' };
 
 /**
- * What became of the plan at sorted[i], from what came after it. Claude's
- * card for it still open on the row: waiting. Work in its own turn (a tool
- * row, but not a threadbear tool such as end_turn) means that card was
- * allowed and it went ahead; a closing line of text doesn't (a Codex plan
- * ends its turn with one). Otherwise Mike's next message decides: the runner's own Go ahead
- * (Codex, or a Claude card a restart expired) is go, anything else sends it
- * back. Nothing yet: still waiting (undefined). Another runner doesn't say
- * which in its rows, so this reads it as that runner's Mac would show it.
+ * What became of the plan at sorted[i]: what its row says (that runner sends
+ * it again once it's resolved, backend API 75), or sent back by a newer plan
+ * after it. Otherwise still waiting (undefined). Guessing from the rows after
+ * it read a denied plan as gone ahead, and a schedule's message as Mike
+ * sending it back (Codex's review, 12 Nov), and a guess given to the app
+ * can't be taken back.
  */
-export function planOutcome(sorted: RelayRow[], i: number, row: RelayThreadRow | null): 'go' | 'revise' | undefined {
+export function planOutcome(sorted: RelayRow[], i: number): 'go' | 'revise' | undefined {
   const plan = sorted[i]!;
-  const card = row?.pendingApproval;
-  if (card?.kind === 'approval' && card.planSeq === plan.seq) return undefined;
-  for (const r of sorted.slice(i + 1)) {
-    if (r.role === 'user') return r.text.trim() === PLAN_GO_AHEAD ? 'go' : 'revise';
-    if (r.role === 'tool' && r.toolKind !== 'mcp' && plan.turn && r.turn === plan.turn) return 'go';
-    // A newer plan sent this one back.
-    if (r.plan) return 'revise';
-  }
-  return undefined;
+  if (plan.planDecision) return plan.planDecision;
+  return sorted.slice(i + 1).some((r) => r.plan) ? 'revise' : undefined;
 }
 
 /** A thread's held rows and row as transcript events, oldest first, in relay seqs. Pure, so a page and the live stream agree. */
@@ -251,7 +242,7 @@ export function relayEvents(threadId: string, rows: RelayRow[], row: RelayThread
       // reply it folded into the turn's work and nothing showed (12 Nov).
       const itemId = `relay-${r.seq}`;
       out.push(env(base + 1, r, { type: 'plan.proposed', itemId, text: r.text }));
-      const went = planOutcome(sorted, i, row);
+      const went = planOutcome(sorted, i);
       if (went) out.push(env(base + 2, r, { type: 'plan.resolved', itemId, decision: went }));
     } else if (r.role === 'assistant') {
       out.push(env(base + 1, r, { type: 'assistant.text', itemId: `relay-${r.seq}`, text: r.text, ...(r.summary ? { summary: true } : {}) }));
@@ -311,7 +302,8 @@ export function relayEvents(threadId: string, rows: RelayRow[], row: RelayThread
           ...(last && row?.needs ? { needs: row.needs } : {}),
           ...(asks ? { asks } : {}),
           ...(last && row?.needs === 'nothing' && row.next?.length ? { next: row.next } : {}),
-          ...(last && row?.review ? { review: row.review } : {}),
+          // Only on the turn it's from: a newer turn's row can come before its rows.
+          ...(last && row?.review && row.cardTurn === r.turn ? { review: row.review } : {}),
         }),
       );
     }
@@ -452,9 +444,12 @@ export class Relay {
    */
   private looseEndsOf(w: Watch): { seq: number; ends: NonNullable<RelayThreadRow['looseEnds']> } | undefined {
     const ends = w.row?.looseEnds;
-    if (!ends || w.row?.needs !== 'nothing') return undefined;
+    if (!ends || w.row?.needs !== 'nothing' || !w.row.cardTurn) return undefined;
+    // That turn's end, not the last one here: a newer turn's row can come
+    // before its rows, and its loose ends aren't the older card's (Codex's
+    // review, 12 Nov).
     const end = this.events(w).findLast((e) => e.type === 'turn.completed');
-    return end ? { seq: end.seq, ends } : undefined;
+    return end && end.turnId === w.row.cardTurn ? { seq: end.seq, ends } : undefined;
   }
 
   /** The loose ends, said to the app as they change (thread.updated), as noteShare says the share. */

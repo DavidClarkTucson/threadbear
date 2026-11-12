@@ -32,6 +32,7 @@ const relayRow = v.object({
   toolKind: v.optional(v.string()),
   summary: v.optional(v.boolean()),
   plan: v.optional(v.boolean()),
+  planDecision: v.optional(v.union(v.literal('go'), v.literal('revise'))),
   turn: v.optional(v.string()),
   wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))),
   // The reply buttons its text links (API 59), as the phone gets them; the
@@ -41,7 +42,7 @@ const relayRow = v.object({
 });
 
 type Button = { id: string; title: string; kind: 'start' | 'send'; target?: string; pressedThreadId?: string; failed?: string };
-type Row = { seq: number; role: 'user' | 'assistant' | 'tool'; text: string; origin?: string; toolKind?: string; summary?: boolean; plan?: boolean; turn?: string; wokeBy?: { kind: string; description: string }[]; buttons?: Button[]; at: string };
+type Row = { seq: number; role: 'user' | 'assistant' | 'tool'; text: string; origin?: string; toolKind?: string; summary?: boolean; plan?: boolean; planDecision?: 'go' | 'revise'; turn?: string; wokeBy?: { kind: string; description: string }[]; buttons?: Button[]; at: string };
 function toRow(m: Row): Row {
   return {
     seq: m.seq,
@@ -52,6 +53,8 @@ function toRow(m: Row): Row {
     ...(m.summary ? { summary: true } : {}),
     // A Plan first plan (API 72's row), which another Mac draws as its plan card.
     ...(m.plan ? { plan: true } : {}),
+    // What became of it, once that runner knows (API 75).
+    ...(m.plan && m.planDecision ? { planDecision: m.planDecision } : {}),
     ...(m.turn ? { turn: m.turn } : {}),
     ...(m.wokeBy ? { wokeBy: m.wokeBy } : {}),
     ...(m.buttons?.length ? { buttons: m.buttons } : {}),

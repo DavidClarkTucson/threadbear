@@ -110,6 +110,11 @@ export const threadFields = {
   // one shows as its text; threadId for a thread one, at (ISO) for a
   // booked check-in.
   looseEnds: v.optional(v.array(v.object({ kind: v.string(), text: v.string(), threadId: v.optional(v.string()), at: v.optional(v.string()) }))),
+  // The turn (its id's first 8 characters, as message rows have it) that
+  // the row's done-card fields describe, `review` and `looseEnds`, since
+  // API 75: another Mac's relay puts them on that turn's end only, not on an
+  // older one whose rows have come while the new turn's haven't yet.
+  cardTurn: v.optional(v.string()),
   // Another lab's review of the last turn's change and what was done about
   // each finding (docs/protocol.md, LabReviewLedger, the turn.completed's
   // `review`), since API 75: while that turn is the last word, so another
@@ -503,6 +508,9 @@ export default defineSchema({
     toolKind: v.optional(v.string()), // the protocol's ToolKind, for a tool row
     summary: v.optional(v.boolean()), // end_turn's bullets, the turn's reply (since API 14)
     plan: v.optional(v.boolean()), // a Plan first plan in full, for the phone's plan card (since API 72)
+    // What became of that plan (its plan.resolved), sent again on its row
+    // once it's known, so another Mac's plan card says it (since API 75).
+    planDecision: v.optional(v.union(v.literal('go'), v.literal('revise'))),
     turn: v.optional(v.string()), // the start of its turn's id (since API 26)
     wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))), // what finished and woke this turn, on its first row (since API 33)
     buttons: v.optional(v.array(messageButton)), // the reply buttons its text links, as they are now (since API 59)

@@ -51,6 +51,8 @@ export type Play = {
   send(text: string, images?: ImageRef[]): void;
   /** Turns on Run on the card, for the next end_turn. */
   runAsks(): void;
+  /** Mike presses Go ahead on the last plan (plans.approve). */
+  approvePlan(): void;
   /** The agent puts a Plan first plan to Mike (plan.proposed). */
   proposePlan(text: string): void;
   /** Turns on the done card's loose ends, with a check-in booked for this thread. */
@@ -145,9 +147,17 @@ export async function playInto(post: Post, runner: { key: string; runnerId: stri
     const s = h.adapter.last;
     s.init();
     let n = 0;
+    let lastPlan = '';
     await play({
       say: (text) => s.text(`m${++n}`, text),
-      proposePlan: (text) => s.out({ kind: 'planProposed', itemId: `p${++n}`, text }),
+      proposePlan: (text) => {
+        lastPlan = `p${++n}`;
+        s.out({ kind: 'planProposed', itemId: lastPlan, text });
+      },
+      approvePlan: () => {
+        h.runner.approvePlan({ threadId: thread.id, itemId: lastPlan });
+        h.adapter.last.init();
+      },
       endTurn: (input) => {
         const id = `e${++n}`;
         s.out({ kind: 'event', event: { type: 'tool.call', itemId: id, name: END_TURN, kind: 'mcp', title: 'threadbear: end_turn', input } });

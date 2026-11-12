@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
-import { ConvexSync, forBackend, ASKED_API_VERSION, LINKS_API_VERSION, PROJECTS_DIFF_API_VERSION, STARS_API_VERSION, NETWORK_WAIT_API_VERSION, OPTION_NOTES_API_VERSION, BACKEND_API_VERSION, MAC_RUNNER_STATS_API_VERSION, TURNS_API_VERSION, ICONS_API_VERSION, RUNNER_ICON_API_VERSION, SCHEDULES_API_VERSION, SHARE_API_VERSION, WOKE_API_VERSION, STARTED_BY_API_VERSION, SECTIONS_API_VERSION, MODELS_API_VERSION, REPLY_IMAGES_API_VERSION, REPLY_IMAGES_LOOKBACK_MS, REPLY_IMAGES_SCANS_PER_FLUSH, toAccountDoc, PRESENCE_MS, SYNC_COALESCE_MS, HEARTBEAT_MS, SHARED_USAGE_POLL_MS, SYNC_BATCH, ensureRunnerId, toThreadDoc, convexPoster, convexUploader, pictureName, type ThreadDoc } from '../../src/sync.ts';
+import { ConvexSync, forBackend, RELAY_CARDS_API_VERSION, ASKED_API_VERSION, LINKS_API_VERSION, PROJECTS_DIFF_API_VERSION, STARS_API_VERSION, NETWORK_WAIT_API_VERSION, OPTION_NOTES_API_VERSION, BACKEND_API_VERSION, MAC_RUNNER_STATS_API_VERSION, TURNS_API_VERSION, ICONS_API_VERSION, RUNNER_ICON_API_VERSION, SCHEDULES_API_VERSION, SHARE_API_VERSION, WOKE_API_VERSION, STARTED_BY_API_VERSION, SECTIONS_API_VERSION, MODELS_API_VERSION, REPLY_IMAGES_API_VERSION, REPLY_IMAGES_LOOKBACK_MS, REPLY_IMAGES_SCANS_PER_FLUSH, toAccountDoc, PRESENCE_MS, SYNC_COALESCE_MS, HEARTBEAT_MS, SHARED_USAGE_POLL_MS, SYNC_BATCH, ensureRunnerId, toThreadDoc, convexPoster, convexUploader, pictureName, type ThreadDoc } from '../../src/sync.ts';
 import type { Project } from '../../src/protocol.ts';
 import type { ScheduleBackend } from '../../src/schedules.ts';
 import { nullLogger, type Logger } from '../../src/log.ts';
@@ -742,6 +742,35 @@ test('plans: the ExitPlanMode card names the plan row it waits on, from API 72',
     assert.deepEqual(card.options, ['deny']);
     // Nor a one-line plan: the phone's card shows only its title.
     assert.equal(remoteCardShowsAll('ExitPlanMode', { plan: 'Run the migration; then drop the old table' }), false);
+    await f.sync.stop();
+  }
+});
+
+// What became of a plan goes up on its row once it's known, so another Mac's
+// relay draws the card as it was answered (Codex's review, 12 Nov: guessing
+// from the rows after it got denied plans and schedules' messages wrong).
+test("plans: a resolved plan's row goes again with its decision, from API 75", async () => {
+  for (const [backend, said] of [[RELAY_CARDS_API_VERSION, true], [RELAY_CARDS_API_VERSION - 1, false]] as const) {
+    const f = setupFull({ apiVersion: backend });
+    const rows = () => f.calls.filter((c) => c.fn === 'sync:appendMessages').flatMap((c) => c.args.messages as MessageDoc[]);
+    f.sync.start();
+    await f.sync.flushNow();
+    const t = f.h.runner.create({ text: 'go', cwd: f.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+    const s = session(f.h, t.id);
+    s.init();
+    s.out({ kind: 'planProposed', itemId: 'toolu_b', text: '# Bots\n\n1. Add a table' } as never);
+    s.out({ kind: 'event', event: { type: 'approval.requested', approvalId: 'ap1', itemId: 'toolu_b', name: 'ExitPlanMode', title: 'Finish the plan', input: { plan: '# Bots\n\n1. Add a table' }, options: ['allow', 'deny'] } as never });
+    f.h.clock.advance(SYNC_COALESCE_MS);
+    await tick();
+    const plan = rows().filter((m) => m.threadId === t.id && m.plan);
+    assert.equal(plan.length, 1, `backend ${backend}: the plan's row`);
+    assert.equal(plan[0]!.planDecision, undefined, 'waiting');
+    f.h.runner.approvePlan({ threadId: t.id, itemId: 'toolu_b' });
+    f.h.clock.advance(SYNC_COALESCE_MS);
+    await tick();
+    const again = rows().filter((m) => m.threadId === t.id && m.seq === plan[0]!.seq);
+    assert.equal(again.at(-1)!.planDecision, said ? 'go' : undefined, `backend ${backend}`);
+    assert.equal(again.at(-1)!.text, plan[0]!.text, 'the same row, so the backend takes it as a change');
     await f.sync.stop();
   }
 });

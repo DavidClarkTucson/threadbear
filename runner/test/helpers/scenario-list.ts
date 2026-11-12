@@ -90,6 +90,20 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // Go ahead pressed on that runner: another Mac's card says so too, from
+    // the plan's row (planDecision, API 75), not a guess from what follows.
+    name: 'a Plan first plan that went ahead',
+    shows: ['Bots and webhook triggers', 'Building it.'],
+    play: (p) => {
+      p.proposePlan('# Bots and webhook triggers\n\n1. Add a bots table');
+      p.say('The plan is ready for you.');
+      p.endTurn({ needs: 'you' });
+      p.approvePlan();
+      p.say('Building it.');
+      p.endTurn({ needs: 'nothing' });
+    },
+  },
+  {
     name: 'a reply with no card',
     shows: ['Just an answer.'],
     play: (p) => {
