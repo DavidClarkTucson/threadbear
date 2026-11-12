@@ -6,7 +6,7 @@ import path from 'node:path';
 import { loadConfig, runnerUrl, RunnerJsonError } from './config.ts';
 import { connectTb, ownerOnly } from './tb-connect.ts';
 import { RunnerClient } from './client.ts';
-import { poolLine } from './pools.ts';
+import { poolLine, sameEmailWarnings } from './pools.ts';
 import { providerName } from './providers.ts';
 import type { Account, ImageRef, Pool, LibrarianStatus, PersistedEvent, Project, RunnerDefaults, Schedule, ThreadSummary } from './protocol.ts';
 import type { Settings } from './settings.ts';
@@ -644,6 +644,8 @@ async function run(client: RunnerClient, cmd: string, args: string[], f: Flags):
         const who = a.email ?? a.title.replace(/^Codex · /, '');
         console.log(`${a.id === r.defaults.accountId ? '*' : ' '} ${a.id.padEnd(12)} ${providerName(a.provider).padEnd(9)}${who}${note}`);
       }
+      // Two config folders signed in to one account (issue 18).
+      for (const line of sameEmailWarnings(r.accounts)) console.log(`\n${line}`);
       return 0;
     }
     case 'pools': {

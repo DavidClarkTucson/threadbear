@@ -336,4 +336,10 @@
 //    phone:search matches them too, and with `everywhere` every view's
 //    threads and every message's text, so a newer phone finds a thread by a
 //    word said anywhere in it. An older phone's search is as before.
-export const API_VERSION = 74;
+// 75: a shared pool member can carry an email and a runner id and login id
+//    together, when two logins of one provider on its runner share that
+//    email (issue 18): that runner takes it by id, the rest by email.
+//    sync:pools gives such a member to every runner key, without the ids
+//    for another runner's. A runner sends the ids only from 75, as an
+//    older backend hides the member from the other runners' keys.
+export const API_VERSION = 75;

@@ -2257,11 +2257,15 @@ export const pools = query({
     const caller = await runnerAuth(ctx, key, 'pools');
     const rows = await ctx.db.query('pools').collect();
     rows.sort((a, b) => a.order - b.order);
-    // A member named by runner id (a login with no email known) only counts
-    // on that runner, so a runner key has no use for another runner's, and
-    // its id is the owner's to know (runnersList).
-    const seen = (m: { runnerId?: string }) => caller.owner || m.runnerId === undefined || m.runnerId === caller.runnerId;
-    return rows.map(({ id, title, members, folders, icon }) => ({ id, title, members: members.filter(seen), ...(folders ? { folders } : {}), ...(icon ? { icon } : {}) }));
+    // A member named by runner id alone (a login with no email known) only
+    // counts on that runner, so a runner key has no use for another
+    // runner's, and its id is the owner's to know (runnersList). One with an
+    // email too (API 75: two logins on its runner share that email) goes to
+    // every runner, without the id for another runner's key.
+    const mine = (m: { runnerId?: string }) => caller.owner || m.runnerId === undefined || m.runnerId === caller.runnerId;
+    const forCaller = (members: { provider: string; email?: string; runnerId?: string; accountId?: string }[]) =>
+      members.flatMap((m) => (mine(m) ? [m] : m.email ? [{ provider: m.provider, email: m.email }] : []));
+    return rows.map(({ id, title, members, folders, icon }) => ({ id, title, members: forCaller(members), ...(folders ? { folders } : {}), ...(icon ? { icon } : {}) }));
   },
 });
 

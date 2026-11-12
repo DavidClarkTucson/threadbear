@@ -133,7 +133,7 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 74;
+export const BACKEND_API_VERSION = 75;
 // From this one sync:sharedThreads lists a runner's rows shared by link, which
 // it checks against its own threads on every start and every
 // SHARE_RECONCILE_MS (reconcileShares).
@@ -164,6 +164,10 @@ export const SCHEDULE_CHECK_API_VERSION = 51;
 export const SCHEDULE_CHECK_TIMEOUT_API_VERSION = 55;
 // Pools shared between runners: the pools table (shared-pools.ts).
 export const SHARED_POOLS_API_VERSION = 38;
+// From this one sync:pools gives other runners' keys a member that has an
+// email and a runner id too, so a login sharing its email with another
+// here can be saved by id (pools.ts memberOf, issue 18).
+export const POOL_PINS_API_VERSION = 75;
 // Other runners' usage readings of the same logins (sync:sharedUsage).
 export const SHARED_USAGE_API_VERSION = 39;
 // From this one the backend scrubs secrets again before storing what a runner
@@ -3835,7 +3839,11 @@ export class ConvexSync {
     if (this.poolsTable) return this.poolsTable;
     const key = this.deps.key;
     const runnerId = this.runnerId;
+    const sync = this;
     this.poolsTable = {
+      get pins() {
+        return (sync.backendApiVersion ?? 0) >= POOL_PINS_API_VERSION;
+      },
       subscribe: (onRows, onError) => {
         if (!this.subscriber) {
           onError(new Error('sync is off'));

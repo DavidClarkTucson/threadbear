@@ -2045,7 +2045,17 @@ thread to another login when the one it's on runs out of room.
   email (`members: [{ provider, email }]`), since login ids are each
   runner's own (`claude-main` is a different login on each machine); a
   login with no email known is named by `{ provider, runnerId, accountId }`
-  and only counts on that runner. Each runner turns the list into its own
+  and only counts on that runner. Two logins of one provider on a runner
+  can share an email (two config folders signed in to one account), so
+  from backend API 75 a member saved from one of those carries both,
+  `{ provider, email, runnerId, accountId }`: its own runner takes it by
+  id (by email if that login has gone), and every other runner by email,
+  as usual. `sync:pools` gives another runner's key such a member without
+  the ids. Before 75 the runner sends the email alone, as the older
+  backend hid any member with a runner id from other runners' keys; a
+  list saved then still reads, by email. A save on another runner keeps a
+  pinned member as it was while that runner's pool still has the login it
+  matches by email. Each runner turns the list into its own
   `Pool[]`, with `accountIds` its logins that match, in member order, and
   leaves out a pool none of its logins are in. `pools.list`, `hello` and
   `pools.updated` carry that, so clients see no difference. `pools.save`

@@ -15,7 +15,7 @@ use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
 use crate::style::px;
 use serde_json::json;
-use threadbear_core::logins::{provider_title, Account, Pool};
+use threadbear_core::logins::{provider_title, twin_label, Account, Pool};
 use threadbear_core::pools;
 
 /// The icons a pool can take (`Pools.iconChoices`), those this app has a
@@ -375,10 +375,17 @@ impl SettingsWindow {
     /// ticked ones in order.
     fn login_row(&self, pool: &Pool, account: &Account, included: bool, accounts: &[Account], cx: &mut Context<Self>) -> AnyElement {
         let secondary = style::secondary_text(cx);
-        let detail: Vec<String> = [Some(provider_title(account.provider_id())), account.note.clone()].into_iter().flatten().filter(|s| !s.is_empty()).collect();
+        // Two logins with one email (issue 18) read the same, so the title
+        // adds the note, or the id with none, and the note isn't said twice.
+        let twin = twin_label(account, accounts);
+        let note = account.note.clone().filter(|_| twin.is_none());
+        let detail: Vec<String> = [Some(provider_title(account.provider_id())), note].into_iter().flatten().filter(|s| !s.is_empty()).collect();
         let (pool_id, login) = (pool.id.clone(), account.id.clone());
         let me = cx.entity().downgrade();
-        let title = account.name();
+        let title = match twin {
+            Some(label) => format!("{} ({label})", account.name()),
+            None => account.name(),
+        };
         let label = h_flex()
             .gap(px(6.))
             .min_w_0()
@@ -404,7 +411,6 @@ impl SettingsWindow {
                 });
             }
         }
-        let _ = accounts;
         row_with(
             crate::highlights::tipped(h_flex().id(SharedString::from(format!("settings-pool-login-row-{}", account.id))).gap(px(8.)).min_w_0().child(toggle).child(label), if included { format!("{title} is in this pool") } else { format!("Add {title} to this pool") }).into_any_element(),
             controls.into_any_element(),

@@ -1079,7 +1079,11 @@ With more than one machine, they all share the same pools, so you set them
 up once from Settings > Pools on any of them. A pool knows its logins by
 email, and each machine uses the ones it's signed in to: a pool of three
 Claude logins is just one on a server signed in to one of them, and a pool
-none of its logins are in doesn't show there. A login signed in on several
+none of its logins are in doesn't show there. Two logins on one machine
+signed in to the same account (two config folders, say) are told apart
+there by which login you picked, and Settings > Pools shows the login's
+note or id beside the email; other machines still match them by email.
+`tb accounts` says when two logins share an email. A login signed in on several
 machines is one subscription, so each machine shows the newest reading of
 its room from your first Mac, and one that hit its limit there waits on
 the others too. A Mac with a key of its own gets your first Mac's readings of only the
