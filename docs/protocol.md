@@ -4513,11 +4513,15 @@ can't be made (a leftover folder or branch of that name, no checkout on
 `main`), a `system.note` says why and the thread starts in the folder
 asked for. The summary carries `worktree` from then on.
 
-`tb land` takes an OS lock at `threadbear-land.lock` in the repo's common
-git directory before reading or rebasing either branch, and holds it through
-the check and fast-forward. The CLI reads the patch's check after rebasing.
+`tb land` rebases first (refusing straight away on a conflict), then takes
+an OS lock at `threadbear-land.lock` in the repo's common git directory,
+rebases again on the main it finds, and holds the lock through the check
+and fast-forward. The CLI reads the patch's check after rebasing.
 Other landings of that repo wait, even from
-other CLI processes; exiting releases it. A patch load error, or a check
+other CLI processes; exiting releases it. Those waiting are queued in
+`threadbear-land-queue/` there, and the next holder checks them all
+together with its own and lands them at once (docs/thread-worktrees.md,
+"Landing together"). A patch load error, or a check
 that changes the branch or leaves changed or untracked files, stops the landing.
 The Land command action has an hour for its wait and check, rather than
 the usual ten-minute command limit. The fast-forward names the checked

@@ -347,7 +347,11 @@ if `tb` isn't found (an older runner, or outside a thread), use
   reused with its Swift build caches so the app builds warm. Your system prompt says where. Commit there. When
   the work is done and checked, `tb land` rebases it on main, runs
   `./check.sh --quick` and fast-forwards main in the main checkout
-  (`--dry-run` first if you like; it never pushes). Mike's Land chip does
+  (`--dry-run` first if you like; it never pushes). Landings waiting
+  for the lock are checked together in the next check, and a failed
+  group is halved until the one that broke it is found
+  (docs/thread-worktrees.md, "Landing together"), so run it in the
+  background and expect up to two checks' wait. Mike's Land chip does
   the same. If it refuses, it says why and what to fix: commit your
   changes, sort out the conflicting files, fix the check, or wait for
   whoever has uncommitted changes in main's checkout. It also holds a

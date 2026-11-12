@@ -76,11 +76,13 @@ checked, `tb land` puts it on main.
 `tb land`, run in the thread's worktree (an agent's Bash, or Mike's Land
 chip, which is a command action every opted-in thread gets):
 
-It first takes an OS lock in the repo's common git directory
-(`threadbear-land.lock`), held through the check and fast-forward. Other
-landings wait before rebasing, so each checks against the main left by the
-previous landing. The lock releases when the command exits, even on a
-crash; the empty lock file stays. Separate repos do not block one another.
+Steps 1 and 2 run first, so a refusal or a conflict with main as it is
+comes straight away. Then it takes an OS lock in the repo's common git
+directory (`threadbear-land.lock`), held through the check and
+fast-forward, and does steps 1 and 2 again on the main it finds. Only the
+lock's holder moves main, and only to a commit its check passed. The lock
+releases when the command exits, even on a crash; the empty lock file
+stays. Separate repos do not block one another.
 
 1. Refuses with uncommitted changes in the worktree (says which files).
 2. `git rebase main` in the worktree. A conflict aborts the rebase and
@@ -95,7 +97,7 @@ crash; the empty lock file stays. Separate repos do not block one another.
    a GitHub workflow it would set off is red on main (below, "Red on
    GitHub").
 3. Reads the patch's `check` after rebasing, and runs it in the worktree,
-   if there is one. A patch load error or failing check stops here, with
+   if there is one, together with everyone waiting (below). A patch load error or failing check stops here, with
    the last lines of its output. Changing the branch or leaving changed
    or untracked files during the check also stops it.
 4. `git -C <mainCheckout> merge --ff-only <checked commit>`. If main's working
@@ -153,6 +155,53 @@ When `gh` isn't installed, isn't signed in or can't reach GitHub, the
 landing goes ahead and says it couldn't ask. Only `desktop.yml` has the mark
 so far.
 
+### Landing together
+
+A check takes 5 to 9 minutes on the check hosts, and on 12 Nov a dozen
+threads finished at once: one check each, one after another, left several
+waiting over 40 minutes, and two were killed by their agents' time limits
+still in the line. So landings that have to wait don't each get a check of
+their own.
+
+- Before waiting for the lock, a landing writes an entry in
+  `threadbear-land-queue/` (beside the lock): its branch, worktree, the
+  main it's rebased on, its commit and the check its patch asks for
+  (`runner/src/land-queue.ts`). It holds a lock on the entry while it
+  waits, which is how others know it's still there.
+- Whoever takes the lock next stacks everyone waiting on main, first come
+  first, then its own branch on top, without touching their worktrees
+  (`git merge-tree` and `commit-tree`, with rebase's rules: a change
+  already on main is left out, a commit made empty is kept). It
+  checks that stack once, in its own worktree with HEAD detached at it, and
+  fast-forwards main to the top. Its branch moves to its commits as they
+  landed; each of the others finds its result in its entry when it gets
+  the lock, moves its own branch to its commits as they landed, prints
+  them and which branches were in the same check, and exits.
+- An entry is left out, to see to itself later, if it asks for a
+  different check (or reads it from another folder), its worktree has
+  moved on since it asked, it doesn't go onto the stack cleanly, its tb
+  has gone, or the group's files would be held by a workflow red on
+  GitHub ("Red on GitHub"; the holder asks for the whole stack, and again
+  once the check has passed). One whose tb goes during the check means the check runs again
+  without it. A dry run and a branch
+  with a merge on it are never put in anyone's check.
+- A tb killed during a group check leaves its worktree detached at the
+  stack (its branch is untouched) and a marker in the worktree's git dir;
+  the next `tb land` there checks the branch out again. Two `tb land`s in
+  one worktree take turns (`threadbear-land-worktree.lock` in its git dir).
+- If a group's check fails, nothing lands and the group is halved: the
+  holder goes again with itself and the first half, and the rest wait with
+  their limit halved too. Nobody's told their check failed until it fails
+  in a check of its own, so the one that broke it is found in a few checks,
+  and the rest land.
+- While it waits, a landing says where it is: whose check is running and
+  for how long, how many are waiting ahead of it, and roughly how long it
+  has to go, from the last 20 checks in the times log below. It says it
+  again every three minutes.
+
+So a landing waits for at most the check that's running and the next one,
+unless a check fails.
+
 ### Where a landing's time goes
 
 A passing check prints nothing of its own, so each one leaves a line in
@@ -165,7 +214,8 @@ directory (`.git/` in the main checkout), passes and failures alike:
  "steps":[{"name":"runner unit tests","status":"ok","seconds":180}]}
 ```
 
-`seconds` is the check, `waitedSeconds` the wait for the landing lock, and
+`seconds` is the check, `waitedSeconds` the wait for the landing lock,
+`together` the other branches in the same check (when there were any), and
 `steps` whatever check.sh printed; another repo's check just has none. A
 failed one has `exit`, a dry run `dryRun: true`, and a step that only passed
 when check.sh ran its failing files again has `secondRun`, naming the tests.

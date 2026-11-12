@@ -183,6 +183,11 @@ File references are where to look.
   (this one's `desktop.yml`), it runs your `gh` to ask GitHub how that
   workflow's last runs on main went, when the landing changes files it
   checks (`runner/src/land-gate.ts`). Nothing of the branch is sent.
+  A landing waiting for the lock leaves a small JSON file in
+  `threadbear-land-queue/` there (branch, worktree, commits, process id),
+  removed when it's done, and the lock's holder keeps
+  `threadbear-land-running.json` (what it's checking, since when) while
+  its check runs.
 - **The runner** listens on `127.0.0.1:8797` only, and needs a token
   (`runner/src/config.ts`). It starts the official `claude` and `codex`
   CLIs for your threads. Each thread's CLI gets a key of its own in its
