@@ -13,5 +13,11 @@ exclude = ["vendor"]
 # tick). `git log -p desktop/vendor` shows what's ours: the first commit
 # there is the crate as published. On a gpui-kit bump, copy the new version
 # in from ~/.cargo/registry/src and put those changes back on it.
+#
+# gpui-kit's base, the same way: the first commit under vendor/gpui-base is
+# 0.9.0 as published. Ours on top: a TextViewStyle switch for the hairline
+# the kit draws under every link, which Swift's replies don't have (Mike,
+# 12 Nov: "the links are underlined in the GPUI version").
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }
+gpui-base = { path = "vendor/gpui-base" }
