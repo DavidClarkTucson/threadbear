@@ -822,6 +822,17 @@ impl Threadbear {
                         let list: Vec<ThreadSummary> = serde_json::from_value(v["threads"].clone()).unwrap_or_default();
                         let before = std::mem::take(&mut this.threads);
                         this.threads = list.into_iter().map(|t| (t.id.clone(), t)).collect();
+                        // Open panes take the summaries as they are now: on
+                        // a reconnect this list is the only word of what
+                        // changed while it was away (a loose-ends check that
+                        // finished then isn't sent again), and each pane's
+                        // reload reads its own summary (Codex's review, 12 Nov).
+                        let panes: Vec<_> = this.pane.iter().chain(this.subagent_pane.iter()).chain(this.thread_panels.panes()).cloned().collect();
+                        for pane in panes {
+                            let Some(mut t) = this.threads.get(&pane.read(cx).summary.id).cloned() else { continue };
+                            t.runner_id = pane.read(cx).summary.runner_id.clone();
+                            pane.update(cx, |p, cx| p.summary_changed(&t, cx));
+                        }
                         crate::terminal::list_loaded(&this.threads, cx);
                         this.note_failed_accounts(&before);
                         // Other runners' rows stay listed beside these.

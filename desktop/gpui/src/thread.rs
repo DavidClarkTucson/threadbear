@@ -1197,6 +1197,9 @@ impl ThreadPane {
                 if let Some(page) = page.ok().and_then(|v| EventsPage::decode(&v)) {
                     let mut model = TranscriptModel::new(Some(root));
                     model.load(page.events, &page.in_progress);
+                    // What the summary adds to the rows, as `load` has it.
+                    let _ = model.set_background(this.background_tasks());
+                    let _ = model.set_loose_ends(this.summary.loose_ends_check());
                     this.feed = ThreadFeed::new(model);
                     this.scroller.update(cx, |s, cx| s.reset(this.feed.model().rows().len(), cx));
                     cx.notify();

@@ -84,6 +84,17 @@ Feature: The open card in the composer
     When the runner finds nothing left open on "Tidy the imports in the uploader"
     Then the done card lists nothing as still open
 
+  # The Swift app swaps in the re-read list on reconnecting and resubscribes
+  # an open transcript without handing it the summary's new loose ends
+  # (AppModel+Connection, 12 Nov); frozen, so it stays pending there.
+  @planned.exp.looseends @swift-pending
+  Scenario: A check that finished while the app was away shows once it's back
+    When I open the thread "Tidy the imports in the uploader"
+    And the runner finds "2 files in the worktree aren't committed" still open on "Tidy the imports in the uploader" without saying so
+    And the runner restarts
+    Then the app is connected again
+    And the done card lists "2 files in the worktree aren't committed" as still open
+
   @card.review @swift-pending
   Scenario: Another lab's findings show in the transcript, not on the done card
     When I open the thread "Tidy the imports in the uploader"

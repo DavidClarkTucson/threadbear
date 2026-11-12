@@ -144,8 +144,8 @@ Then('the app beeps', async function (this: ThreadbearWorld) {
 
 // The runner's loose-ends check on a thread's done card, as the summary
 // brings it (mock.looseEnds): before the thread's opened, or while it is.
-async function looseEnds(world: ThreadbearWorld, title: string, ends?: { kind: string; text: string }[]) {
-  await world.app.do({ cmd: 'mock', method: 'looseEnds', params: { title, ends } });
+async function looseEnds(world: ThreadbearWorld, title: string, ends?: { kind: string; text: string }[], quiet = false) {
+  await world.app.do({ cmd: 'mock', method: 'looseEnds', params: { title, ends, quiet } });
 }
 
 Given('the runner found {string} still open on {string}', async function (this: ThreadbearWorld, text: string, title: string) {
@@ -154,6 +154,12 @@ Given('the runner found {string} still open on {string}', async function (this: 
 
 When('the runner finds {string} still open on {string}', async function (this: ThreadbearWorld, text: string, title: string) {
   await looseEnds(this, title, [{ kind: 'unlanded', text }]);
+});
+
+// Set on the runner with no thread.updated, as a check that finished while
+// the app was away: only the list it reads on reconnecting has it.
+When('the runner finds {string} still open on {string} without saying so', async function (this: ThreadbearWorld, text: string, title: string) {
+  await looseEnds(this, title, [{ kind: 'uncommitted', text }], true);
 });
 
 When('the runner finds nothing left open on {string}', async function (this: ThreadbearWorld, title: string) {

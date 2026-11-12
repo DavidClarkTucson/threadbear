@@ -338,14 +338,22 @@ built parsers and gates with no launch of the app, which is the trap.)
   check-in is the runner's `scheduled` kind, which the card tested as
   `booked`, so one alone read "Still open"; its line now leads with when it
   comes back, and a `thread` one opens that thread, as `looseEndsText` has it.
-  The mock runner takes `mock.looseEnds` (by title).
+  The mock runner takes `mock.looseEnds` (by title, `quiet` for one the app
+  doesn't hear of). Codex's review found the pane kept its old summary
+  through a reconnect, so a check that finished while the app was away
+  never showed: `load_list` now hands open panes their re-read summaries,
+  and `load_all_events` keeps the summary's rows too. The Swift app has the
+  same reconnect gap (it resubscribes without the new loose ends), so that
+  scenario is `@swift-pending`.
 - Files: `desktop/core/src/inbox.rs`, `desktop/core/src/reducer/event.rs`,
-  `desktop/core/tests/needs_you_tests.rs`, `desktop/gpui/src/{thread,composer_card}.rs`,
+  `desktop/core/tests/needs_you_tests.rs`, `desktop/gpui/src/{app,thread,composer_card}.rs`,
   `app/Tools/mock-runner/server.mjs`, `features/composer-cards.feature`.
 - Verification: `cargo test -p threadbear-core --test needs_you_tests`, 15 of
-  15; the two `@planned.exp.looseends` scenarios (one set before the thread
-  opens, one changing while it's open) pass on GPUI (cloud) and Swift
-  (Tinker Desk), and fail on GPUI without the pane's two calls. Picture,
+  15; the three `@planned.exp.looseends` scenarios (set before the thread
+  opens, changing while it's open, finished while the app was away) pass
+  on GPUI (cloud) and fail without the pane's calls and the list's hand-on;
+  the first two pass on Swift (Tinker Desk). composer-cards and connection
+  on GPUI, 18 of 18. Picture,
   dark: `~/Library/Caches/Threadbear/gpui-compare/loose-ends.png`.
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)

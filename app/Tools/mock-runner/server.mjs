@@ -1572,13 +1572,15 @@ async function dispatch(client, method, p) {
     // The runner's loose-ends check on a thread's done card, by title
     // (protocol "Loose ends"): `ends` as the summary's `looseEnds.ends`,
     // for its last turn.completed (or `seq`); no `ends` takes it away.
+    // `quiet` leaves it unsent, as a check that finished while the app was
+    // away is: the app hears of it only from threads.list on reconnecting.
     case 'mock.looseEnds': {
       const entry = [...threads.values()].find((t) => t.summary.title === p.title);
       if (!entry) throw rpcError(-32602, `No thread called "${p.title}"`);
       const seq = p.seq ?? entry.events.findLast((e) => e.type === 'turn.completed')?.seq;
       if (Array.isArray(p.ends) && seq != null) entry.summary.looseEnds = { seq, ends: p.ends, at: iso() };
       else delete entry.summary.looseEnds;
-      broadcastSummary(entry.summary.id);
+      if (!p.quiet) broadcastSummary(entry.summary.id);
       return { thread: entry.summary };
     }
     case 'mock.moveLeftBehind':
