@@ -403,6 +403,51 @@ Fixes from Codex's review of the slice before:
   GPUI app, and the video, PDF and clip scenarios on the Swift app.
   `media-shot.ts` shows the clip playing in both apps, now read from the
   held file.
+### 2026-11-12 The composer's gaps from the parity audit (`composer.slash`, `composer.modelpicker`, `composer.plus`, `rich.worklinks`, `sidebar.move`, `banner.refusal`, `card.needsyou`, `rich.linkpeek`)
+
+- `/` partway through a message lists the skills the agent can run there
+  (`slash::typed`, `slash::mid_message`), only on a match, with Insert for
+  Return and Tab; a pick replaces just the typed word. The new-thread page's
+  box asks `folders.commands` for its login, folder and mode (it showed
+  "Getting this thread's commands..." for good), keyed per runner, login and
+  folder, and asks again when the chips change those. The palette is never
+  taller than the room over the box, which sits high on that page.
+- The model, account and "+" chips spin, say "Moving this thread" and take no
+  clicks while a login, pool or folder change lands (`chip_busy`, keyed as
+  `BusyKey.moving` and `movingFolder`). In a narrow box their titles give way
+  with "..." and Send stays inside it.
+- A `thread:` link to a thread not in the sidebar, or matching several, beeps
+  and says why in the error bar; a ↑ link with no step beeps.
+- While a thread moves the box is greyed and locked with "Moving to bruce..."
+  and the card dimmed with nothing on it taking a click; Return sends
+  nothing. Cancel Move or a failed move gives them back.
+- The done card's booked check-in has its time before it ("Fri 13 Nov,
+  9:30 am: ...", `sidebar::loose_end_line`) and a loose end with a thread
+  opens it.
+- "Continue with Codex Sol" sits just above the box, not at the top.
+- A Needs you card's link buttons show the reply link's card on a rest.
+- The card's answer keeping Mike's words landed earlier (1f0aa05fc).
+- Swift's dump has none of `busy`, `chipsFit`, `moving`, `offerAbove` or the
+  card's `peek:` line, and it's frozen, so those scenarios are
+  `@swift-pending`; so are the two beeping links, as a scripted click on
+  them doesn't reach `openThreadLink` there.
+- Files: `desktop/core/src/{slash,inbox,sidebar,thread_link}.rs`,
+  `desktop/gpui/src/{slash_palette,composer,composer_chips,composer_card,chips,reply_links,header,app,thread,move_sheet,automation}.rs`,
+  `features/{slash-palette,composer-chips,composer-cards,reply-links,remote-threads,header}.feature` and their steps.
+- Remaining: no spec for the done card's loose-end lines (the mock has no
+  loose ends yet); the picture for it is missing for the same reason.
+- Verification: on `cloud` under Xvfb, the GPUI app passed every
+  `@composer.slash @card.needsyou @card.answers @banner.refusal
+  @composer.account` scenario (34 with the next set, two failures then
+  fixed: a folder named by path the mock's home didn't have, and a flaky
+  Move to menu that passed on the rerun), then all 17 of `@composer.plus
+  @rich.worklinks @sidebar.move @composer.modelpicker`; the core's 601 unit
+  tests pass. The Swift app on Tinker Desk passes the four new slash
+  scenarios (9 of 9 `@composer.slash`), and on Tinker Desk the GPUI app
+  passes all 33 of those tags together. On the new-thread page the palette's
+  drawn height came to exactly the room over the box (395 under a box at
+  411). Dark pictures of each change are in
+  `~/Library/Caches/Threadbear/gpui-compare/composer-gaps/`.
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 
