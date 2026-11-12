@@ -228,6 +228,8 @@ the small picture in the corner to jump to a part. Pinching out, ⌘0, Esc or a
 double-click goes back to the whole thing, and ⌘+ and ⌘- zoom too. Tick as
 many as you like, or None if none of them will do, write what you think in
 the box at the bottom, and Send takes it all back to the thread.
+Pasting with the keyboard outside the reply box puts the words in it and moves
+the cursor there, so you can dictate just after ticking an option.
 
 Inside a thread, rest the pointer on a link for a moment, in a reply or on a
 Needs you card's buttons, to see where it goes: a picture of the file, or

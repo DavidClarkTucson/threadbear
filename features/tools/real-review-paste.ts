@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { GpuiDriver } from '../support/gpui.ts';
 import { sleep } from '../support/driver.ts';
-import { work } from './real-screen.ts';
+import { assertInFront, windowFrame, work } from './real-screen.ts';
 
 const REVIEW = 'review_account_picker';
 const keys = path.join(work, 'keys');
@@ -31,6 +31,15 @@ let saved = (board.pasteboardItems ?? []).map { item in item.types.compactMap { 
 for arg in CommandLine.arguments.dropFirst() {
   if arg == "front" {
     print(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)
+  } else if arg == "right-control" {
+    let down = CGEvent(keyboardEventSource: source, virtualKey: 62, keyDown: true)!
+    down.type = .flagsChanged; down.flags = [.maskControl, CGEventFlags(rawValue: 0x2000)]
+    down.post(tap: .cghidEventTap); usleep(400_000)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: 62, keyDown: false)!
+    up.type = .flagsChanged; up.flags = []; up.post(tap: .cghidEventTap)
+  } else if arg.hasPrefix("key:") {
+    let code = CGKeyCode(arg.dropFirst(4))!
+    key(code, true, []); usleep(100_000); key(code, false, [])
   } else if arg.hasPrefix("words:") {
     board.clearContents(); board.setString(String(arg.dropFirst(6)), forType: .string)
     usleep(50_000)
@@ -52,7 +61,7 @@ function check(name: string, ok: boolean, detail = ''): void {
   results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
   if (!ok) failed += 1;
 }
-type Review = { reply: string; pickedIds: string[] };
+type Review = { reply: string; pickedIds: string[]; focused: string; peeking: boolean };
 const review = async (cmd: Record<string, unknown> = {}): Promise<Review> => {
   const out = await app.do({ cmd: 'review', id: REVIEW, open: false, ...cmd });
   return JSON.parse(out.slice(out.indexOf('{'))) as Review;
@@ -73,6 +82,8 @@ async function reviewInFront(): Promise<void> {
     if (Number(post('front').trim()) === app.pid) break;
   }
   if (Number(post('front').trim()) !== app.pid) throw new Error('the app never came to the front, so no keys were posted');
+  const [x, y, w, h] = windowFrame(app.pid!);
+  assertInFront(app.pid!, [[x + w / 2, y + h / 2]]);
 }
 
 await app.start();
@@ -92,9 +103,33 @@ try {
   // would land in its composer, not here, so it can't pass by mistake.
   await reviewInFront();
 
+  // A window-only screenshot lets the person running this check look before
+  // releasing real keys. With no gate, the tool remains unattended.
+  const gate = process.env.TB_REVIEW_PASTE_GATE;
+  if (gate) {
+    await app.do({ cmd: 'screenshot', review: REVIEW, path: `${gate}.png` });
+    fs.writeFileSync(`${gate}.ready`, String(app.pid));
+    const deadline = Date.now() + 120_000;
+    while (!fs.existsSync(gate)) {
+      if (Date.now() > deadline) throw new Error('screen check was not released');
+      await sleep(200);
+    }
+  }
+
+  await reviewInFront();
+  post('key:124');
+  check('the right arrow still browses on the stage', (await review()).focused === 'B');
+  await reviewInFront();
+  post('key:123');
+  check('the left arrow still browses on the stage', (await review()).focused === 'A');
+  await reviewInFront();
+  post('key:49');
+  check('Space on the stage does not type a space in the reply', (await review()).reply === '');
+
   // What Mike did: tick B (a press on its tick, which takes no keys), then talk.
-  await review({ pick: 'B' });
-  post('words:Bigger please');
+  await app.do({ cmd: 'click', tip: 'Pick B', review: REVIEW });
+  await reviewInFront();
+  post('right-control', 'words:Bigger please');
   const after = await replyBecomes('Bigger please');
   check('Voice Type\'s ⌘V after ticking an option lands in the reply box', after === 'Bigger please', JSON.stringify(after));
 
@@ -102,9 +137,12 @@ try {
   // that loses it.
   await review({ reply: '', focusReply: true });
   await reviewInFront();
-  post('words:In the box');
+  post('right-control', 'words:In the box');
   const inBox = await replyBecomes('In the box');
   check('Voice Type\'s ⌘V with the keys in the reply box lands there', inBox === 'In the box', JSON.stringify(inBox));
+  if (process.env.TB_REVIEW_PASTE_SHOT) {
+    await app.do({ cmd: 'screenshot', review: REVIEW, path: process.env.TB_REVIEW_PASTE_SHOT });
+  }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
