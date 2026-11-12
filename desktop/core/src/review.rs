@@ -2614,11 +2614,11 @@ mod tests {
         use crate::reducer::DesignReview;
         let image = serde_json::json!({ "path": "/x/a.png", "mediaType": "image/png" });
         let shot = serde_json::json!({ "title": "s".repeat(300), "image": image });
-        let option = serde_json::json!({ "id": "a", "title": "t".repeat(300), "note": "n".repeat(20_000), "image": image, "shots": vec![shot; 100_000] });
+        let option = serde_json::json!({ "id": "a", "title": "t".repeat(300), "note": "n".repeat(20_000), "image": image, "shots": vec![shot; 9] });
         // As a moved thread's review.updated event could have it: the
         // other runner's word, never through the runner's cuts.
         let draft = serde_json::json!({ "pickedIds": vec!["a"; 50], "notes": (0..50).map(|n| (format!("o{n}"), serde_json::Value::from("d".repeat(20_000)))).collect::<serde_json::Map<_, _>>(), "reply": "r".repeat(1_000_000) });
-        let review = serde_json::json!({ "id": "r", "title": "T".repeat(300), "note": "`".repeat(20_000), "status": "pending", "revision": 1, "options": vec![option; 20], "draft": draft, "response": draft });
+        let review = serde_json::json!({ "id": "r", "title": "T".repeat(300), "note": "`".repeat(20_000), "status": "pending", "revision": 1, "options": vec![option; 13], "draft": draft, "response": draft });
         let review = DesignReview::decode(&review).expect("a review");
         assert_eq!(review.title.chars().count(), 200);
         assert_eq!(review.note.as_deref().map(|n| n.chars().count()), Some(4000));
@@ -2630,6 +2630,17 @@ mod tests {
             assert!(draft.notes.values().all(|n| n.len() == 4000));
             assert_eq!(draft.reply.as_deref().map(str::len), Some(8000));
         }
+        // Far longer lists are cut before they're decoded. Kept to small
+        // shots on one axis at a time: 100,000 long-titled shots in each of
+        // 20 options was about two million JSON objects, and took the cloud
+        // check host down on 12 Nov.
+        let small = serde_json::json!({ "image": image });
+        let many_shots = serde_json::json!({ "id": "a", "title": "t", "image": image, "shots": vec![small; 10_000] });
+        let long = serde_json::json!({ "id": "r", "title": "T", "status": "pending", "revision": 1, "options": [many_shots] });
+        assert_eq!(DesignReview::decode(&long).expect("a review").options[0].shots.len(), 8);
+        let lean = serde_json::json!({ "id": "a", "title": "t", "image": image });
+        let long = serde_json::json!({ "id": "r", "title": "T", "status": "pending", "revision": 1, "options": vec![lean; 10_000] });
+        assert_eq!(DesignReview::decode(&long).expect("a review").options.len(), 12);
         // Within the limits nothing changes, in characters, not bytes.
         let short = serde_json::json!({ "id": "r", "title": "é".repeat(200), "note": "ü".repeat(4000), "status": "pending", "revision": 1, "options": [] });
         let short = DesignReview::decode(&short).expect("a review");
