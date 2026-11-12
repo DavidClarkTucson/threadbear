@@ -2289,11 +2289,11 @@ Ayush's "Plan View UI".
   that don't know these events still see Claude's approval as an ordinary
   one ("Finish the plan"). A thread on another Mac (Other runners'
   threads) shows its plan card too: `relay:remoteMessages` says which rows
-  are plans (backend API 75), the relay sends each as `plan.proposed`
+  are plans (backend API 76), the relay sends each as `plan.proposed`
   (Claude's card for it with that `itemId`, so it folds into the plan),
   and `plan.resolved` from the plan's row: that runner's sync sends the
   row again with `planDecision` (`go` or `revise`) once it's resolved
-  (API 75), and a newer plan sends an older one back. Nothing is guessed
+  (API 76), and a newer plan sends an older one back. Nothing is guessed
   from the rows after it (a denied plan's revision reads files too, and a
   schedule's message isn't Mike's answer). The relay reads a plan it still
   holds as waiting again once the live tail has moved past it. A plan
@@ -3142,7 +3142,7 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   as a quiet row in the transcript, over the turn's reply (under its
   folded work), on this runner's own threads; it was on the done card
   until Mike moved it, 12 Nov 2026, as it happens in the background.
-  Since backend API 75 the thread's row carries it, scrubbed and cut,
+  Since backend API 76 the thread's row carries it, scrubbed and cut,
   while that turn is the last word (sync's `lastEnd`), and another Mac
   draws it the same way (the relay puts it on that turn's
   `turn.completed`). `phone:thread` returns it too, but the phone and the
@@ -3360,7 +3360,7 @@ thread on the Mac shows them too (since 12 Nov 2026): the relay reads them
 from that thread's backend row while it's open and puts them on its row in
 `remoteThreads.list`/`.updated` (and a `thread.updated`) as `looseEnds:
 { seq, ends }`, `seq` being the relay's own `turn.completed` for the card,
-only when the row's `cardTurn` (API 75) is that card's turn: a newer
+only when the row's `cardTurn` (API 76) is that card's turn: a newer
 turn's row can come before its messages.
 The sidebar's rows don't carry them, so a thread nobody has open has none.
 

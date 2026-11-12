@@ -749,7 +749,7 @@ test('plans: the ExitPlanMode card names the plan row it waits on, from API 72',
 // What became of a plan goes up on its row once it's known, so another Mac's
 // relay draws the card as it was answered (Codex's review, 12 Nov: guessing
 // from the rows after it got denied plans and schedules' messages wrong).
-test("plans: a resolved plan's row goes again with its decision, from API 75", async () => {
+test("plans: a resolved plan's row goes again with its decision, from API 76", async () => {
   for (const [backend, said] of [[RELAY_CARDS_API_VERSION, true], [RELAY_CARDS_API_VERSION - 1, false]] as const) {
     const f = setupFull({ apiVersion: backend });
     const rows = () => f.calls.filter((c) => c.fn === 'sync:appendMessages').flatMap((c) => c.args.messages as MessageDoc[]);

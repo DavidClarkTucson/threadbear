@@ -91,7 +91,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     // Go ahead pressed on that runner: another Mac's card says so too, from
-    // the plan's row (planDecision, API 75), not a guess from what follows.
+    // the plan's row (planDecision, API 76), not a guess from what follows.
     name: 'a Plan first plan that went ahead',
     shows: ['Bots and webhook triggers', 'Building it.'],
     play: (p) => {

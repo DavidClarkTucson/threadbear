@@ -1336,7 +1336,7 @@ const messageDoc = v.object({
   toolKind: v.optional(v.string()),
   summary: v.optional(v.boolean()), // API 14
   plan: v.optional(v.boolean()), // API 72
-  planDecision: v.optional(v.union(v.literal('go'), v.literal('revise'))), // API 75
+  planDecision: v.optional(v.union(v.literal('go'), v.literal('revise'))), // API 76
   turn: v.optional(v.string()), // API 26
   wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))), // API 33
   buttons: v.optional(v.array(messageButton)), // API 59
@@ -1407,7 +1407,7 @@ export const appendMessages = mutation({
         if (m.pagedAt && !existing.pagedAt) patch.pagedAt = m.pagedAt;
         const buttons = keepPresses(existing.buttons, m.buttons);
         if (!sameButtons(existing.buttons, buttons)) patch.buttons = buttons;
-        // A plan's row sent again once it's resolved (API 75): only on a plan.
+        // A plan's row sent again once it's resolved (API 76): only on a plan.
         if (m.planDecision && existing.plan && existing.planDecision !== m.planDecision) patch.planDecision = m.planDecision;
         if (!Object.keys(patch).length) continue;
         // A runner key's row growing (bigger buttons sent again) is counted

@@ -103,9 +103,9 @@ export type RelayRow = {
   toolKind?: string;
   summary?: boolean;
   // A Plan first plan in full (backend API 72's row; the relay's rows say so
-  // from 75): drawn as its plan card, not folded into the turn's work.
+  // from 76): drawn as its plan card, not folded into the turn's work.
   plan?: boolean;
-  // What became of that plan, once its runner knows (API 75).
+  // What became of that plan, once its runner knows (API 76).
   planDecision?: 'go' | 'revise';
   turn?: string;
   wokeBy?: { kind: string; description: string }[];
@@ -131,9 +131,9 @@ export type RelayThreadRow = {
   next?: string[];
   // The done card's loose ends (backend API 73), while that card stands.
   looseEnds?: { kind: string; text: string; threadId?: string; at?: string }[];
-  // Another lab's review of the last turn (backend API 75).
+  // Another lab's review of the last turn (backend API 76).
   review?: LabReviewLedger;
-  // The turn review and looseEnds are from (API 75): they go on its end only.
+  // The turn review and looseEnds are from (API 76): they go on its end only.
   cardTurn?: string;
   lastActivityAt?: string;
   // Whether it's shared (the threads row's `share`; the sidebar's table has none).
@@ -208,7 +208,7 @@ const TOOL_NAMES: Record<string, string> = { command: 'Bash', read: 'Read', edit
 
 /**
  * What became of the plan at sorted[i]: what its row says (that runner sends
- * it again once it's resolved, backend API 75), or sent back by a newer plan
+ * it again once it's resolved, backend API 76), or sent back by a newer plan
  * after it. Otherwise still waiting (undefined). Guessing from the rows after
  * it read a denied plan as gone ahead, and a schedule's message as Mike
  * sending it back (Codex's review, 12 Nov), and a guess given to the app
@@ -755,7 +755,7 @@ export class Relay {
 
   /**
    * Plans held here as still waiting that the live tail no longer covers,
-   * read again: their row gets its decision when they're resolved (API 75),
+   * read again: their row gets its decision when they're resolved (API 76),
    * and only the tail is watched, so one answered while this Mac wasn't
    * looking, with more than a tail's rows since, would wait here for ever
    * (Codex's review, 12 Nov). Rows after a plan almost always mean it was

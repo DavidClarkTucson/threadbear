@@ -53,7 +53,7 @@ function toRow(m: Row): Row {
     ...(m.summary ? { summary: true } : {}),
     // A Plan first plan (API 72's row), which another Mac draws as its plan card.
     ...(m.plan ? { plan: true } : {}),
-    // What became of it, once that runner knows (API 75).
+    // What became of it, once that runner knows (API 76).
     ...(m.plan && m.planDecision ? { planDecision: m.planDecision } : {}),
     ...(m.turn ? { turn: m.turn } : {}),
     ...(m.wokeBy ? { wokeBy: m.wokeBy } : {}),

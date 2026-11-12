@@ -133,7 +133,7 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 75;
+export const BACKEND_API_VERSION = 76;
 // From this one sync:sharedThreads lists a runner's rows shared by link, which
 // it checks against its own threads on every start and every
 // SHARE_RECONCILE_MS (reconcileShares).
@@ -329,7 +329,7 @@ export const LOOSE_ENDS_API_VERSION = 73;
 // done card's fields are from (`review` and `cardTurn` on a thread row), and
 // what became of a plan (`planDecision` on its message row). An older
 // backend's validator would turn the rows down, so they go without.
-export const RELAY_CARDS_API_VERSION = 75;
+export const RELAY_CARDS_API_VERSION = 76;
 // How far back a plan's resolution looks for its plan when planSeqs doesn't
 // have it (planEvent): a plan waits while Mike's away, and background work
 // goes on writing events meanwhile.
@@ -3424,7 +3424,7 @@ export class ConvexSync {
     if (v === undefined || v < WOKE_BY_API_VERSION) messages = messages.map((m) => (m.wokeBy ? (({ wokeBy, ...rest }) => rest)(m) : m));
     // Before API 72 a plan goes as an ordinary reply, still readable whole.
     if (v === undefined || v < PLAN_API_VERSION) messages = messages.map((m) => (m.plan ? (({ plan, ...rest }) => rest)(m) : m));
-    // Before API 75 a plan's row says nothing of what became of it.
+    // Before API 76 a plan's row says nothing of what became of it.
     if (v === undefined || v < RELAY_CARDS_API_VERSION) messages = messages.map((m) => (m.planDecision ? (({ planDecision, ...rest }) => rest)(m) : m));
     // The buttons' state as it is now, not when the row was made: a press
     // while the row waited would otherwise go up stale.
