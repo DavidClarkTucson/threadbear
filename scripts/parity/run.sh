@@ -4,7 +4,7 @@
 # scenario (runner/test/helpers/scenario-list.ts) into a throwaway Convex
 # backend, then has the real website, iPhone app and Mac app read them:
 # the website in headless Chrome, the iPhone app in a simulator, and the
-# Mac app as another runner's threads through Convex, the way Mike sees a
+# Mac app (the GPUI one) as another runner's threads through Convex, the way Mike sees a
 # Hetzner or bruce thread. Each surface's picture of each scenario goes in
 # <out>, with index.html showing them side by side, and results.json saying
 # which words each surface didn't show. Exits 1 when any surface missed any.
@@ -74,7 +74,7 @@ node scripts/parity/web-shots.mjs "http://127.0.0.1:$WEB_PORT" "$OUT/seed.json" 
 say "the iPhone app"
 zsh scripts/parity/ios-shots.sh "$URL" "$OUT/seed.json" "$OUT" > "$work/ios.log" 2>&1 || { echo "iPhone shots failed:"; tail -20 "$work/ios.log"; }
 
-say "the Mac app, reading them as another runner's"
+say "the Mac app (GPUI), reading them as another runner's"
 bash scripts/parity/mac-shots.sh "$URL" "$KEY" "$OUT/seed.json" "$OUT" 2> "$work/mac.log" | sed -n '/^\[/,$p' > "$OUT/mac.json" || true
 [ -s "$OUT/mac.json" ] || { echo "Mac shots failed:"; grep -v "^dev-app: screencapture" "$work/mac.log" | tail -20; echo '[]' > "$OUT/mac.json"; }
 

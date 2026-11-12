@@ -68,7 +68,7 @@ and ask the user what they use instead, rather than trying to reach them.
   validators, so a field Convex would refuse fails there too.
   Nightly, `scripts/parity/nightly.sh` plays the same scenarios into a
   throwaway backend on Tinker Desk and has the real website, iPhone app
-  and Mac app read them, with a picture of each side by side in
+  and GPUI Mac app read them, with a picture of each side by side in
   `~/Library/Caches/Threadbear/parity/<time>/index.html` (its first run
   found the website and the iPhone drawing cards without their notes).
   A scenario's `shows` are the words each surface must show.
