@@ -68,3 +68,23 @@ Feature: Links in a reply
     When I open the thread "Rebuild the three landing pages"
     And I right-click the highlight "mikecann/site#48"
     Then its menu offers "Open in Panel | Copy link | Default | Remove"
+
+  # A link that can't go anywhere says so, rather than looking like a
+  # missed click (TranscriptController.openThreadLink). The Swift app does
+  # both, but a scripted click on these links doesn't reach openThreadLink
+  # there and its `beeps` counts only the card's; it's frozen (12 Nov), so
+  # these are checked on the GPUI app.
+  @rich.worklinks @swift-pending
+  Scenario: A link to a thread that isn't in the sidebar beeps and says why
+    When I open the thread "Morning brief"
+    And a reply linking "the old thread" to "thread:0000dead" streams in
+    And I click the link "the old thread"
+    Then the app beeps
+    And the error bar says "That thread isn't in your sidebar, so it can't open here. It was deleted, or it's archived on another machine, and those aren't listed on this Mac."
+
+  @rich.worklinks @swift-pending
+  Scenario: A link to a step that isn't there beeps
+    When I open the thread "Morning brief"
+    And a reply linking "↑" to "work:a%20step%20nobody%20took" streams in
+    And I click the link "↑"
+    Then the app beeps

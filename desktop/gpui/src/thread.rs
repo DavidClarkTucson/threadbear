@@ -998,8 +998,11 @@ impl ThreadPane {
     /// lights it up for a moment (`openThreadLink`).
     pub(crate) fn open_work_link(&mut self, quote: &str, row_id: &str, _window: &mut Window, cx: &mut Context<Self>) {
         let model = self.feed.model();
-        let Some(turn) = model.row(row_id).and_then(|r| r.turn_id.clone()) else { return };
-        let Some((step, group)) = model.work_step(quote, &turn) else { return };
+        // A link with no step behind it beeps, as the Swift app's does, so
+        // the click doesn't look as if it was missed.
+        let Some((step, group)) = model.row(row_id).and_then(|r| r.turn_id.clone()).and_then(|turn| model.work_step(quote, &turn)) else {
+            return crate::composer_answers::beep();
+        };
         if let Some(group) = group {
             let closed = model.row(&group).is_some_and(|r| matches!(&r.content, RowContent::Group(g) if !g.is_expanded));
             if closed {

@@ -56,9 +56,26 @@ pub fn last_thread<'a>(urls: impl IntoIterator<Item = &'a str>) -> Option<String
     urls.into_iter().filter_map(thread_id).last()
 }
 
+/// Why a reply's `thread:` link opened nothing, matching `matches` of the
+/// threads in the sidebar (none, or more than one), as the Swift app's
+/// error bar says it (`TranscriptController.openThreadLink`).
+pub fn unopened_link_message(matches: usize) -> String {
+    if matches == 0 {
+        "That thread isn't in your sidebar, so it can't open here. It was deleted, or it's archived on another machine, and those aren't listed on this Mac.".to_owned()
+    } else {
+        format!("That link matches {matches} threads, so none was opened.")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_that_opens_nothing_says_why() {
+        assert!(unopened_link_message(0).starts_with("That thread isn't in your sidebar"));
+        assert_eq!(unopened_link_message(3), "That link matches 3 threads, so none was opened.");
+    }
 
     #[test]
     fn a_thread_link_names_its_thread() {

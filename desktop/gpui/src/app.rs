@@ -994,15 +994,24 @@ impl Threadbear {
             cx.notify();
         });
         // A thread: link in the transcript opens that thread.
-        self.pane_events = Some(cx.subscribe_in(&pane, window, |this, _, event: &crate::rows::OpenThreadRequest, window, cx| {
-            let matches: Vec<String> = this.threads.keys().filter(|k| **k == event.0 || k.starts_with(&event.0)).cloned().collect();
-            if let [only] = matches.as_slice() {
-                this.open(only.clone(), window, cx);
-            }
-        }));
+        self.pane_events = Some(cx.subscribe_in(&pane, window, |this, _, event: &crate::rows::OpenThreadRequest, window, cx| this.open_thread_link(&event.0, window, cx)));
         self.pane = Some(pane);
         self.note_navigation();
         cx.notify();
+    }
+
+    /// A `thread:` link (its id or a unique start of one) opens that thread.
+    /// One that matches none, or several, beeps and says why: a beep alone
+    /// left Mike clicking a link to a thread archived on bruce (another
+    /// machine's archived threads aren't listed here) and wondering why
+    /// nothing opened (6 Nov; `openThreadLink`).
+    pub(crate) fn open_thread_link(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let matches: Vec<String> = self.threads.keys().filter(|k| *k == id || k.starts_with(id)).cloned().collect();
+        if let [only] = matches.as_slice() {
+            return self.open(only.clone(), window, cx);
+        }
+        crate::composer_answers::beep();
+        self.show_error(threadbear_core::thread_link::unopened_link_message(matches.len()), cx);
     }
 
     /// A thread's message box, kept while others are open so what's typed
@@ -1033,12 +1042,7 @@ impl Threadbear {
         let client = self.client.clone();
         let pane = cx.new(|cx| ThreadPane::new_subagent(client, summary, subagent_id.clone(), composer, cx));
         // A thread: link in its transcript opens that thread, as in a thread's.
-        self.subagent_events = Some(cx.subscribe_in(&pane, window, |this, _, event: &crate::rows::OpenThreadRequest, window, cx| {
-            let matches: Vec<String> = this.threads.keys().filter(|k| **k == event.0 || k.starts_with(&event.0)).cloned().collect();
-            if let [only] = matches.as_slice() {
-                this.open(only.clone(), window, cx);
-            }
-        }));
+        self.subagent_events = Some(cx.subscribe_in(&pane, window, |this, _, event: &crate::rows::OpenThreadRequest, window, cx| this.open_thread_link(&event.0, window, cx)));
         self.subagent = Some((thread_id, subagent_id));
         self.subagent_pane = Some(pane);
         cx.notify();
