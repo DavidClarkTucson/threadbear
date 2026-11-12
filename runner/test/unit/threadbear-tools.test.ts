@@ -1928,14 +1928,27 @@ test("a short id is found on the other runner of a handover once it answers, and
   const farId = 'df5c7153-f093-476a-9402-e78d3ba158de';
   const far = { ...there, id: farId, title: 'Plan the GPUI port' };
   let fails = 0;
+  // Lists that come back without it: a thread a draining runner left that
+  // isn't taken in yet is in neither runner's list.
+  let missing = 0;
+  // Lists that never come back: a link that stays open and doesn't answer.
+  let hangs = 0;
   const sent: unknown[] = [];
   const elsewhere = {
     owns: (id: string) => id === farId,
     find: async (id: string) => (id === farId ? far : undefined),
     list: async () => {
+      if (hangs > 0) {
+        hangs--;
+        return new Promise<never>(() => {});
+      }
       if (fails > 0) {
         fails--;
         throw new RpcError(ErrorCode.busy, "The new runner isn't answering yet; try again in a moment.");
+      }
+      if (missing > 0) {
+        missing--;
+        return [];
       }
       return [far];
     },
@@ -1961,12 +1974,35 @@ test("a short id is found on the other runner of a handover once it answers, and
   assert.equal(slept, 2);
   assert.deepEqual(sent.map((s) => (s as { method: string }).method), ['threads.send']);
 
-  // It never answers: said as that, not as a missing thread.
+  // It answers, without the thread at first.
+  slept = 0;
+  missing = 1;
+  const late = await send('df5c7153');
+  assert.equal(late.error, false, late.text);
+  assert.equal(slept, 1);
+
+  // One try that never answers is given up on, and the next one finds it.
+  slept = 0;
+  hangs = 1;
+  const hung = await send('df5c7153');
+  assert.equal(hung.error, false, hung.text);
+  assert.equal(slept, 1);
+  assert.equal(sent.length, 3);
+
+  // It never answers: said as that, after three tries, not as a missing
+  // thread, and nothing is sent.
+  slept = 0;
   fails = 100;
   const down = await send('df5c7153');
   assert.equal(down.error, true);
+  assert.equal(slept, 2);
   assert.doesNotMatch(down.text, /No thread with id/);
   assert.match(down.text, /Couldn't look df5c7153 up just now .*use the whole id/);
+  assert.equal(sent.length, 3);
+
+  // A thread that really isn't anywhere is still "No thread".
+  fails = 0;
+  assert.match((await send('0000dead')).text, /No thread with id 0000dead/);
 
   // list_threads still shows this runner's own meanwhile.
   fails = 100;
