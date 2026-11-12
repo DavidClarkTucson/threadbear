@@ -480,6 +480,11 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
         Some(id) => app.read(cx).thread_id_from(id)?,
         None => app.read(cx).selected.clone().ok_or("no thread open")?,
     };
+    // `cancel: true`: the row's Cancel Move.
+    if cmd["cancel"].as_bool() == Some(true) {
+        app.update(cx, |t, cx| t.cancel_move(thread_id.clone(), cx));
+        return Ok(json!(format!("ok {thread_id}")));
+    }
     let want = cmd["runner"].as_str().unwrap_or("").to_lowercase();
     let runner_id_of_thread = app.read(cx).threads.get(&thread_id).and_then(|t| t.runner_id.clone());
     let runner = app.read(cx).move_targets(runner_id_of_thread.as_deref()).into_iter().find(|r| r.name.to_lowercase() == want || r.id == want).ok_or_else(|| format!("no runner {want} to move it to"))?;

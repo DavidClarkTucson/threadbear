@@ -1306,6 +1306,18 @@ impl Threadbear {
             // The seq of the message being edited, as the Swift dump has it.
             out["editing"] = json!(composer.editing.as_ref().map(|e| e.seq));
             out["chipBadge"] = json!(crate::composer_chips::model_chip_badge_text(&data));
+            // The box and its card locked while the thread moves, with what
+            // the box says in place of its words.
+            out["moving"] = json!(composer.moving_line(cx));
+            // The refusal offer the box has over it (RefusalOffer), as its
+            // button reads.
+            let refused = composer.thread_id.is_some() && self.open_thread().and_then(|t| self.refusal_target(t, cx)).is_some();
+            out["offerAbove"] = json!(refused.then_some(if self.continuing_refusal.is_some() { "Continuing…" } else { "Continue with Codex Sol" }));
+            // Whether the chips and the send button fit inside the box.
+            let (row, send) = composer.controls_fit.get();
+            out["chipsFit"] = json!(send <= row + 0.5);
+            // The chips spinning while a login, pool or folder change lands.
+            out["busy"] = json!(composer.busy_chips(cx));
             if let Some(card) = composer.card_lines(cx) {
                 out["card"] = json!(card);
             }

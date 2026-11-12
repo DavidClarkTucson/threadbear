@@ -137,3 +137,8 @@ When("I click the header's Scheduled chip for {string}", async function (this: T
   // Its tip names the schedule, and says when it runs (`StartedBySchedule.tip`).
   await this.app.do({ cmd: 'click', tipPrefix: `Started by a schedule: ${title} (` });
 });
+
+// What sits on the box just above it (the dump's composer.offerAbove).
+Then('the box has {string} just above it', async function (this: ThreadbearWorld, words: string) {
+  await this.until(`"${words}" over the box`, (d) => (d.composer as { offerAbove?: string | null }).offerAbove === words, 10_000);
+});

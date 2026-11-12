@@ -134,6 +134,22 @@ pub struct Project {
 }
 
 impl ThreadSummary {
+    /// While it's on its way to another machine, what its box says in place
+    /// of the words ("Moving to bruce…"): anything typed or answered now
+    /// could land on the wrong side of the move, so the box and the card
+    /// wait. None once it's there, or once the move failed or was called off
+    /// (`ThreadMove.line`, ComposerView's `moving`).
+    pub fn moving_line(&self) -> Option<String> {
+        let moving = self.moving.as_ref()?;
+        let state = moving.get("state").and_then(Value::as_str).unwrap_or("");
+        let name = moving.get("toName").and_then(Value::as_str).unwrap_or("");
+        match state {
+            "failed" | "cancelled" => None,
+            "ready" => Some(format!("Moving to {name} once this turn ends…")),
+            _ => Some(format!("Moving to {name}…")),
+        }
+    }
+
     /// Newer events than Mike has seen.
     pub fn unread(&self) -> bool {
         self.last_seq > self.last_seen_seq
@@ -611,6 +627,16 @@ pub fn parse_ms(iso: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_thread_on_its_way_to_another_machine_says_so_in_its_box() {
+        let moving = |state: &str| thread(1, json!({ "moving": { "moveId": "m1", "to": "r2", "toName": "bruce", "state": state } }));
+        assert_eq!(moving("copying").moving_line().as_deref(), Some("Moving to bruce…"));
+        assert_eq!(moving("ready").moving_line().as_deref(), Some("Moving to bruce once this turn ends…"));
+        assert_eq!(moving("failed").moving_line(), None, "a failed move gives the box back");
+        assert_eq!(moving("cancelled").moving_line(), None);
+        assert_eq!(thread(2, json!({})).moving_line(), None);
+    }
 
     fn thread(n: u32, over: Value) -> ThreadSummary {
         let mut v = json!({

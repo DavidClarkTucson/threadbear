@@ -101,3 +101,12 @@ Feature: The thread's bar, banners and notes
     When I open the thread "Export last quarter's invoices as CSV"
     And I click the header's Scheduled chip for "Quarterly invoice export"
     Then the schedule editor is open on "Export last quarter's invoices as CSV for the accountant." repeating on "0 8 1 1,4,7,10 *"
+
+  # The mock refuses a message saying "mock refusal" as Claude's safeguards
+  # do. The offer sits just above the box (RefusalOffer in ComposerView), not
+  # over the transcript at the top; the Swift dump has no "offerAbove".
+  @banner.refusal @swift-pending
+  Scenario: A refused message offers to carry on with Codex just above the box
+    When I open the thread "Morning brief"
+    And I send "mock refusal please"
+    Then the box has "Continue with Codex Sol" just above it

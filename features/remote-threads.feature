@@ -109,6 +109,18 @@ Feature: Other runners' threads
     When I right-click the row "Morning brief"
     Then the row's menu offers "Cancel Move"
 
+  # Anything typed or answered while it moves could land on the wrong side
+  # of the move, so the box and its card wait (ComposerView's `moving`). The
+  # Swift app's dump, frozen since 12 Nov, has no "moving".
+  @sidebar.move @remote-threads @swift-pending
+  Scenario: The box is locked while its thread moves, and given back when the move is called off
+    Given a move would leave nothing behind
+    When I open the thread "Morning brief"
+    And I ask to move the thread "Morning brief" to "bruce"
+    Then the box is locked, saying "Moving to bruce once this turn ends…"
+    When I cancel the move of "Morning brief"
+    Then the box isn't locked
+
   @composer.runner @remote-threads
   Scenario: The star sets where new threads start
     When I start a new thread

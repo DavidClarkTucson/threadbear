@@ -100,3 +100,20 @@ Then('the pictures of my message say {string}', async function (this: Threadbear
   }
   assert.fail(`the pictures say "${said}", not "${words}"`);
 });
+
+// The row's Cancel Move (`move` with `cancel`).
+When('I cancel the move of {string}', async function (this: ThreadbearWorld, title: string) {
+  const t = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
+  await this.app.do({ cmd: 'move', id: t.id, cancel: true });
+});
+
+// What the box says in place of its words while its thread moves, and so
+// it and its card take nothing (the dump's composer.moving).
+type WithMoving = { moving?: string | null };
+Then('the box is locked, saying {string}', async function (this: ThreadbearWorld, line: string) {
+  await this.until(`the box locked with "${line}"`, (d) => (d.composer as WithMoving).moving === line);
+});
+
+Then("the box isn't locked", async function (this: ThreadbearWorld) {
+  await this.until('the box unlocked', (d) => !(d.composer as WithMoving).moving);
+});

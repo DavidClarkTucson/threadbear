@@ -79,7 +79,7 @@ pub struct Composer {
     pub(crate) card: CardState,
     /// The card's text style, one per appearance (`card_reading_style`).
     pub(crate) card_style: Option<((bool, u32), gpui_kit::base::TextViewStyle)>,
-    shown_placeholder: &'static str,
+    shown_placeholder: SharedString,
     /// The slash palette's own state (`PaletteState`), and the list this
     /// opening of it has asked for (the thread's, or a new thread's login
     /// and folder's, which the chips can change while it's open).
@@ -164,19 +164,30 @@ impl Composer {
             model_picker: None,
             card: CardState::default(),
             card_style: None,
-            shown_placeholder: "Message",
+            shown_placeholder: "Message".into(),
             editing: None,
             pending_box: None,
             palette: PaletteState::default(),
             palette_asked: None,
             palette_scroll: ScrollHandle::new(),
             card_width: Rc::new(Cell::new(style::MAX_CONTENT_WIDTH)),
+            controls_fit: Rc::new(Cell::new((0., 0.))),
             _subs: vec![sub],
         }
     }
 
     pub fn attach(&mut self, pane: WeakEntity<ThreadPane>) {
         self.pane = pane;
+    }
+
+    /// On its way to another machine: "Moving to bruce…" in the box, which
+    /// and whose card are locked until it's there (ComposerView's `moving`).
+    /// Cancel Move, or a failed move, gives them back.
+    pub(crate) fn moving_line(&self, cx: &App) -> Option<String> {
+        let id = self.thread_id.as_ref()?;
+        let app = self.app.upgrade()?;
+        let t = app.read(cx);
+        t.threads.get(id).and_then(|t| t.moving_line())
     }
 
     /// A new thread is on its way from this box (`AppModel.creatingThread`).
@@ -396,6 +407,10 @@ impl Composer {
     /// at the end of the transcript until the runner has it; it comes back
     /// if the runner doesn't take it.
     pub(crate) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Return still reaches here with the box locked for a move.
+        if self.moving_line(cx).is_some() {
+            return;
+        }
         if self.thread_id.is_none() {
             return self.send_new_thread(window, cx);
         }
@@ -1151,7 +1166,8 @@ impl Composer {
         let drop_target = this;
         div()
             .w_full()
-            // Greyed and locked while a new thread is being made from it.
+            // Greyed and locked while a new thread is being made from it, or
+            // while its thread moves to another machine.
             .when(creating, |s| s.opacity(0.5))
             .capture_action(cx.listener(|this, action: &Enter, window, cx| {
                 if action.shift && this.shift_return(window, cx) {
@@ -1272,9 +1288,14 @@ impl Render for Composer {
         self.renumber_chips(cx);
         // With answers picked the box is for anything else; under asks with
         // none picked it's the way to answer in other words.
-        let placeholder = if self.editing.is_some() { "Your message…" } else { self.card_placeholder(cx) };
+        let moving = self.moving_line(cx);
+        let placeholder: SharedString = match &moving {
+            Some(line) => line.clone().into(),
+            None if self.editing.is_some() => "Your message…".into(),
+            None => self.card_placeholder(cx).into(),
+        };
         if self.shown_placeholder != placeholder {
-            self.shown_placeholder = placeholder;
+            self.shown_placeholder = placeholder.clone();
             self.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
         }
         let running = self.pane().is_some_and(|p| p.read(cx).summary.busy());
@@ -1283,6 +1304,8 @@ impl Render for Composer {
         }
         let strip = self.render_strip(cx);
         let creating = self.creating(cx);
+        // Typing, answering and sending wait while the thread moves.
+        let locked = creating || moving.is_some();
         let send_button = self.render_send_button(running, creating, cx);
         // Right-click it to send the message later (composer_send.rs).
         let send_button = self.with_send_menu(send_button, cx);
@@ -1292,6 +1315,11 @@ impl Render for Composer {
         let limit = self.render_limit_box(cx);
         // An edit is a message of its own: the open card waits for after it.
         let card = if self.editing.is_some() { None } else { self.render_card(window, cx) };
+        // Dimmed while the thread moves, with nothing on it taking a click.
+        let card = card.map(|card| match &moving {
+            Some(line) => div().relative().child(div().opacity(0.5).child(card)).child(div().id("composer-card-moving").absolute().inset_0().occlude().tip(line.clone())).into_any_element(),
+            None => card,
+        });
         let editing_banner = self.render_editing_banner(cx);
         // With the card folded, its picks as chips over the words, so they
         // don't go with no sign of them (composer_answers.rs).
@@ -1307,7 +1335,13 @@ impl Render for Composer {
             let room = (self.card_width.get() - style::zoomed(style::COMPOSER_RADIUS) * 2.).max(0.);
             crate::viewer::action_chips(&summary, room, &icons, window, cx)
         });
-        let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).children(editing_banner).children(answer_chips).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(creating, cx)).child(controls);
+        // Claude refused the last turn: the offer to carry on with Codex,
+        // just above the box (RefusalOffer).
+        let refusal = match (&self.thread_id, self.app.upgrade()) {
+            (Some(id), Some(app)) => crate::app::Threadbear::refusal_offer(&app, id, cx),
+            _ => None,
+        };
+        let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).children(editing_banner).children(answer_chips).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(locked, cx)).child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.
         h_flex()
@@ -1320,6 +1354,7 @@ impl Render for Composer {
                 v_flex()
                     .w_full()
                     .max_w(px(style::MAX_CONTENT_WIDTH))
+                    .children(refusal)
                     // Overlapping the box's border, so the two read as one piece.
                     .when_some(shelves, |s, shelves| s.child(div().px(px(style::COMPOSER_RADIUS)).mb(gpui_kit::px(-0.5)).child(shelves)))
                     .child(

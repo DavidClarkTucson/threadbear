@@ -507,9 +507,8 @@ impl Threadbear {
             if account.is_some() || remote.is_some() {
                 column = column.child(self.render_signin_banner(thread, account, remote, cx));
             }
-            if let Some((account, title)) = self.refusal_target(thread, cx) {
-                column = column.child(self.render_refusal_offer(thread, account, title, cx));
-            }
+            // The refusal offer sits just above the box (RefusalOffer in
+            // ComposerView), drawn by the composer (`refusal_offer`).
             // Reviews waiting, older ones too (review_window.rs).
             if let Some(bar) = self.pending_reviews_bar(thread, cx) {
                 column = column.child(bar);
@@ -905,15 +904,25 @@ impl Threadbear {
             .map(|a| (a.id.clone(), a.name()))
     }
 
-    fn render_refusal_offer(&mut self, thread: &ThreadSummary, account: String, title: String, cx: &mut Context<Self>) -> AnyElement {
-        let continuing = self.continuing_refusal.as_deref() == Some(thread.id.as_str());
-        let id = thread.id.clone();
+    /// `RefusalOffer`: "Claude couldn't continue with this message." with
+    /// Continue with Codex Sol, just above the box, as the Swift composer
+    /// has it (it sat over the transcript at the top here before 12 Nov).
+    /// None when the open thread's last turn wasn't refused.
+    pub(crate) fn refusal_offer(app: &Entity<Threadbear>, thread_id: &str, cx: &App) -> Option<AnyElement> {
+        let t = app.read(cx);
+        let thread = t.threads.get(thread_id).filter(|_| t.selected.as_deref() == Some(thread_id))?;
+        let (account, title) = t.refusal_target(thread, cx)?;
+        let continuing = t.continuing_refusal.as_deref() == Some(thread_id);
+        Some(Self::render_refusal_offer(app.downgrade(), thread_id.to_owned(), account, title, continuing, cx))
+    }
+
+    fn render_refusal_offer(app: WeakEntity<Threadbear>, id: String, account: String, title: String, continuing: bool, cx: &App) -> AnyElement {
         let tip = format!("Move this thread to {title} on GPT-6.1-Sol and continue the task. Your draft stays in the box.");
         let (hairline, fill, secondary) = (style::hairline(cx), style::card_background(cx), style::secondary_text(cx));
         h_flex()
             .flex_none()
-            .mx(px(14.))
-            .my(px(8.))
+            .w_full()
+            .mb(px(8.))
             .p(px(12.))
             .gap(px(12.))
             .items_center()
@@ -926,9 +935,11 @@ impl Threadbear {
             .child(
                 tipped!(div().id("refusal-continue").px(px(10.)).py(px(4.)).rounded(px(6.)).bg(style::primary_opacity(cx, 0.1)).when(continuing, |s| s.opacity(0.5)), tip)
                     .when(!continuing, |s| {
-                        s.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.continue_refusal(id.clone(), account.clone(), cx);
-                        }))
+                        s.cursor_pointer().on_click(move |_: &ClickEvent, _, cx| {
+                            if let Some(app) = app.upgrade() {
+                                app.update(cx, |this, cx| this.continue_refusal(id.clone(), account.clone(), cx));
+                            }
+                        })
                     })
                     .child(if continuing { "Continuing…" } else { "Continue with Codex Sol" }),
             )
