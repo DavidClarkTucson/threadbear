@@ -185,13 +185,16 @@ needed() {
 # should run: with --app or --all, or when something it builds from (app/
 # and dock/, or <regex>) changed beyond what the GPUI app shares. Unlike
 # needed, not on main with nothing changed, nor for a change to this file.
+# grep to /dev/null rather than -q: -q stops reading at the first match, and
+# with pipefail the grep -v before it then fails on the closed pipe (Codex's
+# review, 12 Nov: a few thousand changed files said "nothing changed").
 GPUI_SHARED="$("$ROOT/scripts/swift-freeze.sh" --gpui-shared 2>/dev/null)"
 # Without it, nothing counts as shared: an empty pattern would match every
 # line, and every change would look like none.
 [ -n "$GPUI_SHARED" ] || GPUI_SHARED='^$'
 swift_needed() {
   [ "$ALL" = 1 ] || [ "$APP_ONLY" = 1 ] \
-    || printf '%s\n' "$CHANGED" | grep -vE "$GPUI_SHARED" | grep -qE "${1:-^(app|dock)/}"
+    || printf '%s\n' "$CHANGED" | grep -vE "$GPUI_SHARED" | grep -E "${1:-^(app|dock)/}" >/dev/null
 }
 
 # What the iPhone kit's tests cover: ios/, and the Mac app's files that

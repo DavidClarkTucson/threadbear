@@ -119,6 +119,17 @@ test("a --quick run that only touches what the GPUI app uses in app/ can take a 
   assert.deepEqual(r.copies, ['h1']);
 });
 
+test('a big change to the Mac app still goes to a Mac', () => {
+  // Codex's review, 12 Nov: grep -q closing the pipe early failed the grep -v
+  // before it under pipefail, so thousands of changed files looked like none.
+  const s = setup({ h1: { state: 'free', os: 'Linux' }, h2: { state: 'free' } });
+  fs.mkdirSync(path.join(s.repo, 'app/Sources'), { recursive: true });
+  for (let i = 0; i < 5000; i++) fs.writeFileSync(path.join(s.repo, `app/Sources/F${i}.swift`), '');
+  const r = s.run('h1,h2', 3600);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.copies, ['h2']);
+});
+
 test('a Linux host that could not run it anyway is not named as short of room', () => {
   // Nothing changed, so this one needs a Mac; the Linux host's disk isn't the reason.
   const s = setup({ h1: { state: 'free', os: 'Linux', df: linuxDf(GiB) }, h2: { state: 'free' } });

@@ -96,12 +96,8 @@ elif [ -e "$hooks/pre-commit" ] && ! grep -q threadbear-swift-freeze "$hooks/pre
   echo "pre-commit: there's already a hook, so the Swift app's freeze isn't hooked in"
 else
   mkdir -p "$hooks"
-  cat > "$hooks/pre-commit" <<'HOOK'
-#!/bin/sh
-# threadbear-swift-freeze: put here by worktree-setup.sh
-f="$(git rev-parse --show-toplevel)/scripts/swift-freeze.sh"
-[ -x "$f" ] && exec "$f" --commit
-exit 0
-HOOK
+  # Copied, not linked, as this worktree may go; rewritten each time, so a
+  # newer stub replaces an older one.
+  cp "$ROOT/scripts/swift-freeze-pre-commit" "$hooks/pre-commit"
   chmod +x "$hooks/pre-commit"
 fi

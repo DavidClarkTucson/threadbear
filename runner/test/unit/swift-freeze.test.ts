@@ -176,3 +176,59 @@ test("everything the GPUI app's checks read from app/ is shared, not frozen", ()
     assert.match(example, shared, p);
   }
 });
+
+// Codex's review, 12 Nov: each of these got past the first version.
+test('a name git would quote, and a file swapped for a link, are still caught', () => {
+  const dir = repo(MIKE);
+  stage(dir, 'app/Sources/Café "new".swift');
+  assert.equal(commit(dir).status, 2);
+  const swap = repo(MIKE);
+  stage(swap, 'app/Sources/A.swift');
+  stage(swap, 'app/Sources/B.swift');
+  spawnSync('git', ['commit', '-qm', 'x', '--no-verify'], { cwd: swap, env: env({ GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }) });
+  fs.rmSync(path.join(swap, 'app/Sources/A.swift'));
+  fs.symlinkSync('B.swift', path.join(swap, 'app/Sources/A.swift'));
+  spawnSync('git', ['add', 'app/Sources/A.swift'], { cwd: swap });
+  assert.equal(commit(swap).status, 2);
+});
+
+test("an edit's path counts however it's written", () => {
+  const dir = repo(MIKE);
+  fs.mkdirSync(path.join(dir, 'desktop'));
+  fs.mkdirSync(path.join(dir, 'app'));
+  const run = (file: string) => {
+    const input = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: file, content: 'x' } });
+    return spawnSync(path.join(dir, 'scripts/swift-freeze.sh'), ['--tool'], { cwd: dir, encoding: 'utf8', input, env: env({ CLAUDE_PROJECT_DIR: dir }) }).status;
+  };
+  assert.equal(run('app/Sources/New.swift'), 2, 'relative');
+  assert.equal(run(`${dir}/desktop/../app/Sources/New.swift`), 2, 'through ..');
+  assert.equal(run(`${fs.realpathSync(dir)}/app/Sources/New.swift`), 2, 'through the real path');
+  assert.equal(run(`${dir}/app/../desktop/new.rs`), 0, 'out of app/ through ..');
+  assert.equal(run(`${dir}/app/Tools/realdrag.swift`), 0, 'a test tool the GPUI specs compile');
+  assert.equal(run('/tmp/elsewhere/app/x.swift'), 0, 'another folder');
+});
+
+test('the installed hook refuses a real commit, in a worktree older than the script too', () => {
+  const dir = repo(MIKE);
+  const who = env({ GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
+  const hook = path.join(dir, '.git/hooks/pre-commit');
+  fs.mkdirSync(path.dirname(hook), { recursive: true });
+  fs.copyFileSync(path.join(path.dirname(script), 'swift-freeze-pre-commit'), hook);
+  fs.chmodSync(hook, 0o755);
+  // The first commit leaves the script out, as a branch from before it would.
+  spawnSync('git', ['commit', '-qm', 'base', '--allow-empty'], { cwd: dir, env: who });
+  stage(dir, 'app/Sources/New.swift');
+  const here = spawnSync('git', ['commit', '-qm', 'swift'], { cwd: path.join(dir, 'app'), encoding: 'utf8', env: who });
+  assert.notEqual(here.status, 0, 'from a subfolder of the main checkout');
+  assert.match(here.stderr, /frozen/);
+  const wt = `${dir}-wt`;
+  spawnSync('git', ['worktree', 'add', '-q', wt, 'HEAD'], { cwd: dir });
+  assert.ok(!fs.existsSync(path.join(wt, 'scripts/swift-freeze.sh')));
+  stage(wt, 'app/Sources/Old.swift');
+  const old = spawnSync('git', ['commit', '-qm', 'swift'], { cwd: wt, encoding: 'utf8', env: who });
+  assert.notEqual(old.status, 0, "an older worktree uses the main checkout's script");
+  assert.match(old.stderr, /frozen/);
+  stage(wt, 'desktop/gpui/src/new.rs');
+  spawnSync('git', ['reset', '-q', 'app/Sources/Old.swift'], { cwd: wt });
+  assert.equal(spawnSync('git', ['commit', '-qm', 'gpui'], { cwd: wt, env: who }).status, 0);
+});

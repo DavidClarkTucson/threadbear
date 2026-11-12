@@ -32,20 +32,27 @@ WARN_FORKS=0
 set -uo pipefail
 
 # What in app/ the GPUI app still uses, so it isn't frozen: the mock runner
-# its CI and the features/ specs run against, the test tools its pointer
-# and drag tests use (AGENTS.md), the golden transcripts and fixtures its
+# its CI and the features/ specs run against, the Swift test tools its
+# pointer, drag and menu specs compile (swiftTool in
+# features/tools/real-screen.ts), the golden transcripts and fixtures its
 # tests share, and the art and rich-block scripts it builds in (check.sh's
 # DESKTOP_NEEDS). check.sh reads this too (--gpui-shared), so a change to
 # only these doesn't build and test the Swift app. They move out of app/
 # before it goes at the cutover.
-GPUI_SHARED='^app/Tools/mock-runner/|^app/Tools/(droptarget|post-gesture)\.swift$|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/(Art|Rich)/'
+GPUI_SHARED='^app/Tools/mock-runner/|^app/Tools/(droptarget|post-gesture|realdrag)\.swift$|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/(Art|Rich)/'
 
 mode="${1:-}"
 if [ "$mode" = --gpui-shared ]; then
   printf '%s\n' "$GPUI_SHARED"
   exit 0
 fi
-top="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+# The checkout: for a commit, git's own, never CLAUDE_PROJECT_DIR, which can
+# name another folder when an agent commits in a worktree it cd'd into.
+if [ "$mode" = --tool ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  top="$CLAUDE_PROJECT_DIR"
+else
+  top="$(git rev-parse --show-toplevel 2>/dev/null)"
+fi
 [ -n "$top" ] || exit 0
 
 # And what the iPhone app (which stays Swift) builds from app/: the files
@@ -69,6 +76,33 @@ shared() {
     esac
   done
   return 1
+}
+# inside <path>: the path from the checkout's top, with links, . and ..
+# resolved as far as the folders exist (a file being written may not yet),
+# so ./app/x, desktop/../app/x and /System/Volumes/Data/... all count as
+# app/x; fails for a path outside the checkout.
+inside() {
+  local p="$1" rest=""
+  case "$p" in /*) ;; *) p="$top/$p" ;; esac
+  while [ ! -d "$p" ]; do
+    rest="/$(basename "$p")$rest"
+    p="$(dirname "$p")"
+  done
+  p="$(cd "$p" && pwd -P)$rest"
+  # macOS's other name for the same disk, which pwd -P keeps.
+  case "$p" in /System/Volumes/Data/*) [ -d "/System/Volumes/Data$top_real" ] && p="${p#/System/Volumes/Data}" ;; esac
+  # The part below the last real folder can still say . or ..
+  local out=() part
+  local IFS=/
+  for part in $p; do
+    case "$part" in
+      ''|.) ;;
+      ..) [ "${#out[@]}" -gt 0 ] && unset "out[$((${#out[@]} - 1))]" ;;
+      *) out+=("$part") ;;
+    esac
+  done
+  p="/${out[*]}"
+  case "$p" in "$top_real"/*) printf '%s\n' "${p#"$top_real"/}" ;; *) return 1 ;; esac
 }
 frozen() {
   case "$1" in
@@ -101,10 +135,12 @@ case "$mode" in
     for h in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
       git rev-parse -q --verify "$h" >/dev/null 2>&1 && exit 0
     done
-    # Added, copied, modified or renamed: deletions go through.
-    while IFS= read -r f; do
+    # Added, copied, modified, renamed or changed type (a file swapped for a
+    # link): deletions go through. -z so a name git would quote (an accent,
+    # a quote mark) comes through as it is.
+    while IFS= read -r -d '' f; do
       frozen "$f" && hits+=("$f")
-    done < <(git diff --cached --name-only --diff-filter=ACMR)
+    done < <(git -C "$top" diff --cached --name-only -z --diff-filter=ACMRT)
     ;;
   --tool)
     input="$(cat)"
@@ -112,10 +148,7 @@ case "$mode" in
     # than a JSON parser, so the hook needs nothing installed.
     f="$(printf '%s' "$input" | sed -nE 's/.*"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"([^"]*)".*/\2/p' | head -1)"
     [ -n "$f" ] || exit 0
-    case "$f" in
-      "$top"/*) f="${f#"$top"/}" ;;
-      /*) exit 0 ;;  # outside this checkout
-    esac
+    f="$(inside "$f")" || exit 0  # outside this checkout
     frozen "$f" && hits+=("$f")
     ;;
   *)

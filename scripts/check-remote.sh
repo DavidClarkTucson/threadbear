@@ -361,7 +361,9 @@ GPUI_SHARED="$("$ROOT/scripts/swift-freeze.sh" --gpui-shared 2>/dev/null)"
 # line, and every change would look like none.
 [ -n "$GPUI_SHARED" ] || GPUI_SHARED='^$'
 if [ "$QUICK" = 1 ] && [ "$ALL" = 0 ] && [ -z "$SHOTS" ] && [ -s "$changed" ] \
-  && ! grep -qE '^ios/|^check\.sh$' "$changed" && ! grep -vE "$GPUI_SHARED" "$changed" | grep -qE '^(app|dock)/'; then linux_ok=1; fi
+  && ! grep -qE '^ios/|^check\.sh$' "$changed" && ! grep -vE "$GPUI_SHARED" "$changed" | grep -E '^(app|dock)/' >/dev/null; then linux_ok=1; fi
+# (grep to /dev/null, not -q: -q closing the pipe early fails grep -v under
+# pipefail, and a big change would have looked like none.)
 # --runner is only Node, whatever changed: the runner's self-update sends
 # it from a clone on main, where nothing has, and with Tinker Desk away a
 # Linux host should still take it rather than this Mac (Codex, 9 Nov).
