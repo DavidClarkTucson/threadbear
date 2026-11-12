@@ -80,10 +80,11 @@ pub struct Composer {
     /// The card's text style, one per appearance (`card_reading_style`).
     pub(crate) card_style: Option<((bool, u32), gpui_kit::base::TextViewStyle)>,
     shown_placeholder: &'static str,
-    /// The slash palette's own state (`PaletteState`), and whether this
-    /// opening of it has asked for the thread's commands yet.
+    /// The slash palette's own state (`PaletteState`), and the list this
+    /// opening of it has asked for (the thread's, or a new thread's login
+    /// and folder's, which the chips can change while it's open).
     pub(crate) palette: PaletteState,
-    pub(crate) palette_asked: bool,
+    pub(crate) palette_asked: Option<String>,
     /// The palette's list, kept so the arrows can scroll the pick into sight.
     pub(crate) palette_scroll: ScrollHandle,
     /// The box's width at the last paint, for the palette's columns.
@@ -164,7 +165,7 @@ impl Composer {
             editing: None,
             pending_box: None,
             palette: PaletteState::default(),
-            palette_asked: false,
+            palette_asked: None,
             palette_scroll: ScrollHandle::new(),
             card_width: Rc::new(Cell::new(style::MAX_CONTENT_WIDTH)),
             _subs: vec![sub],

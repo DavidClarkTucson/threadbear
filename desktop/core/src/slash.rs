@@ -21,6 +21,9 @@ pub struct SlashCommand {
     pub plugin: Option<String>,
     /// Its file on the runner's machine, when the runner found it.
     pub path: Option<String>,
+    /// A skill that only runs as the start of a message, so the agent can't
+    /// run it when one names it partway through.
+    pub user_only: Option<bool>,
 }
 
 impl SlashCommand {
@@ -105,6 +108,38 @@ pub fn cli_name(provider: &str) -> String {
 pub fn query(text: &str) -> Option<&str> {
     let rest = text.strip_prefix('/')?;
     (!rest.chars().any(|c| c.is_whitespace() || c == '/')).then_some(rest)
+}
+
+/// A command being typed as the message's last word: at its start ("/co"),
+/// or partway through it ("then use /td"). `start` is where its slash is, a
+/// byte offset into the text (`SlashPalette.Typed`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Typed {
+    pub query: String,
+    pub start: usize,
+}
+
+impl Typed {
+    pub fn mid_message(&self) -> bool {
+        self.start > 0
+    }
+}
+
+/// The word at the end of the text, when it's a command being typed: a slash
+/// at the start or after a space or line break, and no second slash (a path,
+/// "/Users/"). None once a space follows it (`SlashPalette.typed`).
+pub fn typed(text: &str) -> Option<Typed> {
+    let word = text.rsplit(char::is_whitespace).next().unwrap_or(text);
+    let rest = word.strip_prefix('/')?;
+    (!rest.contains('/')).then(|| Typed { query: rest.to_owned(), start: text.len() - word.len() })
+}
+
+/// What the palette offers partway through a message: skills the agent can
+/// run when it reads one named there. A CLI's own commands, and skills that
+/// only run as the start of a message, do nothing there (claude -p, 9 Nov
+/// 2026; `SlashPalette.midMessage`).
+pub fn mid_message(commands: &[SlashCommand]) -> Vec<SlashCommand> {
+    commands.iter().filter(|c| c.is_skill() && c.user_only != Some(true)).cloned().collect()
 }
 
 /// Where a command came from, for the detail pane.
@@ -431,6 +466,26 @@ mod tests {
             { "name": "ship", "description": "Drive a branch to merge-ready", "source": "skill" },
             { "bad": true }
         ]}))
+    }
+
+    #[test]
+    fn a_command_can_be_typed_partway_through_a_message() {
+        assert_eq!(typed("/co"), Some(Typed { query: "co".into(), start: 0 }));
+        let mid = typed("then use /de").unwrap();
+        assert_eq!((mid.query.as_str(), mid.start, mid.mid_message()), ("de", 9, true));
+        assert_eq!(typed("first line\n/sh").map(|t| t.start), Some(11), "after a line break");
+        assert_eq!(typed("the /tmp/ folder"), None, "a space after it ends it");
+        assert_eq!(typed("look in /Users/mike"), None, "a path isn't a command");
+        assert_eq!(typed("a/b"), None, "a slash inside a word");
+        assert_eq!(typed("just words"), None);
+        assert_eq!(typed("é then /x").map(|t| t.start), Some(8), "bytes, as the box counts");
+        // Only skills the agent can run there.
+        let mut list = commands();
+        list.push(SlashCommand { name: "start-only".into(), source: "skill".into(), user_only: Some(true), ..Default::default() });
+        let names: Vec<String> = mid_message(&list).into_iter().map(|c| c.name).collect();
+        assert_eq!(names, ["code-review", "deslop", "ship"]);
+        let user_only = decode_commands(&json!({ "commands": [{ "name": "x", "source": "skill", "userOnly": true }] }));
+        assert_eq!(user_only[0].user_only, Some(true));
     }
 
     #[test]

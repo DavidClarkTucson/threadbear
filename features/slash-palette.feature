@@ -45,6 +45,37 @@ Feature: The slash command palette
     When I type "/" in the composer, replacing what's there
     Then the palette's categories say "All 15 | Threadbear 2 | Claude Code 6 | Skills 7 | Recent 1"
 
+  # Skills named partway through a message (9 Nov 2026, docs/guide.md):
+  # only the ones the agent can run there, and a pick goes into the words.
+  @composer.slash
+  Scenario: A slash partway through a message lists the skills the agent can run
+    When I type "then tidy it with /de" in the composer
+    Then the palette is open on "All"
+    And the palette's commands are "/deslop | /delegate | /code-review | /claude-api"
+
+  @composer.slash
+  Scenario: Return partway through a message puts the skill in the words without sending
+    When I type "then tidy it with /desl" in the composer
+    Then the palette's pick is "/deslop"
+    When I press Return
+    Then the composer says "then tidy it with /deslop "
+    And the palette is closed
+    And the transcript doesn't show my message "then tidy it with"
+
+  @composer.slash
+  Scenario: A slash in other words with nothing to match leaves the palette shut
+    When I type "look in /tmp" in the composer
+    Then the palette is closed
+
+  # folders.commands: the list for the folder and login it would start on.
+  @composer.slash
+  Scenario: The new-thread page's box lists the commands before the thread exists
+    When I start a new thread
+    And I type "/" in the composer
+    Then the palette is open on "All"
+    And the palette's categories say "All 15 | Threadbear 2 | Claude Code 6 | Skills 7"
+    And the palette has the command "/code-review"
+
   @composer.slash.keys
   Scenario: The arrows move the pick and stop at the ends
     When I type "/" in the composer
