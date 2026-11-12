@@ -401,10 +401,7 @@ impl Threadbear {
         if let Some(build) = rules::build(r) {
             name_line = name_line.child(text_line(build, 10., tertiary).font_family(cx.theme().mono_font_family.clone()).flex_none());
         }
-        let chevron = div()
-            .flex_none()
-            .text_color(tertiary)
-            .group_hover(group, move |s| s.text_color(secondary))
+        let chevron = style::group_hover_text(div().id(SharedString::from(format!("runner-chevron-{}", r.id))).flex_none().text_color(tertiary), group, secondary)
             .child(icons::symbol(if open { "chevron.down" } else { "chevron.right" }).with_size(px(11.)));
         name_line = name_line.child(chevron);
         let dot_color = match state {

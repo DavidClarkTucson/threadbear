@@ -534,3 +534,126 @@ pub mod menu {
         div().pl(px(TITLE_X)).pt(px(6.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(colors(cx).icon).child(title)
     }
 }
+
+/// A text colour (or an icon's: gpui-kit's `Icon` takes the text colour)
+/// that changes while the pointer is over `group`'s element, as the Swift
+/// app's `.foregroundStyle(hovering ? ...)` does. Use this, never a bare
+/// `.group_hover(g, |s| s.text_color(c))` (`group_hover_text_tests` fails on
+/// one): GPUI shapes text, colour and all, while laying out, but an element
+/// with no id only learns its group is hovered while painting, after that,
+/// so the colour never reached the words. The sidebar's section headings
+/// stayed grey under the pointer that way (12 Nov). An id gives the element
+/// state to keep the hover in: it hears the pointer arrive, then lays out
+/// again with it. Hence `StatefulInteractiveElement`, which only an element
+/// with an id is.
+pub fn group_hover_text<E: StatefulInteractiveElement>(el: E, group: impl Into<SharedString>, color: Hsla) -> E {
+    el.group_hover(group, move |s| s.text_color(color))
+}
+
+/// In a window of the test platform's (the kit's test support comes with the
+/// `automation` feature, as reply_links.rs's probe tests say).
+#[cfg(all(test, feature = "automation"))]
+mod group_hover_text_tests {
+    use super::group_hover_text;
+    use gpui_kit::prelude::*;
+    use gpui_kit::test::TestEventExt as _;
+    use gpui_kit::{div, point, px, size, AnyElement, App, Bounds, ElementId, GlobalElementId, Hsla, InspectorElementId, LayoutId, Pixels, Point, TestAppContext, Window, WindowBounds, WindowOptions};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    /// Notes the text colour in force while laying out, which is the one
+    /// text is shaped in (and an `Icon` is drawn in).
+    struct LayoutColour(Rc<Cell<Option<Hsla>>>);
+
+    impl IntoElement for LayoutColour {
+        type Element = Self;
+        fn into_element(self) -> Self {
+            self
+        }
+    }
+
+    impl Element for LayoutColour {
+        type RequestLayoutState = ();
+        type PrepaintState = ();
+        fn id(&self) -> Option<ElementId> {
+            None
+        }
+        fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+            None
+        }
+        fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+            self.0.set(Some(window.text_style().color));
+            (window.request_layout(gpui_kit::Style { size: size(px(40.).into(), px(12.).into()), ..Default::default() }, [], cx), ())
+        }
+        fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), _: &mut Window, _: &mut App) {}
+        fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), _: &mut (), _: &mut Window, _: &mut App) {}
+    }
+
+    const QUIET: Hsla = Hsla { h: 0., s: 0., l: 0.5, a: 1. };
+    const BRIGHT: Hsla = Hsla { h: 0., s: 0., l: 1., a: 1. };
+
+    /// A heading as the sidebar draws one: a group with the title in it.
+    struct Heading(Rc<Cell<Option<Hsla>>>);
+
+    impl Render for Heading {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let title: AnyElement = group_hover_text(div().id("title").text_color(QUIET), "heading", BRIGHT).child(LayoutColour(self.0.clone())).into_any_element();
+            div().size_full().child(div().group("heading").w(px(200.)).h(px(30.)).child(title))
+        }
+    }
+
+    #[gpui_kit::test]
+    fn a_hovered_group_brightens_its_text(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let seen = Rc::new(Cell::new(None));
+        let in_view = seen.clone();
+        let window = cx.update(|cx| {
+            let bounds = Bounds { origin: Point::default(), size: size(px(300.), px(100.)) };
+            let options = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+            gpui_kit::open_window(options, cx, move |_, cx| cx.new(|_| Heading(in_view))).expect("a test window").0
+        });
+        cx.update_window(window, |_, window, cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            window.render_frame(cx);
+            assert_eq!(seen.get(), Some(QUIET), "away from the pointer");
+            // On the group's edge, not over the title.
+            window.pointer_move(point(px(180.), px(15.)), None, cx);
+            window.render_frame(cx);
+            assert_eq!(seen.get(), Some(BRIGHT), "under the pointer, as the text is laid out");
+            window.pointer_move(point(px(250.), px(80.)), None, cx);
+            window.render_frame(cx);
+            assert_eq!(seen.get(), Some(QUIET), "and back once it's gone");
+        })
+        .expect("the test window");
+    }
+
+}
+
+#[cfg(test)]
+mod group_hover_text_source_tests {
+    /// Every text colour that follows a group goes through `group_hover_text`.
+    #[test]
+    fn no_bare_group_hover_text_colours() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut bad = Vec::new();
+        let mut stack = vec![dir];
+        while let Some(d) = stack.pop() {
+            for entry in std::fs::read_dir(&d).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("style.rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for (n, line) in text.lines().enumerate() {
+                        if let Some(at) = line.find(".group_hover(") {
+                            if line[at..].contains("text_color") {
+                                bad.push(format!("{}:{}", path.display(), n + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "use style::group_hover_text, so the colour reaches the text:\n{}", bad.join("\n"));
+    }
+}

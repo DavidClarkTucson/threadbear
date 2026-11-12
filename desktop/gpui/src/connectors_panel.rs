@@ -190,16 +190,19 @@ impl Threadbear {
             let quiet = secondary.opacity(0.35);
             row = row.child(
                 tipped(
-                    div()
-                        .id(SharedString::from(format!("connector-page-{}", service.id)))
-                        .flex_none()
-                        .h(px(15.))
-                        .flex()
-                        .items_center()
-                        .cursor_pointer()
-                        .text_color(quiet)
-                        .group_hover(group, move |st| st.text_color(secondary))
-                        .hover(move |st| st.text_color(fg)),
+                    style::group_hover_text(
+                        div()
+                            .id(SharedString::from(format!("connector-page-{}", service.id)))
+                            .flex_none()
+                            .h(px(15.))
+                            .flex()
+                            .items_center()
+                            .cursor_pointer()
+                            .text_color(quiet),
+                        group,
+                        secondary,
+                    )
+                    .hover(move |st| st.text_color(fg)),
                     tip,
                 )
                 .on_click(cx.listener(move |t, _: &ClickEvent, _, cx| t.open_connect(&s, cx)))

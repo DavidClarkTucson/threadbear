@@ -1228,7 +1228,8 @@ impl Threadbear {
                 }
                 _ => icon(symbol, 11., secondary).flex_none().into_any_element(),
             })
-            .child(div().flex_none().text_size(px(style::size::SIDEBAR_HEADING)).line_height(px(16.)).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(title.clone()))
+            // Brighter under the pointer, as `SectionHeading`'s title is.
+            .child(style::group_hover_text(div().id(SharedString::from(format!("heading-title-{key}"))).flex_none().text_size(px(style::size::SIDEBAR_HEADING)).line_height(px(16.)).font_semibold().text_color(secondary), hover_group, fg).child(title.clone()))
             .child(div().flex_1().min_w_0().h(px(1.)).mx(px(4.)).bg(hairline))
             .when_some(count_el, |s, n| s.child(div().flex_none().text_size(px(style::size::SIDEBAR_META)).text_color(faint).child(n)))
             .when(foldable, |s| {

@@ -1092,7 +1092,7 @@ impl SidePane {
         let (fg, secondary, faint, hairline) = (p.fg, p.secondary, p.faint, p.hairline);
         let hover_group = group.clone();
         let chevron_group = group.clone();
-        let title_el = div().flex_none().text_size(px(style::size::LABEL)).line_height(px(style::natural_line(style::size::LABEL))).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(h.title.clone());
+        let title_el = style::group_hover_text(div().id(SharedString::from(format!("hl-heading-title-{}", h.key))).flex_none().text_size(px(style::size::LABEL)).line_height(px(style::natural_line(style::size::LABEL))).font_semibold().text_color(secondary), hover_group, fg).child(h.title.clone());
         let mut label = h_flex().group(group.clone()).flex_1().min_w_0().gap(px(6.)).pl(px(LEADING)).pt(px(18.)).pb(px(6.)).items_center();
         if let Some(leading) = h.icon {
             label = label.child(leading);
