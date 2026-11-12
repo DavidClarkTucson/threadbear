@@ -652,7 +652,19 @@ impl DockView {
             // a held press on its background moves the panel.
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, e: &MouseDownEvent, window, cx| this.begin_press(body_press.clone(), BODY_PRESS, e, window, cx)),
+                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    // A press on words is the start of a selection, which wins
+                    // as an NSTextView's does over Swift's HoldDrag. The kit's
+                    // selection is the window's, not the text's, and never
+                    // stops the press, so it's asked. Without this, resting a
+                    // moment before dragging across a reply picked the thread
+                    // up instead (Mike, 12 Nov: "it only selects if I select
+                    // it very quickly").
+                    if gpui_kit::base::TextSelection::is_selectable_at(e.position, window, cx) {
+                        return;
+                    }
+                    this.begin_press(body_press.clone(), BODY_PRESS, e, window, cx)
+                }),
             )
             .context_menu(menu);
 

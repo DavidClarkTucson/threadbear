@@ -1,0 +1,191 @@
+// Selecting a reply's words with the real pointer: slow and quick drags, a
+// double-click on a word and a Shift-click that extends, in an idle thread
+// and in one that's working (its spinner and working line redrawing while
+// the hand moves). The automation's `select-text` selects a reply whole
+// without a drag, so it can't see a drag that stops following the pointer
+// (Mike, 12 Nov: "it only selects if I select it very quickly"). Takes over
+// the pointer, so only on a machine nobody's using:
+//
+//   desktop/scripts/remote.sh tinker-desk --desk -- bash -c 'cd desktop && cargo build -p threadbear-gpui --features automation && cd ../features && node tools/real-select.ts'
+//
+// Prints each try, what was selected while the button was still down and
+// after, and PASS or FAIL.
+//
+// The Shift-click checks still fail some of the time (12 Nov): the kit's
+// window selection is extended right (anchor and cursor where they should
+// be), but the reply's text copies and draws nothing. Not a missed redraw:
+// a whole-window refresh on every press didn't change it. A follow-up in
+// the GPUI port thread (df5c7153).
+import { execFileSync, spawn } from 'node:child_process';
+import path from 'node:path';
+import { GpuiDriver } from '../support/gpui.ts';
+import { sleep, type Dump } from '../support/driver.ts';
+import { assertInFront, windowFrame, work } from './real-screen.ts';
+
+const tool = path.join(work, 'realselect');
+execFileSync('swiftc', ['-O', path.join(import.meta.dirname, 'realselect.swift'), '-o', tool]);
+
+const reply = [
+  'Here is where things stand.',
+  '',
+  '- **still active** on the main branch',
+  '- **paused** until Friday',
+  '- the last one is done',
+  '',
+  'That is everything for now.',
+].join('\n');
+
+type Line = { text: string; x: number; y: number; w: number; h: number };
+type Selection = { text: string; bar: string | null; panelDrag: string | null };
+
+const app = new GpuiDriver();
+await app.start();
+let failed = 0;
+const answer = (s: string) => s.replace(/^ok /, '');
+const selection = async (): Promise<Selection> => JSON.parse(answer(await app.do({ cmd: 'selection' })));
+
+try {
+  for (let i = 0; i < 300; i += 1) {
+    const d = await app.dump();
+    if (d.connection === 'connected' && d.sidebar.sections.some((s) => s.threads.length)) break;
+    await sleep(50);
+  }
+  // A thread of its own, so the reply's near the top and nothing scrolls it.
+  const threadId = 'select-test-thread';
+  await app.do({ cmd: 'mock', method: 'thread', params: { id: threadId, title: 'Selecting words' } });
+  await sleep(500);
+  await app.do({ cmd: 'open', id: threadId });
+  await sleep(800);
+  await app.do({ cmd: 'mock', method: 'stream', params: { threadId, text: reply, hz: 60 } });
+  const finished = (d: Dump) => d.transcript.rows.some((r) => r.kind === 'footer' && r.turn === 'turn_stream');
+  for (let i = 0; i < 400 && !finished(await app.dump()); i += 1) await sleep(50);
+  const rowId = [...(await app.dump()).transcript.rows].reverse().find((r) => r.kind === 'assistant')!.id;
+  await app.do({ cmd: 'front' });
+  await sleep(600);
+
+  const lines = async (): Promise<Line[]> => JSON.parse(answer(await app.do({ cmd: 'text-lines', row: rowId })));
+  const screen = async () => {
+    const [wx, wy] = windowFrame(app.pid!);
+    const ls = await lines();
+    const find = (words: string) => {
+      const l = ls.find((l) => l.text.includes(words));
+      if (!l) throw new Error(`no line with ${words}: ${JSON.stringify(ls.map((l) => l.text))}`);
+      // The line's middle, its left end (just inside), and past its last word.
+      return { mid: wy + l.y + Math.min(l.h, 26) / 2, left: wx + l.x + 1, right: wx + l.x + l.w - 2, line: l };
+    };
+    return { find, wx, wy };
+  };
+
+  // A drag from one point to another, `steps` moves `step` seconds apart,
+  // asking what's selected every 120 ms while the button's down.
+  async function drag(from: [number, number], to: [number, number], press: number, steps: number, step: number): Promise<{ during: Selection[]; after: Selection }> {
+    assertInFront(app.pid!, [from, to]);
+    const child = spawn(tool, ['drag', ...from.map(String), ...to.map(String), String(press), String(steps), String(step), '0.3']);
+    const during: Selection[] = [];
+    let done = false;
+    child.stdout.on('data', (d) => d.toString().includes('releasing') && (done = true));
+    const exited = new Promise((resolve) => child.on('exit', resolve));
+    // Not the first moment: the press itself.
+    await sleep(450);
+    while (!done) {
+      during.push(await selection());
+      await sleep(120);
+    }
+    await exited;
+    await sleep(400);
+    return { during, after: await selection() };
+  }
+  const click = async (at: [number, number], count: number, shift = false) => {
+    // Settled first, with nothing else redrawing the pane: a click that
+    // changes the selection but doesn't have it drawn shows nothing then,
+    // which a busy window hid half the time (the automation's read goes by
+    // what was drawn, as the screen does).
+    await sleep(1500);
+    assertInFront(app.pid!, [at]);
+    execFileSync(tool, ['click', ...at.map(String), String(count), ...(shift ? ['shift'] : [])]);
+    await sleep(400);
+    return selection();
+  };
+  const clear = async (s: Awaited<ReturnType<typeof screen>>) => {
+    // A click well under the reply, in the transcript's empty part.
+    const last = s.find('That is everything');
+    await click([last.left + 40, last.mid + 120], 1);
+  };
+  // `want`: the words exactly, or the words it starts with and then more.
+  const check = (name: string, got: Selection, want: string | { startsWith: string }, during: Selection[] = []) => {
+    const words = got.text.trim();
+    const right = typeof want === 'string' ? words === want : words.startsWith(want.startsWith) && words.length > want.startsWith.length;
+    const ok = right && got.bar !== null && got.panelDrag === null && during.every((d) => d.bar === null && d.panelDrag === null);
+    if (!ok) failed += 1;
+    const seen = during.map((d) => `${JSON.stringify(d.text.slice(0, 40))}${d.bar !== null ? ' +bar' : ''}${d.panelDrag !== null ? ` +picked up ${d.panelDrag}` : ''}`);
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${name}\n      got ${JSON.stringify(got.text)}${got.bar === null ? ' (no bar)' : ''}, want ${JSON.stringify(want)}`);
+    if (seen.length) console.log(`      while down: ${[...new Set(seen)].join(' | ')}`);
+  };
+
+  async function round(label: string) {
+    const s = await screen();
+    const one = s.find('still active');
+    const three = s.find('the last one');
+    const oneText = one.line.text.trim();
+    // Slow (5 s, 300 moves), as a careful hand; the same after resting half
+    // a second on the press; then quick (0.3 s).
+    for (const [speed, press, steps, step] of [['slow', 0.08, 300, 0.016], ['rest, then slow', 0.5, 180, 0.016], ['quick', 0.05, 20, 0.015]] as const) {
+      await clear(s);
+      const r = await drag([one.left, one.mid], [one.right, one.mid], press, steps, step);
+      check(`${label}: ${speed} drag along "${oneText}"`, r.after, oneText, r.during);
+    }
+    await clear(s);
+    const many = await drag([one.left, one.mid], [three.right, three.mid], 0.5, 200, 0.016);
+    check(`${label}: slow drag down three items`, many.after, ['still active on the main branch', 'paused until Friday', 'the last one is done'].join('\n'), many.during);
+    // A double-click on "Here", the reply's first word.
+    await clear(s);
+    const first = s.find('Here is where');
+    check(`${label}: double-click a word`, await click([first.left + 6, first.mid], 2), 'Here');
+    await shiftClick(label, s);
+    await clickAway(label, s);
+  }
+
+  // A plain click on words after a selection puts it away, bar and all. In
+  // Mike's recording (12 Nov) the bar came back over the click with nothing
+  // highlighted.
+  async function clickAway(label: string, s: Awaited<ReturnType<typeof screen>>) {
+    const one = s.find('still active');
+    const two = s.find('paused');
+    await clear(s);
+    await drag([one.left, one.mid], [one.right, one.mid], 0.05, 20, 0.015);
+    for (let i = 0; i < 3; i += 1) {
+      const got = await click([two.left + 30 + i * 8, two.mid], 1);
+      const ok = got.text.trim() === '' && got.bar === null;
+      if (!ok) failed += 1;
+      console.log(`${ok ? 'pass' : 'FAIL'}  ${label}: a click on words after a selection (${i + 1})\n      got ${JSON.stringify(got.text)}${got.bar === null ? '' : ' +bar'}`);
+    }
+  }
+
+  // A Shift-click after a drag carries the selection on to it, three times
+  // over, as one that wasn't drawn failed some times and not others.
+  async function shiftClick(label: string, s: Awaited<ReturnType<typeof screen>>) {
+    const one = s.find('still active');
+    // Inside "paused", the next item's first word.
+    const two = s.find('paused');
+    for (let i = 1; i <= 3; i += 1) {
+      await clear(s);
+      await drag([one.left, one.mid], [one.right, one.mid], 0.05, 20, 0.015);
+      check(`${label}: Shift-click extends (${i})`, await click([two.left + 30, two.mid], 1, true), { startsWith: 'still active on the main branch\np' });
+    }
+  }
+
+  await round('idle');
+  // The same while the thread's working: a slow stream after the reply, its
+  // spinner and working line redrawing all the while.
+  await app.do({ cmd: 'mock', method: 'stream', params: { threadId, seconds: 120, hz: 1 } });
+  await sleep(1500);
+  await round('working');
+  console.log(failed === 0 ? 'PASS' : `FAIL (${failed})`);
+  if (failed) process.exitCode = 1;
+} catch (error) {
+  console.error(error instanceof Error ? error.stack : error);
+  process.exitCode = 1;
+} finally {
+  await app.stop();
+  process.exit();
+}

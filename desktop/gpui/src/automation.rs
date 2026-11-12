@@ -695,6 +695,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // Words selected in a reply, and the bar over them (selection_bar.rs),
         // as the Swift app's; a follow-up in the Explain pane (explain_pane.rs).
         "select-text" => crate::selection_bar::select_command(app, cmd, window, cx),
+        "text-lines" => crate::selection_bar::text_lines_command(app, cmd, window, cx),
+        "selection" => crate::selection_bar::selection_command(app, window, cx),
         "explain" => crate::explain_pane::explain_command(app, cmd, window, cx),
         // What the open gate would have opened, as a scripted app opens nothing.
         "opened" => Ok(json!(format!("ok {}", serde_json::to_string(&crate::open_gate::take_opened()).unwrap_or_default()))),

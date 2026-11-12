@@ -382,3 +382,42 @@ pub(crate) fn select_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_j
         None => Ok(json!("ok window 0")),
     }
 }
+
+/// `text-lines`: where a reply's words are drawn, each paragraph or list
+/// item the kit laid out as its own text, in window points: "ok [{text, x,
+/// y, w, h}]". For a script that drags across them with the real pointer
+/// (features/tools/real-select.ts), which needs to know where to press.
+#[cfg(feature = "automation")]
+pub(crate) fn text_lines_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_json::Value, window: &mut Window, cx: &mut App) -> Result<serde_json::Value, String> {
+    use gpui_kit::test::TestWindowExt as _;
+    use serde_json::json;
+    let prefix = cmd["row"].as_str().ok_or("row is required")?;
+    let pane = app.read(cx).pane.clone().ok_or("no thread open")?;
+    let ix = pane.read(cx).feed.model().rows().iter().position(|r| r.id.starts_with(prefix)).ok_or("no such row")?;
+    window.render_frame(cx);
+    let mine = ElementId::NamedInteger("reply-links".into(), ix as u64);
+    let lines: Vec<serde_json::Value> = gpui_kit::base::test_support::texts(window)
+        .into_iter()
+        .filter(|t| t.visible() && t.path().contains(&mine))
+        .map(|t| {
+            let b = t.bounds();
+            json!({ "text": t.text(), "x": f32::from(b.left()), "y": f32::from(b.top()), "w": f32::from(b.size.width), "h": f32::from(b.size.height) })
+        })
+        .collect();
+    Ok(json!(format!("ok {}", serde_json::to_string(&lines).unwrap_or_default())))
+}
+
+/// `selection`: what's selected in the window now, whether the bar's up and
+/// whether the dock has a panel picked up, without drawing a frame, so a
+/// script can ask mid-drag: "ok {text, bar, panelDrag}".
+#[cfg(feature = "automation")]
+pub(crate) fn selection_command(app: &Entity<crate::app::Threadbear>, window: &mut Window, cx: &mut App) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let text = TextSelection::selected_text(window, cx);
+    let bar = BAR.with(|b| b.borrow().as_ref().map(|b| b.words.clone()));
+    let model = app.read(cx).dock_view.read(cx).model.clone();
+    let panel_drag = model.read(cx).controller.drag.as_ref().map(|d| d.panel.clone());
+    Ok(json!(format!("ok {}", json!({ "text": text, "bar": bar, "panelDrag": panel_drag }))))
+}
+
+
