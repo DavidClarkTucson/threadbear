@@ -90,7 +90,9 @@ done
 # copy of the script. Someone else's pre-commit hook, or a core.hooksPath of
 # their own, is left alone.
 hooks="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/hooks"
-if [ -n "$(git -C "$ROOT" config core.hooksPath || true)" ]; then
+if [ ! -f "$ROOT/scripts/swift-freeze-pre-commit" ]; then
+  :  # a copy without the freeze (a test's bare worktree): nothing to hook in
+elif [ -n "$(git -C "$ROOT" config core.hooksPath || true)" ]; then
   echo "pre-commit: core.hooksPath is set, so the Swift app's freeze isn't hooked in"
 elif [ -e "$hooks/pre-commit" ] && ! grep -q threadbear-swift-freeze "$hooks/pre-commit"; then
   echo "pre-commit: there's already a hook, so the Swift app's freeze isn't hooked in"
