@@ -352,30 +352,24 @@ impl MoveSheet {
         let accounts = self.preview.as_ref().map(|p| p.accounts.clone()).unwrap_or_default();
         let current = accounts.iter().find(|a| a.id == self.login).map_or_else(|| self.login.clone(), |a| a.label());
         let sheet = cx.entity().downgrade();
-        Popover::new("move-login")
+        style::menu::popover(Popover::new("move-login"), cx)
             .anchor(Anchor::BottomLeft)
             .trigger(MoveLoginTrigger { label: current.into() })
             .content(move |_, _window, cx| {
                 let popover = cx.entity();
-                v_flex().w(px(300.)).p(px(4.)).children(accounts.iter().enumerate().map(|(i, account)| {
+                // A menu, drawn as the app's are (style::menu).
+                v_flex().w(gpui_kit::px(300.)).children(accounts.iter().enumerate().map(|(i, account)| {
                     let (popover, sheet, id) = (popover.clone(), sheet.clone(), account.id.clone());
                     let on = sheet.upgrade().is_some_and(|s| s.read(cx).login == account.id);
-                    h_flex()
-                        .id(("move-login", i))
-                        .gap(px(8.))
-                        .px(px(10.))
-                        .py(px(6.))
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(style::hover_fill(cx)))
+                    style::menu::row(("move-login", i), None, cx)
                         .on_click(move |_, window, cx| {
                             popover.update(cx, |s, cx| s.dismiss(window, cx));
                             if let Some(sheet) = sheet.upgrade() {
                                 sheet.update(cx, |s, cx| s.set_login(id.clone(), window, cx));
                             }
                         })
-                        .child(div().flex_1().min_w_0().truncate().text_size(px(size::LABEL)).child(account.label()))
-                        .when(on, |s| s.child(Icon::from(gpui_kit::assets::IconName::Check).with_size(px(14.))))
+                        .child(div().flex_1().min_w_0().truncate().child(account.label()))
+                        .when(on, |s| s.child(style::menu::tick(cx)))
                 }))
             })
     }

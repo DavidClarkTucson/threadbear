@@ -608,27 +608,19 @@ impl SidePane {
     /// didn't fit, in a menu.
     fn more_chip(&mut self, more: Vec<Action>, thread: &ThreadSummary, cx: &mut Context<Self>) -> AnyElement {
         use gpui_kit::component::popover::Popover;
-        let p = palette(cx);
         let tip = more.iter().map(|a| a.title.clone()).collect::<Vec<_>>().join(", ");
         let (pane, thread_id) = (cx.entity().downgrade(), thread.id.clone());
         let count = more.len();
-        Popover::new("actions-more")
+        style::menu::popover(Popover::new("actions-more"), cx)
             .anchor(Anchor::BottomLeft)
             .trigger(MoreTrigger { count, tip })
             .content(move |_, _, cx| {
                 let popover = cx.entity();
-                v_flex().p(px(4.)).min_w(px(200.)).children(more.iter().enumerate().map(|(i, action)| {
+                // A menu, drawn as the app's are (style::menu).
+                v_flex().min_w(gpui_kit::px(200.)).children(more.iter().enumerate().map(|(i, action)| {
                     let (pane, thread_id, action, popover) = (pane.clone(), thread_id.clone(), action.clone(), popover.clone());
-                    h_flex()
-                        .id(("action-more-row", i))
-                        .gap(px(8.))
-                        .px(px(8.))
-                        .py(px(5.))
-                        .rounded(px(5.))
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(p.hover))
-                        .child(icon("bolt", 12., p.secondary))
-                        .child(div().text_size(px(style::size::LABEL)).child(action.title.clone()))
+                    style::menu::row(("action-more-row", i), Some(crate::icons::symbol("bolt")), cx)
+                        .child(action.title.clone())
                         .on_click(move |_, window, cx| {
                             popover.update(cx, |s, cx| s.dismiss(window, cx));
                             pane.update(cx, |pane, cx| pane.run_action(&action, thread_id.clone(), cx)).ok();

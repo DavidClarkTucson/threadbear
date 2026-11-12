@@ -169,6 +169,30 @@ impl Icon {
         self
     }
 
+    /// Threadbear's change: the same icon with its outline's stroke at
+    /// `width` (of the 24 its viewBox has), for drawing Lucide's 2 as heavy as
+    /// an SF Symbol at the same size (menu/mac_look.rs). Icons with no
+    /// stroke-width="2" in them (filled ones) come back as they were.
+    pub(crate) fn stroked(self, width: f32, cx: &App) -> Self {
+        // Lucide's own weight: nothing to change, so no asset to read.
+        if width == 2. {
+            return self;
+        }
+        let bytes: Option<Arc<[u8]>> = match &self.source {
+            IconSource::Data(data) => Some(data.clone()),
+            IconSource::Path(path) => {
+                let path = resolve_icon_path(path.clone(), cx);
+                cx.asset_source().load(&path).ok().flatten().map(|b| Arc::from(b.as_ref()))
+            }
+        };
+        let Some(svg) = bytes.as_deref().and_then(|b| std::str::from_utf8(b).ok()) else { return self };
+        if !svg.contains("stroke-width=\"2\"") {
+            return self;
+        }
+        let svg = svg.replace("stroke-width=\"2\"", &format!("stroke-width=\"{width}\""));
+        self.data(svg.as_bytes())
+    }
+
     #[cfg(any(target_os = "macos", target_os = "windows", test))]
     pub(crate) fn source_ref(&self) -> &IconSource {
         &self.source

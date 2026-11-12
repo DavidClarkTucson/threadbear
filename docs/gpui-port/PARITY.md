@@ -249,6 +249,52 @@ built parsers and gates with no launch of the app, which is the trap.)
   5; the `@composer.modelpicker` and `@composer.account` specs against the
   GPUI app on Tinker Desk, 6 of 6; shots of the line closed, opened and
   pinned in the running app.
+### 2026-11-12 Every menu in the softer look Mike picked, and the windows' colour space (every popup menu)
+
+- Mike picked "C, softer and modern" from three takes on the menus
+  (`~/Library/Caches/Threadbear/gpui-compare/menu-options`), so the GPUI
+  app's menus now go their own way from the Swift app's NSMenus on purpose:
+  rows 26 tall, 13 point titles, the highlight a faint wash (white at 10% on
+  dark, black at 6% on light) with 10 point corners instead of the system
+  blue, the title brightening on it, 16 point outer corners, a softer edge
+  and inner rim, the fill 0x2b2b2d on dark, separators at 8%, a bigger
+  softer shadow, and the icons at 15 points in a dimmer colour of their own
+  (white at 60%) with the titles at 36. The tick stays at 12.
+- Every PopupMenu has it from `menu/mac_look.rs` (the sort and moon menus, a
+  row's right-click menu, the transcript's and Highlights' row menus, the
+  dock panels' menus, the settings and picker dropdowns). The menus the app
+  draws as popovers (the composer's + and permission pickers, the Move
+  sheet's Login, the action chips' "+N") take the same look from
+  `style::menu`, which reads the kit's numbers (now public). The model,
+  login and context popovers aren't menus and keep the popover look.
+- Colour: the earlier pictures had the GPUI app's colours a few levels off
+  the Swift app's, blamed on GPUI's CAMetalLayer having no colour space. It
+  has one: macOS 27 gives a new CAMetalLayer sRGB (a probe on the M5 and
+  Tinker Desk), and the app's colours are written as sRGB. `colour_space.rs`
+  now tags every window's layer sRGB outright rather than lean on that
+  default, and the automation's `colour-space` says what the main window's
+  is. Taken off Tinker Desk's screen and converted to sRGB
+  (`features/tools/colour-shot.ts`), before and after are the same to the
+  level: dark sidebar and transcript #282828 in both apps, light #ffffff;
+  the unread dot #219aff in GPUI against #1991ff in Swift on dark (#1991ff
+  in both on light); the selected row #3f3f3f against #3b3b3b on dark,
+  #efefef against #f6f6f6 on light. Those last are the apps' own values,
+  not the colour space. The menus' old difference was the Swift menus'
+  translucent material over the window.
+- Files: `desktop/vendor/gpui-component/src/{icon.rs,menu/mac_look.rs,menu/popup_menu.rs,menu/mod.rs}`,
+  `desktop/gpui/src/{style,composer_chips,move_sheet,patches,colour_space,main,automation}.rs`,
+  `desktop/gpui/Cargo.toml`, `desktop/Cargo.lock`,
+  `features/tools/{menus-shot,colour-shot}.ts`.
+- Verification: on Tinker Desk, `features/tools/menus-shot.ts` opened the
+  sort, moon, row, +, permission and Highlights panel menus with real clicks
+  in dark and light, a line under the real pointer: all six have the same
+  look (`~/Library/Caches/Threadbear/gpui-compare/menu-c-final`). The menu
+  and hibernate specs on GPUI (`@sidebar.hibernate.*`,
+  `@juice.hibernateflight`, `@sidebar.row.menu`, `@sidebar.sort`,
+  `@sidebar.move`, `@composer.permission`, `@composer.schedulefromsend`,
+  `@highlights.rowmenus`, `@transcript.rowmenu`, `@folder.menu`,
+  `@rich.filemenu`, `@rich.webmenu`, `@panel.bar`): 29 passed, 3 skipped,
+  none failed.
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 

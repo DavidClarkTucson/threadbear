@@ -460,3 +460,77 @@ pub fn warning_fill(cx: &App) -> Hsla {
 pub fn tick_green(cx: &App) -> Hsla {
     pick(cx, srgb(0.2, 0.83, 0.4, 1.), srgb(0.2, 0.7, 0.3, 1.))
 }
+
+/// The app's own menus that are popovers rather than the kit's PopupMenu
+/// (the composer's + and permission pickers, the Move sheet's Login, the
+/// action chips' "+N"): they're menus to the person using them, so they
+/// look like every other menu (the kit's menu/mac_look.rs, the look Mike
+/// picked on 12 Nov). Not zoomed, as macOS's menus aren't.
+pub mod menu {
+    use gpui_kit::component::menu::mac_look;
+    use gpui_kit::component::popover::Popover;
+    use gpui_kit::component::{h_flex, Icon, Sizable as _};
+    use gpui_kit::prelude::*;
+    use gpui_kit::{div, px, App, Div, ElementId, FontWeight, Stateful};
+
+    pub use mac_look::colors;
+
+    /// The popover's frame: the menu's fill, edge, inner rim, corners and
+    /// shadow, and its padding round the rows.
+    pub fn popover(popover: Popover, cx: &App) -> Popover {
+        let look = colors(cx);
+        popover
+            .bg(look.background)
+            .text_color(look.label)
+            .border_1()
+            .border_color(look.edge)
+            .rounded(mac_look::RADIUS)
+            .shadow(mac_look::shadow(cx))
+            .p(mac_look::PADDING)
+            .relative()
+            // The light line just inside the edge, over the rows and not in
+            // the way of the pointer (it has no handlers).
+            .child(div().absolute().top_0().left_0().right_0().bottom_0().rounded(mac_look::RADIUS - px(1.)).border_1().border_color(look.rim))
+    }
+
+    /// The left edge of a row's icon and of its title, from the row's left, as
+    /// the kit's menus have them with an icon column and no ticks.
+    const ICON_X: f32 = 12.;
+    const TITLE_X: f32 = 36.;
+
+    /// A line: its icon in the icon colour, its title, and the wash under the
+    /// pointer, with the title brightened on it. With no icon the title starts
+    /// where the icon would, as the kit's menus with no icons have it. The caller adds the title
+    /// (and whatever's beside it) and the click.
+    pub fn row(id: impl Into<ElementId>, icon: Option<Icon>, cx: &App) -> Stateful<Div> {
+        let look = colors(cx);
+        h_flex()
+            .id(id.into())
+            .min_h(mac_look::ROW_HEIGHT)
+            .py(px(3.))
+            .pl(px(ICON_X))
+            .pr(px(12.))
+            .gap(px(TITLE_X - ICON_X - f32::from(mac_look::ICON_SIZE)))
+            .rounded(mac_look::ROW_RADIUS)
+            .text_size(mac_look::TEXT_SIZE)
+            .font_weight(FontWeight::NORMAL)
+            .cursor_pointer()
+            .hover(move |s| s.bg(look.highlight).text_color(look.highlight_label))
+            .when_some(icon, |s, icon| s.child(icon.with_size(mac_look::ICON_SIZE).text_color(look.icon)))
+    }
+
+    /// The tick at a row's right end, for the current choice.
+    pub fn tick(cx: &App) -> Icon {
+        Icon::from(gpui_kit::assets::IconName::Check).with_size(px(13.)).text_color(colors(cx).label)
+    }
+
+    /// A line between groups of rows, as the menus' separator.
+    pub fn separator(cx: &App) -> Div {
+        div().py(px(5.)).px(mac_look::SEPARATOR_INSET).child(div().h(px(1.)).bg(colors(cx).separator))
+    }
+
+    /// A group's heading, in line with the titles under it.
+    pub fn heading(title: &'static str, cx: &App) -> Div {
+        div().pl(px(TITLE_X)).pt(px(6.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(colors(cx).icon).child(title)
+    }
+}

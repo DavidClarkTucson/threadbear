@@ -1302,17 +1302,20 @@ impl PopupMenu {
             );
 
         // The tick and the icon at their columns, out of the title's way.
-        let leading = |checked: bool, icon: Option<Icon>| -> Vec<AnyElement> {
+        // Icons in their own dimmer colour so the titles lead, and as dim as
+        // the title on a line that can't be chosen.
+        let leading = |checked: bool, icon: Option<Icon>, disabled: bool| -> Vec<AnyElement> {
             let at = |x: f32| div().absolute().top_0().bottom_0().left(px(x)).flex().items_center();
             let check = columns.check.filter(|_| checked).map(|x| {
                 // SF's tick sits a point low, on the title's baseline side.
                 at(x - mac_look::CHECK_BEARING)
                     .pt(px(2.))
-                    .child(Icon::default().data(mac_look::CHECKMARK).with_size(mac_look::ICON_SIZE))
+                    .child(Icon::default().data(mac_look::CHECKMARK).with_size(mac_look::CHECK_SIZE))
                     .into_any_element()
             });
             let icon = columns.icon.zip(icon).map(|(x, icon)| {
-                at(x - mac_look::ICON_BEARING).child(icon.with_size(mac_look::ICON_SIZE)).into_any_element()
+                let color = if disabled { look.disabled } else { look.icon };
+                at(x - mac_look::ICON_BEARING).child(icon.with_size(mac_look::ICON_SIZE).text_color(color)).into_any_element()
             });
             check.into_iter().chain(icon).collect()
         };
@@ -1342,7 +1345,7 @@ impl PopupMenu {
                 })
                 .disabled(*disabled)
                 .min_h(item_height)
-                .children(leading(item.is_checked(), icon.clone()))
+                .children(leading(item.is_checked(), icon.clone().map(|i| i.stroked(mac_look::ICON_STROKE, cx)), *disabled))
                 .child(
                     h_flex()
                         .flex_1()
@@ -1371,7 +1374,7 @@ impl PopupMenu {
                 })
                 .disabled(*disabled)
                 .h(item_height)
-                .children(leading(item.is_checked(), icon.clone()))
+                .children(leading(item.is_checked(), icon.clone().map(|i| i.stroked(mac_look::ICON_STROKE, cx)), *disabled))
                 .child(
                     h_flex()
                         .w_full()
@@ -1403,7 +1406,7 @@ impl PopupMenu {
                 .selected(selected)
                 .disabled(*disabled)
                 .h(item_height)
-                .children(leading(false, icon.clone()))
+                .children(leading(false, icon.clone().map(|i| i.stroked(mac_look::ICON_STROKE, cx)), *disabled))
                 .child(
                     h_flex()
                         .size_full()

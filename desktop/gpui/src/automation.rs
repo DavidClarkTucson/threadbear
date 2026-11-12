@@ -724,6 +724,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let at = |p: f64| frames[((frames.len() - 1) as f64 * p) as usize];
             Ok(json!({ "frames": frames.len(), "medianMs": at(0.5), "p95Ms": at(0.95), "worstMs": at(1.0) }))
         }
+        // The colour space the window's drawn in (colour_space.rs): "sRGB" once tagged.
+        "colour-space" => Ok(json!(crate::colour_space::describe(window))),
         "screenshot" => {
             let path = text(cmd, "path");
             // A fresh frame first, as `dump` draws one: a covered window gets

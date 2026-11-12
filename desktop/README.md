@@ -36,7 +36,8 @@ folder browser.
   replies, and reconnecting when the runner restarts. `tests/mock_runner.rs`
   signs in to the mock runner.
 - **`vendor/gpui-component/`, gpui-kit's components** as published, with
-  their popup menus drawn as macOS's are (`src/menu/mac_look.rs`), patched in
+  their popup menus laid out as macOS's are, in the app's own softer look
+  (`src/menu/mac_look.rs`), patched in
   from `Cargo.toml`. Why, and how to bump it: `docs/gpui-port.md`.
 - **`gpui/`, the app.** GPUI has no tokio, so the connection runs on its own
   runtime and its events cross on a channel (`main.rs`). With the `automation`

@@ -290,7 +290,7 @@ impl Composer {
         // Not for another Mac's thread or a new one for another Mac: its
         // schedules are made there (the Swift app's Send menu says the same).
         let can_schedule = data.away.is_none() && self.app.upgrade().is_some_and(|a| a.read(cx).schedules_supported);
-        Popover::new("composer-plus")
+        style::menu::popover(Popover::new("composer-plus"), cx)
             .anchor(Anchor::BottomLeft)
             .trigger(ChipTrigger { badge: None, id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images, change the folder or schedule the message".into(), selected: false })
             .content(move |_, window, cx| {
@@ -299,15 +299,14 @@ impl Composer {
                 let c1 = composer.clone();
                 let (popover2, c2) = (popover.clone(), composer.clone());
                 v_flex()
-                    .w(px(260.))
-                    .p(px(4.))
+                    .w(gpui_kit::px(260.))
                     .child(menu_row("attach", Some(IconName::Image), "Attach images…", None, false, window, cx, move |window, cx| {
                         popover.update(cx, |s, cx| s.dismiss(window, cx));
                         if let Some(c) = c1.upgrade() {
                             c.update(cx, |c, cx| c.attach_images(window, cx));
                         }
                     }))
-                    .child(section_label("Folder", cx))
+                    .child(style::menu::heading("Folder", cx))
                     .children(folders.iter().enumerate().map(|(i, folder)| {
                         let (popover, c, path) = (popover2.clone(), c2.clone(), folder.clone());
                         let subtitle = (*folder == default_folder).then(|| "Default".to_owned());
@@ -330,7 +329,7 @@ impl Composer {
                     // Sending the message later, from what's in the box.
                     .when(can_schedule, |menu| {
                         let (popover, c) = (popover2.clone(), c2.clone());
-                        menu.child(div().my(px(4.)).h(gpui_kit::px(1.)).bg(style::hairline(cx))).child(menu_row("schedule", Some(IconName::Clock), "Schedule…", None, false, window, cx, move |window, cx| {
+                        menu.child(style::menu::separator(cx)).child(menu_row("schedule", Some(IconName::Clock), "Schedule…", None, false, window, cx, move |window, cx| {
                             popover.update(cx, |s, cx| s.dismiss(window, cx));
                             if let Some(c) = c.upgrade() {
                                 let app = c.read(cx).app.clone();
@@ -349,13 +348,13 @@ impl Composer {
         let icon = permission_icon(&mode);
         let composer = composer.downgrade();
         let provider = self.chip_data(cx).summary.map(|t| t.provider).unwrap_or_default();
-        Popover::new("composer-permission")
+        style::menu::popover(Popover::new("composer-permission"), cx)
             .anchor(Anchor::BottomLeft)
             .trigger(ChipTrigger { badge: None, id: "composer-permission-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(if mode == "full" { crate::icons::symbol("lock.open") } else { Icon::from(icon) }), tip: help.into(), selected: false })
             .content(move |_, window, cx| {
                 let popover = cx.entity();
                 let modes: &[&str] = if threadbear_core::logins::has_auto_mode(&provider) || mode == "auto" { &["full", "auto", "ask", "plan"] } else { &["full", "ask", "plan"] };
-                v_flex().w(px(320.)).p(px(4.)).children(modes.iter().map(|m| {
+                v_flex().w(gpui_kit::px(320.)).children(modes.iter().map(|m| {
                     let m = *m;
                     let (popover, composer) = (popover.clone(), composer.clone());
                     menu_row(m, Some(permission_icon(m)), permission_title(m), Some(permission_help(m)), m == mode, window, cx, move |window, cx| {
@@ -638,35 +637,24 @@ fn abbreviate_home(path: &str) -> String {
     }
 }
 
-fn section_label(title: &'static str, cx: &App) -> impl IntoElement {
-    div().px(px(10.)).pt(px(8.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(style::faint_text(cx)).child(title)
-}
-
 /// A row in one of the chips' menus: an icon, a title, a line under it and a
-/// tick when it's the current one (ActionMenuItem).
+/// tick when it's the current one (ActionMenuItem), drawn as the app's menus
+/// are (style::menu).
 fn menu_row(id: impl Into<ElementId>, icon: Option<IconName>, title: &str, subtitle: Option<&str>, checked: bool, window: &mut Window, cx: &mut App, action: impl Fn(&mut Window, &mut App) + 'static) -> impl IntoElement {
     let _ = window;
-    h_flex()
-        .id(id.into())
+    style::menu::row(id, icon.map(Icon::from), cx)
         // Found by its words, as scripts click a menu's line.
         .test_support()
         .aria_label(title.to_owned())
-        .gap(px(8.))
-        .px(px(10.))
-        .py(px(6.))
-        .rounded(px(6.))
-        .cursor_pointer()
-        .hover(|s| s.bg(style::hover_fill(cx)))
         .on_click(move |_, window, cx| action(window, cx))
-        .when_some(icon, |s, icon| s.child(Icon::from(icon).with_size(px(14.)).text_color(style::quiet_text(cx))))
         .child(
             v_flex()
                 .flex_1()
                 .min_w_0()
-                .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).truncate().child(title.to_owned()))
-                .when_some(subtitle, |s, subtitle| s.child(div().text_size(px(11.)).text_color(cx.theme().muted_foreground).line_clamp(2).child(subtitle.to_owned()))),
+                .child(div().truncate().child(title.to_owned()))
+                .when_some(subtitle, |s, subtitle| s.child(div().text_size(gpui_kit::px(11.)).text_color(cx.theme().muted_foreground).line_clamp(2).child(subtitle.to_owned()))),
         )
-        .when(checked, |s| s.child(Icon::from(IconName::Check).with_size(px(14.)).text_color(cx.theme().foreground)))
+        .when(checked, |s| s.child(style::menu::tick(cx)))
 }
 
 /// The model picker's popover (ModelPickerView): search, rail, the column's
