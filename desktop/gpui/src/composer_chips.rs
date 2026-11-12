@@ -735,8 +735,9 @@ impl Render for ModelPickerView {
         let (fg, secondary) = (cx.theme().foreground, cx.theme().muted_foreground);
         let (active_fill, hover_fill) = (style::primary_opacity(cx, 0.1), style::primary_opacity(cx, 0.06));
         // Down the whole of the popover's left, a shade off its fill
-        // (`PickerRail`).
-        let rail = v_flex().w(px(rail_width)).h_full().flex_shrink_0().py(px(6.)).gap(px(4.)).bg(style::primary_opacity(cx, 0.03)).children(columns.into_iter().enumerate().map(|(i, (id, title, subtitle, providers))| {
+        // (`PickerRail`). Its height comes from the row below stretching it,
+        // and v_flex keeps its buttons at the top.
+        let rail = v_flex().w(px(rail_width)).flex_shrink_0().py(px(6.)).gap(px(4.)).bg(style::primary_opacity(cx, 0.03)).children(columns.into_iter().enumerate().map(|(i, (id, title, subtitle, providers))| {
             let active = id == column;
             let this = this.clone();
             let color = if active { fg } else { secondary };
@@ -843,8 +844,11 @@ impl Render for ModelPickerView {
             .child(div().id("picker-list").max_h(px(320.)).overflow_y_scroll().child(list))
             .children(effort.map(|e| div().border_t_1().border_color(style::hairline(cx)).child(e)))
             .children(pinned.map(|p| div().border_t_1().border_color(style::hairline(cx)).child(p)));
-        // Stretched, so the rail runs down the whole popover beside the list.
-        h_flex().w(px(width)).child(rail).child(div().w(px(1.)).bg(style::hairline(cx))).child(right).into_any_element()
+        // Stretched, so the rail (pools' or the icon rail) and the divider run
+        // down the whole popover beside the list: h_flex centres its children
+        // on the cross axis, which left the rail floating mid-height with its
+        // shade only behind its buttons (12 Nov).
+        h_flex().w(px(width)).items_stretch().child(rail).child(div().w(px(1.)).bg(style::hairline(cx))).child(right).into_any_element()
     }
 }
 
