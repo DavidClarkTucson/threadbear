@@ -2009,3 +2009,17 @@ test("a short id is found on the other runner of a handover once it answers, and
   const listed = (await list.find((x) => x.name === 'list_threads')!.handler({} as never, {})) as { content: { text: string }[] };
   assert.match(listed.content[0].text, /Bring in a PR/);
 });
+
+// On a draining runner other Macs' threads come through the new runner
+// too; one that never answers mustn't hold a short id's lookup forever.
+test("a short id here is found when the list of other Macs' threads never comes back", async () => {
+  const h = makeHarness();
+  const { thread: me } = start(h, 'Asker');
+  const other = start(h, 'Answerer').thread;
+  const router = new ThreadRouter(h.runner, () => undefined);
+  const stuck = { list: () => new Promise<never>(() => {}), call: async () => { throw new Error('unused'); } };
+  const list = buildThreadbearTools(router, me.id, () => Date.parse('2026-10-26T12:00:00Z'), undefined, undefined, undefined, { remote: () => stuck, sleep: async () => undefined });
+  const r = (await list.find((x) => x.name === 'read_thread')!.handler({ threadId: other.id.slice(0, 8) } as never, {})) as { content: { text: string }[]; isError?: boolean };
+  assert.equal(Boolean(r.isError), false, r.content[0].text);
+  assert.match(r.content[0].text, /Answerer/);
+});

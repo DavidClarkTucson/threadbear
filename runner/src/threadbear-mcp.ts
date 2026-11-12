@@ -211,10 +211,24 @@ const LAND_POLL_MS = 50;
 
 // Looking a thread id up during a handover (find, below): tries a second
 // apart, each waiting at most ID_LIST_TIMEOUT_MS for the other runner, so
-// a lookup that fails says so within about 8 seconds.
+// a lookup that fails says so within seconds.
 const ID_LIST_TRIES = 3;
 const ID_LIST_RETRY_MS = 1000;
 const ID_LIST_TIMEOUT_MS = 2000;
+// Other Macs' threads come from the backend, which can take longer.
+const ID_REMOTE_TIMEOUT_MS = 5000;
+
+// A promise that fails with `why` if it hasn't settled within `ms`. What it
+// waits on isn't stopped: a request to a runner stays pending until that
+// connection answers or closes (RunnerClient.call has no time limit).
+function inTime<T>(p: Promise<T>, ms: number, why: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(why)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
 
 export function buildThreadbearTools(
   control: ThreadControl,
@@ -274,16 +288,7 @@ export function buildThreadbearTools(
   // never answers (RunnerClient.call has no time limit of its own).
   const listForIds = async (): Promise<ThreadSummary[]> => {
     if (!control.listEverywhere) return all();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("the other runner didn't answer")), ID_LIST_TIMEOUT_MS);
-      timer.unref?.();
-    });
-    try {
-      return await Promise.race([control.listEverywhere(['inbox', 'snoozed', 'archived']), late]);
-    } finally {
-      clearTimeout(timer);
-    }
+    return inTime(control.listEverywhere(['inbox', 'snoozed', 'archived']), ID_LIST_TIMEOUT_MS, "the other runner didn't answer");
   };
 
   // The current turn's events, oldest first: back a page at a time until
@@ -367,7 +372,9 @@ export function buildThreadbearTools(
       }
       // A whole id here needs nothing from the backend.
       if (hits.some((t) => t.id === id)) return { id };
-      const rt = await others();
+      // Other Macs' threads, given a few seconds: on a draining runner this
+      // goes through the new runner too, and could wait on it forever.
+      const rt = await inTime(others(), ID_REMOTE_TIMEOUT_MS, '').catch((): RemoteThreads => ({ runners: [], threads: [] }));
       const far = rt.threads.filter((t) => (t.threadId === id || t.threadId.startsWith(id)) && !hits.some((h) => h.id === t.threadId));
       if (hits.length + far.length > 1) throw new Error(`${id} matches ${hits.length + far.length} threads; use more of the id.`);
       if (hits.length === 1) return { id: hits[0].id };
