@@ -662,7 +662,11 @@ trap - EXIT
 rm -f "$PREV" "$PREV_LAUNCH"
 # tb in ~/.local/bin, so the tb commands setup prints run (issue #39). Only
 # for the real data dir: a sandbox's tb would talk to the wrong runner.
-[ "$SANDBOX" = 1 ] || bash "$RUNNER_DIR/scripts/link-tb.sh" "$DATA_HOME" "$NODE" "$RUNNER_DIR" || true
+if [ "$SANDBOX" = 0 ]; then
+  TB_ARGS=("$DATA_HOME" "$NODE" "$RUNNER_DIR")
+  [ "$FROM_SOURCE" = 0 ] || TB_ARGS+=(--from-source)
+  bash "$RUNNER_DIR/scripts/link-tb.sh" "${TB_ARGS[@]}" || true
+fi
 [ "$LINUX" = 1 ] || rm -rf "$OLD_APP"
 if [ "$LINUX" = 1 ]; then
   echo "Restart it with: systemctl --user restart $UNIT"

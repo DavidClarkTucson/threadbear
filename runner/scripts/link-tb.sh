@@ -4,13 +4,15 @@
 # run in a plain terminal. Setup only linked `threadbear`, so on Wayne's
 # second Mac every one of them was "command not found" (issue #39).
 #
-#   link-tb.sh <data dir> <node> <checkout's runner dir>   write it
-#   link-tb.sh --remove                                     take it out
+#   link-tb.sh <data dir> <node> <checkout's runner dir> [--from-source]
+#                                                            write it
+#   link-tb.sh --remove                                      take it out
 #
 # What it writes is a tiny script, not a link: it runs the tb of the runner
 # release this Mac runs (<data dir>/runner/current/bin/tb, so it always
-# matches the runner), or the checkout's when there's no release yet
-# (install-runner.sh --from-source), under the Node the runner is pinned to,
+# matches the runner), or the checkout's when there's no release yet; with
+# --from-source (install-runner.sh's) always the checkout's, as the runner
+# runs from there and an older release may still be lying about. Under the Node the runner is pinned to,
 # since the Node on PATH may be too old. It never writes over a tb that
 # isn't one of these (MARK says which are). install-runner.sh calls it for
 # the real data dir only, never for a sandbox's.
@@ -29,11 +31,11 @@ if [ "${1:-}" = --remove ]; then
   exit 0
 fi
 
-if [ $# -ne 3 ]; then
-  echo "Usage: link-tb.sh <data dir> <node> <runner dir> | --remove" >&2
+if [ $# -lt 3 ] || [ $# -gt 4 ] || { [ $# = 4 ] && [ "$4" != --from-source ]; }; then
+  echo "Usage: link-tb.sh <data dir> <node> <runner dir> [--from-source] | --remove" >&2
   exit 2
 fi
-DATA_HOME="$1" NODE="$2" RUNNER_DIR="$3"
+DATA_HOME="$1" NODE="$2" RUNNER_DIR="$3" FROM_SOURCE="${4:-}"
 
 if { [ -e "$DEST" ] || [ -L "$DEST" ]; } && ! ours; then
   echo "$DEST is already there and isn't Threadbear's, so it's left alone. Threadbear's tb is $DATA_HOME/runner/current/bin/tb." >&2
@@ -43,16 +45,31 @@ fi
 q() { printf '%q' "$1"; }
 mkdir -p "$BIN"
 tmp="$DEST.$$.new"
+if [ -n "$FROM_SOURCE" ]; then
+  pick="t=$(q "$RUNNER_DIR/bin/tb")"
+else
+  pick="t=$(q "$DATA_HOME/runner/current/bin/tb")
+[ -f \"\$t\" ] || t=$(q "$RUNNER_DIR/bin/tb")"
+fi
 cat > "$tmp" <<EOF
 #!/bin/bash
 $MARK
-# The tb of the runner release this Mac runs, so it matches the runner.
-t=$(q "$DATA_HOME/runner/current/bin/tb")
-[ -f "\$t" ] || t=$(q "$RUNNER_DIR/bin/tb")
+# The tb of the runner this Mac runs, so it matches the runner.
+$pick
 exec $(q "$NODE") "\$t" "\$@"
 EOF
 chmod 755 "$tmp"
-mv "$tmp" "$DEST"
+if ours; then
+  mv -f "$tmp" "$DEST"
+# A hard link never replaces a file, so a tb something else put there since
+# the check above stays.
+elif ln "$tmp" "$DEST" 2>/dev/null; then
+  rm -f "$tmp"
+else
+  rm -f "$tmp"
+  echo "$DEST appeared while this was writing it, so it's left alone." >&2
+  exit 0
+fi
 echo "tb: $DEST"
 case ":$PATH:" in
   *":$BIN:"*) ;;

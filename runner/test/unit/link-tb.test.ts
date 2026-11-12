@@ -53,3 +53,16 @@ test("a tb that isn't Threadbear's is left alone, by install and by --remove", (
   s.link(s.data, s.node, s.checkout);
   assert.ok(fs.lstatSync(path.join(s.bin, 'tb')).isSymbolicLink());
 });
+
+test('--from-source runs the checkout\'s tb even with an older release lying about', () => {
+  const s = setup();
+  const rel = path.join(s.data, 'runner', 'current', 'bin');
+  fs.mkdirSync(rel, { recursive: true });
+  fs.writeFileSync(path.join(rel, 'tb'), '');
+  assert.equal(s.link(s.data, s.node, s.checkout, '--from-source').status, 0);
+  assert.equal(s.tb('status').stdout.trim(), `ran ${path.join(s.checkout, 'bin', 'tb')} status`);
+  // And back to releases on the next install without it.
+  assert.equal(s.link(s.data, s.node, s.checkout).status, 0);
+  assert.equal(s.tb('status').stdout.trim(), `ran ${path.join(rel, 'tb')} status`);
+  assert.equal(s.link(s.data, s.node, s.checkout, '--bogus').status, 2);
+});

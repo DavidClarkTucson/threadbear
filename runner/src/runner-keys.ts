@@ -73,7 +73,7 @@ function adminAdvice(a: Admin, where: string, url: string): string {
     `${where} also has ${have.join(', ')}. Any of them can do anything to the deployment, so its runner key keeps nothing out, and deleting the files doesn't stop a copy someone already took. In this order:`,
     `  1. Revoke them on Convex's side: the deploy keys in ${settings} (Deploy keys)${commands}.${odd ? ' Look there for any you don\'t recognise too.' : ''}${a.cliLogin ? " The CLI login: in the Convex dashboard's account settings, revoke that Mac's access token (named after its hostname)." : ''}${a.teamToken ? " The team token: in the Convex dashboard's team settings (Access tokens)." : ''}${a.selfHostedEnv ? " A self-hosted admin key can't be revoked on its own: every one comes from the backend's instance secret, so changing that is the only way (docs/self-hosting.md, \"Keys\")." : ''}`,
     `  2. Then remove them there: the files above${a.cliLogin ? ', and npx convex logout' : ''}.`,
-    "  3. Rotating the main key (tb runner rotate-owner, on the main Mac) is for when someone you don't trust could have used them: a Mac you share, sold or lost, or a copy of the files that left it. On a Mac only you use, steps 1 and 2 are enough. Only the main Mac needs any of these.",
+    "  3. Then rotate the main key, which they could read: tb runner rotate-owner on the main Mac. It's needed if that Mac ever had the main key, ran threads while it had these (an agent there could have read the main key through them), or someone else could have used them. A Mac only you use that has just joined with setup --existing and run no threads yet can skip it. Only the main Mac needs any of these.",
     ...(a.cliLogin ? ["A Convex CLI login there usually isn't a sign of anything wrong: it's left from an earlier npx convex login on that Mac (setup --existing doesn't make one)."] : []),
   ].join('\n');
 }
@@ -84,17 +84,24 @@ function adminAdvice(a: Admin, where: string, url: string): string {
 export function sshTrouble(host: string, err: string): string {
   const h = clean(host, 120);
   const bare = h.replace(/^[^@]*@/, '');
-  if (/could not resolve hostname|nodename nor servname|name or service not known/i.test(err))
+  // The suggested commands keep the forwarding off, as SSH_OPTIONS does: a
+  // plain ssh takes ForwardAgent from ~/.ssh/config, and a tampered Mac
+  // could use a forwarded agent to log back in here.
+  const sshSafe = `ssh -o ForwardAgent=no -o ClearAllForwardings=yes ${h}`;
+  // A command that ran there and failed (cat: ...: Permission denied) is not ssh's own trouble.
+  const lines = err.split('\n').filter((l) => !/^(cat|mkdir|chmod|mv|sh|\/bin\/sh): /.test(l.trim())).join('\n');
+  if (/could not resolve hostname|nodename nor servname|name or service not known/i.test(lines))
     return `${h} isn't a name this Mac can find. A Mac on the same network usually answers to its name with .local on the end (${/\.local$/.test(bare) ? bare : `${bare}.local`}), or use its IP address.`;
-  if (/remote host identification has changed/i.test(err))
-    return `${h}'s host key has changed since this Mac last saw it. If you know why (it was reinstalled, or the name now points at another Mac), forget the old one with ssh-keygen -R ${bare} and run this again; otherwise stop and find out first.`;
-  if (/host key verification failed|no .*host key is known/i.test(err))
-    return `This Mac hasn't seen ${h}'s host key before, and tb runner add can't stop to ask about it. Run ssh ${h} once by hand and answer yes (or ssh-keyscan ${bare} >> ~/.ssh/known_hosts, which trusts whatever answers), then run this again.`;
-  if (/permission denied/i.test(err))
+  if (/remote host identification has changed/i.test(lines))
+    return `${h}'s host key has changed since this Mac last saw it. If you know why (it was reinstalled, or the name now points at another Mac), forget the old one with ssh-keygen -R ${bare} and trust the new one as for a new Mac; otherwise stop and find out first.`;
+  if (/host key verification failed|no .*host key is known/i.test(lines))
+    return `This Mac hasn't seen ${h}'s host key before, and tb runner add can't stop to ask about it. Run ${sshSafe} once by hand and answer yes only if the fingerprint it shows matches that Mac's own (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub, run on that Mac), then run this again.`;
+  if (/permission denied \(/i.test(lines))
     return `${h} didn't take this Mac's ssh key, and tb runner add can't type a password. Run ssh-copy-id ${h} once (it asks for that Mac's password; make a key first with ssh-keygen if this Mac has none), then run this again.`;
-  if (/connection refused|no route to host|timed out|network is unreachable|connection closed|connection reset/i.test(err))
+  if (/connection refused|no route to host|timed out|network is unreachable|connection closed|connection reset|kex_exchange_identification/i.test(lines))
     return `${h} didn't answer on the ssh port. Either it's asleep or off this network, or Remote Login is off there: turn it on in System Settings > General > Sharing > Remote Login on that Mac, then run this again.`;
-  return `Check ssh ${h} works from this Mac on its own, then run this again.`;
+  if (lines.trim() !== err.trim()) return `ssh reached ${h}, but the command there failed (above). Check Threadbear's data folder there is readable by that user.`;
+  return `Check ${sshSafe} works from this Mac on its own, then run this again.`;
 }
 
 function deploymentOf(url: string): string | undefined {

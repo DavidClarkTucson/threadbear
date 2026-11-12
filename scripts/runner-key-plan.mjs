@@ -70,7 +70,8 @@ export function joinSteps({ localHost, hostname, user, name, sshOn }) {
   }
   lines.push(`On your first Mac, run: tb runner add ${name ?? bare} --ssh ${target}`);
   lines.push("It gives this Mac's runner a key of its own and the deployment's address, over ssh. Then restart the runner here (tb restart) and its threads show on your phone and your first Mac.");
-  lines.push(`ssh from your first Mac has to work without a password or a question first, as tb runner add can't answer either. If ssh ${target} asks to trust the host or for a password, answer it once by hand and run ssh-copy-id ${target}; tb runner add says which it hit if it fails.`);
+  // Forwarding off, as tb runner add's own ssh has it (runner-keys.ts SSH_OPTIONS).
+  lines.push(`ssh from your first Mac has to work without a password or a question first, as tb runner add can't answer either. Run ssh -o ForwardAgent=no ${target} there once by hand: answer yes to the host key only if its fingerprint matches this Mac's (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub here), and if it asks for a password, run ssh-copy-id ${target}. tb runner add says which it hit if it fails.`);
   lines.push('tb runner check (here) says if a deploy key or Convex login from an earlier setup is still on this Mac, which you should remove.');
   return lines;
 }
