@@ -500,7 +500,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
                     if let Some(title) = cmd["click"].as_str() {
                         return crate::composer_chips::picker_click(&composer, title, cx).map(|_| json!("ok"));
                     }
-                    Ok(json!(crate::composer_chips::picker_lines(&data)))
+                    Ok(json!(crate::composer_chips::picker_lines(&composer, cx)))
                 }
             }
         }

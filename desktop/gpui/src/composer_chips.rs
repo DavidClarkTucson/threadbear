@@ -675,6 +675,8 @@ pub(crate) struct ModelPickerView {
     composer: WeakEntity<Composer>,
     search: Entity<InputState>,
     column: Option<String>,
+    /// The Login line's list is open.
+    login_open: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -682,7 +684,7 @@ impl ModelPickerView {
     fn new(composer: WeakEntity<Composer>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let sub = cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify());
-        ModelPickerView { composer, search, column: None, _subs: vec![sub] }
+        ModelPickerView { composer, search, column: None, login_open: false, _subs: vec![sub] }
     }
 }
 
@@ -834,16 +836,17 @@ impl Render for ModelPickerView {
                     })
             }))
         });
-        // A thread pinned to a login (from before 28 Oct, or a script):
-        // "Pinned to … · Unpin" under the effort levels (PoolFooter).
-        let pinned = (pools && settings.pool().is_none()).then(|| self.render_pinned_footer(&settings, cx));
+        // With pools, "Login: Auto (gmail for now)" under the effort levels,
+        // opening in place to pin the thread to one of the pool's logins
+        // (threadbear_core::login_picker, "The model picker's Login line").
+        let login = pools.then(|| self.render_login_footer(&data, &column, cx));
         let right = v_flex()
             .flex_1()
             .min_w_0()
             .child(h_flex().h(px(36.)).px(px(12.)).gap(px(6.)).border_b_1().border_color(style::hairline(cx)).child(Icon::from(IconName::Search).with_size(px(12.)).text_color(style::faint_text(cx))).child(div().flex_1().child(Input::new(&self.search).appearance(false).bordered(false).text_size(px(13.)))))
             .child(div().id("picker-list").max_h(px(320.)).overflow_y_scroll().child(list))
             .children(effort.map(|e| div().border_t_1().border_color(style::hairline(cx)).child(e)))
-            .children(pinned.map(|p| div().border_t_1().border_color(style::hairline(cx)).child(p)));
+            .children(login.map(|l| div().border_t_1().border_color(style::hairline(cx)).child(l)));
         // Stretched, so the rail (pools' or the icon rail) and the divider run
         // down the whole popover beside the list: h_flex centres its children
         // on the cross axis, which left the rail floating mid-height with its
@@ -857,63 +860,215 @@ impl ModelPickerView {
         self.composer.upgrade().map(|c| c.read(cx).chip_data(cx)).unwrap_or(ChipData { summary: None, logins: RunnerLogins::default(), is_new: false, away: None })
     }
 
-    /// PoolFooter: "Pinned to gmail", which shows that login's models, and
-    /// Unpin, which hands the thread back to a pool and closes the picker.
-    fn render_pinned_footer(&self, settings: &ChipSettings<'_>, cx: &mut Context<Self>) -> AnyElement {
-        let line = threadbear_core::login_picker::pinned_line(&settings.account, &settings.logins.accounts);
-        let composer = self.composer.clone();
-        h_flex()
+    /// The Login line (option C, 12 Nov 2026): "Login: Auto (gmail for
+    /// now)", or "Login: gmail" when pinned, and a chevron. A click opens the
+    /// list in place: Auto, then the logins of the pool the rail shows, each
+    /// with its usage line and a bar of the room it has left. For a pinned
+    /// thread's own column, the pool Auto would put it in.
+    fn render_login_footer(&self, data: &ChipData, column: &str, cx: &mut Context<Self>) -> AnyElement {
+        let Some(settings) = data.settings() else { return div().into_any_element() };
+        let accounts = &data.logins.accounts;
+        let (line, on) = threadbear_core::login_picker::login_line(&settings.account, accounts, settings.pool());
+        let open = self.login_open;
+        let pinned = settings.pool().is_none();
+        let header = h_flex()
+            .id("picker-login")
+            .test_support()
+            .aria_label(SharedString::from(line.clone()))
             .px(px(12.))
-            .py(px(10.))
+            .py(px(9.))
             .gap(px(4.))
+            .cursor_pointer()
             .text_size(px(11.))
             .line_height(px(style::natural_line(11.)))
-            .child(
-                div()
-                    .id("picker-pinned")
-                    .cursor_pointer()
-                    .text_color(style::secondary_label(cx))
-                    .hover(|s| s.text_color(style::label_text(cx)))
-                    .tip("Show this login's models")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.column = Some(PINNED_COLUMN.to_owned());
-                        cx.notify();
-                    }))
-                    .child(line),
-            )
-            .child(div().text_color(style::tertiary_label(cx)).child("\u{00B7}"))
-            .child(
-                div()
-                    .id("picker-unpin")
-                    .cursor_pointer()
-                    .text_color(style::label_text(cx))
-                    .hover(|s| s.opacity(0.75))
-                    .tip("Let the pool pick the login again")
-                    .on_click(move |_, window, cx| {
-                        if let Some(c) = composer.upgrade() {
-                            c.update(cx, |c, cx| c.unpin(cx));
-                        }
-                        window.dispatch_action(Box::new(gpui_kit::base::actions::Cancel), cx);
-                    })
-                    .child("Unpin"),
-            )
-            .into_any_element()
+            .hover(|s| s.bg(style::primary_opacity(cx, 0.04)))
+            .tip(if pinned { "Pinned to this login. Open to pick another, or Auto to let the pool pick" } else { "Let the pool pick, or pin this thread to one login" })
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.login_open = !this.login_open;
+                cx.notify();
+            }))
+            .child(div().text_color(style::secondary_label(cx)).child(line))
+            .when_some(on, |s, on| s.child(div().truncate().text_color(style::tertiary_label(cx)).child(on)))
+            .child(div().flex_1())
+            .child(Icon::from(if open { IconName::ChevronUp } else { IconName::ChevronDown }).with_size(px(10.)).text_color(style::faint_icon(cx)));
+        if !open {
+            return header.into_any_element();
+        }
+        let Some(pool_id) = self.login_list_pool(data, column, cx) else { return header.into_any_element() };
+        let Some(pool) = data.logins.pool(&pool_id) else { return header.into_any_element() };
+        let now = threadbear_core::chrono::Local::now();
+        let rows = threadbear_core::login_picker::pool_login_rows(pool, accounts, settings.pool().map(|p| p.id.as_str()), pinned.then_some(settings.account.as_str()), &now);
+        let list = v_flex().px(px(6.)).pb(px(6.)).gap(px(1.)).children(rows.into_iter().map(|row| {
+            let (composer, this, pool_id, login) = (self.composer.clone(), cx.entity().downgrade(), pool_id.clone(), row.id.clone());
+            pool_login_row(row, cx, move |window, cx| {
+                if let Some(this) = this.upgrade() {
+                    this.update(cx, |this, _| this.login_open = false);
+                }
+                if let Some(c) = composer.upgrade() {
+                    c.update(cx, |c, cx| c.pick_login(login.clone(), &pool_id, cx));
+                }
+                window.dispatch_action(Box::new(gpui_kit::base::actions::Cancel), cx);
+            })
+        }));
+        v_flex().child(header).child(list).into_any_element()
+    }
+
+    /// The pool whose logins the opened Login list shows: the rail's column,
+    /// or for a pinned thread's own column, the pool Auto would put it in.
+    fn login_list_pool(&self, data: &ChipData, column: &str, cx: &App) -> Option<String> {
+        if column != PINNED_COLUMN {
+            return data.logins.pool(column).map(|p| p.id.clone());
+        }
+        self.composer.upgrade().and_then(|c| c.read(cx).unpin_pool(data, cx))
     }
 }
 
+/// A row of the opened Login list (LoginRow, with the room as a bar): a
+/// tick in its own column, the name and its usage line, then a small bar and
+/// the room left, orange under a quarter and red at its limit.
+fn pool_login_row(row: threadbear_core::login_picker::PoolLoginRow, cx: &App, action: impl Fn(&mut Window, &mut App) + 'static) -> impl IntoElement {
+    let color = match row.badge {
+        Some(ChipBadge::Blocked) => cx.theme().danger,
+        Some(ChipBadge::Low(_)) => style::needs_you(cx),
+        None => style::secondary_label(cx),
+    };
+    let words = row.room_words();
+    let fill = row.room.map(|r| (r.clamp(0., 100.) / 100.) as f32);
+    let id = row.id.clone().unwrap_or_else(|| "auto".to_owned());
+    let name = if row.is_selected { format!("{}, chosen", row.title) } else { row.title.clone() };
+    h_flex()
+        .id(SharedString::from(format!("picker-login-{id}")))
+        .test_support()
+        .aria_label(SharedString::from(name))
+        .gap(px(8.))
+        .px(px(8.))
+        .py(px(5.))
+        .rounded(px(7.))
+        .cursor_pointer()
+        .when(row.is_selected, |s| s.bg(style::primary_opacity(cx, 0.1)))
+        .when(!row.is_selected, |s| s.hover(|s| s.bg(style::primary_opacity(cx, 0.06))))
+        .on_click(move |_, window, cx| action(window, cx))
+        .child(div().flex_none().w(px(12.)).child(Icon::from(IconName::Check).with_size(px(12.)).text_color(style::label_text(cx)).when(!row.is_selected, |s| s.invisible())))
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(div().truncate().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(style::label_text(cx)).child(row.title.clone()))
+                .when_some(row.subtitle.clone(), |s, sub| s.child(div().truncate().text_size(px(11.)).text_color(style::secondary_label(cx)).child(sub))),
+        )
+        .when_some(fill, |s, fill| {
+            s.child(div().flex_none().w(px(46.)).h(px(3.)).rounded(px(2.)).bg(style::primary_opacity(cx, 0.1)).child(div().h_full().rounded(px(2.)).bg(color).w(px(46. * fill.max(0.04)))))
+        })
+        .when_some(words, |s, words| s.child(div().flex_none().w(px(34.)).text_right().text_size(px(11.)).text_color(color).child(words)))
+}
+
 impl Composer {
-    /// Unpin (AppModel.unpinThread): back in a pool holding its login, so it
-    /// stays where it is until that login runs dry; on the new-thread page,
-    /// the draft goes back to the pool a new thread starts in.
-    pub(crate) fn unpin(&self, cx: &mut App) {
-        let data = self.chip_data(cx);
-        let Some(thread) = data.summary.clone() else { return };
+    /// The pool Auto puts a pinned thread in (Pools.unpinTarget): one holding
+    /// its login, so it stays where it is until that login runs dry; on the
+    /// new-thread page, the pool a new thread starts in.
+    fn unpin_pool(&self, data: &ChipData, cx: &App) -> Option<String> {
+        let thread = data.summary.as_ref()?;
         let home = std::env::var("HOME").unwrap_or_default();
         let last = self.app.upgrade().and_then(|a| a.read(cx).new_thread.prefs.remembered.last_pool.clone());
-        let Some(target) = threadbear_core::login_picker::unpin_target(&data.logins.pools, &thread.account_id, &thread.cwd, &home, last.as_deref()) else { return };
-        let guess = target.clone();
-        self.change_thread(move |t| t.pool_id = Some(guess), json!({ "poolId": target }), cx);
+        threadbear_core::login_picker::unpin_target(&data.logins.pools, &thread.account_id, &thread.cwd, &home, last.as_deref())
     }
+
+    /// A pick from the Login list. A login pins the thread to it
+    /// (`threads.update { accountId }`, which clears its pool; one of another
+    /// provider moves the thread to that provider, its model and effort
+    /// back to that provider's defaults). Auto puts it in `pool`, the one the
+    /// list showed, unless it's already there.
+    pub(crate) fn pick_login(&self, login: Option<String>, pool: &str, cx: &mut App) {
+        let data = self.chip_data(cx);
+        let Some(settings) = data.settings() else { return };
+        let accounts = &data.logins.accounts;
+        let Some(login) = login else {
+            if settings.pool().is_some_and(|p| p.id == pool) {
+                return;
+            }
+            let Some(target) = data.logins.pool(pool) else { return };
+            // The thread's provider while the pool has it, so a mixed pool
+            // keeps a Codex thread on Codex (Codex's review, 12 Nov).
+            let providers = threadbear_core::new_thread::pool_providers(target, accounts);
+            let keeps = providers.iter().any(|p| *p == settings.provider);
+            if data.is_new {
+                // None lets the draft fall back on the provider it last
+                // used in that pool, rather than overwriting it.
+                let provider = keeps.then(|| settings.provider.clone());
+                return self.change_thread(|_| {}, json!({ "poolId": pool, "provider": provider }), cx);
+            }
+            // The runner moves it onto one of the pool's logins if its own
+            // isn't one; guess which, so the chip is right straight away.
+            // As the runner picks: the thread's provider first, then the
+            // pool's others, the first with a login that has room; else the
+            // first login it would try.
+            let stays = target.account_ids.iter().any(|a| *a == settings.account);
+            let moved = (!stays).then(|| {
+                let now_ms = threadbear_core::chrono::Local::now().timestamp_millis();
+                let order = std::iter::once(settings.provider.clone()).filter(|_| keeps).chain(providers.iter().filter(|p| **p != settings.provider).cloned());
+                let picks: Vec<String> = order.filter_map(|p| threadbear_core::new_thread::pick_login(target, accounts, &p, None, now_ms)).collect();
+                picks.iter().find(|id| data.logins.account(id).is_some_and(threadbear_core::new_thread::has_room)).or(picks.first()).cloned()
+            }).flatten();
+            let provider = moved.as_deref().and_then(|id| data.logins.account(id)).map_or_else(|| settings.provider.clone(), |a| a.provider_id().to_owned());
+            let switched = (provider != settings.provider).then(|| provider_defaults(&data.logins, provider));
+            let guess = (pool.to_owned(), moved, switched);
+            return self.change_thread(
+                move |t| {
+                    let (pool, moved, switched) = guess;
+                    t.pool_id = Some(pool);
+                    if let Some(login) = moved {
+                        t.account_id = login;
+                    }
+                    if let Some(to) = switched {
+                        switch_provider(t, to);
+                    }
+                },
+                json!({ "poolId": pool }),
+                cx,
+            );
+        };
+        if settings.pool().is_none() && settings.account == login {
+            return;
+        }
+        let provider = data.logins.account(&login).map(|a| a.provider_id().to_owned());
+        let switched = provider.filter(|p| *p != settings.provider).map(|p| provider_defaults(&data.logins, p));
+        let guess = login.clone();
+        self.change_thread(
+            move |t| {
+                t.account_id = guess;
+                t.pool_id = None;
+                if let Some(provider) = switched {
+                    switch_provider(t, provider);
+                }
+            },
+            json!({ "accountId": login }),
+            cx,
+        );
+    }
+}
+
+/// Where a move to another provider's login leaves the model and effort:
+/// the runner's defaults for that provider (`hello`'s `defaults.models` and
+/// `defaults.efforts`), else the login's own.
+struct ProviderSwitch {
+    provider: String,
+    model: Option<String>,
+    effort: Option<String>,
+}
+
+fn provider_defaults(logins: &RunnerLogins, provider: String) -> ProviderSwitch {
+    ProviderSwitch { model: logins.defaults.model_for(&provider).map(str::to_owned), effort: logins.defaults.efforts.get(&provider).cloned(), provider }
+}
+
+/// The guess for that move: the runner resets the model and effort, so the
+/// old provider's, in use or picked, mustn't show under the new login
+/// meanwhile (Codex's review, 12 Nov).
+fn switch_provider(t: &mut ThreadSummary, to: ProviderSwitch) {
+    t.provider = to.provider;
+    t.model = to.model;
+    t.effort = to.effort;
+    t.model_in_use = None;
+    t.effort_in_use = None;
 }
 
 fn model_row(row: PickerRow, provider: &str, cx: &App, action: impl Fn(&mut Window, &mut App) + 'static) -> impl IntoElement {
@@ -948,7 +1103,34 @@ fn model_row(row: PickerRow, provider: &str, cx: &App, action: impl Fn(&mut Wind
 /// pickerLines): `[x]` on the chosen row, `*` on the default, the description
 /// after a dash, older rows indented, then the effort levels.
 #[cfg(feature = "automation")]
-pub(crate) fn picker_lines(data: &ChipData) -> Vec<String> {
+pub(crate) fn picker_lines(composer: &Entity<Composer>, cx: &App) -> Vec<String> {
+    let data = composer.read(cx).chip_data(cx);
+    let list = login_list(composer, &data, cx);
+    picker_lines_with(&data, list)
+}
+
+/// The Login line and its list (open or not) for the thread's own pool, or
+/// a pinned thread's Auto pool, as the automation reads and clicks them.
+#[cfg(feature = "automation")]
+fn login_list(composer: &Entity<Composer>, data: &ChipData, cx: &App) -> Option<(String, (String, Option<String>), Vec<threadbear_core::login_picker::PoolLoginRow>)> {
+    let settings = data.settings()?;
+    if !settings.uses_pools() {
+        return None;
+    }
+    let accounts = &data.logins.accounts;
+    let line = threadbear_core::login_picker::login_line(&settings.account, accounts, settings.pool());
+    let pool_id = match settings.pool() {
+        Some(pool) => pool.id.clone(),
+        None => composer.read(cx).unpin_pool(data, cx)?,
+    };
+    let pool = data.logins.pool(&pool_id)?;
+    let pinned = settings.pool().is_none();
+    let rows = threadbear_core::login_picker::pool_login_rows(pool, accounts, settings.pool().map(|p| p.id.as_str()), pinned.then_some(settings.account.as_str()), &threadbear_core::chrono::Local::now());
+    Some((pool_id, line, rows))
+}
+
+#[cfg(feature = "automation")]
+fn picker_lines_with(data: &ChipData, login: Option<(String, (String, Option<String>), Vec<threadbear_core::login_picker::PoolLoginRow>)>) -> Vec<String> {
     let Some(settings) = data.settings() else { return Vec::new() };
     let mut lines = Vec::new();
     let add_rows = |rows: Vec<PickerRow>, lines: &mut Vec<String>| {
@@ -965,7 +1147,7 @@ pub(crate) fn picker_lines(data: &ChipData) -> Vec<String> {
     };
     // A pinned thread's own login first, as the picker opens on it.
     let pinned = (settings.uses_pools() && settings.pool().is_none()).then(|| threadbear_core::login_picker::pinned_line(&settings.account, &data.logins.accounts));
-    if let Some(line) = &pinned {
+    if let Some(line) = pinned {
         lines.push(format!("# {line}"));
         add_rows(settings.rows(&settings.provider, ""), &mut lines);
     }
@@ -997,8 +1179,8 @@ pub(crate) fn picker_lines(data: &ChipData) -> Vec<String> {
         }
         lines.push(line);
     }
-    if let Some(line) = pinned {
-        lines.push(format!("--- {line} \u{00B7} Unpin"));
+    if let Some((_, line, rows)) = login {
+        lines.extend(threadbear_core::login_picker::pool_login_lines(&line, &rows));
     }
     lines
 }
@@ -1057,12 +1239,16 @@ pub(crate) fn permission_lines(summary: &ThreadSummary) -> Vec<String> {
 pub(crate) fn picker_click(composer: &Entity<Composer>, title: &str, cx: &mut App) -> Result<(), String> {
     let data = composer.read(cx).chip_data(cx);
     let settings = data.settings().ok_or("no thread")?;
-    // The pinned line's Unpin, as its click does.
-    if title == "Unpin" {
-        if !settings.uses_pools() || settings.pool().is_some() {
+    // A row of the Login list, "Login: Auto" or "Login: mike+3" (its name
+    // or id), as its click does; "Unpin" is Auto on a pinned thread.
+    let login = title.strip_prefix("Login: ").or((title == "Unpin").then_some("Auto"));
+    if let Some(name) = login {
+        if title == "Unpin" && (!settings.uses_pools() || settings.pool().is_some()) {
             return Err("it isn't pinned".into());
         }
-        composer.update(cx, |c, cx| c.unpin(cx));
+        let (pool, _, rows) = login_list(composer, &data, cx).ok_or("no Login line here")?;
+        let row = rows.into_iter().find(|r| r.title == name || r.id.as_deref() == Some(name)).ok_or_else(|| format!("no login {name}"))?;
+        composer.update(cx, |c, cx| c.pick_login(row.id, &pool, cx));
         return Ok(());
     }
     let columns: Vec<(String, String)> = if settings.uses_pools() {

@@ -5,7 +5,7 @@
 // (Pools.unpinTarget, ThreadSettings.pinnedLine). The GPUI app draws these
 // (desktop/gpui/src/composer_account.rs); its scripts read the same lines.
 use crate::logins::{provider_title, Account, Pool};
-use crate::new_thread::{chip_badge, login_name, main_windows, new_thread_pool, percent, pool_for_folder, reset_time, tightest, usage_of, AccountUsage, ChipBadge, UsageWindow};
+use crate::new_thread::{chip_badge, login_name, main_windows, new_thread_pool, percent, pool_for_folder, pool_logins, reset_time, room, tightest, usage_of, AccountUsage, ChipBadge, UsageWindow};
 use chrono::{DateTime, TimeZone};
 
 /// "5h", "week": the short names the menu uses (AccountUsageText.shortName).
@@ -142,11 +142,150 @@ pub fn unpin_target(pools: &[Pool], account_id: &str, cwd: &str, home: &str, las
     new_thread_pool(pools, None, cwd, home, last, None)
 }
 
+// ---- The model picker's Login line ----
+//
+// Mike picked this on 12 Nov 2026 over logins in the rail, a strip of pills
+// and a submenu: one quiet line under the effort levels, "Login: Auto
+// (gmail for now)", that opens in place to list the pool's logins. Picking
+// one pins the thread to it (`threads.update { accountId }`); Auto puts it
+// back in the pool. It took the place of the old "Pinned to … · Unpin".
+
+/// What Auto says under its name in the list.
+pub const AUTO_HELP: &str = "The pool picks, and moves on when one runs out";
+
+/// The closed line, in two parts: "Login: Auto" and "(acme for now)" for a
+/// thread in a pool, the second only when its login is one of the pool's;
+/// "Login: gmail" and nothing for one pinned to a login.
+pub fn login_line(account_id: &str, accounts: &[Account], pool: Option<&Pool>) -> (String, Option<String>) {
+    match pool {
+        None => (format!("Login: {}", login_name(account_id, accounts)), None),
+        Some(pool) => {
+            let on = (!account_id.is_empty() && pool.account_ids.iter().any(|a| a == account_id) && accounts.iter().any(|a| a.id == account_id)).then(|| format!("({} for now)", login_name(account_id, accounts)));
+            ("Login: Auto".to_owned(), on)
+        }
+    }
+}
+
+/// A row of the opened list: Auto (no `id`), or one of the pool's logins.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PoolLoginRow {
+    pub id: Option<String>,
+    pub title: String,
+    pub subtitle: Option<String>,
+    /// The tightest window's room left, 0 at its limit; None when unknown.
+    pub room: Option<f64>,
+    /// Orange under a quarter, red at its limit, as on the chip.
+    pub badge: Option<ChipBadge>,
+    pub is_selected: bool,
+}
+
+impl PoolLoginRow {
+    /// What's at the row's end: "19%", or "limit".
+    pub fn room_words(&self) -> Option<String> {
+        if self.badge == Some(ChipBadge::Blocked) {
+            return Some("limit".to_owned());
+        }
+        self.room.map(percent)
+    }
+}
+
+/// The opened list for `pool` (the rail's column): Auto, ticked when the
+/// thread is in this pool, then the pool's logins, the one it's pinned to
+/// ticked. `pinned_login` is the login of a pinned thread, listed first when
+/// the pool doesn't hold it, so the tick always has a row.
+pub fn pool_login_rows<Tz: TimeZone>(pool: &Pool, accounts: &[Account], thread_pool: Option<&str>, pinned_login: Option<&str>, now: &DateTime<Tz>) -> Vec<PoolLoginRow> {
+    let mut rows = vec![PoolLoginRow { id: None, title: "Auto".to_owned(), subtitle: Some(AUTO_HELP.to_owned()), room: None, badge: None, is_selected: thread_pool == Some(pool.id.as_str()) }];
+    let mut logins: Vec<&Account> = pool_logins(pool, accounts, None);
+    if let Some(pinned) = pinned_login.and_then(|id| accounts.iter().find(|a| a.id == id)) {
+        if !logins.iter().any(|a| a.id == pinned.id) {
+            logins.insert(0, pinned);
+        }
+    }
+    for account in logins {
+        let usage = usage_of(account);
+        let left = usage.as_ref().and_then(room);
+        // A window run dry is at its limit even before the runner's flag
+        // says so, as the room cards have it (Codex's review, 12 Nov).
+        let blocked = usage.as_ref().is_some_and(|u| u.blocked) || left.is_some_and(|r| r < 1.);
+        rows.push(PoolLoginRow {
+            id: Some(account.id.clone()),
+            title: login_name(&account.id, accounts),
+            subtitle: subtitle(account, now),
+            room: if blocked { Some(0.) } else { left },
+            badge: if blocked { Some(ChipBadge::Blocked) } else { chip_badge(Some(account)) },
+            is_selected: thread_pool.is_none() && pinned_login == Some(account.id.as_str()),
+        });
+    }
+    rows
+}
+
+/// The line and list as text, for the automation's `composer-menu`: the
+/// line after `---`, then (opened or not) each row as `[x] title - line`.
+pub fn pool_login_lines(line: &(String, Option<String>), rows: &[PoolLoginRow]) -> Vec<String> {
+    let mut lines = vec![match &line.1 {
+        Some(on) => format!("--- {} {on}", line.0),
+        None => format!("--- {}", line.0),
+    }];
+    for row in rows {
+        let mut text = format!("{}{}", if row.is_selected { "[x] " } else { "[ ] " }, row.title);
+        if let Some(sub) = &row.subtitle {
+            text.push_str(&format!(" - {sub}"));
+        }
+        lines.push(text);
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::FixedOffset;
     use serde_json::json;
+
+    #[test]
+    fn the_login_line_says_auto_and_who_for_now_or_the_pinned_login() {
+        let accounts = vec![account("claude-main", "claude", "mike@acme.io", None, serde_json::Value::Null), account("claude-1", "claude", "mike@globex.io", None, serde_json::Value::Null)];
+        let pool = Pool { id: "claude".into(), title: "Claude".into(), account_ids: vec!["claude-main".into(), "claude-1".into()], icon: None, folders: vec![] };
+        assert_eq!(login_line("claude-main", &accounts, Some(&pool)), ("Login: Auto".to_owned(), Some("(acme for now)".to_owned())));
+        let other = Pool { account_ids: vec!["claude-1".into()], ..pool.clone() };
+        assert_eq!(login_line("claude-main", &accounts, Some(&other)), ("Login: Auto".to_owned(), None), "not one of the pool's logins");
+        assert_eq!(login_line("", &accounts, Some(&pool)), ("Login: Auto".to_owned(), None));
+        assert_eq!(login_line("claude-1", &accounts, None), ("Login: globex".to_owned(), None));
+    }
+
+    #[test]
+    fn the_list_is_auto_then_the_pools_logins_with_their_room() {
+        let accounts = vec![
+            account("claude-main", "claude", "mike@acme.io", None, json!({ "windows": [{ "kind": "five_hour", "title": "5-hour", "remainingPercent": 19 }, { "kind": "weekly", "title": "Weekly", "remainingPercent": 61 }] })),
+            account("claude-1", "claude", "mike@globex.io", None, json!({ "windows": [{ "kind": "weekly", "title": "Weekly", "remainingPercent": 80 }] })),
+            account("claude-2", "claude", "mike@initech.io", None, json!({ "blocked": true, "windows": [] })),
+            account("claude-9", "claude", "mike@umbrella.io", None, serde_json::Value::Null),
+        ];
+        let pool = Pool { id: "claude".into(), title: "Claude".into(), account_ids: vec!["claude-main".into(), "claude-1".into(), "claude-2".into()], icon: None, folders: vec![] };
+        let rows = pool_login_rows(&pool, &accounts, Some("claude"), None, &now());
+        assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["Auto", "acme", "globex", "initech"]);
+        assert!(rows[0].is_selected && rows.iter().skip(1).all(|r| !r.is_selected), "in the pool: Auto");
+        assert_eq!(rows[1].room_words().as_deref(), Some("19%"));
+        assert_eq!(rows[1].badge, Some(ChipBadge::Low("19%".into())));
+        assert_eq!((rows[2].room_words().as_deref(), &rows[2].badge), (Some("80%"), &None));
+        assert_eq!((rows[3].room_words().as_deref(), &rows[3].badge), (Some("limit"), &Some(ChipBadge::Blocked)));
+        // A window at 0% with no flag yet is at its limit too.
+        let dry = vec![account("claude-main", "claude", "mike@acme.io", None, json!({ "windows": [{ "kind": "five_hour", "title": "5-hour", "remainingPercent": 0.4 }] }))];
+        let one = Pool { account_ids: vec!["claude-main".into()], ..pool.clone() };
+        assert_eq!(pool_login_rows(&one, &dry, Some("claude"), None, &now())[1].room_words().as_deref(), Some("limit"));
+        // Pinned to one of them: that one ticked, Auto not.
+        let pinned = pool_login_rows(&pool, &accounts, None, Some("claude-1"), &now());
+        assert_eq!(pinned.iter().filter(|r| r.is_selected).map(|r| r.title.as_str()).collect::<Vec<_>>(), ["globex"]);
+        // Pinned to a login the pool hasn't got: listed first, ticked.
+        let outside = pool_login_rows(&pool, &accounts, None, Some("claude-9"), &now());
+        assert_eq!((outside[1].title.as_str(), outside[1].is_selected, outside[1].room_words()), ("umbrella", true, None));
+        // In another pool: nothing here ticked.
+        assert!(pool_login_rows(&pool, &accounts, Some("convex"), None, &now()).iter().all(|r| !r.is_selected));
+        assert_eq!(
+            pool_login_lines(&login_line("claude-main", &accounts, Some(&pool)), &rows[..2]),
+            ["--- Login: Auto (acme for now)", &format!("[x] Auto - {AUTO_HELP}"), "[ ] acme - 5h 19% · week 61%"]
+        );
+    }
 
     fn account(id: &str, provider: &str, email: &str, note: Option<&str>, usage: serde_json::Value) -> Account {
         Account { id: id.into(), provider: provider.into(), title: email.into(), email: Some(email.into()), note: note.map(str::to_owned), usage: (!usage.is_null()).then_some(usage), ..Account::default() }

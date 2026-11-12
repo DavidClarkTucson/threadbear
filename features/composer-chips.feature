@@ -30,13 +30,29 @@ Feature: The chips under the message box
     When I pick "High" from the "model" menu
     Then the model chip says "Claude · Fable 5.1 · High"
 
-  @composer.modelpicker
-  Scenario: A thread pinned to a login says so in the model picker, and Unpin hands it back to a pool
+  # The Login line under the effort levels (Mike's pick, 12 Nov): the Swift
+  # app is frozen with its "Pinned to … · Unpin" line, so these are GPUI's.
+  @composer.modelpicker @swift-pending
+  Scenario: A thread pinned to a login says so in the model picker, and Auto hands it back to a pool
     When I open the thread "Compare SQLite and plain files for the runner"
     Then the "model" menu has a row "# Pinned to mike+3"
-    And the "model" menu has a row "--- Pinned to mike+3 · Unpin"
-    When I pick "Unpin" from the "model" menu
-    Then the "model" menu has no row "--- Pinned to"
+    And the "model" menu has a row "--- Login: mike+3"
+    And the "model" menu has a row "[x] mike+3"
+    When I pick "Login: Auto" from the "model" menu
+    Then the "model" menu has no row "--- Login: mike+3"
+    And the "model" menu has a row "--- Login: Auto"
+    And the "model" menu has a row "[x] Auto - The pool picks"
+
+  @composer.modelpicker @swift-pending
+  Scenario: A pool thread's Login line says Auto, and picking a login pins the thread to it
+    Then the "model" menu has a row "--- Login: Auto"
+    And the "model" menu has a row "[x] Auto - The pool picks, and moves on when one runs out"
+    And the "model" menu has a row "[ ] mike+3"
+    When I pick "Login: mike+3" from the "model" menu
+    Then the "model" menu has no row "--- Login: Auto"
+    And the "model" menu has a row "--- Login: mike+3"
+    And the "model" menu has a row "[x] mike+3"
+    And the "model" menu has a row "# Pinned to mike+3"
 
   # Without pools there's a login chip: another Mac's thread, as bruce has none.
   @composer.account @remote-threads

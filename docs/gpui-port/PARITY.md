@@ -222,6 +222,34 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 The model picker's Login line: pin a thread to one of a pool's logins (`composer.modelpicker`)
+
+- Mike picked it from four mockups (logins in the rail, a strip of pills
+  and a submenu were passed over): with pools, one quiet line under the
+  effort levels, "Login: Auto (mike for now)", or "Login: mike+3" for a
+  pinned thread. A click opens it in place: Auto ("The pool picks, and moves
+  on when one runs out"), then the logins of the pool the rail shows, each
+  with its usage line, a small bar of the room left and the number (orange
+  under a quarter, red "limit" at its limit or a window run dry), a tick on
+  the current choice. A login pins the thread (`threads.update { accountId
+  }`); Auto puts it in that pool (`poolId`). For a pinned thread's own
+  column it lists the pool Auto would put it in, the pinned login first if
+  that pool hasn't got it. It replaces "Pinned to … · Unpin"; the Swift app
+  is frozen with the old line, so the two scenarios are `@swift-pending`.
+- The optimistic guess follows the runner: a login of the other provider
+  takes that provider's runner defaults for model and effort and drops the
+  in-use ones; Auto into a pool without the thread's login guesses the login
+  the runner would move it to, its own provider first. On the new-thread
+  page Auto keeps the draft's provider where the pool has it, else the one
+  last used there (Codex's review, two rounds).
+- Files: `desktop/core/src/login_picker.rs` (`login_line`,
+  `pool_login_rows`, `pool_login_lines`), `desktop/gpui/src/composer_chips.rs`,
+  `desktop/gpui/src/automation.rs`, `features/composer-chips.feature`.
+- Verification: `cargo test -p threadbear-core --lib -- login_picker`, 5 of
+  5; the `@composer.modelpicker` and `@composer.account` specs against the
+  GPUI app on Tinker Desk, 6 of 6; shots of the line closed, opened and
+  pinned in the running app.
+
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 
 - Mike didn't want the review on the done card ("this should just be
