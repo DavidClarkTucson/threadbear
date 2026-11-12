@@ -1009,6 +1009,9 @@ impl Threadbear {
         }
         if !added.is_empty() {
             cx.bind_keys(added);
+            // After them, so the terminal's own keys still win there
+            // (terminal::own_keys says why).
+            cx.bind_keys(crate::terminal::own_keys());
         }
         self.bound_keys = desired;
     }

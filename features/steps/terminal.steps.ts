@@ -206,12 +206,16 @@ Then('the shell in the Terminal is at its prompt', async function (this: Threadb
   await untilScreen(this, 'the shell at its prompt, pastes marked', (_lines, d) => d.terminal?.shell === 'running' && d.terminal.pastesMarked === true);
 });
 
-When('an input method puts {string} and a line break in the Terminal at once', async function (this: ThreadbearWorld, text: string) {
+Then("the shell in the Terminal doesn't mark pastes", async function (this: ThreadbearWorld) {
+  await untilScreen(this, 'a shell with pastes not marked', (_lines, d) => d.terminal?.shell === 'running' && d.terminal.pastesMarked === false);
+});
+
+When('an input method puts {string} and a line break in the Terminal at once',async function (this: ThreadbearWorld, text: string) {
   await this.app.do({ cmd: 'terminal', commit: `${text}\n` });
 });
 
 Then("the Terminal's prompt has {string} on it", async function (this: ThreadbearWorld, text: string) {
-  await untilScreen(this, `"${text}" at the prompt`, (lines) => promptLine(lines).endsWith(text));
+  await untilScreen(this, `"${text}" at the prompt`, (_lines, d) => promptLine(d).endsWith(text));
 });
 
 // As the app menu's Quit does once it's said yes, with the quit's own work.
@@ -265,20 +269,46 @@ When('I press Return in the Terminal', async function (this: ThreadbearWorld) {
   await this.app.do({ cmd: 'terminal', press: 'enter' });
 });
 
-/** The prompt's line: the last line on the screen with anything on it. */
-function promptLine(lines: string[]): string {
-  return [...lines].reverse().find((l) => l.trim() !== '') ?? '';
+/**
+ * The prompt's line: the last line on the screen with anything on it, as a
+ * line of text rather than a row. A command after a long prompt wraps in a
+ * narrow panel, as after GitHub's Linux machines'
+ * `runner@runnervm7aw5e:/tmp/tb-terminal-SFc6Wj$ ` (11 Nov), and the last
+ * row then has only its end. The GPUI app's dump says which rows are one
+ * line (`lines`). The Swift app's doesn't, so there it's the last row with
+ * any full rows above it (one a character short ended in a space the rows
+ * have trimmed): a guess, but the Swift app only runs on Tinker Desk's short
+ * prompt.
+ */
+function promptLine(d: Dump): string {
+  const last = (lines: string[]) => {
+    let end = lines.length - 1;
+    while (end >= 0 && lines[end].trim() === '') end--;
+    return end;
+  };
+  if (d.terminal?.lines) return d.terminal.lines[last(d.terminal.lines)] ?? '';
+  const lines = screen(d);
+  const cols = d.terminal?.cols;
+  const end = last(lines);
+  if (end < 0) return '';
+  let line = lines[end];
+  for (let i = end - 1; cols && i >= 0; i--) {
+    if (lines[i].length === cols) line = lines[i] + line;
+    else if (lines[i].length === cols - 1) line = `${lines[i]} ${line}`;
+    else break;
+  }
+  return line;
 }
 
 Then("the Terminal's prompt has {string} waiting for Return", async function (this: ThreadbearWorld, command: string) {
-  await untilScreen(this, `"${command}" at the prompt, Return to run it`, (lines, d) => d.terminal?.waitingForReturn === true && promptLine(lines).endsWith(command));
+  await untilScreen(this, `"${command}" at the prompt, Return to run it`, (_lines, d) => d.terminal?.waitingForReturn === true && promptLine(d).endsWith(command));
 });
 
 Then("the Terminal's prompt doesn't have {string}", async function (this: ThreadbearWorld, command: string) {
   // A moment for anything that was going to land to land.
   await new Promise((done) => setTimeout(done, 600));
   const d = await this.app.dump();
-  assert.ok(!promptLine(screen(d)).includes(command), `the prompt has it:\n${screen(d).join('\n')}`);
+  assert.ok(!promptLine(d).includes(command), `the prompt has it: ${promptLine(d)}\n${screen(d).join('\n')}`);
 });
 
 Then("the Terminal doesn't show the line {string}", async function (this: ThreadbearWorld, line: string) {

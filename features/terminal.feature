@@ -5,6 +5,13 @@ Feature: The Terminal
 
   # A shell here always runs in a temp folder the scenario makes: the demo
   # threads' own folders are Mike's, and a shell never starts in anyone's.
+  #
+  # @windows-pending: what these type is a POSIX shell's (printf, seq, tput,
+  # trap, /bin/bash), and Windows' Terminal runs PowerShell; and there a
+  # command from a reply is always copied, never typed, as only a Unix can
+  # tell its shell is the one at the prompt (terminal.rs, shell_in_front).
+  # None of this file has run on Windows yet: the Windows build stopped at
+  # its Rust tests from 10 Nov.
 
   Background:
     Given the app is connected to a runner with the demo threads
@@ -28,7 +35,7 @@ Feature: The Terminal
     Then the Terminal is put away
     And the thread's shell is still running
 
-  @terminal.panel
+  @terminal.panel @windows-pending
   Scenario: What a program prints shows in the Terminal
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -36,7 +43,7 @@ Feature: The Terminal
     And I type "printf '\033[31mred\033[0m and plain\n'" and press Return in the Terminal
     Then the Terminal shows the line "red and plain"
 
-  @terminal.panel
+  @terminal.panel @windows-pending
   Scenario: What's scrolled off the top can be scrolled back to
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -59,20 +66,27 @@ Feature: The Terminal
     Then the Terminal shows the line "pasted-in"
 
   # macOS's own bash never asks for pastes to be marked, so each line break
-  # would be Return. A scripted app answers the question with Cancel.
-  @terminal.panel
+  # would be Return. A newer bash does (Linux's), unless told not to, which
+  # macOS's doesn't know and shrugs off. A scripted app answers the question
+  # with Cancel. Linux has no question of the app's own yet, so there it
+  # doesn't paste rather than asking (alert.rs): this would pass without
+  # asking anything.
+  @terminal.panel @windows-pending @linux-pending
   Scenario: Pasting lines that would each run asks first
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
     And I press ⌘J
     And I type "/bin/bash --norc --noprofile" and press Return in the Terminal
-    And I paste the lines "echo pasted-one" and "echo pasted-two" into the Terminal
+    And I type "bind 'set enable-bracketed-paste off'; echo told-bash" and press Return in the Terminal
+    Then the Terminal shows the line "told-bash"
+    And the shell in the Terminal doesn't mark pastes
+    When I paste the lines "echo pasted-one" and "echo pasted-two" into the Terminal
     Then the Terminal doesn't show the line "pasted-one"
     And the Terminal's prompt doesn't have "echo pasted-one"
 
   # A text expander's snippet or dictated paragraphs come from the input
   # method in one go, and a line break in them would be Return.
-  @terminal.panel
+  @terminal.panel @windows-pending
   Scenario: Text an input method puts in all at once is pasted, not typed
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -82,7 +96,7 @@ Feature: The Terminal
     Then the Terminal's prompt has "echo from-a-snippet" on it
     And the Terminal doesn't show the line "from-a-snippet"
 
-  @terminal.panel
+  @terminal.panel @windows-pending
   Scenario: The shell is as wide as the panel
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -133,7 +147,7 @@ Feature: The Terminal
 
   # SIGHUP alone left such a shell running for good, still in the folder,
   # as the pty waited for it to end before closing (Codex's review, 11 Nov).
-  @terminal.lifecycle
+  @terminal.lifecycle @windows-pending
   Scenario: Archiving a thread stops its shell even when it ignores the hang-up
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -145,7 +159,7 @@ Feature: The Terminal
 
   # Nor one that ignores SIGTERM too and never reads its terminal, which
   # closing the pty with the app doesn't reach.
-  @terminal.lifecycle
+  @terminal.lifecycle @windows-pending
   Scenario: Quitting stops a shell that ignores the hang-up
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -157,7 +171,7 @@ Feature: The Terminal
 
   # Archiving starts ending it, two seconds a step; quitting in the meantime
   # mustn't leave it to a thread that goes with the app.
-  @terminal.lifecycle
+  @terminal.lifecycle @windows-pending
   Scenario: Quitting just after archiving still stops a shell that ignores the hang-up
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -179,7 +193,7 @@ Feature: The Terminal
     When I press New Shell in the Terminal
     Then the Terminal is showing a shell in the thread's folder
 
-  @terminal.putcommand
+  @terminal.putcommand @windows-pending
   Scenario: A shell block's command goes to the Terminal's prompt, and only Return runs it
     Given the thread "Rename the Settings tabs" works in a folder of its own
     And the agent's last reply in "Rename the Settings tabs" holds a bash block "echo from-the-reply"
@@ -193,7 +207,7 @@ Feature: The Terminal
 
   # Not typed in place of the first: clearing that would mean sending keys
   # (^U) a shell can have bound to anything, Return included.
-  @terminal.putcommand
+  @terminal.putcommand @windows-pending
   Scenario: Another block's command is copied while one waits unrun
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
@@ -209,18 +223,20 @@ Feature: The Terminal
   # into another machine). cat with pastes marked looks like a prompt otherwise.
   # With job control off, a program the shell runs stays in the shell's own
   # group, so the group having the terminal doesn't say the shell is the one
-  # reading it (`ssh -tt` there would get the command).
-  @terminal.putcommand
+  # reading it (`ssh -tt` there would get the command). `set +m` turns job
+  # control off in zsh and bash alike (zsh's `unsetopt monitor` is bash's
+  # "command not found", which left job control on there).
+  @terminal.putcommand @windows-pending
   Scenario: A program in the shell's own group counts as busy
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"
     And I press ⌘J
-    And I type "unsetopt monitor; printf '\033[?2004hcat-ready\n'; /bin/cat" and press Return in the Terminal
+    And I type "set +m; printf '\033[?2004hcat-ready\n'; /bin/cat" and press Return in the Terminal
     Then the Terminal shows the line "cat-ready"
     When I put "echo not-in-cat" in the Terminal from its block
     Then "echo not-in-cat" is copied instead
 
-  @terminal.putcommand
+  @terminal.putcommand @windows-pending
   Scenario: A shell that execs another program counts as busy
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When I open the thread "Rename the Settings tabs"

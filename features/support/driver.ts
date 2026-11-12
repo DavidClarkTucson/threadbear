@@ -140,6 +140,8 @@ export type Dump = {
     cols?: number | null;
     rows?: number | null;
     screen?: string[] | null;
+    /** The GPUI app's: the screen as lines, rows the text wrapped over joined. */
+    lines?: string[] | null;
     shells: string[];
   } | null;
 };

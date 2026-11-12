@@ -83,4 +83,4 @@ Feature: Getting around the app
 
   @menu.app
   Scenario: The app menu quits on the key every Mac app has
-    Then the app menu has "Quit Threadbear" on "⌘Q"
+    Then the app menu has "Quit Threadbear" on "⌘Q" on a Mac, "Ctrl+Q" elsewhere

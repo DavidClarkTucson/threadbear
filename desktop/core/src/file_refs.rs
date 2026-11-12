@@ -150,7 +150,9 @@ pub fn search(folder: &str, path: &str) -> Option<String> {
             let full = entry.path();
             if entry_name == name {
                 let found = full.to_string_lossy().into_owned();
-                if found.ends_with(&suffix) {
+                // Windows' paths come back with backslashes, while what a
+                // reply names has forward ones, so nothing matched there.
+                if found.replace(std::path::MAIN_SEPARATOR, "/").ends_with(&suffix) {
                     return Some(found);
                 }
             }
@@ -342,8 +344,10 @@ mod tests {
             std::fs::write(root.join(file), "x").unwrap();
         }
         let folder = root.to_string_lossy().into_owned();
-        assert_eq!(search(&folder, "Target.swift").as_deref(), Some(root.join("src/deep/down/Target.swift").to_string_lossy().as_ref()));
-        assert_eq!(search(&folder, "down/Target.swift").as_deref(), Some(root.join("src/deep/down/Target.swift").to_string_lossy().as_ref()));
+        // Joined a part at a time, so Windows' is the backslashed path it finds.
+        let target = root.join("src").join("deep").join("down").join("Target.swift");
+        assert_eq!(search(&folder, "Target.swift").as_deref(), Some(target.to_string_lossy().as_ref()));
+        assert_eq!(search(&folder, "down/Target.swift").as_deref(), Some(target.to_string_lossy().as_ref()));
         assert_eq!(search(&folder, "up/Target.swift"), None);
         for passed_over in ["Only.swift", "Secret.swift", "Inside.swift"] {
             assert_eq!(search(&folder, passed_over), None, "{passed_over}");

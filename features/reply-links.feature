@@ -19,7 +19,7 @@ Feature: Links in a reply
     Given a file "plan.md" saying "# The plan\n\nShip it." in a folder of its own
     When I open the thread "Morning brief"
     And a reply linking "the plan" to that file streams in
-    Then the menu of the link "the plan" offers "Open in Panel | Show in Finder | Copy Path | Default"
+    Then the menu of the link "the plan" offers "Open in Panel | Show in Finder | Copy Path | Default" on a Mac, "Open in Panel | Show in Folder | Copy Path | Default" elsewhere
     When I choose "Copy Path" from the menu of the link "the plan"
     Then the clipboard holds that file's path
     When I choose "Open in Panel" from the menu of the link "the plan"

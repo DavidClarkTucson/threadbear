@@ -2515,7 +2515,15 @@ function listFolder(client, p) {
   return {
     path: p.path, truncated: false,
     entries: fs.readdirSync(p.path).map((name) => {
-      const s = fs.statSync(path.join(p.path, name));
+      let s;
+      try {
+        s = fs.statSync(path.join(p.path, name));
+      } catch {
+        // A broken link, or one stat can't follow, still listed, as the
+        // runner lists it (runner/src/files.ts): failing the whole folder
+        // said "Couldn't read this folder" for / on GitHub's Macs (11 Nov).
+        return { name, isFolder: false, hidden: name.startsWith('.') };
+      }
       return { name, isFolder: s.isDirectory(), hidden: name.startsWith('.'), modifiedAt: s.mtime.toISOString(), ...(s.isDirectory() ? {} : { size: s.size }) };
     }),
   };

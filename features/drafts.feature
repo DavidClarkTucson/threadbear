@@ -26,7 +26,9 @@ Feature: Drafts in a reply
     And a reply with an unfinished Slack draft streams in
     Then the reply shows no draft box
 
-  @rich.draft.copy
+  # The GPUI app only puts HTML beside the words on the Mac's clipboard so
+  # far: Windows' and Linux's need code of their own (draft_boxes.rs).
+  @rich.draft.copy @windows-pending @linux-pending
   Scenario: Copy puts the draft on the clipboard with its bold and links, and says so
     When I open the thread "Morning brief"
     And a reply with a Slack draft streams in

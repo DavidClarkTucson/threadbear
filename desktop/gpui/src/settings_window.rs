@@ -1102,6 +1102,32 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) ->
     devices::automation(app, cmd, cx)
 }
 
+/// Scrolls Settings' pane so `bounds`, a control drawn out of sight in it,
+/// comes into view, as a person scrolls to a switch before pressing it: a
+/// script's click by tooltip only finds what's on show. On a small screen
+/// the window can't be made tall enough for all of General (GitHub's Macs'
+/// is 1024 by 768, so Keep the Mac awake was below the bottom, 11 Nov).
+/// False when it's in view already, or Settings isn't open.
+#[cfg(feature = "automation")]
+pub(crate) fn scroll_into_view(app: &Entity<Threadbear>, bounds: Bounds<Pixels>, cx: &App) -> bool {
+    let Some((_, view)) = app.read(cx).settings_window.as_ref() else { return false };
+    let scroll = &view.read(cx).scroll;
+    let (pane, offset, most) = (scroll.bounds(), scroll.offset(), scroll.max_offset());
+    let margin = gpui_kit::px(12.);
+    let y = if bounds.bottom() > pane.bottom() {
+        offset.y - (bounds.bottom() - pane.bottom()) - margin
+    } else if bounds.top() < pane.top() {
+        offset.y + (pane.top() - bounds.top()) + margin
+    } else {
+        return false;
+    };
+    // The offset runs from 0 (the top) down to minus the most it can scroll.
+    let lowest = gpui_kit::px(0.) - most.y;
+    let y = if y < lowest { lowest } else if y > gpui_kit::px(0.) { gpui_kit::px(0.) } else { y };
+    scroll.set_offset(point(offset.x, y));
+    true
+}
+
 #[cfg(feature = "automation")]
 pub(crate) use keyboard::automation as keyboard_automation;
 

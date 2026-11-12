@@ -15,6 +15,26 @@ const exe = process.platform === 'win32' ? 'threadbear-gpui.exe' : 'threadbear-g
 const profile = process.env.TB_GPUI_PROFILE ?? 'debug';
 const binary = process.env.TB_GPUI_BIN ?? path.join(process.env.CARGO_TARGET_DIR ?? path.join(root, 'desktop/target'), profile, exe);
 
+// The Terminal's shell (terminal.feature) is the login shell, $SHELL.
+// GitHub's Macs give their runner macOS's own bash 3.2, which never asks for
+// pastes to be marked, so there the app rightly copies every command a reply
+// would put at the prompt, and the scenarios about the prompt can't happen
+// (11 Nov). Every Mac since Catalina starts people in zsh, as Mike's and
+// Tinker Desk's do, so on a Mac the specs' shell is zsh, with a config of its
+// own (ZDOTDIR) rather than whoever's running them: a short prompt, so a
+// command fits on its line beside it, and no first-run questions.
+let zdotdir: string | undefined;
+function specShell(): NodeJS.ProcessEnv {
+  if (process.platform !== 'darwin' || !fs.existsSync('/bin/zsh')) return {};
+  if (!zdotdir) {
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tb-spec-zsh-'));
+    fs.writeFileSync(path.join(dir, '.zshrc'), "PROMPT='%1~ %# '\n");
+    process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
+    zdotdir = dir;
+  }
+  return { SHELL: '/bin/zsh', ZDOTDIR: zdotdir };
+}
+
 async function waitForFile(file: string, what: string, ms: number): Promise<void> {
   const until = Date.now() + ms;
   while (!fs.existsSync(file)) {
@@ -67,6 +87,7 @@ export class GpuiDriver implements Driver {
     const env: NodeJS.ProcessEnv = {
       THREADBEAR_HOME: this.home,
       THREADBEAR_AUTOMATION: file,
+      ...specShell(),
     };
     if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
       // A server: a virtual screen, and a session bus of its own for the

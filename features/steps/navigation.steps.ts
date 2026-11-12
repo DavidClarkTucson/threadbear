@@ -51,10 +51,20 @@ Then('the {string} menu has {string}', async function (this: ThreadbearWorld, me
 
 // The app menu is the first one, whatever it's called (the dev build's is
 // named for its instance).
-Then('the app menu has {string} on {string}', async function (this: ThreadbearWorld, title: string, key: string) {
-  const out = JSON.parse(okValue(await this.app.do({ cmd: 'menus' }))) as { title: string; items: { title: string; key?: string }[] }[];
+async function appMenuKey(world: ThreadbearWorld, title: string, key: string) {
+  const out = JSON.parse(okValue(await world.app.do({ cmd: 'menus' }))) as { title: string; items: { title: string; key?: string }[] }[];
   const item = out[0]?.items.find((i) => i.title === title);
   assert.equal(item?.key, key, `${title} in the app menu: ${JSON.stringify(item ?? null)}`);
+}
+
+Then('the app menu has {string} on {string}', async function (this: ThreadbearWorld, title: string, key: string) {
+  await appMenuKey(this, title, key);
+});
+
+// Quit is ⌘Q on a Mac, and Control-Q on Windows and Linux, as apps there
+// have it (shell.rs, standard_key_display).
+Then('the app menu has {string} on {string} on a Mac, {string} elsewhere', async function (this: ThreadbearWorld, title: string, mac: string, elsewhere: string) {
+  await appMenuKey(this, title, process.platform === 'darwin' ? mac : elsewhere);
 });
 
 Then("the open thread isn't {string}", async function (this: ThreadbearWorld, title: string) {

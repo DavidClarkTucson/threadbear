@@ -2483,6 +2483,7 @@ mod tests {
 
     /// This thread's CPU time: the M5 is often busy, so wall time would
     /// say more about the machine than the parser.
+    #[cfg(unix)]
     fn thread_cpu() -> std::time::Duration {
         #[repr(C)]
         struct Timespec {
@@ -2500,6 +2501,30 @@ mod tests {
         // SAFETY: clock_gettime only writes the struct it's given.
         assert_eq!(unsafe { clock_gettime(THREAD_CPU, &mut at) }, 0);
         std::time::Duration::new(at.sec as u64, at.nsec as u32)
+    }
+
+    /// Windows has no clock_gettime (the Windows build's link failed on it,
+    /// 11 Nov), so the same from GetThreadTimes: kernel and user time, in
+    /// 100 ns steps. kernel32 is linked into every Windows program.
+    #[cfg(windows)]
+    fn thread_cpu() -> std::time::Duration {
+        #[repr(C)]
+        struct FileTime {
+            low: u32,
+            high: u32,
+        }
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentThread() -> *mut std::ffi::c_void;
+            fn GetThreadTimes(thread: *mut std::ffi::c_void, created: *mut FileTime, exited: *mut FileTime, kernel: *mut FileTime, user: *mut FileTime) -> i32;
+        }
+        let zero = || FileTime { low: 0, high: 0 };
+        let (mut created, mut exited, mut kernel, mut user) = (zero(), zero(), zero(), zero());
+        // SAFETY: GetCurrentThread's handle needs no closing, and
+        // GetThreadTimes only writes the four structs it's given.
+        assert_ne!(unsafe { GetThreadTimes(GetCurrentThread(), &mut created, &mut exited, &mut kernel, &mut user) }, 0);
+        let ticks = |t: &FileTime| (u64::from(t.high) << 32) | u64::from(t.low);
+        std::time::Duration::from_nanos((ticks(&kernel) + ticks(&user)) * 100)
     }
 
     fn cpu_time_of(source: &str) -> std::time::Duration {

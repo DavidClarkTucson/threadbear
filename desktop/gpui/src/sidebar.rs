@@ -1949,7 +1949,20 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
             };
             window.render_frame(cx);
             let matches = |label: &str| if prefix { label.starts_with(tip) } else { label == tip };
-            let found = window.elements().into_iter().filter(|e| e.visible() && e.label().is_some_and(&matches)).collect::<Vec<_>>();
+            let shown = |window: &Window| window.elements().into_iter().filter(|e| e.visible() && e.label().is_some_and(&matches)).collect::<Vec<_>>();
+            let mut found = shown(window);
+            // One drawn wholly or partly out of sight in Settings' pane is
+            // scrolled to first, as a person would, so the click's middle
+            // lands on it (settings_window::scroll_into_view). Partly counts
+            // as shown above, with its middle maybe past the pane's edge.
+            if cmd["settings"].as_bool() == Some(true) {
+                let target = found.last().cloned().or_else(|| window.elements().into_iter().filter(|e| e.label().is_some_and(&matches)).last());
+                if target.is_some_and(|t| crate::settings_window::scroll_into_view(app, t.bounds(), cx)) {
+                    window.refresh();
+                    window.render_frame(cx);
+                    found = shown(window);
+                }
+            }
             let Some(target) = found.last() else { return Err(format!("no control with the tip {tip:?}")) };
             let at = target.bounds().center();
             window.pointer_move(at, None, cx);

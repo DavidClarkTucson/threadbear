@@ -51,18 +51,31 @@ impl Global for TerminalsGlobal {}
 
 /// Made with the app (`Threadbear::new`), before anything can ask for a shell.
 pub(crate) fn install(app: &Entity<Threadbear>, cx: &mut App) {
-    // Tab and Shift-Tab move the keyboard between controls, and ⌘C copies a
-    // text selection, in the window's root (gpui-kit's own keys): in the
-    // terminal they're the shell's (completion, and ^C off the Mac), so they
-    // go no further than its key handler. ⌘V isn't bound anywhere above it.
-    let copy = if cfg!(target_os = "macos") { "cmd-c" } else { "ctrl-shift-c" };
-    let mut keys = vec![KeyBinding::new("tab", NoAction, Some(KEY_CONTEXT)), KeyBinding::new("shift-tab", NoAction, Some(KEY_CONTEXT)), KeyBinding::new(copy, NoAction, Some(KEY_CONTEXT))];
-    if !cfg!(target_os = "macos") {
-        keys.push(KeyBinding::new("ctrl-c", NoAction, Some(KEY_CONTEXT)));
-    }
-    cx.bind_keys(keys);
+    cx.bind_keys(own_keys());
     let terminals = cx.new(|cx| Terminals::new(app, cx));
     cx.set_global(TerminalsGlobal(terminals));
+}
+
+/// The keys that go no further than the terminal's own key handler. Tab and
+/// Shift-Tab move the keyboard between controls, and ⌘C copies a text
+/// selection, in the window's root (gpui-kit's own keys): in the terminal
+/// they're the shell's (completion, and ^C off the Mac). And its copy, paste
+/// and select-all keys off the Mac, Control-Shift C, V and A, are its own
+/// too: Control-Shift-C is also Copy Transcript as Markdown there, so in the
+/// terminal it copied the whole thread rather than what was selected (11
+/// Nov). The app's command keys have no context, which ties with these at
+/// the terminal's depth, and a tie goes to whichever was bound last, so
+/// `apply_shortcuts` binds these again after binding the commands.
+pub(crate) fn own_keys() -> Vec<KeyBinding> {
+    let mut chords = vec!["tab", "shift-tab"];
+    if cfg!(target_os = "macos") {
+        // ⌘V and ⌘A too, in case shortcuts.json gives a command one of them
+        // (Settings won't, but the file is anyone's to edit).
+        chords.extend(["cmd-c", "cmd-v", "cmd-a"]);
+    } else {
+        chords.extend(["ctrl-c", "ctrl-shift-c", "ctrl-shift-v", "ctrl-shift-a"]);
+    }
+    chords.into_iter().map(|chord| KeyBinding::new(chord, NoAction, Some(KEY_CONTEXT))).collect()
 }
 
 pub(crate) const KEY_CONTEXT: &str = "Terminal";
@@ -884,6 +897,43 @@ impl Session {
             .collect()
     }
 
+    /// The screen as lines of text rather than rows: a row the text wrapped
+    /// from (the grid marks it) is joined to the next, and trailing spaces
+    /// go. For the specs, as a command after a long prompt wraps in a narrow
+    /// panel, and the rows alone can't say which of them are one line.
+    #[cfg(feature = "automation")]
+    pub(crate) fn screen_text_lines(&self) -> Vec<String> {
+        use alacritty_terminal::term::cell::Flags;
+        let term = self.term.lock();
+        let grid = term.grid();
+        let offset = grid.display_offset() as i32;
+        let cols = term.columns();
+        let mut lines = Vec::new();
+        let mut line = String::new();
+        for row in 0..term.screen_lines() as i32 {
+            let row = &grid[GridLine(row - offset)];
+            // As the screen draws them (terminal_element.rs): a wide
+            // character's spacer cells aren't characters, and an accent
+            // typed after its letter rides on that letter's cell.
+            for c in 0..cols {
+                let cell = &row[Column(c)];
+                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                line.push(cell.c);
+                line.extend(cell.zerowidth().into_iter().flatten());
+            }
+            if cols == 0 || !row[Column(cols - 1)].flags.contains(Flags::WRAPLINE) {
+                lines.push(line.trim_end().to_owned());
+                line.clear();
+            }
+        }
+        if !line.is_empty() {
+            lines.push(line.trim_end().to_owned());
+        }
+        lines
+    }
+
     // ---- Keys and text ----
 
     pub(crate) fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -1372,6 +1422,7 @@ pub(crate) fn dump(app: &Threadbear, cx: &App) -> Value {
         "cols": session.map(|s| s.size.cols),
         "rows": session.map(|s| s.size.rows),
         "screen": session.map(|s| s.screen_lines()),
+        "lines": session.map(|s| s.screen_text_lines()),
         "shells": shells,
     })
 }
@@ -1584,15 +1635,20 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
             window.focus(&handle, cx);
             window.render_frame(cx);
         }
+        // The terminal's own keys for them (`key_down`): ⌘ on the Mac, and
+        // Control-Shift elsewhere, as Control-C there is the shell's
+        // interrupt. `secondary-` is Control alone off the Mac, so on Linux
+        // the copy went to the shell as ^A and ^C and nothing was copied.
+        let key = |letter: &str| if cfg!(target_os = "macos") { format!("cmd-{letter}") } else { format!("ctrl-shift-{letter}") };
         if cmd["select"].as_str() == Some("all") {
-            window.press("secondary-a", cx);
+            window.press(&key("a"), cx);
         }
         if cmd["copy"].as_bool() == Some(true) {
-            window.press("secondary-c", cx);
+            window.press(&key("c"), cx);
         }
         if let Some(text) = cmd["paste"].as_str() {
             cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
-            window.press("secondary-v", cx);
+            window.press(&key("v"), cx);
         }
         if let Some(lines) = cmd["scroll"].as_f64() {
             // A real wheel turn over the middle of the grid, through hit testing.

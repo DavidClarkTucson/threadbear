@@ -1,6 +1,7 @@
-import { Given, Then, When } from '@cucumber/cucumber';
+import { After, Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { ThreadbearWorld } from '../support/world.ts';
 import { okValue } from '../support/driver.ts';
@@ -15,6 +16,29 @@ async function showFiles(world: ThreadbearWorld) {
   await world.app.do({ cmd: 'panel', id: 'threadbear.files' });
   await world.until('the folder browser to be showing', (d) => pane(d)?.section === 'threadbear.files' && names(d).length > 0);
 }
+
+/** Folders a scenario made, to go when it ends. */
+const made = new WeakMap<ThreadbearWorld, string[]>();
+After(function (this: ThreadbearWorld) {
+  for (const dir of made.get(this) ?? []) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// The demo thread's own folder sits in the mock runner's temp folder, which
+// is deep on a Mac (/private/var/folders/...) but /tmp/tb-spec-... on Linux,
+// short enough for the path bar to show whole, so nothing was tucked behind
+// its … there (11 Nov). A folder made deep, in a temp folder of its own.
+Given('the thread {string} works in a folder too deep for the path bar to show whole', async function (this: ThreadbearWorld, title: string) {
+  const thread = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
+  const top = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-folders-')));
+  made.set(this, [...(made.get(this) ?? []), top]);
+  const folder = path.join(top, 'a-folder-of-its-own', 'with-more-folders', 'above-the-one', 'it-works-in');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'notes.md'), 'made by the scenario\n');
+  await this.app.do({ cmd: 'mock', method: 'terminal', params: { threadId: thread.id, cwd: folder } });
+  // Open, so its composer says when the app has the new folder.
+  await this.open(title);
+  await this.until(`the thread working in ${folder}`, (d) => d.composer.cwd?.replace(/\/$/, '') === folder || undefined);
+});
 
 Given('the thread\'s folder is showing in the pane for {string}', async function (this: ThreadbearWorld, title: string) {
   await this.open(title);
@@ -174,5 +198,7 @@ When('I pick the last folder in the path bar\'s … menu', async function (this:
 
 Then('the pane is browsing that folder', async function (this: ThreadbearWorld) {
   const name = this.lastAnswer ?? '';
-  await this.until(`the pane browsing ${name}`, (d) => previewLine(d)?.startsWith('folder ') && (previewLine(d)?.split(' ')[1] ?? '').endsWith(`/${name}`));
+  // The top of the disk is "/" itself, which no other path ends with.
+  const at = (d: Parameters<typeof previewLine>[0]) => previewLine(d)?.split(' ')[1] ?? '';
+  await this.until(`the pane browsing ${name}`, (d) => previewLine(d)?.startsWith('folder ') && (name === '/' ? at(d) === '/' : at(d).endsWith(`/${name}`)));
 });

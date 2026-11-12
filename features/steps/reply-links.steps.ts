@@ -68,9 +68,18 @@ async function peek(world: ThreadbearWorld, words: string, command: Record<strin
   return world.app.do({ cmd: 'peek', row: row.id, words, ...command });
 }
 
-Then('the menu of the link {string} offers {string}', async function (this: ThreadbearWorld, words: string, list: string) {
-  const items = JSON.parse(okValue(await peek(this, words, { menu: true }))) as string[];
+async function menuOffers(world: ThreadbearWorld, words: string, list: string) {
+  const items = JSON.parse(okValue(await peek(world, words, { menu: true }))) as string[];
   for (const item of list.split(' | ')) assert.ok(items.includes(item), `no "${item}" in: ${items.join(' | ')}`);
+}
+
+Then('the menu of the link {string} offers {string}', async function (this: ThreadbearWorld, words: string, list: string) {
+  await menuOffers(this, words, list);
+});
+
+// The Finder is the Mac's; Windows and Linux call theirs a folder.
+Then('the menu of the link {string} offers {string} on a Mac, {string} elsewhere', async function (this: ThreadbearWorld, words: string, mac: string, elsewhere: string) {
+  await menuOffers(this, words, process.platform === 'darwin' ? mac : elsewhere);
 });
 
 When('I choose {string} from the menu of the link {string}', async function (this: ThreadbearWorld, item: string, words: string) {

@@ -6,7 +6,8 @@ Feature: Words selected in a reply
   Background:
     Given the app is connected to a runner with the demo threads
 
-  @rich.selectionbar @rich.copy
+  # Only the Mac's clipboard gets the HTML so far (selection_bar.rs).
+  @rich.selectionbar @rich.copy @windows-pending @linux-pending
   Scenario: Copy on the bar over selected words copies them with their links
     When I open the thread "Morning brief"
     And a reply saying "Ship the [release notes](https://example.com/notes) **today**." streams in
@@ -32,8 +33,9 @@ Feature: Words selected in a reply
 
   # A scripted Swift app's ⌘C goes to the Mac's own clipboard, not the
   # instance's own that `clipboard` reads (Automation.pasteboard), so it
-  # can't be read back there; its Copy on the bar is checked above.
-  @rich.copy @swift-pending
+  # can't be read back there; its Copy on the bar is checked above. And as
+  # above, only the Mac's clipboard gets the HTML so far.
+  @rich.copy @swift-pending @windows-pending @linux-pending
   Scenario: ⌘C on selected words copies them with their links
     When I open the thread "Morning brief"
     And a reply saying "Ship the [release notes](https://example.com/notes) **today**." streams in
