@@ -1098,7 +1098,10 @@ impl Composer {
                 .aria_label("Stop")
                 .cursor_pointer()
                 .bg(bg)
-                .child(Icon::from(IconName::Square).with_size(px(10.)).text_color(fg))
+                // A filled square, as the Swift app's `stop.fill` at 9 pt bold:
+                // Lucide's Square is only an outline (12 Nov, Mike: "This stop
+                // button doesn't look quite right").
+                .child(div().size(px(9.)).rounded(px(2.)).bg(fg))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)))
                 .tip(if cfg!(target_os = "macos") { "Stop (⌘.)" } else { "Stop (Ctrl+.)" })
                 // Its key to the left while ⌘ is held (key_hints.rs).
