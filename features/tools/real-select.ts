@@ -10,12 +10,6 @@
 //
 // Prints each try, what was selected while the button was still down and
 // after, and PASS or FAIL.
-//
-// The Shift-click checks still fail some of the time (12 Nov): the kit's
-// window selection is extended right (anchor and cursor where they should
-// be), but the reply's text copies and draws nothing. Not a missed redraw:
-// a whole-window refresh on every press didn't change it. A follow-up in
-// the GPUI port thread (df5c7153).
 import { execFileSync, spawn } from 'node:child_process';
 import path from 'node:path';
 import { GpuiDriver } from '../support/gpui.ts';
@@ -152,6 +146,24 @@ try {
     check(`${label}: double-click a word`, await click([first.left + 6, first.mid], 2), 'Here');
     await shiftClick(label, s);
     await clickAway(label, s);
+    await anotherItem(label, s);
+  }
+
+  // A selection in one item, then a drag along another: the new words, with
+  // the bar over them. SHOTS=<dir> keeps a picture of each, to see the
+  // highlight is drawn where the bar says (Mike's recording, 12 Nov, had
+  // the bar over words with nothing highlighted).
+  async function anotherItem(label: string, s: Awaited<ReturnType<typeof screen>>) {
+    const one = s.find('still active');
+    const three = s.find('the last one');
+    await clear(s);
+    await drag([one.left, one.mid], [one.right, one.mid], 0.3, 60, 0.016);
+    const r = await drag([three.left, three.mid], [three.right, three.mid], 0.3, 60, 0.016);
+    if (process.env.SHOTS) {
+      const file = path.join(process.env.SHOTS, `${label}-another-item.png`);
+      execFileSync('screencapture', ['-x', '-R', `${Math.round(one.left - 20)},${Math.round(one.mid - 80)},520,200`, file]);
+    }
+    check(`${label}: a drag along another item after a selection`, r.after, three.line.text.trim(), r.during);
   }
 
   // A plain click on words after a selection puts it away, bar and all. In

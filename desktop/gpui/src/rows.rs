@@ -298,7 +298,7 @@ impl ThreadPane {
         let text_style = self.reading_style(cx);
         // Its links' own menus and cards, as a reply's (reply_links.rs).
         let text = doc.map(|doc| {
-            let text = self.linked_text(&doc, &format!("agent-{ix}"), cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);
+            let text = self.linked_text(&doc, &format!("agent-{ix}"), cx).selectable(true).style(text_style).shared_code_block_highlighter(plain_code_blocks());
             crate::reply_links::link_aware(text, ix, row, &self.summary.id, cx)
         });
         let card = v_flex()
@@ -358,7 +358,7 @@ impl ThreadPane {
         let source = self.with_thread_chips(source, cx);
         let doc = self.markdown_state(&item.item_id, &source, cx);
         let text_style = self.reading_style(cx);
-        let text = self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).code_block_highlighter(plain_code_blocks);
+        let text = self.linked_text(&doc, &row.id, cx).selectable(true).style(text_style).shared_code_block_highlighter(plain_code_blocks());
         // A ```bash block's play and copy icons (shell_blocks.rs).
         let text = crate::shell_blocks::with_icons(text, &source, &self.summary.id);
         // TextKit leaves out the space over a text's first paragraph, so a
@@ -643,10 +643,21 @@ fn card(border: Hsla) -> Div {
     v_flex().gap_3().p_3p5().rounded_xl().border_1().border_color(border)
 }
 
+/// What a code block's highlighter is.
+type CodeHighlighter = std::sync::Arc<dyn Fn(&gpui_kit::base::text::CodeBlock) -> Vec<(std::ops::Range<usize>, gpui_kit::HighlightStyle)> + Send + Sync>;
+
 /// The transcript's code blocks stay plain, as the Swift app's do; the kit's
 /// highlighter is for the file preview (files.rs).
-pub(crate) fn plain_code_blocks(_: &gpui_kit::base::text::CodeBlock) -> Vec<(std::ops::Range<usize>, gpui_kit::HighlightStyle)> {
-    Vec::new()
+///
+/// The same one every frame, never a new closure: the kit compares
+/// highlighters by pointer, and a new one tells it the text is reflowing, so
+/// it keeps the selection it had through it and doesn't take a new one. With
+/// a new closure every render, a Shift-click's selection (or any made while
+/// the pane redrew) was neither drawn nor copied (12 Nov; the bar over words
+/// with nothing highlighted in Mike's recording).
+pub(crate) fn plain_code_blocks() -> CodeHighlighter {
+    static PLAIN: std::sync::LazyLock<CodeHighlighter> = std::sync::LazyLock::new(|| std::sync::Arc::new(|_| Vec::new()));
+    PLAIN.clone()
 }
 
 impl crate::thread::ThreadPane {
@@ -668,3 +679,14 @@ impl crate::thread::ThreadPane {
     }
 }
 
+#[cfg(test)]
+mod highlighter_tests {
+    /// The kit takes a different highlighter for a reflow, which keeps the old
+    /// selection over a new one: a Shift-click in a reply showed and copied
+    /// nothing whenever the pane redrew (proven with the kit's own logs and
+    /// the real pointer, features/tools/real-select.ts, 12 Nov).
+    #[test]
+    fn the_transcript_hands_over_the_same_highlighter_every_time() {
+        assert!(std::sync::Arc::ptr_eq(&super::plain_code_blocks(), &super::plain_code_blocks()));
+    }
+}
