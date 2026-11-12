@@ -24,11 +24,6 @@ Then('the card offers the follow-up {string}', async function (this: ThreadbearW
   await this.until(`the card offering "${followUp}"`, (d) => cardLines(d).some((l) => l.includes(followUp)));
 });
 
-// Any line of the card: a review's heading or one of its findings.
-Then('the card shows {string}', async function (this: ThreadbearWorld, words: string) {
-  await this.until(`the card showing "${words}"`, (d) => cardLines(d).some((l) => l.includes(words)));
-});
-
 Then('the follow-up {string} is ticked', async function (this: ThreadbearWorld, followUp: string) {
   await this.until(`"${followUp}" ticked`, (d) => cardLines(d).some((l) => l.startsWith('[x] ') && l.includes(followUp)));
 });
@@ -85,6 +80,17 @@ When('the agent there finishes a turn another lab reviewed', async function (thi
   };
   await this.app.do({ cmd: 'mock', method: 'stream', params: { threadId: d.selection?.id, text: 'Fixed the refresh, and left the sign-out one for you.', hz: 60, completed: { needs: 'nothing', review } } });
   await this.until('the reviewed turn finished', (d) => d.selection?.status === 'idle' && d.transcript.rows.some((r) => r.kind === 'footer' && r.turn === 'turn_stream'), 20_000);
+});
+
+// Another lab's review is a row of the transcript over the reply, its text
+// the heading then "; #1 fixed: <claim>" a finding (RowDebug).
+Then("the transcript's review line says {string}", async function (this: ThreadbearWorld, words: string) {
+  await this.until(`a review line saying "${words}"`, (d) => d.transcript.rows.some((r) => r.kind === 'labReview' && r.text.includes(words)));
+});
+
+Then("the card doesn't show {string}", async function (this: ThreadbearWorld, words: string) {
+  const d = await this.app.dump();
+  if (cardLines(d).some((l) => l.includes(words))) throw new Error(`The card shows "${words}": ${JSON.stringify(cardLines(d))}`);
 });
 
 type WithAnswers = Dump & { composer: Dump['composer'] & { answers?: string[] | null } };

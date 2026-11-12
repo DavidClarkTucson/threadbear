@@ -1277,9 +1277,11 @@ impl LabReview {
     }
 
     /// The one line over the findings: who, how many rounds, how it came out
-    /// (LabReview.heading).
+    /// (LabReview.heading). The reviewer's login ("Codex (codex-1)") is left
+    /// off: which account reviewed is noise here (Mike, 12 Nov 2026).
     pub fn heading(&self) -> String {
-        let who = if self.independent { format!("Reviewed by {}", self.reviewer) } else { format!("Reviewed by a fresh {} session", self.reviewer) };
+        let name = self.reviewer.split(" (").next().unwrap_or(&self.reviewer);
+        let who = if self.independent { format!("Reviewed by {name}") } else { format!("Reviewed by a fresh {name} session") };
         let rounds = if self.rounds > 1 { format!(", {} rounds", self.rounds) } else { String::new() };
         let open = self.findings.iter().filter(|f| f.outcome.is_none() || f.outcome.as_deref() == Some("left")).count();
         let result = if self.unstructured {

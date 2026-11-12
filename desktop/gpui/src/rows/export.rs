@@ -97,6 +97,12 @@ pub(crate) fn message_text(row: &Row) -> Option<String> {
             lines.join("\n")
         }
         RowContent::Gap(gap) => format!("_{}_", gap.label()),
+        // As MarkdownExport's: the heading, then each finding and its answer.
+        RowContent::LabReview(review) => {
+            let mut lines = vec![format!("_{}_", review.heading())];
+            lines.extend(review.findings.iter().map(|f| format!("- {}: {}", f.outcome.as_deref().unwrap_or("no answer"), f.claim)));
+            lines.join("\n")
+        }
     })
 }
 

@@ -79,7 +79,8 @@ you go.
 - [ ] In a narrow panel (a thread in a panel of its own, a narrow window) the
   chips under the box run past its edge, where the Swift app's shrink their
   labels to fit (`composer.modelpicker`, `composer.permission`)
-- [x] The card: no lab-review findings on it, no slide between pages, picks
+- [x] The card: no lab-review findings on it (since 12 Nov they're a row in
+  the transcript instead, in both apps), no slide between pages, picks
   don't show as chips while it's collapsed, no pictures in a Something else
   box, no beep when Return can't go on (`card.*`). In since 11 Nov; Reduce
   Motion's crossfade in place of the slide waits for the app to read it

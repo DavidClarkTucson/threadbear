@@ -18,7 +18,6 @@ mod composer;
 mod composer_card;
 mod composer_account;
 mod composer_answers;
-mod composer_review;
 mod composer_chips;
 mod composer_context;
 mod composer_inline;

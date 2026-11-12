@@ -56,10 +56,6 @@ impl RowDebug {
             }
             RowContent::Asks(card) => {
                 let openness = if card.is_open { "open" } else { "closed" };
-                // Another lab's review, as the Swift RowDebug says it.
-                let review = card.review.as_ref().map_or_else(String::new, |r| {
-                    format!(", review: {}{}", r.heading(), r.findings.iter().map(|f| format!("; #{} {}: {}", f.id, f.outcome.as_deref().unwrap_or("no answer"), f.claim)).collect::<String>())
-                });
                 if card.is_done() {
                     let loose = match &card.loose_ends {
                         None => String::new(),
@@ -73,9 +69,9 @@ impl RowDebug {
                             card.next.iter().enumerate().map(|(i, n)| format!("{}{n}", if picked(&card.picked_next, i) { "[x] " } else { "" })).collect();
                         format!(", next: {}", items.join("; "))
                     };
-                    return format!("{openness}, nothing needed{loose}{next}{review}");
+                    return format!("{openness}, nothing needed{loose}{next}");
                 }
-                format!("{openness}, {} of {} ticked: {}{review}", card.ticked_count(), card.asks.len(), card.asks.iter().map(|a| a.action.clone()).collect::<Vec<_>>().join("; "))
+                format!("{openness}, {} of {} ticked: {}", card.ticked_count(), card.asks.len(), card.asks.iter().map(|a| a.action.clone()).collect::<Vec<_>>().join("; "))
             }
             RowContent::Footer(completion) => {
                 let mut words = duration(completion.duration_ms);
@@ -98,6 +94,10 @@ impl RowDebug {
             RowContent::Background(status) => BackgroundWork::line_with_detail(&status.tasks),
             RowContent::Changes(card) => card.title(),
             RowContent::Gap(gap) => gap.label(),
+            // Another lab's review, as the Swift RowDebug says it.
+            RowContent::LabReview(r) => {
+                format!("{}{}", r.heading(), r.findings.iter().map(|f| format!("; #{} {}: {}", f.id, f.outcome.as_deref().unwrap_or("no answer"), f.claim)).collect::<String>())
+            }
         }
     }
 

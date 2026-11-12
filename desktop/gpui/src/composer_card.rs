@@ -398,10 +398,7 @@ impl Composer {
                     }
                 })),
         );
-        // Another lab's review, then what's still open (doneText).
-        if let Some(review) = &card.review {
-            column = column.child(self.render_review(review, metrics::ROW_INSET, cx));
-        }
+        // What's still open (doneText).
         if let Some(ends) = &card.loose_ends {
             if !ends.is_empty() {
                 let open = ends.iter().any(|e| e.kind != "booked");
@@ -554,21 +551,14 @@ impl Composer {
         }
         let mut column = v_flex().w_full().child(heading.when(!paged, |h| h.mb(px(metrics::HEADING_SPACING))));
         let numbered = card.asks.len() > 1;
-        let last = card.asks.len().saturating_sub(1);
         if paged {
             // Every page in the same cell, so the cell is the tallest one's
             // height; only the page showing is drawn, and it goes last so
-            // it's the one on top for the pointer. The review's ledger is on
-            // the last page, under its ask.
+            // it's the one on top for the pointer.
             let slide = self.card.slide.filter(|s| s.to == page && s.from < card.asks.len());
             let mut pages = div().w_full().grid().grid_cols(1).overflow_hidden();
             for (index, ask) in card.asks.iter().enumerate().filter(|(i, _)| *i != page).chain(card.asks.iter().enumerate().filter(|(i, _)| *i == page)) {
-                let mut body = v_flex().w_full().child(self.render_ask(index, ask, numbered, window, cx));
-                if index == last {
-                    if let Some(review) = &card.review {
-                        body = body.child(self.render_review(review, 0., cx));
-                    }
-                }
+                let body = v_flex().w_full().child(self.render_ask(index, ask, numbered, window, cx));
                 let cell = div().w_full().min_w_0().col_start(1).row_start(1);
                 pages = pages.child(match slide {
                     // The two asks sliding like a deck (CardDeck): the next
@@ -587,11 +577,6 @@ impl Composer {
         } else {
             for (index, ask) in card.asks.iter().enumerate() {
                 column = column.child(self.render_ask(index, ask, numbered, window, cx));
-            }
-            // The review's ledger under the asks: one it left for Mike is
-            // usually what they're about (asksText).
-            if let Some(review) = &card.review {
-                column = column.child(self.render_review(review, 0., cx));
             }
         }
         column.into_any_element()
@@ -1158,10 +1143,6 @@ impl Composer {
                     lines.push(format!("    $ {}", run.command));
                 }
             }
-        }
-        // Another lab's review: its heading, then "  Fixed: <claim>" each.
-        if let Some(review) = &card.review {
-            lines.extend(crate::composer_review::review_lines(review));
         }
         Some(lines)
     }

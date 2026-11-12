@@ -1265,7 +1265,6 @@ impl TranscriptModel {
                         card.ticked = completion.asks.iter().enumerate().filter(|(_, ask)| ask.ticked).map(|(i, _)| i as i64).collect();
                         card.picks = self.ask_picks.get(&seq).cloned().unwrap_or_default();
                         card.notes = self.ask_notes.get(&seq).cloned().unwrap_or_default();
-                        card.review = completion.review.clone();
                         self.append(Row::new(&card_id, seq, row_turn, RowContent::Asks(card)));
                         self.asks_row_for_seq.insert(seq, card_id.clone());
                         self.open_asks_row = Some(card_id);
@@ -1278,7 +1277,6 @@ impl TranscriptModel {
                         card.picked_next = self.next_picks.get(&seq).cloned().unwrap_or_default();
                         card.explain_next = self.next_explains.get(&seq).cloned().unwrap_or_default();
                         card.loose_ends = self.loose_ends.as_ref().filter(|l| l.seq == seq).map(|l| l.ends.clone());
-                        card.review = completion.review.clone();
                         self.append(Row::new(&card_id, seq, row_turn, RowContent::Asks(card)));
                         self.asks_row_for_seq.insert(seq, card_id.clone());
                         self.open_asks_row = Some(card_id);
@@ -1868,10 +1866,32 @@ impl TranscriptModel {
                     .collect();
                 let worked: f64 = footers.iter().map(|(_, done)| done.duration_ms).sum();
                 let gaps = self.dividers(turn.clone(), &replies);
+                // Another lab's review (the latest in the stretch) is one
+                // quiet line over the reviewed turn's reply (under the line of
+                // work when that's there too): it happens in the background,
+                // so it stays off the card (Mike, 12 Nov 2026). A stretch can
+                // hold earlier turns' replies too, so it's that turn's own;
+                // with no reply, over its footer.
+                let reviewed = footers.iter().rev().find_map(|(index, done)| done.review.as_ref().map(|review| (*index, review)));
+                let review_row: Option<Row> = reviewed.map(|(index, review)| {
+                    let footer = &self.items[index];
+                    let id = format!("lr:{}", footer.turn_id.clone().unwrap_or_else(|| footer.id.clone()));
+                    derived(&id, footer.seq, footer.turn_id.clone(), RowContent::LabReview(review.clone()))
+                });
+                let review_at = reviewed.map(|(index, _)| {
+                    let turn_of = &self.items[index].turn_id;
+                    replies.iter().copied().filter(|&r| &self.items[r].turn_id == turn_of).min().unwrap_or(index)
+                });
                 for k in turn.clone() {
                     let row = &self.items[k];
                     if self.is_floating_card(k) {
                         continue;
+                    }
+                    if Some(k) == review_at && Some(k) != group_at {
+                        if let Some(review) = &review_row {
+                            out.push(review.clone());
+                            starts.push(turn.start);
+                        }
                     }
                     if Some(k) == group_at && !folded.is_empty() {
                         let lead = &self.items[folded[0]];
@@ -1889,6 +1909,12 @@ impl TranscriptModel {
                                 let mut member = self.items[m].clone();
                                 member.in_group = true;
                                 out.push(member);
+                                starts.push(turn.start);
+                            }
+                        }
+                        if Some(k) == review_at {
+                            if let Some(review) = &review_row {
+                                out.push(review.clone());
                                 starts.push(turn.start);
                             }
                         }

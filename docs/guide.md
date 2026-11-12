@@ -1106,9 +1106,10 @@ verdict: a list of concrete findings, or nothing that holds up. Then your
 thread wakes with them numbered, and it can't finish until it has answered
 each one: fixed, disputed (saying why), or left for you to decide, which
 comes to you as a question. Anything it fixed gets reviewed again, just the
-new change, until a round finds nothing. The done card shows who reviewed,
-how it came out, and each finding with what was done about it; the line
-over them opens the review thread. The review thread is archived when it's
+new change, until a round finds nothing. A quiet line in the thread, over
+the reply, shows who reviewed and how it came out, with each finding and
+what was done about it under it; the line opens the review thread. It
+stays off the done card, as it happens in the background. The review thread is archived when it's
 done, so it stays out of your inbox. A thread gets at most three reviews
 between your messages, and if the last one's fixes weren't looked at, the
 card says so. For now the findings only show on the Mac whose runner ran

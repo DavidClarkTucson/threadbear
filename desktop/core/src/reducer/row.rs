@@ -64,6 +64,9 @@ pub enum RowKind {
     Changes,
     Gap,
     PlanCard,
+    /// Another lab's review of the turn's change: a quiet line in the
+    /// transcript over the reply, with its findings under it.
+    LabReview,
 }
 
 impl RowKind {
@@ -91,6 +94,7 @@ impl RowKind {
             RowKind::Changes => "changes",
             RowKind::Gap => "gap",
             RowKind::PlanCard => "planCard",
+            RowKind::LabReview => "labReview",
         }
     }
 }
@@ -483,6 +487,12 @@ pub enum RowContent {
     /// "6 min later · Mine the repo finished" before a turn background work
     /// woke.
     Gap(TurnGap),
+    /// Review by another lab's ledger, drawn over a finished turn's reply
+    /// (derived from the turn's footer, `TurnCompletion.review`). It was on
+    /// the done card until 12 Nov 2026; Mike wanted it in the transcript:
+    /// "this should just be happening in the background. It doesn't need
+    /// to draw my attention."
+    LabReview(super::event::LabReview),
 }
 
 impl RowContent {
@@ -514,6 +524,7 @@ impl RowContent {
             RowContent::Background(_) => RowKind::Background,
             RowContent::Changes(_) => RowKind::Changes,
             RowContent::Gap(_) => RowKind::Gap,
+            RowContent::LabReview(_) => RowKind::LabReview,
         }
     }
 
@@ -561,9 +572,6 @@ pub struct AsksCard {
     /// The done card's loose ends, as the runner checked them: None when
     /// it didn't, empty when nothing's left.
     pub loose_ends: Option<Vec<LooseEnd>>,
-    /// Another lab's findings and what was done about each, on the turn
-    /// that answered them.
-    pub review: Option<super::event::LabReview>,
 }
 
 impl AsksCard {
@@ -579,7 +587,6 @@ impl AsksCard {
             explain_next: BTreeSet::new(),
             notes: BTreeMap::new(),
             loose_ends: None,
-            review: None,
         }
     }
 

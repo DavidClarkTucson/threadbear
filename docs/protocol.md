@@ -3118,7 +3118,9 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   findings and answers in the brief, so the reviewer checks the fixes
   and the disputes; a round that finds nothing passes and the agent
   finishes. Disputed or left alone start no round. The ledger is drawn
-  on the done card (or the card of asks) on this runner's own threads;
+  as a quiet row in the transcript, over the turn's reply (under its
+  folded work), on this runner's own threads; it was on the done card
+  until Mike moved it, 12 Nov 2026, as it happens in the background;
   it isn't in the Convex mirror yet, so another Mac and the phone show
   the agent's reply (scenarios.test.ts, KNOWN). A reviewer that gives no
   verdict (after the refusals) is handled as before: its reply goes

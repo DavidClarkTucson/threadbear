@@ -65,14 +65,14 @@ Feature: The open card in the composer
     When I press Return
     Then the transcript shows my message "Turn on the lint rule that sorts imports"
 
-  @card.review
-  Scenario: A done card lists another lab's findings and what was done about each
+  @card.review @swift-pending
+  Scenario: Another lab's findings show in the transcript, not on the done card
     When I open the thread "Tidy the imports in the uploader"
     And the agent there finishes a turn another lab reviewed
     Then the card in the composer says "Done"
-    And the card shows "Reviewed by Codex (codex-1): 1 open"
-    And the card shows "Fixed: Drops the session on refresh."
-    And the card shows "Left for you: Keeps the old token after sign-out."
+    And the transcript's review line says "Reviewed by Codex: 1 open"
+    And the transcript's review line says "#1 fixed: Drops the session on refresh."
+    And the card doesn't show "Reviewed by"
 
   @card.collapse
   Scenario: Folded, the card's picks show as chips over the box, and one can be taken back

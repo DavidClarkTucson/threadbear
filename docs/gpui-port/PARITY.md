@@ -222,6 +222,30 @@ run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
 
+### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
+
+- Mike didn't want the review on the done card ("this should just be
+  happening in the background. It doesn't need to draw my attention"), so
+  both apps draw it as a row of its own (`RowContent::LabReview`, kind
+  `labReview`, id `lr:<turn>`), derived from the reviewed turn's footer: one
+  quiet line under the line of work and over that turn's own reply (over its
+  footer with no reply), then each finding small and quiet with its mark,
+  the claim, and what was done about it and where. The heading is grey, not
+  the link colour, and still opens the review's thread. Its heading leaves
+  the login off ("Reviewed by Codex, 2 rounds: 1 open"). The card no longer
+  carries `review`, and the composer card's dump has no review lines; the
+  transcript row's dump text is RowDebug's, as the Swift one's.
+- Files: `desktop/core/src/reducer/{row,model,event,row_debug}.rs`,
+  `desktop/core/tests/needs_you_tests.rs`,
+  `desktop/gpui/src/rows/lab_review.rs` (was `composer_review.rs`),
+  `desktop/gpui/src/{rows,composer_card,main}.rs`,
+  `desktop/gpui/src/rows/export.rs`.
+- Verification: `cargo test -p threadbear-core --test needs_you_tests`, 13 of
+  13, with the row's place after a folded line of work, over a lone reply,
+  and over its own turn's reply in a stretch a runner's turn carried on;
+  `cargo check -p threadbear-gpui --features automation`. The
+  `card.review` spec run against both apps is still to do.
+
 ### 2026-11-12 An ask's link on the card, and answering a decision with the runner away, crashed the app (`card.needsyou`, `projects.decisions`)
 
 - A link button on a card of asks in the composer ("Open the design
