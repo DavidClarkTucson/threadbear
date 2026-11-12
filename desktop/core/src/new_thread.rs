@@ -226,8 +226,10 @@ pub fn account_label(id: &str, accounts: &[Account]) -> String {
 
 // ---- Picking ----
 
-/// `AccountUsageText.pickFloor` and `chipWarning`.
-pub const PICK_FLOOR: f64 = 10.;
+/// The runner's `MIN_ROOM_PERCENT` (1%, so a login is used until it's
+/// all but out rather than leaving 10% of each week unspent) and the Swift
+/// app's `chipWarning`. The frozen Swift app's `pickFloor` stays at 10.
+pub const PICK_FLOOR: f64 = 1.;
 pub const CHIP_WARNING: f64 = 25.;
 
 fn is_eligible(account: &Account) -> bool {

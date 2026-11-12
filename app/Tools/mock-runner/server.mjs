@@ -259,7 +259,7 @@ function pickInPool(pool, provider, current) {
   const want = provider ?? own[0]?.provider;
   const candidates = own.filter((a) => a.provider === want);
   const cur = candidates.find((a) => a.id === current);
-  if (cur && roomOf(cur) >= 10) return cur.id;
+  if (cur && roomOf(cur) >= 1) return cur.id; // the runner's MIN_ROOM_PERCENT
   return [...candidates].sort((a, b) => roomOf(b) - roomOf(a))[0]?.id;
 }
 // The provider whose account lists a model id, if any does.

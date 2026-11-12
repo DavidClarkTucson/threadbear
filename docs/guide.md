@@ -1062,7 +1062,9 @@ as their title.
 Logins are grouped into pools, one for Claude and one for Codex to begin
 with (Settings > Pools). A new thread in a pool starts on the login with room whose
 weekly limit resets soonest, so a week's leftover gets spent before it's
-lost rather than draining the login with the most room. When the one it's on gets close to its limit, it moves to
+lost rather than draining the login with the most room. A login is used
+until it's all but out (under 1% left), so none of a week goes to waste. When
+the one it's on runs out, before a turn or partway through one, it moves to
 another login in the pool with room, and carries on from where it was. When
 none has room, the thread waits and carries on by itself once a limit
 resets. With only one login, that means it waits for that login's limit to

@@ -125,8 +125,8 @@ test('before a turn: a login under the minimum moves the thread, carrying the tr
   const s = h.adapter.last;
   s.init();
   s.result();
-  // claude-3 drops under 10%: the next message moves first.
-  h.setUsage('claude-3', room(5, 130));
+  // claude-3 drops under 1%: the next message moves first.
+  h.setUsage('claude-3', room(0.5, 130));
   h.runner.send(thread.id, 'next');
   await tick();
   const s2 = h.adapter.last;
@@ -137,7 +137,7 @@ test('before a turn: a login under the minimum moves the thread, carrying the tr
   assert.equal(s2.sent[0].text, 'next', 'no handoff note');
   assert.deepEqual(h.copies, [['/tmp/three', '/tmp/main', h.cfg.defaults.cwd, h.cfg.defaults.cwd, s.opts.sessionId]]);
   const n = notes(h, thread.id);
-  assert.match(n[0], /^Moved to main@example\.com: three@example\.com is down to 5% of its 5-hour limit, which resets /);
+  assert.match(n[0], /^Moved to main@example\.com: three@example\.com hit its 5-hour limit, back at /);
   assert.equal(n[1], 'Resumed the session on main@example.com, with the whole conversation.');
   assert.equal(h.runner.get(thread.id).accountId, 'claude-main');
   assert.equal(h.runner.get(thread.id).poolId, 'claude', 'still a pool thread');
@@ -298,7 +298,7 @@ test('a turn that hits the limit marks the login, moves and carries on once; the
 test('nothing in the pool has room: the thread waits, and the wait outlives a restart', async () => {
   const h = poolHarness();
   h.setUsage('claude-main', room(60, 200));
-  h.setUsage('claude-3', room(2, 90));
+  h.setUsage('claude-3', room(0.2, 90));
   const { thread } = h.runner.create({ text: 'x' });
   h.adapter.last.init();
   limit(h.adapter.last);
@@ -327,7 +327,7 @@ test('nothing in the pool has room: the thread waits, and the wait outlives a re
 test('a wait that finds no room waits again; a message from Mike ends it and goes through the before-a-turn check', async () => {
   const h = poolHarness();
   h.setUsage('claude-main', room(0, 30, true));
-  h.setUsage('claude-3', room(3));
+  h.setUsage('claude-3', room(0.3));
   const { thread } = h.runner.create({ text: 'x', accountId: undefined });
   h.adapter.last.init();
   limit(h.adapter.last);

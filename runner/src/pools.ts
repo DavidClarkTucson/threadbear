@@ -226,7 +226,7 @@ function limitWindow(a: Account): UsageWindow | undefined {
 // window's reset. undefined when no reset time is known.
 export function backAt(a: Account, now: number): number | undefined {
   const main = mainWindows(a);
-  let holding = main.filter((w) => w.remainingPercent < (a.usage?.blocked ? 1 : MIN_ROOM_PERCENT));
+  let holding = main.filter((w) => w.remainingPercent < MIN_ROOM_PERCENT);
   if (!holding.length && a.usage?.blocked) holding = [limitWindow(a)].filter((w): w is UsageWindow => !!w);
   const times = holding.map((w) => Date.parse(w.resetsAt ?? '')).filter((t) => Number.isFinite(t) && t > now);
   return times.length && times.length === holding.length ? Math.max(...times) : undefined;
