@@ -933,8 +933,15 @@ to make here and how). To add a Mac, give it a key of its own from this one: `tb
 add <name> --ssh <that Mac>` writes it there, and its runner uses it from
 its next restart. Set that Mac up with `./threadbear setup --existing`, which
 leaves out the Convex login and deploy key (either could do anything to your
-backend) and ends by telling you to run that command; `tb runner check` there
-says if an older setup left them behind.
+backend) and ends by telling you to run that command, with that Mac's
+`<user>@<name>.local`. It needs Remote Login on there (System Settings >
+General > Sharing; setup says if it's off), and ssh from this Mac that asks
+nothing: trust its host key once by hand and `ssh-copy-id` it if it wants a
+password. If ssh fails, `tb runner add` says which of those it was.
+`tb runner check` there says if an older setup or an earlier
+`npx convex login` left a deploy key or Convex login behind. Revoke and
+remove them; rotating the main key as well is for when someone else could
+have used them.
 That key only reaches its own Mac's threads, schedules and Pocket cards: it
 can't pair a phone or put a schedule on another Mac, and that Mac's app
 doesn't list the other Macs' threads. Only the first Mac's key can. A new

@@ -89,7 +89,10 @@ File references are where to look.
   `~/.config/systemd/user/com.mikerosoft.threadbear.runner.service`, and no
   apps; it converts pictures with ImageMagick and rsvg-convert, and reads
   the account's full name from `getent passwd` rather than `id -F`.
-- **A command:** `~/.local/bin/threadbear`.
+- **Commands:** `~/.local/bin/threadbear`, a link into your clone, and
+  `~/.local/bin/tb`, a three-line script that runs the `tb` of the runner
+  release this Mac runs (`runner/scripts/link-tb.sh`; it leaves a `tb` that
+  isn't its own alone, and `install-runner.sh --uninstall` removes it).
 - **Shells, when you open the Terminal (⌘J):** the app starts your login
   shell (`$SHELL`, else zsh) in a pseudo-terminal, one per thread you open
   it on, in that thread's folder. They're its own child processes: a

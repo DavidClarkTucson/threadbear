@@ -57,7 +57,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { isJoining, runnerKeyPlan } from './runner-key-plan.mjs';
+import { isJoining, joinSteps, runnerKeyPlan } from './runner-key-plan.mjs';
 import { ADMIN_URL, backendContainer, DATA_VOLUME, mustSeeTailnetOff, offTailnetStep, origins, PORTS, selfHostedPlan, servedOn, TAILNET_PENDING_FILE } from './self-hosted-plan.mjs';
 import { ConvexAdminError, convexEnv, readConvexAdmin, SELF_HOSTED_ENV_FILE } from '../runner/src/convex-admin.ts';
 
@@ -794,10 +794,11 @@ function install() {
 
 function joined() {
   say('9. Join your first Mac');
-  const host = os.hostname().replace(/\.local$/, '');
-  note(`On your first Mac, run: tb runner add ${v.name ?? host} --ssh ${host}`);
-  note("It gives this Mac's runner a key of its own and the deployment's address, over ssh. Then restart the runner here (tb restart) and its threads show on your phone and your first Mac.");
-  note('tb runner check (here) says if a deploy key or Convex login from an earlier setup is still on this Mac, which you should remove.');
+  const localHost = run('scutil', ['--get', 'LocalHostName']).stdout?.trim() ?? '';
+  // Remote Login on: something answers on port 22. nc needs no admin, where
+  // systemsetup -getremotelogin does.
+  const sshOn = run('nc', ['-z', '-G', '2', 'localhost', '22']).status === 0;
+  for (const line of joinSteps({ localHost, hostname: os.hostname(), user: os.userInfo().username, name: v.name, sshOn })) note(line);
 }
 
 function finish(url, sh) {
