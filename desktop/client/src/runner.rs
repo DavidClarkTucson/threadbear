@@ -10,7 +10,7 @@ use crate::restart::{PendingRestart, RunnerRestart, PATIENCE};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -177,32 +177,35 @@ pub struct Resend {
     pub landed: Arc<dyn Fn(&Value) -> bool + Send + Sync>,
 }
 
-/// The order of the requests about this runner's threads: each has a
-/// place from when it's made (`Client::place`) until it's gone, or has gone
-/// out with nothing ahead of it. A request waiting behind a restart goes
-/// when every place before its own has gone. A place is taken where the
+/// The order of the requests about each of this runner's threads: each
+/// has a place from when it's made (`Client::place`) until it's answered,
+/// and goes once every one made before it for the same thread has been, so
+/// a pick made first lands first, and one the restarting runner turns away
+/// goes again before anything made after it. A place is taken where the
 /// request is made, on the app's thread, rather than once its task first
-/// runs: two tasks started one after the other can run in either order, and
-/// the second could otherwise take the first one's turn (Codex's review, 12
-/// Nov).
+/// runs: two tasks started one after the other can run in either order
+/// (Codex's review, 12 Nov). Per thread, so one thread's slow answer never
+/// holds up another's.
 #[derive(Default)]
 struct Order {
-    places: Mutex<BTreeSet<u64>>,
+    places: Mutex<BTreeMap<u64, String>>,
     next: AtomicU64,
     turn: tokio::sync::Notify,
 }
 
-/// A request's place in the restart queue's order (`Order`). Dropping it
-/// gives it up.
+/// A request's place in its thread's order (`Order`). Dropping it gives it
+/// up.
 pub struct Place {
     id: u64,
+    thread: String,
     order: Arc<Order>,
 }
 
 impl Place {
-    /// Nothing made before this one is still waiting or going.
+    /// Nothing made before this one for its thread is still waiting or
+    /// going.
     fn is_first(&self) -> bool {
-        self.order.places.lock().unwrap().first() == Some(&self.id)
+        !self.order.places.lock().unwrap().range(..self.id).any(|(_, t)| *t == self.thread)
     }
 }
 
@@ -378,7 +381,8 @@ impl Client {
     /// model he picked first. `progress` hears when it's held and when it
     /// goes.
     pub async fn call_in_restart_order(&self, method: &str, params: Value, progress: ProgressFn) -> Result<Value, RpcError> {
-        self.call_in_restart_order_at(self.place(), method, params, progress).await
+        let place = self.place(params["threadId"].as_str().unwrap_or(""));
+        self.call_in_restart_order_at(place, method, params, progress).await
     }
 
     /// `call_in_restart_order` from a place taken when the request was made.
@@ -389,10 +393,10 @@ impl Client {
     /// A place in the order of requests about this runner's threads, to
     /// take where the request is made (`Order`) and hand to
     /// `send_through_restart` or `call_in_restart_order_at`.
-    pub fn place(&self) -> Place {
+    pub fn place(&self, thread_id: &str) -> Place {
         let id = self.order.next.fetch_add(1, Ordering::SeqCst);
-        self.order.places.lock().unwrap().insert(id);
-        Place { id, order: self.order.clone() }
+        self.order.places.lock().unwrap().insert(id, thread_id.to_owned());
+        Place { id, thread: thread_id.to_owned(), order: self.order.clone() }
     }
 
     /// As the app quits: requests still held for a restarting runner stay
@@ -425,67 +429,40 @@ impl Client {
     }
 
     async fn in_restart_order(&self, place: Place, method: &str, params: Value, progress: &ProgressFn, resend: Option<&Resend>) -> Result<Option<Value>, RpcError> {
-        let Some(session) = self.connected_session() else {
-            if !self.restart_under_way() {
-                return Err(RpcError::not_connected());
-            }
+        let sent_down = self.connected_session().is_none();
+        if sent_down && !self.restart_under_way() {
+            return Err(RpcError::not_connected());
+        }
+        if sent_down {
             // Sent while the runner's down: it waits for the new one.
-            progress(Progress::Held);
             log::write("restart", &format!("holding {method} for the new runner"));
-            return self
-                .behind_restart(place, async {
-                    let hold = self.waits.lock().unwrap().0;
-                    let Some(now) = self.wait_for_session(None, hold).await else {
-                        return Err(RpcError::local(NOT_CONNECTED, "The runner didn't come back"));
-                    };
-                    self.go(progress)?;
-                    let first = self.call(method, params.clone()).await;
-                    self.settle(first, now, method, &params, progress, resend).await
-                })
-                .await;
-        };
-        if !place.is_first() {
             progress(Progress::Held);
-            return self
-                .behind_restart(place, async {
-                    // The connection by the time its turn comes. The one
-                    // ahead may have given up waiting while the old runner
-                    // still answers, so this one gets its own wait.
-                    let now = match self.connected_session() {
-                        Some(now) => now,
-                        None => {
-                            let resend_wait = self.waits.lock().unwrap().1;
-                            self.wait_for_session(Some(session), resend_wait).await.ok_or_else(RpcError::not_connected)?
-                        }
-                    };
-                    self.go(progress)?;
-                    let first = self.call(method, params.clone()).await;
-                    self.settle(first, now, method, &params, progress, resend).await
-                })
-                .await;
-        }
-        // Nothing made before it is waiting: it goes now, and gives up its
-        // place once it's on its way, so one made after it can't get there
-        // first.
-        let first = {
-            let mut call = std::pin::pin!(self.call(method, params.clone()));
-            let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(call.as_mut().poll(cx))).await;
-            drop(place);
-            match polled {
-                std::task::Poll::Ready(done) => done,
-                std::task::Poll::Pending => call.await,
-            }
-        };
-        let again = matches!(&first, Err(e) if self.restart_under_way() && (e.turned_away_by_restart() || Self::may_resend(e, method, resend)));
-        if !again {
-            return first.map(Some);
-        }
-        // To the back of the queue, as it goes again on the new runner. A cut
-        // off one hears it's held from `settle`.
-        if first.as_ref().is_err_and(RpcError::turned_away_by_restart) {
+        } else if !place.is_first() && self.restart_under_way() {
+            // Behind one the restart is holding. Behind one that's only on
+            // its way, it waits a moment and says nothing.
             progress(Progress::Held);
         }
-        self.behind_restart(self.place(), self.settle(first, session, method, &params, progress, resend)).await
+        // Its place is kept until it's answered, through a second try on
+        // the new runner, so nothing made after it gets there first.
+        self.behind_restart(place, async {
+            let now = match self.connected_session() {
+                Some(now) => now,
+                // Down when it was made, or gone while it waited its turn:
+                // the new runner, while a restart's under way.
+                None if self.restart_under_way() => {
+                    let (hold, resend_wait) = *self.waits.lock().unwrap();
+                    let Some(now) = self.wait_for_session(None, if sent_down { hold } else { resend_wait }).await else {
+                        return Err(if sent_down { RpcError::local(NOT_CONNECTED, "The runner didn't come back") } else { RpcError::not_connected() });
+                    };
+                    now
+                }
+                None => return Err(RpcError::not_connected()),
+            };
+            self.go(progress)?;
+            let first = self.call(method, params.clone()).await;
+            self.settle(first, now, method, &params, progress, resend).await
+        })
+        .await
     }
 
     /// A message cut off on its way that may have never arrived, to an idle
@@ -560,6 +537,7 @@ impl Client {
         if !error.turned_away_by_restart() || !self.restart_under_way() {
             return Err(error);
         }
+        progress(Progress::Held);
         let resend = self.waits.lock().unwrap().1;
         if self.wait_for_session(Some(sent_on), resend).await.is_none() {
             return Err(error);

@@ -161,7 +161,7 @@ pub async fn call(client: Arc<Client>, method: impl Into<String>, params: Value)
 /// Its place in that order is taken as this is called, where the click is
 /// handled, so call it there and await it later, not inside a task.
 pub fn call_for_thread(client: Arc<Client>, remote: bool, method: &'static str, params: Value) -> impl std::future::Future<Output = Result<Value, RpcError>> + 'static {
-    let place = (!remote && client.connected_session().is_some()).then(|| client.place());
+    let place = (!remote && client.connected_session().is_some()).then(|| client.place(params["threadId"].as_str().unwrap_or("")));
     async move {
         let Some(place) = place else {
             return call(client, method, params).await;

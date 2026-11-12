@@ -80,7 +80,7 @@ impl Threadbear {
     /// A box's draft from before, put back as the box is made (`restore`).
     pub(crate) fn restore_saved_draft(&self, key: &str, composer: &Entity<crate::composer::Composer>, cx: &mut App) {
         if let Some(draft) = self.drafts.saved.get(key).cloned() {
-            composer.update(cx, |c, cx| c.restore_draft(RestoreDraft { text: draft.text, images: draft.images, card: None }, cx));
+            composer.update(cx, |c, cx| c.restore_draft(RestoreDraft::plain(draft.text, draft.images), cx));
         }
     }
 

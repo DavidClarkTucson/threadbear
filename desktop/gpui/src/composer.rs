@@ -119,21 +119,43 @@ pub struct RestoreDraft {
     pub(crate) text: String,
     pub(crate) images: Vec<ImageRef>,
     pub(crate) card: Option<SavedPicks>,
+    /// With a card's picks: the message as it went, in the box's form, for
+    /// the drafts file, which keeps only words and pictures (a quit with
+    /// this still waiting to be given back keeps the answers as words).
+    pub(crate) as_sent: Option<(String, Vec<ImageRef>)>,
 }
 
 impl RestoreDraft {
+    pub(crate) fn plain(text: String, images: Vec<ImageRef>) -> RestoreDraft {
+        RestoreDraft { text, images, card: None, as_sent: None }
+    }
+
+    /// Its words and pictures for the drafts file.
+    pub(crate) fn for_saving(&self) -> (String, Vec<ImageRef>) {
+        match (&self.card, &self.as_sent) {
+            (Some(_), Some(sent)) => sent.clone(),
+            _ => (self.text.clone(), self.images.clone()),
+        }
+    }
+
+    fn join_parts(first: (String, Vec<ImageRef>), then: (String, Vec<ImageRef>)) -> (String, Vec<ImageRef>) {
+        let text = match (first.0.trim().is_empty(), then.0.trim().is_empty()) {
+            (_, true) => first.0,
+            (true, false) => then.0,
+            (false, false) => format!("{}\n\n{}", first.0, then.0),
+        };
+        let mut images = first.1;
+        images.extend(then.1);
+        (text, images)
+    }
+
     /// `first`'s words and pictures, then `then`'s, a blank line between
     /// (`restoreDraft`: what's given back goes before anything typed since).
     /// Pictures are marks in the words, in order, so their lists join too.
     pub(crate) fn joined(first: RestoreDraft, then: RestoreDraft) -> RestoreDraft {
-        let text = match (first.text.trim().is_empty(), then.text.trim().is_empty()) {
-            (_, true) => first.text,
-            (true, false) => then.text,
-            (false, false) => format!("{}\n\n{}", first.text, then.text),
-        };
-        let mut images = first.images;
-        images.extend(then.images);
-        RestoreDraft { text, images, card: first.card.or(then.card) }
+        let as_sent = (first.card.is_some() || then.card.is_some()).then(|| Self::join_parts(first.for_saving(), then.for_saving()));
+        let (text, images) = Self::join_parts((first.text, first.images), (then.text, then.images));
+        RestoreDraft { text, images, card: first.card.or(then.card), as_sent }
     }
 }
 
@@ -337,7 +359,7 @@ impl Composer {
     /// drawn yet), messages still held for a restarting runner, then the box.
     pub(crate) fn draft_for_saving(&self, cx: &App) -> (String, Vec<ImageRef>) {
         let (text, images) = self.draft(cx);
-        let mut all = RestoreDraft { text, images, card: None };
+        let mut all = RestoreDraft::plain(text, images);
         if let Some(id) = &self.thread_id {
             for held in crate::thread::held_drafts(id).into_iter().rev() {
                 all = RestoreDraft::joined(held, all);
@@ -346,7 +368,7 @@ impl Composer {
         if let Some(restore) = &self.restore {
             all = RestoreDraft::joined(restore.clone(), all);
         }
-        (all.text, all.images)
+        all.for_saving()
     }
 
     /// Whether the box holds anything a restart would lose: words, or a
@@ -480,7 +502,7 @@ impl Composer {
         self.mentions.clear();
         self.clear_picks(cx);
         let composer = cx.entity().downgrade();
-        let restore = RestoreDraft { text: draft_text, images, card: picks };
+        let restore = RestoreDraft { text: draft_text, images, card: picks, as_sent: None };
         pane.update(cx, |p, cx| p.send_message(text, images_to_send, answers, Some(restore), composer, cx));
         cx.notify();
     }
@@ -549,7 +571,7 @@ impl Composer {
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.pictures.clear();
         self.mentions.clear();
-        self.apply_restore(RestoreDraft { text, images, card: None }, window, cx);
+        self.apply_restore(RestoreDraft::plain(text, images), window, cx);
     }
 
     /// Sends the edited message (`sendEdit`): the box keeps it, its banner
@@ -669,7 +691,7 @@ impl Composer {
             self.restore = Some(restore);
             return;
         }
-        let RestoreDraft { text: draft, images, card } = restore;
+        let RestoreDraft { text: draft, images, card, .. } = restore;
         if let Some(saved) = card {
             if self.card.seq == Some(saved.seq) {
                 self.card.picks = saved.picks;
@@ -682,7 +704,7 @@ impl Composer {
         // Anything typed since stays, after what's given back
         // (`restoreDraft`), rather than the words given back being lost.
         let (now_text, now_images) = self.draft(cx);
-        let RestoreDraft { text: draft, images, .. } = RestoreDraft::joined(RestoreDraft { text: draft, images, card: None }, RestoreDraft { text: now_text, images: now_images, card: None });
+        let RestoreDraft { text: draft, images, .. } = RestoreDraft::joined(RestoreDraft::plain(draft, images), RestoreDraft::plain(now_text, now_images));
         // Chips again where the marks are, each picture back in place, and
         // the cards and threads linked in the words as theirs.
         let content = self.content_for(&draft, &images);

@@ -121,6 +121,11 @@ pub(crate) fn held_drafts(thread_id: &str) -> Vec<crate::composer::RestoreDraft>
     outbox(thread_id)
         .iter()
         .filter_map(|m| OUTBOX_DRAFTS.with(|d| d.borrow().get(&m.id).filter(|(t, _, held)| t == thread_id && held.load(Ordering::SeqCst)).map(|(_, draft, _)| draft.clone())))
+        // Their words as they went, a card's answers included.
+        .map(|draft| {
+            let (text, images) = draft.for_saving();
+            crate::composer::RestoreDraft::plain(text, images)
+        })
         .collect()
 }
 
@@ -709,16 +714,16 @@ impl ThreadPane {
         let was_idle = !self.summary.busy() && list.len() == 1;
         set_outbox(&thread_id, list);
         let held = Arc::new(std::sync::atomic::AtomicBool::new(holding));
+        // A card's answers aren't in the box's words: the message as it
+        // goes, back in the box's form, so a quit keeps them too, held or
+        // given back (`RestoreDraft::for_saving`).
+        let mut draft = draft;
+        if let Some(draft) = draft.as_mut().filter(|d| d.card.is_some()) {
+            let (words, order) = threadbear_core::composer::edit_draft(&text, images.len());
+            draft.as_sent = Some((words, order.into_iter().filter_map(|i| images.get(i).cloned()).collect()));
+        }
         if let Some(draft) = &draft {
-            // A card's answers aren't in the box's words: the message as it
-            // goes, back in the box's form, so a quit keeps them too.
-            let kept = if draft.card.is_some() {
-                let (words, order) = threadbear_core::composer::edit_draft(&text, images.len());
-                crate::composer::RestoreDraft { text: words, images: order.into_iter().filter_map(|i| images.get(i).cloned()).collect(), card: None }
-            } else {
-                draft.clone()
-            };
-            OUTBOX_DRAFTS.with(|d| d.borrow_mut().insert(pending_id.clone(), (thread_id.clone(), kept, held.clone())));
+            OUTBOX_DRAFTS.with(|d| d.borrow_mut().insert(pending_id.clone(), (thread_id.clone(), draft.clone(), held.clone())));
         }
         self.show_outbox(cx);
         self.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
@@ -742,7 +747,7 @@ impl ThreadPane {
         let resend = Resend { thread_id: thread_id.clone(), after_seq: message.after_seq, was_idle, landed: Arc::new(move |v: &Value| Event::decode(v).is_some_and(|e| probe.is_landed_by(&e))) };
         let client = self.client.clone();
         // Its place among this runner's requests, from the click (`Place`).
-        let place = (!remote).then(|| client.place());
+        let place = (!remote).then(|| client.place(&thread_id));
         RT.spawn(async move {
             let res = match place {
                 Some(place) => client.send_through_restart(place, params, resend, progress).await,

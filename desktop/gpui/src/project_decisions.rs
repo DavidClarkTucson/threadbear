@@ -310,7 +310,7 @@ impl Threadbear {
         }
         let client = self.client.clone();
         // Its place in the order of this runner's requests, from the click.
-        let place = (!remote).then(|| client.place());
+        let place = (!remote).then(|| client.place(&thread));
         cx.spawn(async move |this, cx| {
             // The card says "Sending to" with its spinner meanwhile, held or not.
             let res = if let Some(place) = place {

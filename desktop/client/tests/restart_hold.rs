@@ -312,7 +312,9 @@ async fn a_send_turned_away_by_a_restart_goes_again_to_the_new_runner() {
         async move { client.call_in_restart_order("threads.send", send("again please"), said).await }
     });
     settle().await;
-    assert_eq!(*heard.lock().unwrap(), vec![Progress::Held]);
+    // Going (which clears a bubble the app showed as held when the runner
+    // was back before it went), then turned away and held.
+    assert_eq!(*heard.lock().unwrap(), vec![Progress::Sending, Progress::Held]);
     fake.go_down();
     until_disconnected(&mut rx).await;
     fake.up();
@@ -410,12 +412,12 @@ async fn a_send_cut_off_by_a_restart_goes_again_to_the_new_runner() {
     let (said, heard) = progress();
     let sending = tokio::spawn({
         let client = client.clone();
-        async move { client.send_through_restart(client.place(), send("cut off"), resend("cut off", 10, true), said).await }
+        async move { client.send_through_restart(client.place("t1"), send("cut off"), resend("cut off", 10, true), said).await }
     });
     until_disconnected(&mut rx).await;
     fake.go_down();
     settle().await;
-    assert_eq!(*heard.lock().unwrap(), vec![Progress::Held]);
+    assert_eq!(*heard.lock().unwrap(), vec![Progress::Sending, Progress::Held]);
     fake.up();
     let answer = tokio::time::timeout(Duration::from_secs(5), sending).await.unwrap().unwrap();
     assert!(matches!(answer, Ok(Some(_))), "{answer:?}");
@@ -435,7 +437,7 @@ async fn a_cut_off_send_that_had_arrived_isnt_sent_twice() {
     fake.state.lock().unwrap().events.push(json!({ "seq": 11, "type": "user.message", "text": "arrived" }));
     let sending = tokio::spawn({
         let client = client.clone();
-        async move { client.send_through_restart(client.place(), send("arrived"), resend("arrived", 10, true), progress().0).await }
+        async move { client.send_through_restart(client.place("t1"), send("arrived"), resend("arrived", 10, true), progress().0).await }
     });
     until_disconnected(&mut rx).await;
     let answer = tokio::time::timeout(Duration::from_secs(5), sending).await.unwrap().unwrap();
@@ -453,7 +455,7 @@ async fn a_cut_off_send_to_a_busy_thread_goes_back_in_the_box() {
     fake.state.lock().unwrap().summary["status"] = json!("running");
     let sending = tokio::spawn({
         let client = client.clone();
-        async move { client.send_through_restart(client.place(), send("maybe queued"), resend("maybe queued", 10, true), progress().0).await }
+        async move { client.send_through_restart(client.place("t1"), send("maybe queued"), resend("maybe queued", 10, true), progress().0).await }
     });
     until_disconnected(&mut rx).await;
     let err = tokio::time::timeout(Duration::from_secs(5), sending).await.unwrap().unwrap().unwrap_err();
@@ -470,7 +472,7 @@ async fn a_cut_off_send_with_another_on_its_way_isnt_sent_again() {
     fake.reply_with(&[Reply::Close]);
     let sending = tokio::spawn({
         let client = client.clone();
-        async move { client.send_through_restart(client.place(), send("one of two"), resend("one of two", 10, false), progress().0).await }
+        async move { client.send_through_restart(client.place("t1"), send("one of two"), resend("one of two", 10, false), progress().0).await }
     });
     until_disconnected(&mut rx).await;
     let err = tokio::time::timeout(Duration::from_secs(5), sending).await.unwrap().unwrap().unwrap_err();
@@ -483,7 +485,7 @@ async fn a_cut_off_send_with_no_restart_isnt_sent_again() {
     let fake = Fake::start().await;
     let (client, _rx) = connect(&fake).await;
     fake.reply_with(&[Reply::Close]);
-    let err = client.send_through_restart(client.place(), send("dropped"), resend("dropped", 10, true), progress().0).await.unwrap_err();
+    let err = client.send_through_restart(client.place("t1"), send("dropped"), resend("dropped", 10, true), progress().0).await.unwrap_err();
     assert_eq!(err.code, CLOSED);
     settle().await;
     assert_eq!(fake.sends().len(), 1);
@@ -542,12 +544,12 @@ async fn a_held_message_cut_off_again_keeps_its_place() {
     fake.reply_with(&[Reply::RestartAndClose]);
     let first = tokio::spawn({
         let client = client.clone();
-        async move { client.send_through_restart(client.place(), send("first"), resend("first", 10, true), progress().0).await }
+        async move { client.send_through_restart(client.place("t1"), send("first"), resend("first", 10, true), progress().0).await }
     });
     tokio::time::sleep(Duration::from_millis(30)).await;
     let second = tokio::spawn({
         let client = client.clone();
-        async move { client.send_through_restart(client.place(), send("second"), resend("second", 10, false), progress().0).await }
+        async move { client.send_through_restart(client.place("t1"), send("second"), resend("second", 10, false), progress().0).await }
     });
     settle().await;
     fake.up();
@@ -589,7 +591,7 @@ async fn held_messages_go_in_the_order_they_were_made() {
     settle().await;
     fake.go_down();
     until_disconnected(&mut rx).await;
-    let (a, b) = (client.place(), client.place());
+    let (a, b) = (client.place("t1"), client.place("t1"));
     // The later one's task starts first.
     let second = tokio::spawn({
         let client = client.clone();
@@ -621,7 +623,7 @@ async fn a_held_message_never_goes_once_the_app_is_quitting() {
     let (said, heard) = progress();
     let sending = tokio::spawn({
         let client = client.clone();
-        async move { client.send_through_restart(client.place(), send("held at quit"), resend("held at quit", 10, true), said).await }
+        async move { client.send_through_restart(client.place("t1"), send("held at quit"), resend("held at quit", 10, true), said).await }
     });
     settle().await;
     client.stop_holding();
@@ -630,4 +632,57 @@ async fn a_held_message_never_goes_once_the_app_is_quitting() {
     assert_eq!(err.code, NOT_CONNECTED);
     assert!(fake.sends().is_empty(), "it went: {:?}", fake.sends());
     assert_eq!(*heard.lock().unwrap(), vec![Progress::Held], "it never said it was going");
+}
+
+/// Made A then B, B's task first, and the old runner turns A away during a
+/// handover: A goes again on the new runner before B goes at all, as A
+/// keeps its place until it's answered (Codex's third review, 12 Nov).
+#[tokio::test]
+async fn one_turned_away_keeps_its_place_ahead_of_one_made_after_it() {
+    let fake = Fake::start().await;
+    let (client, mut rx) = connect(&fake).await;
+    fake.notice("The runner will restart when 1 thread finishes.");
+    settle().await;
+    fake.reply_with(&[Reply::Refuse(-32020, "The runner is handing over to a new one; send again in a moment.")]);
+    let (a, b) = (client.place("t1"), client.place("t1"));
+    let second = tokio::spawn({
+        let client = client.clone();
+        async move { client.send_through_restart(b, send("B"), resend("B", 10, false), progress().0).await }
+    });
+    settle().await;
+    let first = tokio::spawn({
+        let client = client.clone();
+        async move { client.send_through_restart(a, send("A"), resend("A", 10, false), progress().0).await }
+    });
+    settle().await;
+    fake.go_down();
+    until_disconnected(&mut rx).await;
+    fake.up();
+    assert!(tokio::time::timeout(Duration::from_secs(8), first).await.unwrap().unwrap().is_ok());
+    assert!(tokio::time::timeout(Duration::from_secs(8), second).await.unwrap().unwrap().is_ok());
+    let order: Vec<(String, u64)> = fake.sends().iter().map(|(_, p, c)| (p["text"].as_str().unwrap().to_owned(), *c)).collect();
+    assert_eq!(order, vec![("A".into(), 1), ("A".into(), 2), ("B".into(), 2)]);
+}
+
+/// Another thread's message doesn't wait for this one's answer.
+#[tokio::test]
+async fn another_threads_message_goes_while_one_waits() {
+    let fake = Fake::start().await;
+    let (client, mut rx) = connect(&fake).await;
+    fake.notice("The runner will restart when 1 thread finishes.");
+    settle().await;
+    fake.reply_with(&[Reply::Refuse(-32004, "Thread not found")]);
+    let held = tokio::spawn({
+        let client = client.clone();
+        async move { client.send_through_restart(client.place("t1"), send("held"), resend("held", 10, false), progress().0).await }
+    });
+    settle().await;
+    let mut other = send("other thread");
+    other["threadId"] = json!("t2");
+    let other = tokio::time::timeout(Duration::from_secs(2), client.call_in_restart_order("threads.send", other, progress().0)).await;
+    assert!(other.unwrap().is_ok(), "t2's message waited for t1's");
+    fake.go_down();
+    until_disconnected(&mut rx).await;
+    fake.up();
+    assert!(tokio::time::timeout(Duration::from_secs(8), held).await.unwrap().unwrap().is_ok());
 }
