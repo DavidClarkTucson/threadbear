@@ -407,14 +407,15 @@ LOW="" LOW_COPY=""
 # desktop/scripts/remote.sh keeps there (63 GB of them on Tinker Desk, 12 Nov,
 # with 1.8 GiB free). Those idle get given back by the same script remote.sh
 # uses, and the disk read again: true if it now has room. $2 is the host's
-# folder as its probe gave it, already checked as a plain path. Sent in the command,
+# folder: as its probe gave it, already checked as a plain path, or \$HOME's
+# when the probe couldn't run, for the host to expand. Sent in the command,
 # not on stdin, as watched runs ssh in the background, where stdin is empty.
 TRIM="$ROOT/desktop/scripts/trim-remote-cache.sh"
 make_room() {
   [ -f "$TRIM" ] || return 1
   local kb
-  watched "$1" "${SSH[@]}" "$1" "cd '$2/gpui' 2>/dev/null || exit 0; bash -c \"\$(printf %s '$(base64 <"$TRIM" | tr -d '\n')' | base64 -d)\" trim -" </dev/null || true
-  kb="$(watched "$1" "${SSH[@]}" "$1" "cd '$2' && $free_cmd" 2>/dev/null)" || return 1
+  watched "$1" "${SSH[@]}" "$1" "cd \"$2/gpui\" 2>/dev/null || exit 0; bash -c \"\$(printf %s '$(base64 <"$TRIM" | tr -d '\n')' | base64 -d)\" trim -" </dev/null || true
+  kb="$(watched "$1" "${SSH[@]}" "$1" "cd \"$2\" && $free_cmd" 2>/dev/null)" || return 1
   low_on_room "$kb"
   [ $? = 1 ]
 }
@@ -430,9 +431,18 @@ choose() {
     case "$h" in -*|"") continue ;; esac
     # One that dropped out during a copy this run isn't tried again.
     case " $SKIP " in *" $h "*) continue ;; esac
-    out="$(watched "$h" "${SSH[@]}" "$h" "$probe" 2>/dev/null)"
-    rc=$?
-    [ "$rc" != 125 ] || over_time busy
+    # Probed again once if the first failed for want of room and giving back
+    # build folders made some.
+    tried_room=0
+    while :; do
+      out="$(watched "$h" "${SSH[@]}" "$h" "$probe" 2>/dev/null)"
+      rc=$?
+      [ "$rc" != 125 ] || over_time busy
+      [ "$rc" != 0 ] && [ "$rc" != 124 ] && [ "$rc" != 255 ] && [ "$tried_room" = 0 ] || break
+      tried_room=1
+      kb="$(watched "$h" "${SSH[@]}" "$h" "cd ~ && $free_cmd" 2>/dev/null)" && low_on_room "$kb" || break
+      make_room "$h" '$HOME/'"$BASE_REL" || break
+    done
     if [ "$rc" = 124 ]; then
       dropped "$h"
       continue

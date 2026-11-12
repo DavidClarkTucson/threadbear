@@ -44,27 +44,41 @@ free_gib() {
   echo $((kb / 1048576))
 }
 
-# Removes a target folder if the host is short and nothing's using it. Look
-# inside it, not at it: a checkout's own time only moves when rsync writes
-# into it, and cargo working inside a folder doesn't change that folder's.
-# With "always" it goes even with room to spare (one past MAX_TARGETS).
+# Whether anything in a folder changed lately. Look inside it, not at it: a
+# checkout's own time only moves when rsync writes into it, and cargo working
+# inside a folder doesn't change that folder's. A folder that isn't there isn't.
+recent() {
+  [ -n "$(find "$1" -mmin -"$BUSY_MINUTES" 2>/dev/null | head -1)" ]
+}
+
+# Removes a target folder and its checkout's copy if the host is short and
+# nothing's using either. The copy counts too: a run touches it as it starts
+# and rsync writes into it, before the run's marker in the target begins, so a
+# long copy still looks in use (Codex's review, 12 Nov). With "always" they go
+# even with room to spare (one past MAX_TARGETS).
 evict() {
   [ "${2:-}" = always ] || [ "$(free_gib)" -lt "$TRIM_GIB" ] || return 0
   [ -d "$1" ] || return 0
-  [ -z "$(find "$1" -mmin -"$BUSY_MINUTES" 2>/dev/null | head -1)" ] || return 0
+  local key="${1#target}"
+  key="${key#-}"
+  local src=""
+  [ -z "$key" ] || src="src-$key"
+  recent "$1" && return 0
+  [ -n "$src" ] && recent "$src" && return 0
   if [ "${2:-}" = always ]; then
     echo "More than $MAX_TARGETS build folders on this host, so removing $1, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
   else
     echo "Short of disk on this host, so removing $1, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
   fi
-  # Moved aside first, as the deleting takes a while and a run that starts in
-  # that time should find no folder rather than half of one. It's still called
-  # target-*, so one left by a crash here goes the next time room is short.
-  local gone="target-gone-$$-${1#target-}"
-  mv "$1" "$gone" && rm -rf "$gone"
-  # Its copy too (node_modules and all): a checkout whose target went is
-  # copied over again anyway, and an old one may never come back.
-  case "$1" in target-*) rm -rf "src-${1#target-}" ;; esac
+  # Both moved aside before either is deleted, as the deleting takes a while
+  # and a run that starts in that time should find no folders rather than half
+  # of one, and must never have its new copy deleted under it. The names stay
+  # target-* and src-*, so ones left by a crash here go another time.
+  local gone="target-gone-$$-${key:-shared}"
+  mv "$1" "$gone" || return 0
+  local src_gone=""
+  if [ -n "$src" ] && [ -d "$src" ] && mv "$src" "src-gone-$$-$key"; then src_gone="src-gone-$$-$key"; fi
+  rm -rf "$gone" ${src_gone:+"$src_gone"}
   return 0
 }
 
@@ -88,10 +102,11 @@ done
 
 # A copy whose target has gone (deleted by hand, or by an older trim that left
 # copies) is up to 2.4 GiB of node_modules nothing uses: a run makes its target
-# before it copies anything. Not one touched lately, in case it's mid-start.
+# before it copies anything. Not one with anything changed lately, in case
+# it's mid-start.
 for c in $(ls -d src-* 2>/dev/null); do
   [ "$c" != "src-$own" ] && [ ! -e "target-${c#src-}" ] || continue
-  [ -n "$(find "$c" -maxdepth 0 -mmin -"$BUSY_MINUTES" 2>/dev/null)" ] || rm -rf "$c"
+  recent "$c" || rm -rf "$c"
 done
 
 [ "$own" != - ] || exit 0

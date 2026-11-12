@@ -220,3 +220,12 @@ test('a copy whose target has gone goes too, unless it was touched lately', (t) 
   assert.equal(h.trim().status, 0);
   assert.deepEqual(fs.readdirSync(h.base).filter((n) => n.startsWith('src-')).sort(), ['src-aaa', 'src-new']);
 });
+
+test("a target whose copy is being written to stays, though nothing in the target changed (a long rsync)", (t) => {
+  const h = host(t, 1, { 'target-aaa': 0, 'src-bbb': 30, 'target-bbb': 30 });
+  fs.writeFileSync(path.join(h.base, 'src-bbb', 'just-copied'), '');
+  fs.utimesSync(path.join(h.base, 'src-bbb'), new Date(Date.now() - 30 * HOUR), new Date(Date.now() - 30 * HOUR));
+  h.trim();
+  assert.deepEqual(h.left(), ['target-aaa', 'target-bbb']);
+  assert.ok(fs.existsSync(path.join(h.base, 'src-bbb', 'just-copied')));
+});
