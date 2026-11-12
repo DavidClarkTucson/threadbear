@@ -423,6 +423,7 @@ impl ReviewWindow {
     /// changed it: the runner's copy from another window, or an answer.
     fn sync_reply_box(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let wanted = self.session.shown_draft().reply.clone().unwrap_or_default();
+        // A changed runner draft or answer still wins over an unreported local edit.
         if self.reply_synced != wanted {
             if self.reply.read(cx).value().as_ref() != wanted.as_str() {
                 self.reply.update(cx, |s, cx| s.set_value(wanted.clone(), window, cx));
