@@ -65,6 +65,25 @@ Feature: The open card in the composer
     When I press Return
     Then the transcript shows my message "Turn on the lint rule that sorts imports"
 
+  # The runner's loose-ends check (protocol "Loose ends") comes on the
+  # thread's summary: the GPUI app dropped it, so its done card never said
+  # "Still open" when the Swift app's did (12 Nov).
+  @card.done @planned.exp.looseends
+  Scenario: A done card lists what the runner found still open
+    Given the runner found "4 commits it made in convex-native-v7 aren't pushed" still open on "Tidy the imports in the uploader"
+    When I open the thread "Tidy the imports in the uploader"
+    Then the card in the composer says "Done"
+    And the done card lists "4 commits it made in convex-native-v7 aren't pushed" as still open
+
+  @planned.exp.looseends
+  Scenario: What's still open follows the runner's check while the thread is open
+    When I open the thread "Tidy the imports in the uploader"
+    Then the card in the composer says "Done"
+    When the runner finds "1 commit on thread/tidy isn't on main" still open on "Tidy the imports in the uploader"
+    Then the done card lists "1 commit on thread/tidy isn't on main" as still open
+    When the runner finds nothing left open on "Tidy the imports in the uploader"
+    Then the done card lists nothing as still open
+
   @card.review @swift-pending
   Scenario: Another lab's findings show in the transcript, not on the done card
     When I open the thread "Tidy the imports in the uploader"

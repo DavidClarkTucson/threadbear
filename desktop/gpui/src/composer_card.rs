@@ -401,25 +401,37 @@ impl Composer {
                     }
                 })),
         );
-        // What's still open (doneText).
+        // What's still open (doneText): a booked check-in alone goes under
+        // "Coming back", as it doesn't stop an archive.
         if let Some(ends) = &card.loose_ends {
             if !ends.is_empty() {
-                let open = ends.iter().any(|e| e.kind != "booked");
+                let open = ends.iter().any(|e| !e.is_booked());
                 column = column.child(small_label(if open { "Still open" } else { "Coming back" }, cx));
                 // Open ones first, then the check-ins (looseEndsText), each a
                 // body line 4 under the last, its mark where a row's circle goes.
-                for end in ends.iter().filter(|e| e.kind != "booked").chain(ends.iter().filter(|e| e.kind == "booked")) {
-                    let booked = end.kind == "booked";
+                for (n, end) in ends.iter().filter(|e| !e.is_booked()).chain(ends.iter().filter(|e| e.is_booked())).enumerate() {
+                    let booked = end.is_booked();
                     let mark = if booked { crate::icons::symbol("clock").text_color(style::secondary_text(cx)) } else { crate::icons::symbol("exclamationmark.circle").text_color(style::needs_you_text(cx)) };
-                    column = column.child(
-                        h_flex()
-                            .w_full()
-                            .items_start()
-                            .mt(px(8.))
-                            .pl(px(metrics::ROW_INSET))
-                            .child(div().flex_none().w(px(metrics::ROW_WORDS - metrics::ROW_INSET)).h(px(style::size::BODY_LINE)).flex().items_center().child(mark.with_size(px(15.))))
-                            .child(div().flex_1().min_w_0().text_size(px(style::size::BODY)).line_height(px(style::size::BODY_LINE)).text_color(style::label_text(cx)).child(end.text.clone())),
-                    );
+                    let words = div().flex_1().min_w_0().text_size(px(style::size::BODY)).line_height(px(style::size::BODY_LINE)).text_color(style::label_text(cx)).child(end.line(&threadbear_core::chrono::Local));
+                    let mut line = h_flex()
+                        .id(("loose-end", n))
+                        .w_full()
+                        .items_start()
+                        .mt(px(8.))
+                        .pl(px(metrics::ROW_INSET))
+                        .child(div().flex_none().w(px(metrics::ROW_WORDS - metrics::ROW_INSET)).h(px(style::size::BODY_LINE)).flex().items_center().child(mark.with_size(px(15.))))
+                        .child(words);
+                    // A thread it started links to it (`thread:<id>`).
+                    if let Some(id) = end.thread_id.clone() {
+                        let this = this.clone();
+                        line = line.cursor_pointer().tip("Open this thread").on_click(move |_, window, cx| {
+                            if let Some(this) = this.upgrade() {
+                                let target = format!("thread:{id}");
+                                this.update(cx, |this, cx| this.open_ask_link(&target, window, cx));
+                            }
+                        });
+                    }
+                    column = column.child(line);
                 }
             }
         }

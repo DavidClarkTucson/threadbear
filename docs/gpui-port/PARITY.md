@@ -325,6 +325,28 @@ built parsers and gates with no launch of the app, which is the trap.)
   own answer, a shell typed in and then running `sleep 30`, and the list and
   thread put back) fail on Tinker Desk's GPUI app before the fix and pass
   with it, with the rest of `@system.selfupdate`.
+### 2026-11-12 The done card's "Still open" (`planned.exp.looseends`, `card.done`)
+
+- Mike: the Swift app's done card on "State machines" listed "4 commits it
+  made in convex-native-v7 aren't pushed" under Still open, and the GPUI
+  one showed just Done. The card had drawing code and the reducer took the
+  check, but nothing fed it: the core `ThreadSummary` had no `looseEnds`,
+  so serde dropped it, and the thread pane never called `set_loose_ends`.
+  Now the summary keeps it (`loose_ends`, read with `loose_ends_check`),
+  and the pane sets it when the thread loads and on every summary change,
+  as `ThreadSession.load` and `AppModel+Connection` do. Also: a booked
+  check-in is the runner's `scheduled` kind, which the card tested as
+  `booked`, so one alone read "Still open"; its line now leads with when it
+  comes back, and a `thread` one opens that thread, as `looseEndsText` has it.
+  The mock runner takes `mock.looseEnds` (by title).
+- Files: `desktop/core/src/inbox.rs`, `desktop/core/src/reducer/event.rs`,
+  `desktop/core/tests/needs_you_tests.rs`, `desktop/gpui/src/{thread,composer_card}.rs`,
+  `app/Tools/mock-runner/server.mjs`, `features/composer-cards.feature`.
+- Verification: `cargo test -p threadbear-core --test needs_you_tests`, 15 of
+  15; the two `@planned.exp.looseends` scenarios (one set before the thread
+  opens, one changing while it's open) pass on GPUI (cloud) and Swift
+  (Tinker Desk), and fail on GPUI without the pane's two calls. Picture,
+  dark: `~/Library/Caches/Threadbear/gpui-compare/loose-ends.png`.
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 

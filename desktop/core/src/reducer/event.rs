@@ -210,13 +210,32 @@ impl LooseEnds {
 
     /// Any that should stop a plain Archive: a booked check-in doesn't.
     pub fn any_open(&self) -> bool {
-        self.ends.iter().any(|end| end.kind != "scheduled")
+        self.ends.iter().any(|end| !end.is_booked())
     }
 }
 
 impl LooseEnd {
     pub fn new(kind: &str, text: &str) -> LooseEnd {
         LooseEnd { kind: kind.to_owned(), text: text.to_owned(), thread_id: None, at: None }
+    }
+
+    /// A check-in booked on the thread (`scheduled`, Swift `isBooked`): it
+    /// comes back by itself, so it goes under "Coming back".
+    pub fn is_booked(&self) -> bool {
+        self.kind == "scheduled"
+    }
+
+    /// Its line on the done card (looseEndsText): a booked check-in says
+    /// when it comes back first, "Fri 13 Nov, 9:30 am: Review the week".
+    pub fn line<Tz: chrono::TimeZone>(&self, tz: &Tz) -> String {
+        let when = self.at.as_deref().filter(|_| self.is_booked()).and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok());
+        match when {
+            Some(at) => {
+                let at = at.with_timezone(tz);
+                format!("{}: {}", at.naive_local().format("%a %-d %b, ").to_string() + &crate::schedules::time_of_day(&at), self.text)
+            }
+            None => self.text.clone(),
+        }
     }
 
     // Synthesized Decodable: required fields strict, optionals strict in type.

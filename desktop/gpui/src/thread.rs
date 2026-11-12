@@ -376,6 +376,10 @@ impl ThreadPane {
                     model.load(page.events, &page.in_progress);
                     model.known_start = page.at_start;
                     let _ = model.set_background(background);
+                    // The runner's loose-ends check for the done card, from
+                    // the summary as it is now (ThreadSession.load), not as
+                    // it was when the read started.
+                    let _ = model.set_loose_ends(this.summary.loose_ends_check());
                     this.feed = ThreadFeed::new(model);
                     // Another runner's thread through this Mac's runner has
                     // gaps in its seqs (`feed.sparse = viaRelay`).
@@ -479,6 +483,10 @@ impl ThreadPane {
             if self.loaded {
                 self.mark_seen();
                 let change = self.feed.set_background(self.background_tasks());
+                self.apply(change, cx);
+                // A new check (a turn done, a Land, a thread it started
+                // finishing) or none (a turn starting): AppModel+Connection.
+                let change = self.feed.set_loose_ends(self.summary.loose_ends_check());
                 self.apply(change, cx);
             }
             self.check_queued(cx);

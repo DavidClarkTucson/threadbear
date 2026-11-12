@@ -49,6 +49,10 @@ pub struct ThreadSummary {
     /// Kept as it came: the reducer reads its own `BackgroundTask` from these.
     pub background: Option<Vec<Value>>,
     pub subagents: Option<Vec<Value>>,
+    /// The runner's loose-ends check for the done card (protocol "Loose
+    /// ends"), kept as it came and read with `loose_ends_check`, so one
+    /// the reducer can't read leaves the rest of the summary standing.
+    pub loose_ends: Option<Value>,
     pub projects: Option<Vec<Project>>,
     pub started_by: Option<Value>,
     pub schedule: Option<Value>,
@@ -144,6 +148,11 @@ impl ThreadSummary {
     /// The background list, read leniently: a malformed entry is left out.
     pub fn background_tasks(&self) -> Vec<BackgroundTask> {
         self.background.iter().flatten().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect()
+    }
+    /// What's still open on the done card, as the reducer takes it
+    /// (Swift `ThreadSummary.looseEnds`, which decodes it leniently too).
+    pub fn loose_ends_check(&self) -> Option<crate::reducer::LooseEnds> {
+        self.loose_ends.as_ref().and_then(crate::reducer::LooseEnds::decode)
     }
     /// Sub-agents or a workflow still at work, or just finished with their
     /// result still to be read (Swift `agentsStillWorking`).

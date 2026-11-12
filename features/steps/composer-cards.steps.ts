@@ -1,4 +1,4 @@
-import { Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import type { Dump } from '../support/driver.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
@@ -140,4 +140,35 @@ Then('the app beeps', async function (this: ThreadbearWorld) {
     await new Promise((done) => setTimeout(done, 100));
   }
   assert.fail('no beep');
+});
+
+// The runner's loose-ends check on a thread's done card, as the summary
+// brings it (mock.looseEnds): before the thread's opened, or while it is.
+async function looseEnds(world: ThreadbearWorld, title: string, ends?: { kind: string; text: string }[]) {
+  await world.app.do({ cmd: 'mock', method: 'looseEnds', params: { title, ends } });
+}
+
+Given('the runner found {string} still open on {string}', async function (this: ThreadbearWorld, text: string, title: string) {
+  await looseEnds(this, title, [{ kind: 'unpushed', text }]);
+});
+
+When('the runner finds {string} still open on {string}', async function (this: ThreadbearWorld, text: string, title: string) {
+  await looseEnds(this, title, [{ kind: 'unlanded', text }]);
+});
+
+When('the runner finds nothing left open on {string}', async function (this: ThreadbearWorld, title: string) {
+  await looseEnds(this, title, []);
+});
+
+// Both apps' dump gives the done card's row as RowDebug has it: "open,
+// nothing needed, loose ends: <each>; <next>", which is what the card draws
+// under "Still open".
+const doneRow = (d: Dump) => d.transcript.rows.find((r) => r.kind === 'asks' && r.text.includes('nothing needed'))?.text ?? '';
+
+Then('the done card lists {string} as still open', async function (this: ThreadbearWorld, text: string) {
+  await this.until(`"${text}" still open on the done card`, (d) => doneRow(d).includes(`loose ends: ${text}`));
+});
+
+Then('the done card lists nothing as still open', async function (this: ThreadbearWorld) {
+  await this.until('nothing still open on the done card', (d) => doneRow(d).includes('loose ends: none'));
 });

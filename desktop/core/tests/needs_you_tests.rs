@@ -174,6 +174,42 @@ fn testLooseEndsGoOnTheirOwnDoneCard() {
     assert_eq!(decoded.ends.first().and_then(|e| e.thread_id.clone()).as_deref(), Some("b"));
 }
 
+/// The check arrives on the thread's summary (`threads.list`,
+/// `thread.updated`), which the GPUI app's summary used to drop on the floor:
+/// the Swift app's done card said "Still open" and the GPUI one didn't (12
+/// Nov, "State machines").
+#[test]
+fn testLooseEndsComeOnTheSummary() {
+    let summary: threadbear_core::inbox::ThreadSummary = serde_json::from_value(json!({
+        "id": "t", "status": "idle", "needs": "nothing",
+        "looseEnds": {"seq": 1, "at": "2026-11-12T00:00:00Z", "ends": [{"kind": "unpushed", "text": "4 commits it made in convex-native-v7 aren't pushed"}]},
+    }))
+    .expect("summary");
+    let mut model = from_events(vec![needs_nothing(1, "t1", json!([]))]);
+    model.set_loose_ends(summary.loose_ends_check());
+    assert_eq!(card(&model, "ak:1").and_then(|c| c.loose_ends.clone()).map(|e| e.iter().map(|x| x.text.clone()).collect::<Vec<_>>()), Some(vec!["4 commits it made in convex-native-v7 aren't pushed".to_owned()]));
+    // A summary without it (a turn running, the experiment off) takes it away.
+    let bare: threadbear_core::inbox::ThreadSummary = serde_json::from_value(json!({"id": "t", "status": "idle"})).expect("summary");
+    model.set_loose_ends(bare.loose_ends_check());
+    assert_eq!(card(&model, "ak:1").and_then(|c| c.loose_ends.clone()), None);
+    // One it can't read leaves the rest of the summary standing.
+    let odd: threadbear_core::inbox::ThreadSummary = serde_json::from_value(json!({"id": "t", "title": "Kept", "looseEnds": "what"})).expect("summary");
+    assert_eq!((odd.title.as_str(), odd.loose_ends_check()), ("Kept", None));
+}
+
+/// A booked check-in is the runner's `scheduled` kind: it doesn't count as
+/// open, and its line says when it comes back (looseEndsText).
+#[test]
+fn testABookedCheckInSaysWhenItComesBack() {
+    let end = LooseEnd { at: Some("2026-11-13T01:30:00Z".to_owned()), ..LooseEnd::new("scheduled", "Review the week") };
+    assert!(end.is_booked());
+    let utc = threadbear_core::chrono::Utc;
+    assert_eq!(end.line(&utc), "Fri 13 Nov, 1:30 am: Review the week");
+    let open = LooseEnd { at: Some("2026-11-13T01:30:00Z".to_owned()), ..LooseEnd::new("unlanded", "1 commit on thread/x isn't on main") };
+    assert!(!open.is_booked());
+    assert_eq!(open.line(&utc), "1 commit on thread/x isn't on main");
+}
+
 /// A follow-up's "?" toggles like its tick and goes with the ticks.
 #[test]
 fn testFollowUpsAskedAboutGoWithTheTicks() {
