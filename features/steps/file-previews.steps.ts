@@ -2,6 +2,7 @@ import { Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import type { ThreadbearWorld } from '../support/world.ts';
 import { pane, previewLine } from '../support/pane.ts';
+import { okValue } from '../support/driver.ts';
 
 When('I click the highlight {string}', async function (this: ThreadbearWorld, title: string) {
   await this.until(`a highlight called "${title}"`, (d) => pane(d)?.sections?.some((s) => s.rows.some((r) => r.title === title)));
@@ -82,6 +83,39 @@ Then('the pane shows a video {int} by {int}', async function (this: ThreadbearWo
 // there; the GPUI app's PDFKit view says "pdf" and its pages.
 Then('the pane shows the PDF', async function (this: ThreadbearWorld) {
   await this.until('a PDF in the pane', (d) => pane(d)?.previewKind === 'quickLook' || (pane(d)?.previewKind === 'pdf' && pane(d)?.previewText === '1 page'));
+});
+
+When('I put Highlights in a window of its own', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'float', id: 'threadbear.highlights' });
+});
+
+// The GPUI app's list of the system's views it has up, in any window.
+Then('no video or PDF view is up', async function (this: ThreadbearWorld) {
+  await this.until('no video or PDF view up', (d) => Array.isArray((d as unknown as { media?: unknown[] }).media) && (d as unknown as { media: unknown[] }).media.length === 0);
+  // And it stays that way: the floating window doesn't make one of its own.
+  await new Promise((done) => setTimeout(done, 1000));
+  const d = await this.app.dump();
+  assert.deepEqual((d as unknown as { media: unknown[] }).media, []);
+});
+
+When('I click the link in the PDF in the pane', async function (this: ThreadbearWorld) {
+  await this.until('a PDF in the pane', (d) => pane(d)?.previewKind === 'pdf' && pane(d)?.previewText === '1 page');
+  // Placed and shown first, as a click lands only on a view that's there.
+  await new Promise((done) => setTimeout(done, 500));
+  await this.app.do({ cmd: 'preview', clickLink: true });
+});
+
+// What the app would have handed the system: a scripted app opens nothing
+// for real (`opened`), so a link that went round the gate never shows here.
+Then('{string} was opened through the app', async function (this: ThreadbearWorld, url: string) {
+  const seen: string[] = [];
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    seen.push(...(JSON.parse(okValue(await this.app.do({ cmd: 'opened' }))) as string[]));
+    if (seen.includes(url)) return;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  assert.fail(`it wasn't opened through the app; what was: ${JSON.stringify(seen)}`);
 });
 
 When('I copy the picture in the pane', async function (this: ThreadbearWorld) {

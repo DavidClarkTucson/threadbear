@@ -192,6 +192,9 @@ fn main() {
         rich_boxes::init(cx);
         // And the panels' pages, the Convex dashboard's among them.
         web_panels::init(cx);
+        // Videos and PDFs in the system's views: their calls back (a PDF's
+        // links, to the open gate) and the menus they hide under.
+        media_view::init(cx);
         let mut settings = Settings::load();
         // The Swift app's settings and drafts, brought across once, before
         // anything reads them (swift_import.rs).

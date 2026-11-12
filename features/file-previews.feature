@@ -84,6 +84,17 @@ Feature: Files opened in the side pane
     Then the pane is showing the file "screens/hero-walkthrough.mp4"
     And the pane shows a video 1600 by 1058
 
+  # A panel in a window of its own can't place the player yet, so the video
+  # stops and goes with the pane, and says it shows in the main window
+  # (Codex's review, 12 Nov: it stayed up, unplaced, for good).
+  @file.video @swift-pending @windows-pending @linux-pending
+  Scenario: A video stops when its pane goes into a window of its own
+    When I open the thread "Rebuild the three landing pages"
+    And I open "screens/hero-walkthrough.mp4" in the thread's folder in the pane
+    Then the pane shows a video 1600 by 1058
+    When I put Highlights in a window of its own
+    Then no video or PDF view is up
+
   # Quick Look draws a PDF in the Swift app; PDFKit's view does in the GPUI
   # app on a Mac.
   @file.quicklook @windows-pending @linux-pending
@@ -91,6 +102,17 @@ Feature: Files opened in the side pane
     When I open the thread "Rebuild the three landing pages"
     And I open "docs/launch-brief.pdf" in the thread's folder in the pane
     Then the pane shows the PDF
+
+  # A link in a PDF goes through the app's open gate, as any link in a
+  # thread does, never straight to the system: PDFKit's own handling would
+  # open a file link to a program without asking (Codex's review, 12 Nov).
+  # The Swift app's Quick Look view hands its links to the system itself.
+  @file.quicklook @swift-pending @windows-pending @linux-pending
+  Scenario: A link in a PDF in the pane opens through the app
+    When I open the thread "Rebuild the three landing pages"
+    And I open "docs/launch-brief.pdf" in the thread's folder in the pane
+    And I click the link in the PDF in the pane
+    Then "https://example.com/launch-brief" was opened through the app
 
   @file.picture
   Scenario: A picture is drawn in the pane, and Copy Image copies the picture itself

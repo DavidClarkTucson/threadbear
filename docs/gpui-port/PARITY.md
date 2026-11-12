@@ -355,6 +355,54 @@ built parsers and gates with no launch of the app, which is the trap.)
   the first two pass on Swift (Tinker Desk). composer-cards and connection
   on GPUI, 18 of 18. Picture,
   dark: `~/Library/Caches/Threadbear/gpui-compare/loose-ends.png`.
+### 2026-11-12 Videos and PDFs read only what the open gate checked (`file.video`, `file.quicklook`, `review.media`)
+
+Fixes from Codex's review of the slice before:
+- A PDF's links went to the system: PDFKit hands a clicked link to
+  NSWorkspace, so a `file://` link to a `.command` ran with no question. A
+  press on a link is now the app's own view's, and its release sends the
+  link to the open gate (`open_link`), as any link in a thread goes; the
+  view's delegate and `performAction:` send theirs there too, and anything
+  else an annotation would do outside the document does nothing.
+- What played wasn't certain to be what was checked: the rules looked by
+  path, and the player opened the path again later. The gate now opens the
+  real file once (not through a link swapped in, and without waiting on a
+  pipe), checks the opened file itself, and hands it to the view, which
+  reads a film's bytes from it (an asset fed from that file) and a PDF's
+  bytes from it. Dragging the film out checks the path still leads to that
+  same file (disk, inode, size, last change) and isn't a link, else beeps.
+- A QuickTime movie could read other files through its references: the
+  asset forbids them all.
+- The sniff took `ftyp` four bytes in as a film: the box's size has to be
+  sane for the file and its main brand a film's, so a text file or a HEIF or
+  AVIF picture renamed `.mov` is refused. A film AVFoundation can't play
+  says why in its place.
+- The views hid only under the app's and the pane's menus: now under any of
+  the kit's menus while it's open (it has the keyboard), the dock bar's
+  right-click menu among them.
+- A pane in a window of its own made a view that was never placed or
+  closed: views show only in a window that places them every frame, and
+  elsewhere the pane says they show in the main window.
+- The next clip on the review stage took the mute and volume of the one
+  before last: it takes the one going.
+- The Swift app's Quick Look view hands a PDF's links to the system itself,
+  so the link scenario is `@swift-pending`.
+- Files: `desktop/gpui/native/media_views.m`, `desktop/gpui/src/media_view.rs`,
+  `desktop/gpui/src/open_gate.rs`, `desktop/gpui/src/files.rs`,
+  `desktop/gpui/src/main.rs`, `desktop/core/src/open_policy.rs`,
+  `desktop/core/tests/open_gate_source.rs`, `app/Tools/mock-runner/server.mjs`,
+  `features/file-previews.feature`, `features/steps/file-previews.steps.ts`.
+- Verification: on Tinker Desk, core's new rule tests (a box that only looks
+  like a film's, a pipe refused without waiting, the held file read after
+  the path's replaced) and the source test that fails on a plain PDFView or a
+  film played by path pass; the stage audio test passes. The new PDF link
+  scenario failed (nothing went through the app) until a press on a link was
+  the view's own, and passes; the window-of-its-own scenario fails with the
+  window check taken out and passes with it. All of file previews, review,
+  drag out, the picture viewer, folders, highlights and window pass on the
+  GPUI app, and the video, PDF and clip scenarios on the Swift app.
+  `media-shot.ts` shows the clip playing in both apps, now read from the
+  held file.
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 

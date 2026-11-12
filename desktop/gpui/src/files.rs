@@ -1021,6 +1021,13 @@ pub(crate) fn preview_command(side: &Entity<SidePane>, thread: &ThreadSummary, c
         let key = pane.files.open.get(&thread.id).filter(|o| matches!(o.body, FileBody::Media(crate::media_view::Kind::PaneVideo))).map(|o| media_key(&thread.id, &o.path, o.opened));
         return if key.is_some_and(|k| crate::media_view::play(&k)) { Ok(json!("ok playing")) } else { Err("no video is showing".into()) };
     }
+    if cmd["clickLink"].as_bool() == Some(true) {
+        // A click on the PDF's first link, through the window as a person's
+        // comes, so where it goes is PDFKit's handling and the gate's.
+        let pane = side.read(cx);
+        let key = pane.files.open.get(&thread.id).filter(|o| matches!(o.body, FileBody::Media(crate::media_view::Kind::PaneDocument))).map(|o| media_key(&thread.id, &o.path, o.opened));
+        return if key.is_some_and(|k| crate::media_view::click_link(&k)) { Ok(json!("ok clicked")) } else { Err("no PDF with a link is showing".into()) };
+    }
     if cmd["copyImage"].as_bool() == Some(true) {
         let format = side.update(cx, |pane, cx| pane.copy_open_picture(cx)).ok_or("no picture is showing")?;
         return Ok(json!(format!("ok copied {format}")));

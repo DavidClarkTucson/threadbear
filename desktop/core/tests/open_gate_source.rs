@@ -63,7 +63,7 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/src/app_update.rs", "let out = Command::new(\"/usr/bin/git\").args(rules::rev_parse_arguments(checkout)).stdin(Stdio::null()).output().ok()?;", 1),
     ("gpui/src/app_update.rs", "let child = Command::new(program).args(arguments).current_dir(installed::home_dir()).stdin(Stdio::null()).stdout(out).stderr(err).spawn();", 1),
     // Where the video and PDF views are made, called only from the gate.
-    ("gpui/native/media_views.m", "void *tb_media_open(void *nativeParent, const char *path, int kind, bool muted, float volume) {", 1),
+    ("gpui/native/media_views.m", "void *tb_media_open(void *nativeParent, int fd, long long length, const char *path, int kind, bool muted, float volume) {", 1),
     ("gpui/src/swift_import.rs", "let out = Command::new(\"/usr/bin/defaults\").args([\"export\", \"com.mikerosoft.threadbear\", \"-\"]).stderr(Stdio::null()).output().map_err(|e| format!(\"couldn't run defaults: {e}\"))?;", 1),
 ];
 
@@ -130,4 +130,50 @@ fn the_gate_opens_in_one_place() {
     let text = std::fs::read_to_string(gate).unwrap();
     assert_eq!(text.matches(".open_url(").count(), 1);
     assert!(!text.contains("format!(\"file://"));
+}
+
+/// The Mac's own video and PDF views read only the file the gate checked and
+/// send their links back to it (Codex's review of the views, 12 Nov):
+/// - a `PDFView` with no delegate of its own hands a clicked link to
+///   NSWorkspace, so every one is the app's subclass with a delegate that
+///   takes the link callbacks, and its own `performAction:`;
+/// - a film is never opened by its path or URL (`playerWithURL:`,
+///   `playerItemWithURL:`, an asset made from a file URL), which would read
+///   whatever's there by then, but from the held file through the asset made
+///   with QuickTime's references to other files forbidden.
+#[test]
+fn the_media_views_read_only_what_the_gate_checked() {
+    let desktop = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned();
+    let mut files = Vec::new();
+    for crate_dir in ["gpui", "dock", "client", "core/src", "web"] {
+        rust_files(&desktop.join(crate_dir), &mut files);
+    }
+    let mut found = Vec::new();
+    for file in files.iter().filter(|f| f.extension().is_some_and(|e| e == "m")) {
+        let rel = file.strip_prefix(&desktop).unwrap().to_string_lossy().replace('\\', "/");
+        let text = std::fs::read_to_string(file).unwrap();
+        let code: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+        let has = |needle: &str| code.iter().any(|l| l.contains(needle));
+        for line in &code {
+            for opener in ["playerWithURL:", "playerItemWithURL:", "AVPlayer alloc] initWithURL:", "AVPlayerItem alloc] initWithURL:"] {
+                if line.contains(opener) {
+                    found.push(format!("{rel}: plays by path: {}", line.trim()));
+                }
+            }
+            if line.contains("URLAssetWithURL:") && !line.contains("AVURLAssetReferenceRestrictionsKey : @(AVAssetReferenceRestrictionForbidAll)") {
+                found.push(format!("{rel}: an asset without its references forbidden: {}", line.trim()));
+            }
+            if line.contains("[PDFView alloc]") {
+                found.push(format!("{rel}: a plain PDFView, whose links go to the system: {}", line.trim()));
+            }
+        }
+        if has("PDFView") {
+            for needed in ["- (void)PDFViewWillClickOnLink:", "- (void)PDFViewOpenPDF:", "- (void)performAction:(PDFAction *)action", "pdf.delegate = "] {
+                if !has(needed) {
+                    found.push(format!("{rel}: a PDF view without `{needed}`, so its links could reach the system"));
+                }
+            }
+        }
+    }
+    assert!(found.is_empty(), "the media views must read only the gate's file and send their links back to it:\n{}", found.join("\n"));
 }

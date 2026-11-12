@@ -18,6 +18,7 @@
 // Kept in thread-locals rather than an entity: the views are the main
 // thread's, and a slot drawn while an entity is being updated never has to
 // read that entity back (a double lease).
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::*;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -68,6 +69,7 @@ struct NativeState {
     looping: bool,
     volume: f32,
     pages: i32,
+    failed: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -76,8 +78,11 @@ extern "C" {
     fn tb_media_set_hidden(view: *mut c_void, hidden: bool);
     fn tb_media_close(view: *mut c_void);
     fn tb_media_state(view: *mut c_void, out: *mut NativeState);
+    fn tb_media_failure(view: *mut c_void, buffer: *mut std::ffi::c_char, capacity: i32) -> bool;
     #[cfg(feature = "automation")]
     fn tb_media_play(view: *mut c_void) -> bool;
+    #[cfg(feature = "automation")]
+    fn tb_media_click_link(view: *mut c_void) -> bool;
 }
 
 /// One of those views, owned: dropped, it stops and leaves its window.
@@ -127,6 +132,18 @@ impl Media {
         };
         MediaState { width: out.width, height: out.height, playing: out.playing, muted: out.muted, controls: out.controls, looping: out.looping, volume: out.volume, pages: out.pages }
     }
+
+    /// Why AVFoundation couldn't play the film, once it's said.
+    fn failure(&self) -> Option<String> {
+        #[cfg(target_os = "macos")]
+        {
+            let mut buffer = [0 as std::ffi::c_char; 512];
+            if unsafe { tb_media_failure(self.view, buffer.as_mut_ptr(), buffer.len() as i32) } {
+                return Some(unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned());
+            }
+        }
+        None
+    }
 }
 
 impl Drop for Media {
@@ -157,6 +174,70 @@ thread_local! {
     /// The mute and volume each review window's stage clip was left at, for
     /// the next: clips compared by ear play at the same level (ReviewVideo).
     static STAGE_AUDIO: RefCell<HashMap<WindowId, (bool, f32)>> = RefCell::new(HashMap::new());
+    /// Every menu the kit has made that's still about (`init`), to see if
+    /// one's open over a view.
+    static MENUS: RefCell<Vec<WeakEntity<PopupMenu>>> = const { RefCell::new(Vec::new()) };
+    /// Where the views' calls back into Rust go (`tb_media_said_link`,
+    /// `tb_media_said_changed`), for the app to act on (`init`).
+    static SAID: RefCell<Option<futures::channel::mpsc::UnboundedSender<Said>>> = const { RefCell::new(None) };
+}
+
+/// What a view said, from inside AppKit's own handling of an event.
+enum Said {
+    /// A PDF's link was clicked: for the open gate, with the PDF's folder.
+    Link { url: String, base: String },
+    /// A view changed in a way that needs the window drawn again (a film
+    /// that failed, to say why in its place).
+    Changed,
+}
+
+/// Hears the views' calls back, and keeps a list of the kit's menus. A view
+/// calls back from inside AppKit's handling of a click, with no way to the
+/// app's state there, so what it says is acted on as a task.
+pub(crate) fn init(cx: &mut App) {
+    use futures::StreamExt as _;
+    let (tx, mut rx) = futures::channel::mpsc::unbounded();
+    SAID.with(|s| *s.borrow_mut() = Some(tx));
+    cx.spawn(async move |cx| {
+        while let Some(said) = rx.next().await {
+            cx.update(|cx| match said {
+                // Through the gate as any link in a thread is: a web page in
+                // the browser, a file asking first if it's a program, any
+                // other scheme asking. Never PDFKit's own opener.
+                Said::Link { url, base } => crate::open_gate::open_link(&url, crate::open_gate::Origin::ThisMac, &base, cx),
+                Said::Changed => cx.refresh_windows(),
+            });
+        }
+    })
+    .detach();
+    cx.observe_new(|_: &mut PopupMenu, _, cx: &mut Context<PopupMenu>| {
+        let menu = cx.entity().downgrade();
+        MENUS.with(|m| m.borrow_mut().push(menu));
+    })
+    .detach();
+}
+
+fn say(said: Said) {
+    SAID.with(|s| {
+        if let Some(tx) = s.borrow().as_ref() {
+            let _ = tx.unbounded_send(said);
+        }
+    });
+}
+
+/// native/media_views.m: a PDF's link was clicked.
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn tb_media_said_link(url: *const std::ffi::c_char, base: *const std::ffi::c_char) {
+    let text = |p: *const std::ffi::c_char| if p.is_null() { String::new() } else { unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned() };
+    say(Said::Link { url: text(url), base: text(base) });
+}
+
+/// native/media_views.m: a view's state changed.
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn tb_media_said_changed() {
+    say(Said::Changed);
 }
 
 fn frame_of(window: WindowId) -> u64 {
@@ -175,6 +256,22 @@ pub(crate) struct Opening {
 /// it couldn't be, for the caller to say instead.
 pub(crate) fn slot(key: &str, window: &Window, open: impl FnOnce(Opening) -> Result<Media, String>) -> Result<AnyElement, String> {
     let id = window.window_handle().window_id();
+    // Only a window that places its views every frame (one with a
+    // `sweeper`) can show one: elsewhere it would sit unplaced and never go
+    // (a panel in a window of its own, Codex's review, 12 Nov).
+    if !FRAMES.with(|f| f.borrow().contains_key(&id)) {
+        return Err("Videos and PDFs show here when the pane is in the main window.".to_owned());
+    }
+    // A film AVFoundation couldn't play says why in its place, from then on.
+    let failed = SLOTS.with(|s| s.borrow().iter().find(|s| s.key == key && s.window == id).and_then(|s| s.media.as_ref().ok()).and_then(Media::failure));
+    if let Some(why) = failed {
+        // Every key ends with the file's path.
+        let name = threadbear_core::highlights::last_component(key).to_owned();
+        let said = format!("Threadbear couldn't play {name}: {why}");
+        // Taken out of the list before it's dropped, which closes it.
+        let gone = SLOTS.with(|s| s.borrow_mut().iter_mut().find(|s| s.key == key && s.window == id).map(|slot| std::mem::replace(&mut slot.media, Err(said))));
+        drop(gone);
+    }
     let found = SLOTS.with(|s| {
         let slots = s.borrow();
         let slot = slots.iter().find(|s| s.key == key && s.window == id)?;
@@ -189,7 +286,20 @@ pub(crate) fn slot(key: &str, window: &Window, open: impl FnOnce(Opening) -> Res
         Some(found) => found?,
         None => {
             let media = match parent_view(window) {
-                Some(parent) => open(Opening { parent, audio: STAGE_AUDIO.with(|a| a.borrow().get(&id).copied()) }),
+                Some(parent) => {
+                    // The clip on the stage now (on its way out, as this one
+                    // takes its place), else the last that went: the one just
+                    // left is where this one starts (Codex's review, 12 Nov).
+                    let live: Vec<(WindowId, Kind, (bool, f32))> = SLOTS.with(|s| {
+                        s.borrow()
+                            .iter()
+                            .filter_map(|s| s.media.as_ref().ok().filter(|m| m.kind == Kind::StageVideo).map(|m| (s.window, m.kind, m.state())))
+                            .map(|(w, k, st)| (w, k, (st.muted, st.volume)))
+                            .collect()
+                    });
+                    let audio = stage_audio(live, id, STAGE_AUDIO.with(|a| a.borrow().get(&id).copied()));
+                    open(Opening { parent, audio })
+                }
                 None => Err("This window has no view to show it in.".to_owned()),
             };
             let drawn = Rc::new(Cell::new((if media.is_err() { frame_of(id) } else { 0 }, Bounds::default())));
@@ -199,6 +309,13 @@ pub(crate) fn slot(key: &str, window: &Window, open: impl FnOnce(Opening) -> Res
         }
     };
     Ok(canvas(move |bounds, window, _| drawn.set((frame_of(window.window_handle().window_id()), bounds)), |_, _, _, _| {}).size_full().into_any_element())
+}
+
+/// The mute and volume a new stage clip in `window` starts at: that of the
+/// stage clip up there now, about to go as this one takes its place, or
+/// failing that the last one's that went (`left`).
+fn stage_audio<W: PartialEq>(live: impl IntoIterator<Item = (W, Kind, (bool, f32))>, window: W, left: Option<(bool, f32)>) -> Option<(bool, f32)> {
+    live.into_iter().find(|(w, kind, _)| *w == window && *kind == Kind::StageVideo).map(|(_, _, audio)| audio).or(left)
 }
 
 /// Whether `key`'s view is up in some window, and what it's showing.
@@ -214,6 +331,23 @@ pub(crate) fn play(key: &str) -> bool {
         s.borrow().iter().find(|s| s.key == key).and_then(|s| s.media.as_ref().ok()).is_some_and(|m| {
             #[cfg(target_os = "macos")]
             return unsafe { tb_media_play(m.view) };
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = m;
+                false
+            }
+        })
+    })
+}
+
+/// A click on the first link in `key`'s PDF, for the scripted app, as a
+/// person's would come through the window: false with no PDF or no link.
+#[cfg(feature = "automation")]
+pub(crate) fn click_link(key: &str) -> bool {
+    SLOTS.with(|s| {
+        s.borrow().iter().find(|s| s.key == key).and_then(|s| s.media.as_ref().ok()).is_some_and(|m| {
+            #[cfg(target_os = "macos")]
+            return unsafe { tb_media_click_link(m.view) };
             #[cfg(not(target_os = "macos"))]
             {
                 let _ = m;
@@ -254,7 +388,7 @@ pub(crate) fn sweeper(window: &Window, cover: Cover) -> AnyElement {
 
 fn sweep(id: WindowId, frame: u64, cover: &Cover, window: &mut Window, cx: &mut App) {
     use gpui_kit::component::WindowExt as _;
-    let modal = cover.everything || window.has_active_dialog(cx) || window.has_active_sheet(cx);
+    let modal = cover.everything || window.has_active_dialog(cx) || window.has_active_sheet(cx) || menu_open(window, cx);
     let gone = SLOTS.with(|s| {
         let mut slots = s.borrow_mut();
         let (keep, gone): (Vec<Slot>, Vec<Slot>) = std::mem::take(&mut *slots).into_iter().partition(|slot| slot.window != id || slot.drawn.get().0 == frame);
@@ -278,6 +412,18 @@ fn sweep(id: WindowId, frame: u64, cover: &Cover, window: &mut Window, cx: &mut 
     for slot in gone {
         remember_audio(&slot);
     }
+}
+
+/// Whether one of the kit's menus is open in this window: an open menu has
+/// the keyboard, and closes when it loses it. Where it is isn't always the
+/// app's to know (a panel bar's right-click menu is the dock's, Codex's
+/// review, 12 Nov), and a native view would sit over it and take its clicks.
+fn menu_open(window: &Window, cx: &App) -> bool {
+    MENUS.with(|m| {
+        let mut menus = m.borrow_mut();
+        menus.retain(|menu| menu.upgrade().is_some());
+        menus.iter().filter_map(WeakEntity::upgrade).any(|menu| menu.focus_handle(cx).contains_focused(window, cx))
+    })
 }
 
 /// A stage clip going: its mute and volume are where the next one starts.
@@ -340,4 +486,23 @@ pub(crate) fn dump() -> serde_json::Value {
                 .collect(),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: that brings gpui's own `test` macro in over std's.
+    use super::{stage_audio, Kind};
+
+    /// Stepping from one clip to the next on the stage: the next starts at
+    /// the mute and volume just set on the one going, which is still up as
+    /// the next is made, not at the one before that.
+    #[test]
+    fn the_next_stage_clip_starts_where_the_last_was_left() {
+        let muted = (true, 0.4);
+        let older = (false, 1.0);
+        assert_eq!(stage_audio([(1, Kind::StageVideo, muted)], 1, Some(older)), Some(muted));
+        // Only this window's stage clip, not a cell or another window's.
+        assert_eq!(stage_audio([(1, Kind::CellVideo, (true, 1.0)), (2, Kind::StageVideo, muted)], 1, Some(older)), Some(older));
+        assert_eq!(stage_audio(Vec::<(u8, Kind, (bool, f32))>::new(), 1, None), None);
+    }
 }

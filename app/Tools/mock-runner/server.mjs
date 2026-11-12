@@ -3391,15 +3391,17 @@ ${process.env.MOCK_SCRIPTED_TURNS ? '' : "<p>The mock runner's stand-in for the 
 // A real PDF of one US Letter page with a line of text, made by hand so the
 // mock needs no PDF library: each object's byte offset goes in the table at
 // the end, which is what readers find the objects by. ASCII only, so a
-// string's length is its bytes.
-function onePagePdf(line) {
+// string's length is its bytes. The line is a link to `link`, so a click on
+// it can be seen going through the app's open gate (file-previews.feature).
+function onePagePdf(line, link) {
   const text = `BT /F1 24 Tf 72 700 Td (${line.replace(/[()\\]/g, '\\$&')}) Tj ET`;
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R] >>',
     `<< /Length ${text.length} >>\nstream\n${text}\nendstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Type /Annot /Subtype /Link /Rect [66 690 560 724] /Border [0 0 0] /A << /S /URI /URI (${link}) >> >>`,
   ];
   let out = '%PDF-1.4\n';
   const offsets = objects.map((body, i) => {
@@ -3449,7 +3451,7 @@ The new hero is shorter, and every page now leads with what the app does.
     const clip = path.join(here, '../../../site/public/clips/inbox.mp4');
     if (fs.existsSync(clip)) file('screens/hero-walkthrough.mp4', { copy: clip });
     // And a one-page PDF, for a PDF in the pane.
-    file('docs/launch-brief.pdf', onePagePdf('Launch brief: the new hero ships Friday'));
+    file('docs/launch-brief.pdf', onePagePdf('Launch brief: the new hero ships Friday', 'https://example.com/launch-brief'));
     file('logs/docs-build.txt', 'Error: Could not resolve image /docs/hero.png\n  at src/pages/docs.astro:12\nBuild failed in 14.2s.\n');
     file('src/hero.ts', '// The hero at the top of the home page.\nexport function hero(words: string): string {\n  return `<h1>${words}</h1>`;\n}\n');
     site.summary.cwd = root;

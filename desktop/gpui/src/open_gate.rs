@@ -264,9 +264,12 @@ pub(crate) fn open_file(path: &str, origin: Origin, cx: &mut App) {
 /// A video or a PDF in the Mac's own view (media_view.rs), in `opening`'s
 /// window view: only this Mac's own file, and only a real one of the kind
 /// the view is for, after its symlinks are followed (`decide_media`). The
-/// view reads the real file the rules found, never the path as given. The
-/// only maker of those views, so nothing reads a film or a PDF any other
-/// way (desktop/core/tests/open_gate_source.rs).
+/// view is handed the file the rules opened and checked, and reads that,
+/// never the path again (Codex's review, 12 Nov: a file swapped in at the
+/// path after the check was what played). The only maker of those views, so
+/// nothing reads a film or a PDF any other way, and a PDF's links come back
+/// here (`open_link`) rather than going to the system
+/// (desktop/core/tests/open_gate_source.rs).
 pub(crate) fn show_media(path: &str, origin: Origin, kind: crate::media_view::Kind, opening: crate::media_view::Opening) -> Result<crate::media_view::Media, String> {
     use crate::media_view::Kind;
     use policy::{Media, MediaVerdict};
@@ -277,17 +280,18 @@ pub(crate) fn show_media(path: &str, origin: Origin, kind: crate::media_view::Ki
     }
     match policy::decide_media(path, origin) {
         MediaVerdict::Refuse(why) => Err(why),
-        MediaVerdict::Show(real) => open_media(&real, kind, opening).ok_or_else(|| format!("{name} couldn't be read, so it isn't showing.")),
+        MediaVerdict::Show(checked) => open_media(checked, kind, opening).ok_or_else(|| format!("{name} couldn't be read, so it isn't showing.")),
     }
 }
 
 #[cfg(target_os = "macos")]
-fn open_media(real: &Path, kind: crate::media_view::Kind, opening: crate::media_view::Opening) -> Option<crate::media_view::Media> {
+fn open_media(checked: policy::CheckedFile, kind: crate::media_view::Kind, opening: crate::media_view::Opening) -> Option<crate::media_view::Media> {
+    use std::os::fd::IntoRawFd as _;
     use std::os::unix::ffi::OsStrExt as _;
     extern "C" {
-        fn tb_media_open(parent: *mut std::ffi::c_void, path: *const std::ffi::c_char, kind: i32, muted: bool, volume: f32) -> *mut std::ffi::c_void;
+        fn tb_media_open(parent: *mut std::ffi::c_void, file: i32, length: i64, path: *const std::ffi::c_char, kind: i32, muted: bool, volume: f32) -> *mut std::ffi::c_void;
     }
-    let path = std::ffi::CString::new(real.as_os_str().as_bytes()).ok()?;
+    let path = std::ffi::CString::new(checked.real.as_os_str().as_bytes()).ok()?;
     // Among them all they're muted, as they all play at once; on the stage,
     // where the last clip was left; in the pane, with its sound.
     let (muted, volume) = match kind {
@@ -295,14 +299,18 @@ fn open_media(real: &Path, kind: crate::media_view::Kind, opening: crate::media_
         crate::media_view::Kind::StageVideo => opening.audio.unwrap_or((false, 1.)),
         _ => (false, 1.),
     };
-    let view = unsafe { tb_media_open(opening.parent, path.as_ptr(), kind as i32, muted, volume) };
+    let length = i64::try_from(checked.len).ok()?;
+    // The view owns the open file from here, and closes it, whether or not
+    // it's made.
+    let file = checked.file.into_raw_fd();
+    let view = unsafe { tb_media_open(opening.parent, file, length, path.as_ptr(), kind as i32, muted, volume) };
     // Safety: a view tb_media_open just made, owned by nothing else.
     unsafe { crate::media_view::Media::from_native(view, kind) }
 }
 
 /// Elsewhere there's no view for them: they open in their own app.
 #[cfg(not(target_os = "macos"))]
-fn open_media(_real: &Path, _kind: crate::media_view::Kind, _opening: crate::media_view::Opening) -> Option<crate::media_view::Media> {
+fn open_media(_checked: policy::CheckedFile, _kind: crate::media_view::Kind, _opening: crate::media_view::Opening) -> Option<crate::media_view::Media> {
     None
 }
 
