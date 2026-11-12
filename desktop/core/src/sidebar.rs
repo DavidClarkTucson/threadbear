@@ -330,6 +330,20 @@ pub fn carries_on_when<Tz: TimeZone>(until_ms: i64, now: &DateTime<Tz>) -> Strin
     }
 }
 
+/// A done card's loose end as its line reads (`looseEndsText`): a booked
+/// check-in has when it comes back before it ("Fri 13 Nov, 9:30 am: Look
+/// at the nightly run"), in the time zone of `now`; anything else is its
+/// words.
+pub fn loose_end_line<Tz: TimeZone>(end: &crate::reducer::LooseEnd, now: &DateTime<Tz>) -> String {
+    match end.at.as_deref().filter(|_| end.kind == "booked").and_then(parse_ms) {
+        Some(ms) => {
+            let date = local(ms, &now.timezone());
+            format!("{} {} {}, {}: {}", weekday_name(&date), date.day(), MONTHS[date.month0() as usize], clock(&date), end.text)
+        }
+        None => end.text.clone(),
+    }
+}
+
 /// "5:00 am", and the day when it isn't today ("tomorrow", "Thu")
 /// (`Pools.waitingParts`).
 fn waiting_parts<Tz: TimeZone>(until_ms: i64, now: &DateTime<Tz>) -> (Option<&'static str>, String) {
@@ -945,6 +959,15 @@ mod tests {
 
         assert_eq!(until_words(ms("2026-11-09T22:05:00+11:00"), &now), "10:05 pm");
         assert_eq!(until_words(ms("2026-11-10T09:00:00+11:00"), &now), "Tue 9:00 am");
+    }
+
+    #[test]
+    fn a_booked_check_in_says_when_it_comes_back() {
+        let now = at("2026-11-12T20:00:00+11:00");
+        let end = |kind: &str, at: Option<&str>| crate::reducer::LooseEnd { kind: kind.into(), text: "Look at the nightly run".into(), thread_id: None, at: at.map(String::from) };
+        assert_eq!(loose_end_line(&end("booked", Some("2026-11-12T22:30:00Z")), &now), "Fri 13 Nov, 9:30 am: Look at the nightly run");
+        assert_eq!(loose_end_line(&end("booked", None), &now), "Look at the nightly run", "no time, just its words");
+        assert_eq!(loose_end_line(&end("thread", Some("2026-11-13T01:30:00Z")), &now), "Look at the nightly run", "only a check-in has one");
     }
 
     #[test]
