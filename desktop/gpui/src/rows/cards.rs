@@ -520,6 +520,9 @@ impl ThreadPane {
             return input.clone();
         }
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Something else"));
+        // Its words are only here until they're sent: an update's restart
+        // waits for them (unsent.rs).
+        crate::unsent::watch(&input, cx);
         let id = approval_id.to_owned();
         let subscription = cx.subscribe(&input, move |this, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -612,6 +615,8 @@ impl ThreadPane {
             state.set_masked(true, window, cx);
             state
         });
+        // A secret pasted and not yet saved: an update's restart waits for it.
+        crate::unsent::watch(&input, cx);
         let id = approval_id.to_owned();
         let subscription = cx.subscribe_in(&input, window, move |this, input, event: &InputEvent, window, cx| match event {
             InputEvent::Change => cx.notify(),

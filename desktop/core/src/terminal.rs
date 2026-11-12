@@ -602,6 +602,15 @@ pub enum Step {
     Busy,
 }
 
+/// Whether a shell's terminal has something a restart would lose, as quitting
+/// ends every shell: a program running (a command still going, vim with its
+/// buffer, ssh), or anything typed at the prompt, put there or edited
+/// (Codex's review, 12 Nov). An idle shell at an empty prompt, or one that's
+/// ended, has nothing.
+pub fn holds_a_restart(running: bool, shell_alone_in_front: bool, line: &Line) -> bool {
+    running && (!shell_alone_in_front || *line != Line::Empty)
+}
+
 /// How long a new shell may take to reach its first prompt, after which it's
 /// treated as busy and the command is copied.
 pub const STARTING_FOR_SECS: f64 = 10.;
@@ -814,6 +823,18 @@ mod tests {
 
     fn thread(id: &str, cwd: &str) -> ThreadSummary {
         ThreadSummary { id: id.into(), cwd: cwd.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn a_shell_holds_a_restart_while_busy_or_typed_in() {
+        // Idle at an empty prompt, or ended: nothing to lose.
+        assert!(!holds_a_restart(true, true, &Line::Empty));
+        assert!(!holds_a_restart(false, false, &Line::Edited));
+        // A command running, vim, ssh: the shell isn't the one in front.
+        assert!(holds_a_restart(true, false, &Line::Empty));
+        // Words at the prompt, typed or put there from a reply.
+        assert!(holds_a_restart(true, true, &Line::Edited));
+        assert!(holds_a_restart(true, true, &Line::Put("ls".into())));
     }
 
     #[test]

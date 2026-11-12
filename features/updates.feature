@@ -71,3 +71,32 @@ Feature: The Updates panel
     Then a restart onto it waits for nothing
     When I open the Hibernate menu for "Morning brief"
     Then a restart onto it waits for the open menu
+
+  # Codex's review of the restart, 12 Nov: a card's own answer, a shell
+  # running something or typed in, and where the app comes back to.
+  @system.selfupdate @swift-pending
+  Scenario: The next version waits while my own answer to a card isn't sent
+    When the app's next version, def5678, is ready
+    And I open the thread "Ship the beta to TestFlight"
+    Then a restart onto it waits for nothing
+    When I write "not before Friday" as my own answer to ask 1
+    Then a restart onto it waits for the words typed
+
+  @system.selfupdate @swift-pending
+  Scenario: The next version waits while a shell is typed in or running something
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When the app's next version, def5678, is ready
+    And I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    Then a restart onto it waits for nothing
+    When I type "echo half" in the Terminal without pressing Return
+    Then a restart onto it waits for the Terminal
+    When I press Return in the Terminal
+    Then a restart onto it waits for nothing
+    When I type "sleep 30" and press Return in the Terminal
+    Then a restart onto it waits for the Terminal
+
+  @system.selfupdate @swift-pending
+  Scenario: Back from restarting onto the next version, the list and the thread are as they were
+    When the app comes back from restarting onto its next version on the Scheduled list with "Morning brief" open
+    Then the sidebar shows the Scheduled list with "Morning brief" open

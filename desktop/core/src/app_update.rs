@@ -210,6 +210,24 @@ pub fn apply_staged(install: &Path, next: &Path, old: &Path, swapping: &Path, ru
 /// before starting."
 pub const AUTO_RESTART_IDLE_SECONDS: f64 = 5.;
 
+/// Whether a field holds words a restart would lose: anything other than
+/// what it held when it was made, or last saved, whitespace aside.
+pub fn typed_since(saved: &str, now: &str) -> bool {
+    saved.trim() != now.trim()
+}
+
+/// How long after the last click or key in a web panel's page its restart
+/// waits: typing there can't be read from here, so a page used lately
+/// counts as being typed in (Codex's review, 12 Nov).
+pub const WEB_PAGE_USED_SECONDS: f64 = 60.;
+
+/// Whether a web panel's page holds a restart off: it has the keyboard, or
+/// was clicked or typed in within `WEB_PAGE_USED_SECONDS` (`used_ago`, none
+/// if never since the app opened).
+pub fn web_page_holds(has_keyboard: bool, used_ago: Option<f64>) -> bool {
+    has_keyboard || used_ago.is_some_and(|ago| ago < WEB_PAGE_USED_SECONDS)
+}
+
 /// What a restart to take a staged build is weighed against, once a second.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RestartMoment {
@@ -328,6 +346,24 @@ mod tests {
         // Touched within the last five seconds: not yet.
         assert!(!should_auto_restart(&RestartMoment { idle_for: 4.9, ..quiet() }));
         assert!(!should_auto_restart(&RestartMoment { idle_for: 0., ..quiet() }));
+    }
+
+    #[test]
+    fn a_field_holds_what_was_typed_since_it_was_saved() {
+        assert!(!typed_since("", ""));
+        assert!(!typed_since("Ship it", "Ship it "));
+        assert!(typed_since("", "half a thought"));
+        assert!(typed_since("Ship it", "Ship it by Friday"));
+        // Cleared is a change too: goals being rewritten from nothing.
+        assert!(typed_since("Ship it", ""));
+    }
+
+    #[test]
+    fn a_web_page_holds_while_it_has_the_keyboard_or_was_used_lately() {
+        assert!(web_page_holds(true, None));
+        assert!(web_page_holds(false, Some(5.)));
+        assert!(!web_page_holds(false, Some(WEB_PAGE_USED_SECONDS)));
+        assert!(!web_page_holds(false, None));
     }
 
     #[test]

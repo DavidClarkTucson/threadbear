@@ -261,6 +261,8 @@ impl Threadbear {
             self.open(id.clone(), window, cx);
         }
         let field = cx.new(|cx| InputState::new(window, cx).placeholder("Thread title").default_value(title));
+        // A new name typed and not yet taken: an update's restart waits for it.
+        crate::unsent::watch(&field, cx);
         // The whole name selected, so typing replaces it, as a click on the
         // Swift app's title does (Mike, 11 Nov).
         field.update(cx, |s, cx| s.select_all(window, cx));

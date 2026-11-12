@@ -247,7 +247,8 @@ File references are where to look.
   `~/Applications/.Threadbear GPUI.app.next` and goes in when the app quits
   or restarts, the old one kept as `.Threadbear GPUI.app.old` until the next
   launch. The app restarts onto it by itself once nothing's typed and
-  nothing's open that a restart would close (a menu, a dialog, a drag):
+  nothing's open that a restart would close (a menu, a dialog, a drag, a
+  Terminal shell running something, a web panel used in the last minute):
   straight away while you're in another app, and with the app in front
   once you haven't touched the Mac for five seconds (it asks macOS how
   long since the last key, click or pointer move, nothing more). It writes what it did and the build's output to

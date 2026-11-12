@@ -141,6 +141,10 @@ pub struct Threadbear {
     /// A thread a notification's click asked for before the list had
     /// loaded: opened once it has (`linkedThread`).
     pub(crate) pending_open: Option<String>,
+    /// The thread that was open when the app restarted itself onto an
+    /// update, opened once the list has loaded, in the list that was showing
+    /// and without bringing the window in front (app_update.rs).
+    pub(crate) pending_restore: Option<String>,
     /// A `threadbear://` link's thread waiting for the lists it could be in,
     /// and since when (deep_links.rs).
     pub(crate) waiting_link: Option<(String, std::time::Instant)>,
@@ -408,6 +412,7 @@ impl Threadbear {
             settings_window: None,
             main_window: window.window_handle(),
             pending_open: None,
+            pending_restore: None,
             waiting_link: None,
             dock_badge: None,
             panel_gate: Default::default(),
@@ -779,7 +784,21 @@ impl Threadbear {
         self.open(id, window, cx);
     }
 
-    fn open_pending(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn open_pending(&mut self, cx: &mut Context<Self>) {
+        if let Some(id) = self.pending_restore.take() {
+            // Back where it was after an update's restart: not
+            // `open_from_outside`, which brings the window in front (taking
+            // it from the app Mike's in) and goes to the Inbox, losing the
+            // list that was showing (Codex's review, 12 Nov).
+            let (me, window) = (cx.entity().downgrade(), self.main_window);
+            cx.defer(move |cx| {
+                window
+                    .update(cx, |_, window, cx| {
+                        me.update(cx, |this, cx| this.open(id, window, cx)).ok();
+                    })
+                    .ok();
+            });
+        }
         let Some(id) = self.pending_open.take() else { return };
         let (me, window) = (cx.entity().downgrade(), self.main_window);
         // Not from inside this update: opening needs the window, and the

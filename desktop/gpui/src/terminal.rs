@@ -71,6 +71,17 @@ fn terminals(cx: &App) -> Option<Entity<Terminals>> {
     cx.try_global::<TerminalsGlobal>().map(|g| g.0.clone())
 }
 
+/// Whether any shell has something an update's restart would lose, as
+/// quitting ends every shell: a program running in it, or words at its
+/// prompt (core's `holds_a_restart`). Asked once a second (app_update.rs).
+pub(crate) fn holds_a_restart(cx: &App) -> bool {
+    let Some(terminals) = terminals(cx) else { return false };
+    terminals.read(cx).sessions.values().any(|s| {
+        let s = s.read(cx);
+        rules::holds_a_restart(s.running(), s.shell_alone_in_front(), &s.line)
+    })
+}
+
 /// What the dock shows for the Terminal panel: the panel's own view, which
 /// draws again only when it or its shell changes, not with the whole app.
 pub(crate) fn panel_view(cx: &mut App) -> AnyElement {

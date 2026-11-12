@@ -109,6 +109,14 @@ pub enum BoxChip {
     Mention,
 }
 
+/// Whether the box holds anything a restart would lose: words, a picture
+/// that's in, or one still being copied in, which `draft_in` leaves out as
+/// it isn't part of the draft yet (Codex's review, 12 Nov).
+pub fn holds_anything(text: &str, chips: &[(Range<usize>, BoxChip)]) -> bool {
+    let (words, images) = draft_in(text, chips, 0..text.len());
+    !words.trim().is_empty() || !images.is_empty() || chips.iter().any(|(_, c)| matches!(c, BoxChip::Picture(None)))
+}
+
 /// The draft in `range` of the box's `text` (ComposerTextView.draft(in:)):
 /// the words, a mark for each picture that's in, a card's or thread's link
 /// as it is, and those pictures in order. `chips` are the box's chips by
@@ -225,6 +233,19 @@ mod tests {
         assert_eq!(pasted_thread_id("see demo_upload", known), None, "words with an id in them stay words");
         assert_eq!(pasted_thread_id("", known), None);
         assert_eq!(pasted_thread_id(&"a".repeat(65), |_| true), None);
+    }
+
+    #[test]
+    fn a_picture_still_coming_in_is_something_in_the_box() {
+        let chip = "\u{FFFC}";
+        // Only a picture that's still being copied in: no words, no picture
+        // in the draft yet, but a restart would lose it.
+        let importing = [(0..chip.len(), BoxChip::Picture(None))];
+        assert_eq!(draft_in(chip, &importing, 0..chip.len()), (String::new(), vec![]));
+        assert!(holds_anything(chip, &importing));
+        assert!(holds_anything("hello", &[]));
+        assert!(!holds_anything("  \n", &[]));
+        assert!(!holds_anything("", &[]));
     }
 
     #[test]

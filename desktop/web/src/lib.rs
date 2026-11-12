@@ -193,6 +193,9 @@ mod elsewhere {
         pub fn has_keyboard(&self) -> bool {
             false
         }
+        pub fn input_count(&self) -> u64 {
+            0
+        }
         pub fn focus(&self) {}
         pub fn note_input(&self) {}
     }

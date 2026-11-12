@@ -239,6 +239,9 @@ impl Composer {
         }
         let existing = self.card.notes.get(&(ask as i64)).cloned().unwrap_or_default();
         let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Say something else…").auto_grow(1, 8).submit_on_enter(true));
+        // Its words are only here until they're sent: an update's restart
+        // waits for them (unsent.rs).
+        crate::unsent::watch(&input, cx);
         // What was answered before (a refused send put back), its pictures
         // as chips again.
         if !existing.is_empty() {

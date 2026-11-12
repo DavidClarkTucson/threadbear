@@ -445,23 +445,25 @@ impl Threadbear {
         cx.notify();
     }
 
-    /// Words or pictures in a message box, a schedule editor open or a thread
-    /// being renamed: the Swift app doesn't restart under the first two
-    /// (`hasDrafts`), as Mike may be halfway through.
+    /// Words or pictures in a message box (one still being copied in too), a
+    /// schedule editor open, or words in any other field that aren't saved
+    /// anywhere yet (unsent.rs: a card's Something else, a project's goals
+    /// being edited, a new title, a secret): the Swift app doesn't restart
+    /// under the first two (`hasDrafts`), as Mike may be halfway through.
     fn has_unsent_words(&self, cx: &App) -> bool {
         let boxes = self.composers.values().chain(self.new_thread.composer.iter());
-        boxes.into_iter().any(|c| {
-            let (text, images) = c.read(cx).draft_for_saving(cx);
-            !text.trim().is_empty() || !images.is_empty()
-        }) || self.schedule_editor.is_some()
-            || self.rename_field.is_some()
+        boxes.into_iter().any(|c| c.read(cx).holds_anything(cx)) || self.schedule_editor.is_some() || crate::unsent::any(cx)
     }
 
     /// Something of the app's own under way that a restart would cut off: a
     /// drag, a page or row swipe, the button held (a selection being made),
-    /// one of its menus, the share popover or the Move to sheet.
+    /// one of its menus, the share popover or the Move to sheet, a shell
+    /// that's busy or typed in (quitting ends them all), or a web panel's
+    /// page in use (Codex's review, 12 Nov).
     fn under_way(&self, cx: &App) -> bool {
-        cx.has_active_drag()
+        crate::terminal::holds_a_restart(cx)
+            || crate::web_panels::holds_a_restart(cx)
+            || cx.has_active_drag()
             || crate::reply_links::left_held()
             || self.swipe_nav.under_way()
             || self.sidebar.gestures.under_way()
@@ -491,6 +493,9 @@ impl Threadbear {
     /// anything (`should_auto_restart`): checked every second, with what the
     /// windows have up (`windows_now`).
     pub(crate) fn consider_auto_restart(&mut self, windows: WindowsNow, cx: &mut Context<Self>) {
+        // Looked at every second, staged or not, so a page used just before
+        // a build is staged still counts as used lately.
+        crate::web_panels::holds_a_restart(cx);
         if self.updater.restarting || self.updater.staged.is_none() || self.updater.preview {
             return;
         }
@@ -514,7 +519,9 @@ impl Threadbear {
     fn restart_for_update(&mut self, in_background: bool, cx: &mut Context<Self>) {
         self.updater.restarting = true;
         // Where it was, put back once the threads have loaded.
-        self.settings.saved.update_restore = Some(json!({ "mode": self.mode.name(), "selection": self.selected }));
+        // And whether it was in front, so a restart made behind another app
+        // comes back behind it.
+        self.settings.saved.update_restore = Some(json!({ "mode": self.mode.name(), "selection": self.selected, "front": !in_background }));
         self.settings.save();
         relaunch_after_exit(&install_dir(), in_background);
         cx.quit();
@@ -543,7 +550,8 @@ impl Threadbear {
     }
 
     /// After a restart the app made itself: back to the list and the thread
-    /// that were showing, the thread once the list is in (`pending_open`).
+    /// that were showing, the thread once the list is in (`pending_restore`),
+    /// without bringing the window in front.
     pub(crate) fn restore_after_update(&mut self, cx: &mut Context<Self>) {
         let Some(saved) = self.settings.saved.update_restore.take() else { return };
         self.save_settings_soon(cx);
@@ -555,7 +563,11 @@ impl Threadbear {
         };
         self.set_mode(mode, cx);
         if let Some(id) = saved["selection"].as_str().filter(|s| !s.is_empty()) {
-            self.pending_open = Some(id.to_owned());
+            self.pending_restore = Some(id.to_owned());
+            // The list is in already (a script's restart): open it now.
+            if self.sidebar.loaded {
+                self.open_pending(cx);
+            }
         }
     }
 

@@ -97,6 +97,7 @@ mod terminal_element;
 mod thread;
 mod tips;
 mod thread_panels;
+mod unsent;
 mod updates_panel;
 mod usage;
 mod viewer;
@@ -196,6 +197,9 @@ fn main() {
         // anything reads them (swift_import.rs).
         let brought = swift_import::run_once(&mut settings, cx);
         let bounds = initial_bounds(&settings, cx);
+        // Back from an update's restart made while another app was in front:
+        // the window comes back behind it, not taking the keys (app_update.rs).
+        let focus = settings.saved.update_restore.as_ref().is_none_or(|r| r["front"].as_bool() != Some(false));
         let (window, app) = gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -207,6 +211,7 @@ fn main() {
                 app_owns_titlebar_drag: true,
                 window_min_size: Some(size(px(760.), px(480.))),
                 app_id: Some("threadbear".into()),
+                focus,
                 ..Default::default()
             },
             cx,

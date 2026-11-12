@@ -219,6 +219,8 @@ impl SidePane {
             return input.clone();
         }
         let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask a follow-up").auto_grow(1, 5).submit_on_enter(true));
+        // A question typed and not asked: an update's restart waits for it.
+        crate::unsent::watch(&input, cx);
         let id = thread_id.to_owned();
         let sub = cx.subscribe_in(&input, window, move |this, _, event: &InputEvent, window, cx| match event {
             InputEvent::PressEnter { shift: false, .. } => this.ask_follow_up(&id, window, cx),

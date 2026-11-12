@@ -136,6 +136,39 @@ fn panels(cx: &App) -> Option<Entity<WebPanels>> {
     cx.try_global::<Shared>().map(|s| s.0.clone())
 }
 
+thread_local! {
+    /// Each page's count of clicks and keys when last asked, and when it
+    /// last changed, by its key (`holds_a_restart`).
+    static USED: std::cell::RefCell<HashMap<String, (u64, Option<std::time::Instant>)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// Whether a web panel's page holds an update's restart off: what's typed
+/// in a page can't be read from here, so one with the keyboard, or clicked
+/// or typed in within the last minute, counts as being typed in (core's
+/// `web_page_holds`). Asked once a second (app_update.rs).
+pub(crate) fn holds_a_restart(cx: &App) -> bool {
+    let Some(panels) = panels(cx) else { return false };
+    let now = std::time::Instant::now();
+    USED.with(|used| {
+        let mut used = used.borrow_mut();
+        let pages = &panels.read(cx).pages;
+        used.retain(|key, _| pages.iter().any(|k| &k.key == key));
+        let mut holds = false;
+        for kept in pages {
+            let count = kept.page.input_count();
+            // A page first seen here hasn't been used since: only a change
+            // in its count from here on counts.
+            let seen = used.entry(kept.key.clone()).or_insert((count, None));
+            if seen.0 != count {
+                *seen = (count, Some(now));
+            }
+            let ago = seen.1.map(|at| now.duration_since(at).as_secs_f64());
+            holds |= threadbear_core::app_update::web_page_holds(kept.page.has_keyboard(), ago);
+        }
+        holds
+    })
+}
+
 /// ⌘C, ⌘X, ⌘V, ⌘A, ⌘Z and ⇧⌘Z while a page has the keyboard: that page's
 /// own Edit command, as the Swift app's Edit menu sends copy: to its web
 /// view. GPUI's view sees key equivalents before the page does (it answers

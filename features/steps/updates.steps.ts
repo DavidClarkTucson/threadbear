@@ -4,7 +4,7 @@
 // line indented by two spaces.
 import { Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
-import { okValue } from '../support/driver.ts';
+import { okValue, type Dump } from '../support/driver.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 
 When('the runner starts building main at {string} for {string}', async function (this: ThreadbearWorld, commit: string, subject: string) {
@@ -53,7 +53,7 @@ type RestartCheck = { staged: boolean; loaded: boolean; hasDrafts: boolean; held
 
 async function restartWaits(world: ThreadbearWorld, what: string, wanted: (c: RestartCheck) => boolean) {
   let seen: RestartCheck | undefined;
-  for (let i = 0; i < 40; i += 1) {
+  for (let i = 0; i < 100; i += 1) {
     seen = JSON.parse(await world.app.do({ cmd: 'updates', restartCheck: true })) as RestartCheck;
     if (wanted(seen)) return;
     await new Promise((done) => setTimeout(done, 100));
@@ -71,4 +71,38 @@ Then('a restart onto it waits for the words typed', async function (this: Thread
 
 Then('a restart onto it waits for the open menu', async function (this: ThreadbearWorld) {
   await restartWaits(this, 'the open menu', (c) => c.held && !c.hasDrafts);
+});
+
+// Quitting ends every shell, so a busy or typed-in one holds it off.
+Then('a restart onto it waits for the Terminal', async function (this: ThreadbearWorld) {
+  await restartWaits(this, 'the Terminal', (c) => c.held && !c.hasDrafts);
+});
+
+When('I type {string} in the Terminal without pressing Return', async function (this: ThreadbearWorld, text: string) {
+  await this.until('a shell running', (d) => d.terminal?.shell === 'running');
+  await this.app.do({ cmd: 'terminal', keys: text });
+});
+
+// What a restart the app made itself leaves for the next launch, and that
+// launch putting it back (`updates` with `restore`), as a scripted app
+// never restarts.
+// The thread's id by its title, kept from the Inbox: the Scheduled list
+// doesn't list it.
+const restored = new Map<string, string>();
+
+When('the app comes back from restarting onto its next version on the Scheduled list with {string} open', async function (this: ThreadbearWorld, title: string) {
+  const thread = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
+  restored.set(title, thread.id);
+  await this.app.do({ cmd: 'updates', restore: { mode: 'scheduled', selection: thread.id, front: false } });
+});
+
+Then('the sidebar shows the Scheduled list with {string} open', async function (this: ThreadbearWorld, title: string) {
+  const id = restored.get(title);
+  assert.ok(id, `"${title}" wasn't put back`);
+  const where = (d: Dump) => ({ mode: (d.sidebar as { mode?: string }).mode, open: d.selection?.id });
+  await this.until('the Scheduled list with the thread open', (d) => where(d).mode === 'scheduled' && where(d).open === id);
+  // And still so a moment later: opening it mustn't go back to the Inbox.
+  await new Promise((done) => setTimeout(done, 800));
+  const later = where(await this.app.dump());
+  assert.deepEqual(later, { mode: 'scheduled', open: id });
 });

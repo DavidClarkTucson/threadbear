@@ -295,6 +295,36 @@ built parsers and gates with no launch of the app, which is the trap.)
   `@highlights.rowmenus`, `@transcript.rowmenu`, `@folder.menu`,
   `@rich.filemenu`, `@rich.webmenu`, `@panel.bar`): 29 passed, 3 skipped,
   none failed.
+### 2026-11-12 The restart onto the next version waits for more (`system.selfupdate`)
+
+- Codex's review of the restart in front found five ways it could still
+  lose something; each is fixed:
+- A Terminal shell running something (a command, vim, ssh) or with words at
+  its prompt holds it off, as quitting ends every shell (core's
+  `terminal::holds_a_restart`).
+- Words in any other field not saved anywhere: a card's Something else, a
+  project decision's answer, a secret, a project's goals, state, notes or
+  title being edited, a new thread name, a follow-up to an explanation, a
+  pool's name. Each field is put on a list where it's made and says what it
+  holds when asked (`unsent.rs`); searches, Settings' instructions (saved as
+  typed), a review's reply (kept through a restart) and the message boxes
+  (read on their own) are left off on purpose.
+- A picture still being copied into a message box counts as something in
+  it (core's `inline_chips::holds_anything`).
+- A web panel's page holds it off while it has the keyboard, and for a
+  minute after its last click or key, as what's typed in a page can't be
+  read from here (core's `web_page_holds`).
+- Back after the restart it opens the thread in the list that was showing
+  (Scheduled, Projects), not the Inbox, and a restart made behind another
+  app comes back behind it, without bringing its window in front.
+- Files: `desktop/core/src/{app_update,inline_chips,terminal}.rs`,
+  `desktop/gpui/src/{unsent,app_update,app,main,terminal,web_panels,composer,updates_panel}.rs`
+  and the fields' files, `desktop/web/src/{lib,mac/panel}.rs`,
+  `features/updates.feature`, `docs/guide.md`, `docs/on-your-mac.md`.
+- Verification: the core tests for each rule; three new scenarios (a card's
+  own answer, a shell typed in and then running `sleep 30`, and the list and
+  thread put back) fail on Tinker Desk's GPUI app before the fix and pass
+  with it, with the rest of `@system.selfupdate`.
 
 ### 2026-11-12 Another lab's review moves off the card into the transcript (`card.review`)
 

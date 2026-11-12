@@ -549,6 +549,16 @@ fn section(title: &'static str, content: Vec<AnyElement>, cx: &App) -> AnyElemen
 /// own update first (`staged`, `building`, `failed`, `waiting` or `none`), as
 /// the Swift app's; this app has no right-click popover (`rightClick`).
 pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) -> Result<Value, String> {
+    // What a restart onto an update leaves for the next launch, put back as
+    // that launch does (app_update.rs, `restore_after_update`): a scripted
+    // app never restarts itself.
+    if let Some(saved) = cmd.get("restore").filter(|v| v.is_object()) {
+        app.update(cx, |t, cx| {
+            t.settings.saved.update_restore = Some(saved.clone());
+            t.restore_after_update(cx);
+        });
+        return Ok(json!("ok"));
+    }
     if let Some(state) = cmd["preview"].as_str() {
         if !["staged", "building", "failed", "waiting", "none"].contains(&state) {
             return Err("preview is staged, building, failed, waiting or none".into());

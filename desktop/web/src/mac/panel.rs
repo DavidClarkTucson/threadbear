@@ -383,6 +383,12 @@ impl PanelPage {
         unsafe { tb_view_has_keyboard(self.view) }
     }
 
+    /// How many clicks and keys a person has given the page's view so far:
+    /// one changing says it's being used (an update's restart waits for it).
+    pub fn input_count(&self) -> u64 {
+        unsafe { tb_view_input_count(self.view) }
+    }
+
     /// A scripted app's stand-in for a person's click in the page: the
     /// specs click through DevTools, which AppKit never sees (`LeaveGate`).
     pub fn note_input(&self) {

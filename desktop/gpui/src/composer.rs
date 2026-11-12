@@ -300,6 +300,13 @@ impl Composer {
         self.draft(cx)
     }
 
+    /// Whether the box holds anything a restart would lose: words, or a
+    /// picture, one still being copied in included (app_update.rs).
+    pub(crate) fn holds_anything(&self, cx: &App) -> bool {
+        let text = self.input.read(cx).value().to_string();
+        threadbear_core::inline_chips::holds_anything(&text, &self.box_chips(cx))
+    }
+
     /// A card's or thread's chip is its link in the draft (composer_inline.rs).
     fn draft(&self, cx: &App) -> (String, Vec<ImageRef>) {
         let text = self.input.read(cx).value().to_string();

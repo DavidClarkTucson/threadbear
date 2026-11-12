@@ -224,7 +224,13 @@ impl AskHost for DecisionCard {
             return input.clone();
         }
         let existing = self.notes.get(&(ask as i64)).map(|n| n.text.clone()).unwrap_or_default();
-        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Say something else…").auto_grow(1, 8).submit_on_enter(true).default_value(existing));
+        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Say something else…").auto_grow(1, 8).submit_on_enter(true));
+        // Its words are only here until they're sent, what was typed before
+        // too: an update's restart waits for them (unsent.rs).
+        crate::unsent::watch(&input, cx);
+        if !existing.is_empty() {
+            input.update(cx, |s, cx| s.set_value(existing, window, cx));
+        }
         let sub = cx.subscribe_in(&input, window, move |this, input, ev: &InputEvent, window, cx| match ev {
             InputEvent::Change => {
                 let text = input.read(cx).value().to_string();
