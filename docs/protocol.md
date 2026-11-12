@@ -2288,7 +2288,13 @@ Ayush's "Plan View UI".
   fill that same card as its checklist, the plan behind Show plan. Clients
   that don't know these events still see Claude's approval as an ordinary
   one ("Finish the plan"). A thread on another Mac (Other runners'
-  threads) can't take `plans.approve` yet; writing to it still works.
+  threads) shows its plan card too: `relay:remoteMessages` says which rows
+  are plans (backend API 75), the relay sends each as `plan.proposed`
+  (Claude's card for it with that `itemId`, so it folds into the plan),
+  and `plan.resolved` once what follows says what happened (`planOutcome`:
+  work in its turn is `go`, Mike's next message `revise` unless it's the
+  runner's own Go ahead). It can't take `plans.approve` yet, so the Mac
+  offers only Send back there; writing to it still works.
 - **On the phone.** Sync sends each `plan.proposed` as a message row with
   `plan: true` (backend API 72): the whole plan, scrubbed as a reply is,
   up to 24,000 characters. The iPhone app draws it as a plan card that
@@ -3130,9 +3136,13 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   finishes. Disputed or left alone start no round. The ledger is drawn
   as a quiet row in the transcript, over the turn's reply (under its
   folded work), on this runner's own threads; it was on the done card
-  until Mike moved it, 12 Nov 2026, as it happens in the background;
-  it isn't in the Convex mirror yet, so another Mac and the phone show
-  the agent's reply (scenarios.test.ts, KNOWN). A reviewer that gives no
+  until Mike moved it, 12 Nov 2026, as it happens in the background.
+  Since backend API 75 the thread's row carries it, scrubbed and cut,
+  while that turn is the last word (sync's `lastEnd`), and another Mac
+  draws it the same way (the relay puts it on that turn's
+  `turn.completed`). `phone:thread` returns it too, but the phone and the
+  website don't draw it yet: they show the agent's reply, which says what
+  was found and what it did about each. A reviewer that gives no
   verdict (after the refusals) is handled as before: its reply goes
   across and nothing is enforced.
 - **Waiting on threads.** `end_turn` also takes `waitFor?: string[]`, up
@@ -3341,8 +3351,11 @@ left it shows just Done (a "Nothing left open" label beside it was cut on
 cards, from the thread row's `looseEnds` (backend API 73: the summary's
 `ends`, sent only while its card stands, so idle, `needs: "nothing"` and
 not archived; an older backend's row goes without it). Another runner's
-thread on the Mac doesn't show them: the relay reads its sidebar row,
-which doesn't carry them (`KNOWN` in `scenarios.test.ts`).
+thread on the Mac shows them too (since 12 Nov 2026): the relay reads them
+from that thread's backend row while it's open and puts them on its row in
+`remoteThreads.list`/`.updated` (and a `thread.updated`) as `looseEnds:
+{ seq, ends }`, `seq` being the relay's own `turn.completed` for the card.
+The sidebar's rows don't carry them, so a thread nobody has open has none.
 
 ## Secrets
 

@@ -110,6 +110,33 @@ export const threadFields = {
   // one shows as its text; threadId for a thread one, at (ISO) for a
   // booked check-in.
   looseEnds: v.optional(v.array(v.object({ kind: v.string(), text: v.string(), threadId: v.optional(v.string()), at: v.optional(v.string()) }))),
+  // Another lab's review of the last turn's change and what was done about
+  // each finding (docs/protocol.md, LabReviewLedger, the turn.completed's
+  // `review`), since API 75: while that turn is the last word, so another
+  // Mac draws its ledger row as this runner's does. Text scrubbed and cut.
+  review: v.optional(
+    v.object({
+      reviewer: v.string(),
+      independent: v.boolean(),
+      rounds: v.number(),
+      threadId: v.string(),
+      passed: v.boolean(),
+      unstructured: v.optional(v.boolean()),
+      unchecked: v.optional(v.boolean()),
+      findings: v.array(
+        v.object({
+          id: v.number(),
+          round: v.number(),
+          severity: v.string(),
+          claim: v.string(),
+          where: v.optional(v.string()),
+          case: v.optional(v.string()),
+          outcome: v.optional(v.string()),
+          note: v.optional(v.string()),
+        }),
+      ),
+    }),
+  ),
   // The thread's patch link buttons (url actions, docs/protocol.md
   // "Patches"), since API 28: the phone shows them and opens them itself.
   // icon is an SF Symbol.

@@ -464,6 +464,21 @@ function fitThread<T extends Record<string, any>>(t: T): T | undefined {
   for (const f of ['title', 'preview', 'cwd', 'working', 'asked']) if (typeof out[f] === 'string') out[f] = cutBytes(out[f], f === 'title' ? 300 : CAP.threadText);
   if (typeof out.recap === 'string') out.recap = cutBytes(out.recap, CAP.recap);
   if (Array.isArray(out.looseEnds)) out.looseEnds = out.looseEnds.slice(0, 10).map((e: any) => ({ ...e, text: cutBytes(String(e.text ?? ''), 300) }));
+  if (out.review && Array.isArray(out.review.findings)) {
+    const cut = (s: unknown, n: number) => (typeof s === 'string' ? cutBytes(s, n) : undefined);
+    out.review = {
+      ...out.review,
+      reviewer: cutBytes(String(out.review.reviewer ?? ''), 100),
+      findings: out.review.findings.slice(0, 20).map((f: any) => {
+        const o: Record<string, unknown> = { ...f, claim: cutBytes(String(f.claim ?? ''), 300) };
+        for (const [k, n] of [['where', 200], ['case', 300], ['note', 300]] as const) {
+          if (o[k] === undefined) continue;
+          o[k] = cut(o[k], n);
+        }
+        return o;
+      }),
+    };
+  }
   if (typeof out.keywords === 'string') out.keywords = cutBytes(out.keywords, CAP.keywords);
   if (out.startedBy) out.startedBy = { ...out.startedBy, label: cutBytes(String(out.startedBy.label ?? ''), 100), ...(out.startedBy.why !== undefined ? { why: cutBytes(String(out.startedBy.why), 300) } : {}) };
   // The card waiting on Mike is cut, never dropped: the phone shows the
@@ -475,9 +490,9 @@ function fitThread<T extends Record<string, any>>(t: T): T | undefined {
   if (docBytes(out) > CAP.threadDoc && Array.isArray(out.asks) && out.asks.some((a: any) => a?.optionNotes)) {
     out.asks = out.asks.map(({ optionNotes: _notes, ...a }: any) => a);
   }
-  // The done card's loose ends go first: the Mac has them, and the card
-  // still says Done without them.
-  for (const f of ['looseEnds', 'asks', 'next', 'links', 'projects']) {
+  // Another lab's review goes first, then the done card's loose ends: the
+  // Mac has both, and the card still says Done without them.
+  for (const f of ['review', 'looseEnds', 'asks', 'next', 'links', 'projects']) {
     if (docBytes(out) <= CAP.threadDoc) break;
     delete out[f];
   }

@@ -32,7 +32,7 @@ import { makeFunctionReference } from 'convex/server';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
 import { agentsStillWorking, ARCHIVE_VERDICTS, ErrorCode, isEffortLevel, remoteCreateModeOf } from './protocol.ts';
-import type { Account, ArchiveVerdict, ApprovalDecision, ApprovalOption, AskAnswer, EffortLevel, ImageRef, OpenAsk, PermissionMode, PersistedEvent, Project, Question, ReplyButton, Schedule, ThreadSummary } from './protocol.ts';
+import type { Account, ArchiveVerdict, ApprovalDecision, ApprovalOption, AskAnswer, EffortLevel, ImageRef, LabReviewLedger, OpenAsk, PermissionMode, PersistedEvent, Project, Question, ReplyButton, Schedule, ThreadSummary } from './protocol.ts';
 import { REMOTE_ALLOW_REFUSED, REMOTE_RUN_REFUSED, remoteCardShowsAll, summaryField } from './tools.ts';
 import type { Notification } from './runner.ts';
 import type { ScheduleBackend, StoredSchedule } from './schedules.ts';
@@ -324,6 +324,10 @@ export const RUN_ASKS_API_VERSION = 71;
 // row, for the phone's done card. An older backend's validator would turn
 // the row down, so it goes without.
 export const LOOSE_ENDS_API_VERSION = 73;
+// Another lab's review ledger from the last turn (`review` on a thread row),
+// for another Mac's relay to draw. An older backend's validator would turn
+// the row down, so it goes without.
+export const REVIEW_API_VERSION = 75;
 // From this one a thread's row and its threadIndex row carry `keywords`, the
 // librarian's search words (keywords.ts), and phone:search matches them and
 // every message's text. An older backend's validator would turn the row
@@ -425,6 +429,7 @@ export type ThreadDoc = {
   asksSeq?: number;
   next?: string[];
   looseEnds?: { kind: string; text: string; threadId?: string; at?: string }[];
+  review?: LabReviewLedger;
   needs?: 'you' | 'nothing';
   pendingReviews?: number;
   waitingForRoom?: { until: string; accountId?: string };
@@ -846,7 +851,7 @@ export function holdAllowIfScrubbed(doc: ThreadDoc, scrub: (text: string) => str
   return { ...doc, pendingApproval: { ...p, title: `${p.title}. ${REMOTE_ALLOW_REFUSED}`, options: p.options.filter((o) => o !== 'allow' && o !== 'allowAlways') } };
 }
 
-export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pending?: PendingApproval, earliestSeq?: number, next?: string[], scrub?: (text: string) => string): ThreadDoc {
+export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pending?: PendingApproval, earliestSeq?: number, next?: string[], scrub?: (text: string) => string, review?: LabReviewLedger): ThreadDoc {
   const doc: ThreadDoc = {
     threadId: t.id,
     runnerId,
@@ -893,10 +898,38 @@ export function toThreadDoc(t: ThreadSummary, runnerId: string, now: number, pen
   if (next?.length) doc.next = next;
   // The done card's loose ends (docs/protocol.md, "Loose ends"), for the
   // phone's done card. The runner only has them for the card standing now
-  // (runner/loose-ends.ts); the same test as nextSteps keeps an older
+  // (runner/loose-ends.ts); the same test as lastEnd keeps an older
   // check off a thread that's moved on.
   if (t.looseEnds && t.status === 'idle' && t.needs === 'nothing' && !t.archivedAt) {
     doc.looseEnds = t.looseEnds.ends.map((e) => ({ kind: e.kind, text: e.text, ...(e.threadId ? { threadId: e.threadId } : {}), ...(e.at ? { at: e.at } : {}) }));
+  }
+  // Another lab's review of the last turn, for another Mac (the relay draws
+  // it on that turn's end, as this runner's own Mac does), scrubbed as a
+  // reply is: a finding can quote the code it's about.
+  // Field by field, as the backend's validator lists them: a field the
+  // ledger gains later would otherwise have every backend turn the whole
+  // row down.
+  if (review) {
+    const s = scrub ?? ((x: string) => x);
+    doc.review = {
+      reviewer: s(review.reviewer),
+      independent: review.independent,
+      rounds: review.rounds,
+      threadId: review.threadId,
+      passed: review.passed,
+      ...(review.unstructured ? { unstructured: true as const } : {}),
+      ...(review.unchecked ? { unchecked: true as const } : {}),
+      findings: review.findings.map((f) => ({
+        id: f.id,
+        round: f.round,
+        severity: f.severity,
+        claim: s(f.claim),
+        ...(f.where !== undefined ? { where: s(f.where) } : {}),
+        ...(f.case !== undefined ? { case: s(f.case) } : {}),
+        ...(f.outcome !== undefined ? { outcome: f.outcome } : {}),
+        ...(f.note !== undefined ? { note: s(f.note) } : {}),
+      })),
+    };
   }
   // The phone files a thread whose turn said "you" in the inbox whatever's
   // running, and its working line can't tell a sub-agent from a shell job. So
@@ -975,7 +1008,7 @@ function phoneAnswers(raw: unknown): AskAnswer[] | undefined {
 export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
   const asks = d.asks !== undefined || d.asksSeq !== undefined || d.next !== undefined;
   const sections = d.needs !== undefined || d.pendingReviews !== undefined || d.waitingForRoom !== undefined;
-  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= LOOSE_ENDS_API_VERSION || !d.looseEnds) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= KEYWORDS_API_VERSION || !d.keywords) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
+  if ((v >= SHARE_API_VERSION || !d.share) && (v >= WOKE_API_VERSION || !d.woke) && (v >= ASKS_API_VERSION || !asks) && (v >= OPTION_NOTES_API_VERSION || !d.asks?.some((a) => a.optionNotes)) && (v >= RUN_ASKS_API_VERSION || !d.asks?.some((a) => a.run)) && (v >= LOOSE_ENDS_API_VERSION || !d.looseEnds) && (v >= REVIEW_API_VERSION || !d.review) && (v >= SECTIONS_API_VERSION || !sections) && (v >= STARTED_BY_API_VERSION || !d.startedBy) && (v >= STARS_API_VERSION || !d.starredAt) && (v >= LINKS_API_VERSION || !d.links) && (v >= ASKED_API_VERSION || !d.asked) && (v >= KEYWORDS_API_VERSION || !d.keywords) && (v >= WAKE_NOTE_API_VERSION || !d.wakeNote) && (v >= NETWORK_WAIT_API_VERSION || !d.waitingForNetwork) && (v >= SECRETS_API_VERSION || d.pendingApproval?.kind !== 'secret') && (v >= RELAY_API_VERSION || d.pendingApproval?.seq === undefined) && (v >= PLAN_API_VERSION || d.pendingApproval?.kind !== 'approval' || d.pendingApproval.planSeq === undefined)) return d;
   const out = { ...d };
   if (v < SECTIONS_API_VERSION) {
     delete out.needs;
@@ -1010,6 +1043,7 @@ export function forBackend(d: ThreadDoc, v: number, now: number): ThreadDoc {
     out.asks = out.asks.map(({ run: _run, ...a }) => a);
   }
   if (v < LOOSE_ENDS_API_VERSION) delete out.looseEnds;
+  if (v < REVIEW_API_VERSION) delete out.review;
   if (v < OPTION_NOTES_API_VERSION && out.asks?.some((a) => a.optionNotes)) {
     out.asks = out.asks.map(({ optionNotes: _notes, ...a }) => a);
   }
@@ -1275,7 +1309,7 @@ export class ConvexSync {
   // together and for a long time, so the rest wait here for it to close.
   private cardsBehind = new Map<string, PendingApproval[]>();
   private earliest = new Map<string, number | null>(); // threadId -> seq of its first text message (null: none yet)
-  private nexts = new Map<string, { lastSeq: number; next?: string[] }>(); // threadId -> its done card's next steps, as of lastSeq
+  private nexts = new Map<string, { lastSeq: number; next?: string[]; review?: LabReviewLedger }>(); // threadId -> its last turn's next steps and review, as of lastSeq
   private lists: { projects?: Project[]; schedules?: Schedule[]; accounts?: Account[] } = {};
   private dirtyLists = new Set<ListName>();
   // Each project as the backend has it, id -> digest of its doc without
@@ -1571,7 +1605,7 @@ export class ConvexSync {
     // Shared threads held back their share from an older backend (or
     // before the first heartbeat said which): they go again now.
     if (v >= SHARE_API_VERSION && this.running) {
-      // A done thread may have next steps (nextSteps), which a row written
+      // A done thread may have next steps (lastEnd), which a row written
       // before the heartbeat left out too.
       const card = (t: ThreadSummary) => Boolean(t.asks?.length) || (t.needs === 'nothing' && t.status === 'idle' && !t.archivedAt);
       // Likewise needs, reviews and waiting for room, for the phone's sections.
@@ -2304,7 +2338,8 @@ export class ConvexSync {
     // way (the turn ended, the runner restarted); the row mustn't keep it.
     if (t.status === 'idle' || t.status === 'error' || t.status === 'stopped') this.forgetCards(t.id);
     this.noteShared(t);
-    const doc = toThreadDoc(t, this.runnerId, this.deps.clock.now(), this.pending.get(t.id), this.earliestSeq(t), this.nextSteps(t), this.scrubber.safeText);
+    const end = this.lastEnd(t);
+    const doc = toThreadDoc(t, this.runnerId, this.deps.clock.now(), this.pending.get(t.id), this.earliestSeq(t), t.needs === 'nothing' ? end?.next : undefined, this.scrubber.safeText, end?.review);
     const now = this.deps.clock.now();
     // Against the row as this backend took it: `sent` holds that, without
     // the fields an older one doesn't know, which would otherwise make every
@@ -2667,20 +2702,24 @@ export class ConvexSync {
     }
   }
 
-  // A finished turn's suggested follow-ups (end_turn's `next`), for the
-  // phone's done card: only while the thread is idle on a turn that said
-  // it needs nothing, read from the end of its log once per lastSeq.
-  private nextSteps(t: ThreadSummary): string[] | undefined {
-    if (t.status !== 'idle' || t.needs !== 'nothing' || t.archivedAt) return undefined;
+  // What the last turn ended with, while it's the last word (the thread is
+  // idle, not archived, nothing sent since): its suggested follow-ups
+  // (end_turn's `next`, for the phone's done card, sent only on a turn that
+  // needs nothing) and another lab's review ledger (for another Mac's relay).
+  // Read from the end of its log once per lastSeq.
+  private lastEnd(t: ThreadSummary): { next?: string[]; review?: LabReviewLedger } | undefined {
+    if (t.status !== 'idle' || t.archivedAt) return undefined;
     const known = this.nexts.get(t.id);
-    if (known && known.lastSeq === t.lastSeq) return known.next;
+    if (known && known.lastSeq === t.lastSeq) return known;
     let next: string[] | undefined;
+    let review: LabReviewLedger | undefined;
     try {
       const { events } = this.deps.runner.events(t.id, { beforeSeq: t.lastSeq + 1, limit: 20 });
       for (let i = events.length - 1; i >= 0; i--) {
         const e = events[i]!;
         if (e.type === 'turn.completed') {
           if (e.next?.length) next = e.next;
+          if (e.review) review = e.review;
           break;
         }
         // A message after the turn means it's no longer the last word.
@@ -2689,8 +2728,9 @@ export class ConvexSync {
     } catch {
       return undefined;
     }
-    this.nexts.set(t.id, { lastSeq: t.lastSeq, next });
-    return next;
+    const end = { lastSeq: t.lastSeq, next, review };
+    this.nexts.set(t.id, end);
+    return end;
   }
 
   // The seq of the thread's first text message, read once from the start

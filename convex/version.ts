@@ -342,4 +342,10 @@
 //    sync:pools gives such a member to every runner key, without the ids
 //    for another runner's. A runner sends the ids only from 75, as an
 //    older backend hides the member from the other runners' keys.
-export const API_VERSION = 75;
+// 76: threads rows carry `review`, another lab's review ledger from the
+//    last turn's turn.completed (docs/protocol.md, "Review by another
+//    lab"), so another Mac draws it as this runner's own Mac does, and
+//    relay:remoteMessages says which rows are a Plan first plan (`plan`),
+//    so another Mac draws its plan card rather than folding the plan into
+//    the turn's work. A runner sends `review` only from 76.
+export const API_VERSION = 76;

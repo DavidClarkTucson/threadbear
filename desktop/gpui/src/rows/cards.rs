@@ -714,26 +714,33 @@ impl ThreadPane {
         if has_footer {
             let busy = waiting && self.rows.answering.contains(&plan.item_id);
             let mut footer = h_flex().mt(px(12.)).items_center().gap(px(8.));
+            // Another Mac's plan can't be approved from here (plans.approve
+            // doesn't go through Convex, docs/parity.md): only Send back,
+            // rather than a Go ahead that always fails.
+            let remote = self.summary.runner_id.is_some();
             if waiting {
-                let (item_id_a, thread_a) = (plan.item_id.clone(), self.summary.id.clone());
-                let mut go = pill(("plan-go", ix), "Go ahead", true, !busy, None, cx).tip("Approve the plan and let it start");
-                if !busy {
-                    go = go.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.rows.answering.insert(item_id_a.clone());
-                        crate::activity::answered(&thread_a, "allow");
-                        cx.notify();
-                        let (item, params) = (item_id_a.clone(), json!({ "threadId": thread_a, "itemId": item_id_a }));
-                        this.request_then("plans.approve", params, move |this, _, cx| {
-                            this.rows.answering.remove(&item);
+                let go = (!remote).then(|| {
+                    let (item_id_a, thread_a) = (plan.item_id.clone(), self.summary.id.clone());
+                    let mut go = pill(("plan-go", ix), "Go ahead", true, !busy, None, cx).tip("Approve the plan and let it start");
+                    if !busy {
+                        go = go.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.rows.answering.insert(item_id_a.clone());
+                            crate::activity::answered(&thread_a, "allow");
                             cx.notify();
-                        }, cx);
-                    }));
-                }
+                            let (item, params) = (item_id_a.clone(), json!({ "threadId": thread_a, "itemId": item_id_a }));
+                            this.request_then("plans.approve", params, move |this, _, cx| {
+                                this.rows.answering.remove(&item);
+                                cx.notify();
+                            }, cx);
+                        }));
+                    }
+                    go.test_support()
+                });
                 let mut back = pill(("plan-back", ix), "Send back…", false, !busy, None, cx).tip("Tell it what to change; it plans again");
                 if !busy {
                     back = back.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_composer(window, cx)));
                 }
-                footer = footer.child(go.test_support()).child(back.test_support()).children(card_spinner(self, busy, cx));
+                footer = footer.children(go).child(back.test_support()).children(card_spinner(self, busy, cx));
             }
             let toggle_title: Option<&str> = if !plan.entries.is_empty() {
                 Some(if expanded { "Hide plan" } else { "Show plan" })

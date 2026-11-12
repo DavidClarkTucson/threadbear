@@ -32,10 +32,14 @@ import type { Logger } from './log.ts';
 import type { Notification } from './runner.ts';
 import type { RemoteThread, RemoteThreads } from './thread-index.ts';
 import type { Post, Subscribe, Upload } from './sync.ts';
-import { ErrorCode, RpcError, remoteCreateMode } from './protocol.ts';
+import { ErrorCode, RpcError, remoteCreateMode, type LabReviewLedger } from './protocol.ts';
 import { seal } from './secrets.ts';
 
 export const SCALE = 8;
+// What the runner sends as Mike when he approves a plan with no call
+// waiting on it (runner/approvals.ts PLAN_GO_AHEAD, which relay-plan.test.ts
+// checks this against): a plan followed by it went ahead.
+export const PLAN_GO_AHEAD = 'Go ahead with the plan.';
 // The thread's row says it has stopped a moment before its last messages
 // arrive (the other runner writes rows, then messages): its turn ends only
 // once it has said so for this long.
@@ -102,6 +106,9 @@ export type RelayRow = {
   origin?: string;
   toolKind?: string;
   summary?: boolean;
+  // A Plan first plan in full (backend API 72's row; the relay's rows say so
+  // from 75): drawn as its plan card, not folded into the turn's work.
+  plan?: boolean;
   turn?: string;
   wokeBy?: { kind: string; description: string }[];
   // The reply buttons its text links, as they are now (backend API 59; the
@@ -113,7 +120,7 @@ export type RowButton = { id: string; title: string; kind: 'start' | 'send'; tar
 type Page = { messages: RelayRow[]; hasMore: boolean };
 
 type Pending =
-  | { approvalId: string; kind: 'approval'; seq?: number; name: string; title: string; options: string[]; inputSummary?: string }
+  | { approvalId: string; kind: 'approval'; seq?: number; name: string; title: string; options: string[]; inputSummary?: string; planSeq?: number }
   | { approvalId: string; kind: 'question'; seq?: number; questions: unknown[] }
   | { approvalId: string; kind: 'secret'; seq?: number; label: string; reason: string; placeholder?: string; key: string };
 export type RelayThreadRow = {
@@ -124,6 +131,10 @@ export type RelayThreadRow = {
   asks?: { action: string; why?: string; reply?: string; options?: string[]; optionNotes?: string[]; suggested?: number; links?: { title: string; url: string }[]; ticked?: boolean }[];
   asksSeq?: number;
   next?: string[];
+  // The done card's loose ends (backend API 73), while that card stands.
+  looseEnds?: { kind: string; text: string; threadId?: string; at?: string }[];
+  // Another lab's review of the last turn (backend API 75).
+  review?: LabReviewLedger;
   lastActivityAt?: string;
   // Whether it's shared (the threads row's `share`; the sidebar's table has none).
   share?: { access?: string; slug?: unknown };
@@ -158,6 +169,8 @@ type Watch = {
   readAt?: number;
   // The share the app was last told of (noteRow), as JSON.
   shareSaid?: string;
+  // The loose ends the app was last told of (noteLooseEnds), as JSON.
+  endsSaid?: string;
 };
 
 export type RelayEvent = { seq: number; ts: string; threadId: string; turnId?: string; type: string; [k: string]: unknown };
@@ -191,6 +204,29 @@ export type RelayDeps = {
 const RUNNING = new Set(['running', 'starting', 'waiting']);
 const TOOL_NAMES: Record<string, string> = { command: 'Bash', read: 'Read', edit: 'Edit', write: 'Write', search: 'Grep', web: 'WebFetch', task: 'Task' };
 
+/**
+ * What became of the plan at sorted[i], from what came after it. Claude's
+ * card for it still open on the row: waiting. Work in its own turn (a tool
+ * row, but not a threadbear tool such as end_turn) means that card was
+ * allowed and it went ahead; a closing line of text doesn't (a Codex plan
+ * ends its turn with one). Otherwise Mike's next message decides: the runner's own Go ahead
+ * (Codex, or a Claude card a restart expired) is go, anything else sends it
+ * back. Nothing yet: still waiting (undefined). Another runner doesn't say
+ * which in its rows, so this reads it as that runner's Mac would show it.
+ */
+export function planOutcome(sorted: RelayRow[], i: number, row: RelayThreadRow | null): 'go' | 'revise' | undefined {
+  const plan = sorted[i]!;
+  const card = row?.pendingApproval;
+  if (card?.kind === 'approval' && card.planSeq === plan.seq) return undefined;
+  for (const r of sorted.slice(i + 1)) {
+    if (r.role === 'user') return r.text.trim() === PLAN_GO_AHEAD ? 'go' : 'revise';
+    if (r.role === 'tool' && r.toolKind !== 'mcp' && plan.turn && r.turn === plan.turn) return 'go';
+    // A newer plan sent this one back.
+    if (r.plan) return 'revise';
+  }
+  return undefined;
+}
+
 /** A thread's held rows and row as transcript events, oldest first, in relay seqs. Pure, so a page and the live stream agree. */
 export function relayEvents(threadId: string, rows: RelayRow[], row: RelayThreadRow | null, cards: Card[], olderMore: boolean, runnerName: string, settled = true, bodies?: Map<number, HeldBody>): RelayEvent[] {
   const out: RelayEvent[] = [];
@@ -210,6 +246,13 @@ export function relayEvents(threadId: string, rows: RelayRow[], row: RelayThread
     if (r.turn && !turnStart.has(r.turn)) turnStart.set(r.turn, r.at);
     if (r.role === 'user') {
       out.push(env(base + 1, r, { type: 'user.message', text: r.text, images: [], ...(r.origin === 'phone' || r.origin === 'runner' || r.origin === 'schedule' ? { origin: r.origin } : {}) }));
+    } else if (r.role === 'assistant' && r.plan) {
+      // A Plan first plan: its card, as that runner's own Mac draws it. As a
+      // reply it folded into the turn's work and nothing showed (12 Nov).
+      const itemId = `relay-${r.seq}`;
+      out.push(env(base + 1, r, { type: 'plan.proposed', itemId, text: r.text }));
+      const went = planOutcome(sorted, i, row);
+      if (went) out.push(env(base + 2, r, { type: 'plan.resolved', itemId, decision: went }));
     } else if (r.role === 'assistant') {
       out.push(env(base + 1, r, { type: 'assistant.text', itemId: `relay-${r.seq}`, text: r.text, ...(r.summary ? { summary: true } : {}) }));
     } else {
@@ -268,6 +311,7 @@ export function relayEvents(threadId: string, rows: RelayRow[], row: RelayThread
           ...(last && row?.needs ? { needs: row.needs } : {}),
           ...(asks ? { asks } : {}),
           ...(last && row?.needs === 'nothing' && row.next?.length ? { next: row.next } : {}),
+          ...(last && row?.review ? { review: row.review } : {}),
         }),
       );
     }
@@ -278,9 +322,13 @@ export function relayEvents(threadId: string, rows: RelayRow[], row: RelayThread
     const at = before?.at ?? row?.lastActivityAt ?? new Date(0).toISOString();
     const turn = before?.turn ? { turnId: before.turn } : {};
     const p = c.pending;
+    // Claude's ExitPlanMode card goes with its plan's card, as on that
+    // runner's own Mac (its itemId), once that plan's row is here as a plan:
+    // without one, a card that names it would draw nothing at all.
+    const plan = p.kind === 'approval' && p.planSeq !== undefined && sorted.some((r) => r.seq === p.planSeq && r.plan) ? { itemId: `relay-${p.planSeq}` } : {};
     const body =
       p.kind === 'approval'
-        ? { type: 'approval.requested', approvalId: p.approvalId, name: p.name, title: p.title, input: p.inputSummary ? { [inputKey(p.name, p.inputSummary)]: p.inputSummary } : {}, options: p.options }
+        ? { type: 'approval.requested', approvalId: p.approvalId, ...plan, name: p.name, title: p.title, input: p.inputSummary ? { [inputKey(p.name, p.inputSummary)]: p.inputSummary } : {}, options: p.options }
         : p.kind === 'question'
           ? { type: 'question.requested', approvalId: p.approvalId, questions: p.questions }
           : { type: 'secret.requested', approvalId: p.approvalId, label: p.label, reason: p.reason, ...(p.placeholder ? { placeholder: p.placeholder } : {}) };
@@ -389,7 +437,36 @@ export class Relay {
     }
     if (t.lastActivityAt) thread.updatedAt = t.lastActivityAt;
     if (t.snoozedUntil === UNTIL_RESTART) thread.snoozedUntilRestart = true;
+    const w = this.watches.get(threadId);
+    const ends = w && this.looseEndsOf(w);
+    if (ends) thread.looseEnds = ends;
     return thread;
+  }
+
+  /**
+   * The done card's loose ends (docs/protocol.md, "Loose ends") as this
+   * runner's summary has them, `{ seq, ends }`, from the thread's backend
+   * row (API 73) and the seq of the turn.completed the relay gave the app
+   * for that card. Only for a thread being watched: the sidebar's rows don't
+   * carry them, and the card only shows in an open thread.
+   */
+  private looseEndsOf(w: Watch): { seq: number; ends: NonNullable<RelayThreadRow['looseEnds']> } | undefined {
+    const ends = w.row?.looseEnds;
+    if (!ends || w.row?.needs !== 'nothing') return undefined;
+    const end = this.events(w).findLast((e) => e.type === 'turn.completed');
+    return end ? { seq: end.seq, ends } : undefined;
+  }
+
+  /** The loose ends, said to the app as they change (thread.updated), as noteShare says the share. */
+  private noteLooseEnds(w: Watch): void {
+    const ends = this.looseEndsOf(w);
+    const said = JSON.stringify(ends ?? null);
+    if (said === w.endsSaid) return;
+    const first = w.endsSaid === undefined;
+    w.endsSaid = said;
+    if (first && !ends) return;
+    const share = w.row ? toShare(w.row.share) : undefined;
+    this.deps.publish({ method: 'thread.updated', params: { thread: { ...this.summary(w.threadId), ...(share ? { share } : {}) } } } as unknown as Notification);
   }
 
   /** The row with the changes made from here that it doesn't show yet (`changed`). */
@@ -413,8 +490,22 @@ export class Relay {
    * row had caught up, put a thread just archived here back in the inbox.
    */
   overlay(remote: RemoteThreads): RemoteThreads {
-    if (!this.changed.size) return remote;
-    return { ...remote, threads: remote.threads.map((t) => (this.changed.has(t.threadId) ? this.withChanges(t.threadId, t) : t)) };
+    // And a watched thread's loose ends, which its sidebar row doesn't have:
+    // the app makes the summary from that row, so without them here the next
+    // list took them off the done card.
+    const ends = new Map<string, unknown>();
+    for (const w of this.watches.values()) {
+      const e = this.looseEndsOf(w);
+      if (e) ends.set(w.threadId, e);
+    }
+    if (!this.changed.size && !ends.size) return remote;
+    return {
+      ...remote,
+      threads: remote.threads.map((t) => {
+        const row = this.changed.has(t.threadId) ? this.withChanges(t.threadId, t) : t;
+        return ends.has(t.threadId) ? ({ ...row, looseEnds: ends.get(t.threadId) } as RemoteThread) : row;
+      }),
+    };
   }
 
   /** The thread's share as that runner's backend row has it: "people" (API 7) reads as off. */
@@ -511,6 +602,7 @@ export class Relay {
     const wasRunning = w.row ? RUNNING.has(w.row.status) : true;
     w.row = row;
     this.noteShare(w);
+    this.noteLooseEnds(w);
     const running = row ? RUNNING.has(row.status) : true;
     // Ends its turn once its last messages have had a moment to arrive.
     if (!running && wasRunning && live) this.settle(w);
@@ -685,6 +777,8 @@ export class Relay {
       w.given.add(e.seq);
       this.deps.publish({ method: 'thread.event', params: { threadId: w.threadId, event: e } } as unknown as Notification);
     }
+    // The done card's turn.completed may have come only now.
+    this.noteLooseEnds(w);
   }
 
   private sweepSoon(): void {
