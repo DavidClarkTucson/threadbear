@@ -232,3 +232,19 @@ test('the installed hook refuses a real commit, in a worktree older than the scr
   spawnSync('git', ['reset', '-q', 'app/Sources/Old.swift'], { cwd: wt });
   assert.equal(spawnSync('git', ['commit', '-qm', 'gpui'], { cwd: wt, env: who }).status, 0);
 });
+
+test("a path's parts aren't globbed, and macOS's Data-volume name is the same disk", () => {
+  const dir = repo(MIKE);
+  fs.mkdirSync(path.join(dir, 'app'));
+  const run = (file: string, project = dir) => {
+    const input = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: file, content: 'x' } });
+    return spawnSync(path.join(dir, 'scripts/swift-freeze.sh'), ['--tool'], { cwd: dir, encoding: 'utf8', input, env: env({ CLAUDE_PROJECT_DIR: project }) }).status;
+  };
+  assert.equal(run(`${dir}/a[p]p/New.swift`), 0, 'a[p]p is a folder of its own, not app');
+  const data = '/System/Volumes/Data';
+  if (process.platform === 'darwin' && fs.existsSync(data + fs.realpathSync(dir))) {
+    const real = fs.realpathSync(dir);
+    assert.equal(run(`${data}${real}/app/New.swift`), 2, 'the file by its Data name');
+    assert.equal(run(`${real}/app/New.swift`, data + real), 2, 'the checkout by its Data name');
+  }
+});

@@ -30,6 +30,9 @@
 WARN_FORKS=0
 
 set -uo pipefail
+# No globbing anywhere: inside() splits paths on /, and a part like a[p]p
+# would otherwise match app (Codex's review, 12 Nov).
+set -f
 
 # What in app/ the GPUI app still uses, so it isn't frozen: the mock runner
 # its CI and the features/ specs run against, the Swift test tools its
@@ -60,6 +63,20 @@ fi
 # links as check.sh's IOS_NEEDS does) and Sentry's framework.
 IPHONE_SHARED=(app/SentryBinary/)
 top_real="$(cd "$top" && pwd -P)"
+# macOS's other name for the same disk, which pwd -P keeps: both sides drop
+# it, so /Users/... and /System/Volumes/Data/Users/... compare as one.
+undata() {
+  case "$1" in
+    /System/Volumes/Data/?*)
+      # Only when the top folder it names is there without the prefix too
+      # (/Users), as the rest of the path may not exist yet.
+      local r="${1#/System/Volumes/Data}" first
+      first="${r#/}"; first="/${first%%/*}"
+      [ -d "$first" ] && { printf '%s\n' "$r"; return; } ;;
+  esac
+  printf '%s\n' "$1"
+}
+top_real="$(undata "$top_real")"
 while IFS= read -r link; do
   to="$(readlink "$link")"
   dir="$(cd "$(dirname "$link")" && cd "$(dirname "$to")" 2>/dev/null && pwd -P)" || continue
@@ -89,8 +106,7 @@ inside() {
     p="$(dirname "$p")"
   done
   p="$(cd "$p" && pwd -P)$rest"
-  # macOS's other name for the same disk, which pwd -P keeps.
-  case "$p" in /System/Volumes/Data/*) [ -d "/System/Volumes/Data$top_real" ] && p="${p#/System/Volumes/Data}" ;; esac
+  p="$(undata "$p")"
   # The part below the last real folder can still say . or ..
   local out=() part
   local IFS=/
