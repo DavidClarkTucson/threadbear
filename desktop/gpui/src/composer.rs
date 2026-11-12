@@ -89,6 +89,9 @@ pub struct Composer {
     pub(crate) palette_scroll: ScrollHandle,
     /// The box's width at the last paint, for the palette's columns.
     pub(crate) card_width: Rc<Cell<f32>>,
+    /// The chip row's right edge and the send button's, at the last paint:
+    /// the button past the row would be chips running past the box.
+    pub(crate) controls_fit: Rc<Cell<(f32, f32)>>,
     /// One of Mike's messages being edited (`AppModel.editing`): sending
     /// replaces it and carries on from there.
     pub(crate) editing: Option<MessageEdit>,

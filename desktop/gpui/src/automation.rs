@@ -492,6 +492,11 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
                     }
                     None => Err("no context meter on this thread".into()),
                 },
+                // The "+" menu's folders, and a pick of one.
+                "plus" => {
+                    let click = cmd["click"].as_str().map(str::to_owned);
+                    composer.update(cx, |c, cx| c.plus_command(click.as_deref(), cx))
+                }
                 // The login picker (composer_account.rs).
                 "account" if cmd["show"].as_bool() != Some(true) => crate::composer_account::menu_command(&composer, cmd, cx),
                 // `show`: the chip clicked, as a person does, which opens its

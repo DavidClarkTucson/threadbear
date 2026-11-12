@@ -103,6 +103,11 @@ pub struct Threadbear {
     pub(crate) rename_field: Option<(Entity<InputState>, Subscription)>,
     pub(crate) share_popover: Option<String>,
     pub(crate) share_busy: bool,
+    /// Threads whose login, pool ("moving/<id>") or folder
+    /// ("movingFolder/<id>") change hasn't landed: those can't be guessed,
+    /// so the composer's chips that show them spin until the runner answers
+    /// (`BusyKey.moving`, `BusyKey.movingFolder`).
+    pub(crate) chip_busy: std::collections::HashSet<String>,
     pub(crate) continuing_refusal: Option<String>,
     /// The runner's website, from `runner.status` (`websiteURL`).
     pub(crate) website_url: Option<String>,
@@ -396,6 +401,7 @@ impl Threadbear {
             rename_field: None,
             share_popover: None,
             share_busy: false,
+            chip_busy: Default::default(),
             continuing_refusal: None,
             website_url: None,
             restart_notice_ms: None,
@@ -1078,12 +1084,26 @@ impl Threadbear {
         if let Some(t) = self.threads.get_mut(&id) {
             change(t);
         }
+        // A folder, login or pool change isn't guessed, so its chip spins.
+        let busy = if params.get("cwd").is_some() {
+            Some(format!("movingFolder/{id}"))
+        } else if params.get("accountId").is_some() || params.get("poolId").is_some() {
+            Some(format!("moving/{id}"))
+        } else {
+            None
+        };
+        if let Some(key) = &busy {
+            self.chip_busy.insert(key.clone());
+        }
         let mut params = params;
         params["threadId"] = json!(id);
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
             let res = call(client, "threads.update", params).await;
             this.update(cx, |this, cx| {
+                if let Some(key) = &busy {
+                    this.chip_busy.remove(key);
+                }
                 if let Err(e) = res {
                     this.list_error = Some(e.message);
                     if let Some(before) = before {

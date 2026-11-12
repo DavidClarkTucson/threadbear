@@ -1,4 +1,4 @@
-import { Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import { sleep } from '../support/driver.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
@@ -113,4 +113,48 @@ Then('clicking chip {int} opens picture {int} of {int}', async function (this: T
 
 Then('clicking the thumbnail of picture {int} opens picture {int} of {int}', async function (this: ThreadbearWorld, picture: number, number: number, total: number) {
   opened(await this.app.do({ cmd: 'composer-peek', strip: picture - 1 }), number, total);
+});
+
+// threads.update held a few seconds by the mock (mock.slow holds it with
+// threads.send and threads.create).
+Given('the runner takes its time to change threads', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'mock', method: 'slow', params: { ms: 2500 } });
+});
+
+// One of the "+" menu's folders that isn't the thread's ("[ ] ~/dev/x").
+When('I pick another folder from the {string} menu', async function (this: ThreadbearWorld & { folder?: string }, _menu: string) {
+  const lines = await menuLines(this, 'plus');
+  const other = lines.find((l) => l.startsWith('[ ] '));
+  assert.ok(other, `no other folder in: ${lines.join(' | ')}`);
+  this.folder = other.slice(4);
+  await this.app.do({ cmd: 'composer-menu', menu: 'plus', click: this.folder });
+});
+
+Then('the {string} menu has that folder ticked', async function (this: ThreadbearWorld & { folder?: string }, _menu: string) {
+  let lines: string[] = [];
+  for (let tries = 0; tries < 40; tries += 1) {
+    lines = await menuLines(this, 'plus');
+    if (lines.includes(`[x] ${this.folder}`)) return;
+    await sleep(150);
+  }
+  assert.fail(`${this.folder} isn't ticked: ${lines.join(' | ')}`);
+});
+
+type WithBusy = { busy?: string[] };
+Then('the composer\'s {string} chip is spinning', async function (this: ThreadbearWorld, chip: string) {
+  await this.until(`the ${chip} chip spinning`, (d) => ((d.composer as WithBusy).busy ?? []).includes(chip));
+});
+
+Then('soon no chip in the composer is spinning', async function (this: ThreadbearWorld) {
+  await this.until('no chip spinning', (d) => ((d.composer as WithBusy).busy ?? []).length === 0, 10_000);
+});
+
+When('the window is {int} points wide', async function (this: ThreadbearWorld, width: number) {
+  await this.app.do({ cmd: 'resize', w: width, h: 800 });
+  // A frame or two for the box to follow the window.
+  await sleep(400);
+});
+
+Then('the chips under the box fit inside it', async function (this: ThreadbearWorld) {
+  await this.until('the chips inside the box', (d) => (d.composer as { chipsFit?: boolean }).chipsFit === true);
 });

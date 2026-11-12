@@ -54,6 +54,34 @@ Feature: The chips under the message box
     And the "model" menu has a row "[x] mike+3"
     And the "model" menu has a row "# Pinned to mike+3"
 
+  # A login, pool or folder change can't be guessed, so the chip that shows it
+  # spins and takes no clicks until the runner has made it (the every-click
+  # rule). The Swift app spins them too (ComposerChip.busy), but its dump,
+  # frozen since 12 Nov, doesn't say so.
+  @composer.modelpicker @swift-pending
+  Scenario: The model chip spins until a pool change lands
+    Given the runner takes its time to change threads
+    When I open the thread "Compare SQLite and plain files for the runner"
+    And I pick "Unpin" from the "model" menu
+    Then the composer's "model" chip is spinning
+    And soon no chip in the composer is spinning
+
+  @composer.plus @swift-pending
+  Scenario: "+" spins until a folder change lands
+    Given the runner takes its time to change threads
+    When I pick another folder from the "+" menu
+    Then the composer's "plus" chip is spinning
+    And soon no chip in the composer is spinning
+    And the "+" menu has that folder ticked
+
+  # A thread in a narrow panel: the chips' titles give way, ending "…", and
+  # Send stays inside the box. The Swift dump has no "chipsFit".
+  @composer.modelpicker @swift-pending
+  Scenario: In a narrow box the chips shrink to fit, and Send stays inside it
+    When I open the thread "Compare SQLite and plain files for the runner"
+    And the window is 560 points wide
+    Then the chips under the box fit inside it
+
   # Without pools there's a login chip: another Mac's thread, as bruce has none.
   @composer.account @remote-threads
   Scenario: The login picker groups the logins by provider, with the room each has left
