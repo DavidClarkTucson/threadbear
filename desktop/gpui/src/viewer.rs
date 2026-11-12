@@ -101,6 +101,7 @@ impl SidePane {
         self.viewer.open = true;
         // The overlay holds the keys: Escape closes, the arrows step.
         window.focus(&self.viewer.focus, cx);
+        crate::web_panels::keyboard_to_app(window);
         self.read_viewer_picture(index, cx);
         cx.notify();
     }

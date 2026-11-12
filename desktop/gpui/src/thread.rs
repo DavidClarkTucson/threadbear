@@ -754,6 +754,7 @@ impl ThreadPane {
     /// The composer takes the cursor, as Send back on a plan asks.
     pub(crate) fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.clone().update(cx, |c, cx| c.focus(window, cx));
+        crate::web_panels::keyboard_to_app(window);
     }
 
     pub(crate) fn toggle_row(&mut self, row: &Row, cx: &mut Context<Self>) {

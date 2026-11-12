@@ -289,6 +289,7 @@ impl Composer {
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.input.update(cx, |s, cx| s.focus(window, cx));
+        crate::web_panels::keyboard_to_app(window);
     }
 
     /// What the box holds as a draft (ComposerTextView.draftNow): the words,
@@ -471,6 +472,7 @@ impl Composer {
         self.set_box(words, pictures, window, cx);
         self.editing = Some(MessageEdit { seq, before, sending: false });
         self.focus(window, cx);
+        crate::web_panels::keyboard_to_app(window);
         cx.notify();
     }
 
@@ -693,6 +695,7 @@ impl Composer {
         target.update(cx, |s, cx| {
             s.replace(piece, window, cx);
             s.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
         });
     }
 
@@ -728,6 +731,7 @@ impl Composer {
                 s.insert(" ", window, cx);
             }
             s.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
         });
         for (id, path) in ids.into_iter().zip(paths) {
             self.pictures.insert(id.clone(), PictureChip { source: path.clone(), image: None });
@@ -1328,7 +1332,10 @@ impl Render for Composer {
                     // moves nothing. First, so the rest draws over it.
                     .child(div().absolute().inset_0().rounded(px(style::COMPOSER_RADIUS)).border(px(if needs_you { 1. } else { 0.5 })).border_color(if needs_you { style::accent(cx) } else { style::hairline(cx) }))
                     // Clicking the card's padding puts the cursor in the text.
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| this.focus(window, cx)))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                        this.focus(window, cx);
+                        crate::web_panels::keyboard_to_app(window);
+                    }))
                     .children(limit)
                     .children(card)
                     .child(body)

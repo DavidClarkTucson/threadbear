@@ -250,6 +250,30 @@ When('I type {string} on the keyboard', async function (this: ThreadbearWorld, t
   await this.app.do({ cmd: 'native-keys', text });
 });
 
+// A text box of its own at the top of the page, with the page's focus, and
+// the page given the keyboard as a click in that box gives it.
+When("a box in the panel's page has the keyboard", async function (this: ThreadbearWorld) {
+  const js = "(() => { const box = document.createElement('input'); box.id = 'typed-here'; document.body.prepend(box); box.focus(); return true; })()";
+  const out = await this.app.do({ cmd: 'webPanel', do: 'eval', js });
+  assert.ok(!out.startsWith('error'), out);
+  await this.app.do({ cmd: 'webPanel', do: 'focus' });
+  await this.until('the page with the keyboard', (d) => (web(d)?.page as { hasKeyboard?: boolean } | undefined)?.hasKeyboard === true);
+});
+
+Then("the box in the panel's page says {string}", async function (this: ThreadbearWorld, text: string) {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const out = await this.app.do({ cmd: 'webPanel', do: 'eval', js: "document.getElementById('typed-here').value" });
+    const value = (JSON.parse(okValue(out)) as { value?: string }).value ?? '';
+    if (value === text) return;
+    if (Date.now() > deadline) {
+      const d = await this.app.dump();
+      assert.fail(`the page's box says ${JSON.stringify(value)}; the keyboard is with ${String((d as { keyboard?: string }).keyboard)}; the composer says ${JSON.stringify(d.composer.text)}`);
+    }
+    await new Promise((done) => setTimeout(done, 200));
+  }
+});
+
 Then('the app has the keyboard', async function (this: ThreadbearWorld) {
   await this.until("the app's own view with the keyboard", (d) => (d as { keyboard?: string }).keyboard === 'app');
 });

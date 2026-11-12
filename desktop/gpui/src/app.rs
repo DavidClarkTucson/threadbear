@@ -990,6 +990,7 @@ impl Threadbear {
         composer.update(cx, |c, cx| {
             c.attach(pane.downgrade());
             c.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
             cx.notify();
         });
         // A thread: link in the transcript opens that thread.

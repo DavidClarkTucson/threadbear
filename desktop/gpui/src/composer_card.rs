@@ -153,6 +153,7 @@ impl Composer {
             .detach();
         } else if !picked {
             self.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
         }
     }
 
@@ -182,6 +183,7 @@ impl Composer {
         self.push_card_state(cx);
         cx.notify();
         self.focus(window, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     fn toggle_explain(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -192,6 +194,7 @@ impl Composer {
         self.push_card_state(cx);
         cx.notify();
         self.focus(window, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     /// ‹ and ›, and moving on after a pick: the asks slide like a deck while
@@ -223,6 +226,7 @@ impl Composer {
         self.card.collapsed = !self.card.collapsed;
         cx.notify();
         self.focus(window, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     fn archive_thread(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -278,6 +282,7 @@ impl Composer {
     fn focus_answer_box(&mut self, ask: usize, window: &mut Window, cx: &mut Context<Self>) {
         let input = self.answer_box(ask, window, cx);
         input.update(cx, |s, cx| s.focus(window, cx));
+        crate::web_panels::keyboard_to_app(window);
     }
 
     /// Return in a Something else box goes on to the next ask still
@@ -299,6 +304,7 @@ impl Composer {
         if is_paged(&card) && self.card.page != next {
             self.set_page(next, cx);
             self.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
         } else {
             // In sight already: the beep, as there's nowhere further to go.
             crate::composer_answers::beep();

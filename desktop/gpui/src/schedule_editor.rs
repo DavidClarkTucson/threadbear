@@ -229,7 +229,10 @@ impl Threadbear {
                 }
             })
         });
-        window.defer(cx, move |window, cx| message.update(cx, |m, cx| m.focus(window, cx)));
+        window.defer(cx, move |window, cx| {
+            message.update(cx, |m, cx| m.focus(window, cx));
+            crate::web_panels::keyboard_to_app(window);
+        });
     }
 
     /// The schedule the editor's open on, if it's open on one.

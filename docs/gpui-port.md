@@ -483,9 +483,10 @@ for real browsing. I'd skip it: two engines means two sandboxes to prove.
   spike) would fix. ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z go to a page that has the
   keyboard (GPUI's view answers key equivalents for the whole window, and
   the app has no Edit menu yet). GPUI's own view never asks AppKit for the
-  keyboard back once a page's view has had it, so the main window takes it
-  back: when the page goes out of sight, when GPUI focuses something else
-  (⌘N's box), and on a click anywhere GPUI draws. Without that, a paste
+  keyboard back once a page's view has had it, so the app hands it over
+  whenever it asks GPUI to focus something (even the box that already had
+  GPUI's focus), on a click anywhere GPUI draws, and when the page goes out
+  of sight. Without that, a paste
   landed in the composer while every letter beeped (12 Nov;
   `features/tools/real-typing.ts` plays it with real keys). A panel moved
   into a window of its own says its page shows in the main window, for now.

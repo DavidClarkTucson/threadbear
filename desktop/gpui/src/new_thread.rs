@@ -373,7 +373,10 @@ impl Threadbear {
         if std::mem::take(&mut self.new_thread.focus_pending) {
             // After the frame: focusing is for the next render, not this one.
             let target = composer.clone();
-            window.defer(cx, move |window, cx| target.update(cx, |c, cx| c.focus(window, cx)));
+            window.defer(cx, move |window, cx| {
+                target.update(cx, |c, cx| c.focus(window, cx));
+                crate::web_panels::keyboard_to_app(window);
+            });
         }
         let logins = self.new_thread_logins().cloned();
         let logins_known = logins.is_some();

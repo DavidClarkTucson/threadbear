@@ -202,6 +202,36 @@ Feature: Web pages in a thread's panels
     Then the composer says "hello"
     And the app has the keyboard
 
+  # A drop focuses the box that already had GPUI's focus, and has no click
+  # in the app: the request itself hands the keyboard over.
+  @panel.web @web-runtime @swift-pending
+  Scenario: A picture dropped on the thread's box while a page had the keyboard gives the box the letters
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When a box in the panel's page has the keyboard
+    And I drop the picture on the transcript
+    Then the composer holds 1 picture
+    When I type "hello" on the keyboard
+    Then the composer says "[Picture 1] hello"
+    And the app has the keyboard
+
+  # The app asked for the title field first, then the page was clicked:
+  # the page is the newer of the two, so it keeps the keyboard.
+  @panel.web @web-runtime @swift-pending
+  Scenario: A page clicked after the app focused something keeps the keyboard
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When I start renaming the open thread
+    And a box in the panel's page has the keyboard
+    And I type "hello" on the keyboard
+    Then the box in the panel's page says "hello"
+
   @panel.bar @web-runtime @swift-pending
   Scenario: Reload goes back to the panel's own page, and Open in browser opens it
     Given the web runtime is installed

@@ -196,6 +196,7 @@ impl AskHost for DecisionCard {
         if option == OWN_ANSWER {
             let input = self.ask_answer_box(ask, window, cx);
             input.update(cx, |s, cx| s.focus(window, cx));
+            crate::web_panels::keyboard_to_app(window);
         } else if self.answered() {
             self.send(cx);
         }

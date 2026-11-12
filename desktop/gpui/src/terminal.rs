@@ -345,6 +345,7 @@ impl Terminals {
     fn focus(&self, session: &Entity<Session>, window: &mut Window, cx: &mut App) {
         let handle = session.read(cx).focus.clone();
         window.focus(&handle, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     /// Ends a thread's shell (it was archived or deleted). Never the shared
@@ -1140,6 +1141,7 @@ impl Session {
 
     pub(crate) fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        crate::web_panels::keyboard_to_app(window);
         let Some((col, row, side)) = self.cell_at(event.position, false) else { return };
         let button = match event.button {
             MouseButton::Left => rules::MouseButton::Left,
@@ -1281,7 +1283,10 @@ impl Render for Session {
             .track_focus(&self.focus)
             .key_context(KEY_CONTEXT)
             .on_key_down(cx.listener(Self::key_down))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| window.focus(&this.focus, cx)))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                window.focus(&this.focus, cx);
+                crate::web_panels::keyboard_to_app(window);
+            }))
             // A little in from the panel's edges, on the terminal's own
             // background (TerminalHost.Container.inset).
             .child(div().size_full().px(px(10.)).py(px(6.)).child(TerminalElement::new(me, focused, self.blink_shown)));
@@ -1613,6 +1618,7 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
         let session = terminals.update(cx, |t, cx| t.open(&target, cx));
         let handle = session.read(cx).focus.clone();
         window.focus(&handle, cx);
+        crate::web_panels::keyboard_to_app(window);
         window.render_frame(cx);
         if let Some(text) = cmd["keys"].as_str() {
             window.input(text, cx);
@@ -1633,6 +1639,7 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
         let handle = session.read(cx).focus.clone();
         if cmd["select"].as_str() == Some("all") || cmd["copy"].as_bool() == Some(true) || cmd["paste"].is_string() {
             window.focus(&handle, cx);
+            crate::web_panels::keyboard_to_app(window);
             window.render_frame(cx);
         }
         // The terminal's own keys for them (`key_down`): ⌘ on the Mac, and

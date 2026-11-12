@@ -866,6 +866,7 @@ impl Threadbear {
         });
         let handle = field_focus.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     /// "Pick a time…": a calendar and a time, and a word if it's already

@@ -82,6 +82,7 @@ impl Threadbear {
         let search = self.projects_search(window, cx);
         // Typing finds a project from the moment the page is up, as the Swift
         // field's focusOnAppear; not over anything that's taken the keys.
+        // Leaves AppKit's keyboard where it is: a drawing's, not a request.
         if window.focused(cx).is_none_or(|f| f == self.root_focus) {
             let handle = search.read(cx).focus_handle(cx);
             window.focus(&handle, cx);

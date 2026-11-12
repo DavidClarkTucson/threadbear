@@ -1248,6 +1248,7 @@ impl Threadbear {
         // With nothing focused GPUI's key dispatch doesn't reach this element's
         // key context or actions, so the shell keeps the keyboard when nothing
         // else has it (no thread open, a closed dialog).
+        // Leaves AppKit's keyboard where it is: a drawing's, not a request.
         if window.focused(cx).is_none() {
             window.focus(&self.root_focus, cx);
         }

@@ -542,6 +542,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let input = composer.read(cx).input.clone();
             let handle = input.read(cx).focus_handle(cx);
             window.focus(&handle, cx);
+            crate::web_panels::keyboard_to_app(window);
             window.render_frame(cx);
             let saved = cx.read_from_clipboard();
             cx.write_to_clipboard(ClipboardItem::new_string(text(cmd, "text").to_string()));
@@ -1015,6 +1016,7 @@ fn type_in_composer(app: &Entity<Threadbear>, words: &str, replace: bool, window
     }
     let handle = input.read(cx).focus_handle(cx);
     window.focus(&handle, cx);
+    crate::web_panels::keyboard_to_app(window);
     window.render_frame(cx);
     window.input(words, cx);
     Ok(())

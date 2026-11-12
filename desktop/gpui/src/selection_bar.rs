@@ -250,6 +250,7 @@ fn quote_in_composer(pane: &Entity<ThreadPane>, words: &str, window: &mut Window
         state.set_cursor_position(Position::new(line, column), window, cx);
     });
     composer.update(cx, |c, cx| c.focus(window, cx));
+    crate::web_panels::keyboard_to_app(window);
 }
 
 /// The bar, over the selection it was made for, if it's this thread's.
@@ -357,6 +358,7 @@ pub(crate) fn select_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_j
     // so ⌘C after this is the text's.
     let focus = doc.read(cx).focus_handle().clone();
     window.focus(&focus, cx);
+    crate::web_panels::keyboard_to_app(window);
     let selected = TextSelection::selected_text(window, cx);
     if selected.trim() != words.trim() {
         return Err(format!("{words:?} isn't all of {}'s words (it reads {:?})", row.id, selected.trim()));

@@ -102,6 +102,7 @@ impl SidePane {
         if let Some(bar) = self.files.open.get(thread_id).and_then(|o| o.find.as_ref()) {
             bar.input.update(cx, |s, cx| {
                 s.focus(window, cx);
+                crate::web_panels::keyboard_to_app(window);
                 s.select_all(window, cx);
             });
         }
@@ -187,11 +188,13 @@ impl SidePane {
             Some(Target::Editor(editor)) => editor.update(cx, |s, cx| {
                 s.close_search(cx);
                 s.focus(window, cx);
+                crate::web_panels::keyboard_to_app(window);
             }),
             Some(Target::Page(doc)) => {
                 doc.update(cx, |s, cx| s.clear_range_highlights(cx));
                 if let Some(focus) = &self.files.focus {
                     window.focus(focus, cx);
+                    crate::web_panels::keyboard_to_app(window);
                 }
             }
             None => {}

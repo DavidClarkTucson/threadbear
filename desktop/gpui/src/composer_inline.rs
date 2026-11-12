@@ -204,6 +204,7 @@ impl Composer {
                 }
             }
             s.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
         });
         cx.notify();
     }
@@ -312,6 +313,7 @@ pub(crate) fn clip_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_jso
     let input = composer.read(cx).input.clone();
     let handle = input.read(cx).focus_handle(cx);
     window.focus(&handle, cx);
+    crate::web_panels::keyboard_to_app(window);
     window.render_frame(cx);
     match cmd["action"].as_str().unwrap_or("") {
         action @ ("copy" | "cut") => {

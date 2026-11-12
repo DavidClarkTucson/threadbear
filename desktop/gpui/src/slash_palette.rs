@@ -148,6 +148,7 @@ impl Composer {
             s.set_value(text, window, cx);
             s.set_selected_range(end..end, cx);
             s.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
         });
         if run {
             self.send(window, cx);
@@ -280,6 +281,7 @@ impl Composer {
                         this.palette.category = category;
                         this.palette.selected = None;
                         this.focus(window, cx);
+                        crate::web_panels::keyboard_to_app(window);
                         cx.notify();
                     }))
                     .child(div().truncate().child(title))
@@ -341,6 +343,7 @@ impl Composer {
                 } else {
                     this.palette.selected = Some(picked.name.clone());
                     this.focus(window, cx);
+                    crate::web_panels::keyboard_to_app(window);
                     cx.notify();
                 }
             }))

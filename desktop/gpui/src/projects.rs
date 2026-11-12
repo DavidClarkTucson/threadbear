@@ -375,6 +375,7 @@ impl Threadbear {
         });
         let handle = field.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     /// Makes it, then opens its page. Its thread's folder goes in too, unless
@@ -564,6 +565,7 @@ impl Threadbear {
         });
         let handle = field.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     // ---- A thread's projects ----
@@ -841,6 +843,7 @@ impl Threadbear {
             }
         });
         input.update(cx, |s, cx| s.focus(window, cx));
+        crate::web_panels::keyboard_to_app(window);
         self.projects.editing = Some(Editing { project: id.to_owned(), field, input, _events: events });
         cx.notify();
     }

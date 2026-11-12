@@ -204,7 +204,13 @@ fn draft_box(draft: &DraftBlock, at: usize, plugin: &DraftBoxes, window: &mut Wi
             let handle = TextSelectionHandle::new(draft.plain_text(), cx);
             let focus = cx.focus_handle();
             let keys = focus.clone();
-            handle.focus_with(move |window, cx| keys.focus(window, cx), cx);
+            handle.focus_with(
+                move |window, cx| {
+                    keys.focus(window, cx);
+                    crate::web_panels::keyboard_to_app(window);
+                },
+                cx,
+            );
             DraftSelection { handle, focus }
         })
         .read(cx)

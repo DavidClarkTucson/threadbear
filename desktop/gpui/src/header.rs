@@ -272,6 +272,7 @@ impl Threadbear {
         });
         let handle = field.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+        crate::web_panels::keyboard_to_app(window);
         self.rename_field = Some((field, subscription));
         self.renaming = Some(id);
         cx.notify();

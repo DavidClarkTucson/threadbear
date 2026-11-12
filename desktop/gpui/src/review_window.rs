@@ -329,6 +329,7 @@ impl ReviewWindow {
         });
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        crate::web_panels::keyboard_to_app(window);
         // The latest copy now, then every few seconds while it waits: replies
         // from the phone or another window, when the thread's events aren't
         // coming to this app.
@@ -767,6 +768,7 @@ impl ReviewWindow {
     pub(crate) fn take_keys(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.focus.is_focused(window) {
             window.focus(&self.focus, cx);
+            crate::web_panels::keyboard_to_app(window);
         }
     }
 

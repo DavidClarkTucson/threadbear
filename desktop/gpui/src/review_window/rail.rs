@@ -184,6 +184,7 @@ impl ReviewWindow {
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                 let handle = reply.read(cx).focus_handle(cx);
                 window.focus(&handle, cx);
+                crate::web_panels::keyboard_to_app(window);
             })
             .child(crate::composer::bare_textarea(Textarea::new(&self.reply)).w_full().text_size(px(style::size::WORK)).line_height(px(style::natural_line(style::size::WORK))));
         // None: tinted while it's chosen, as the Swift button's tint is.
