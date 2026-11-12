@@ -341,8 +341,15 @@ Decided: **A, the daily driver first.**
    Settings in UserDefaults (dock layout, zoom, appearance) get imported once.
    Only one app posts notifications, and `threadbear-desktop` counts as being
    at the Mac.
-3. **Freeze new features in the Swift app.** Bug fixes only. New features go
-   in the GPUI app with a spec, so the list stops moving.
+3. **Freeze the Swift app** (since 12 Nov 2026). No more code in `app/` or
+   `dock/`: everything goes in the GPUI app, with a spec, so the list stops
+   moving. `scripts/swift-freeze.sh` refuses it in Mike's copy, as a Claude
+   Code hook on edits (`.claude/settings.json`) and git's pre-commit hook
+   (`worktree-setup.sh` puts it in).
+   **Releasing the GPUI app to other people starts the overlap**, with both
+   apps installed: that release turns on `WARN_FORKS` in the script, so their
+   agents get a warning (not a refusal) on Swift edits and commits, pointing
+   them at `desktop/`.
 4. **Cutover** once every Mac row in the parity table passes and Mike's used it
    for two weeks without going back. One last Swift build moves other people
    across: installs Rust if needed, builds the GPUI app, and swaps itself.

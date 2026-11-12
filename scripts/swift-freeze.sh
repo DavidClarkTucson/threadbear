@@ -1,0 +1,125 @@
+#!/bin/bash
+# The Swift Mac app (app/, and BearDock in dock/) is frozen: Mike uses the
+# GPUI app (desktop/) every day since 12 Nov 2026, and the Swift one is
+# retiring in its favour (docs/gpui-port.md, "Rollout"). This keeps new code
+# out of it, two ways:
+#
+#   swift-freeze.sh --commit   git's pre-commit hook (worktree-setup.sh puts
+#                              it in): looks at what's staged
+#   swift-freeze.sh --tool     Claude Code's PreToolUse hook on Edit and
+#                              Write (.claude/settings.json): the tool call
+#                              on stdin, so an agent hears it before it
+#                              writes the code, not after
+#
+# In Mike's own copy (origin is mikecann/threadbear) it refuses. Only when
+# Mike asks for a change to the Swift app itself, in that thread (the last
+# Swift build that moves people across at the cutover, say), does an agent
+# let it through, for that worktree only:
+#   touch "$(git rev-parse --absolute-git-dir)/threadbear-swift-ok"
+# (a file, as Claude Code's hooks don't see an agent's environment;
+# THREADBEAR_SWIFT_OK=1 on the commit works too). Deleting files is always
+# fine.
+#
+# In anyone else's copy it only warns, and only once WARN_FORKS is on: they
+# can't get the GPUI app yet, so steering their agents to it now would send
+# them somewhere they can't follow. Turn it on with the release that gives
+# them the GPUI app, and the overlap where they have both begins.
+WARN_FORKS=0
+
+set -uo pipefail
+
+# What's still shared with the GPUI app, so it isn't frozen: the mock
+# runner its CI and the features/ specs run against, and the test tools its
+# pointer and drag tests use (AGENTS.md).
+shared() {
+  case "$1" in
+    app/Tools/mock-runner/*|app/Tools/droptarget.swift|app/Tools/post-gesture.swift) return 0 ;;
+  esac
+  return 1
+}
+frozen() {
+  case "$1" in
+    app/*|dock/*) shared "$1" && return 1; return 0 ;;
+  esac
+  return 1
+}
+
+mode="${1:-}"
+top="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -n "$top" ] || exit 0
+
+# Mike's copy, or someone else's. THREADBEAR_SWIFT_FREEZE_COPY is for the
+# tests (runner/test/unit/swift-freeze.test.ts).
+copy="${THREADBEAR_SWIFT_FREEZE_COPY:-}"
+if [ -z "$copy" ]; then
+  if git -C "$top" remote get-url origin 2>/dev/null | grep -qE '[:/]mikecann/threadbear(\.git)?/?$'; then
+    copy=mike
+  else
+    copy=fork
+  fi
+fi
+[ "$copy" = mike ] || [ "$WARN_FORKS" = 1 ] || exit 0
+[ "${THREADBEAR_SWIFT_OK:-}" = 1 ] && exit 0
+gitdir="$(git -C "$top" rev-parse --absolute-git-dir 2>/dev/null)"
+[ -n "$gitdir" ] && [ -e "$gitdir/threadbear-swift-ok" ] && exit 0
+
+hits=()
+case "$mode" in
+  --commit)
+    # Finishing a merge, cherry-pick or revert brings in commits that are
+    # already made (a fork bringing in Mike's releases, mostly), so it isn't
+    # new code from here.
+    for h in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+      git rev-parse -q --verify "$h" >/dev/null 2>&1 && exit 0
+    done
+    # Added, copied, modified or renamed: deletions go through.
+    while IFS= read -r f; do
+      frozen "$f" && hits+=("$f")
+    done < <(git diff --cached --name-only --diff-filter=ACMR)
+    ;;
+  --tool)
+    input="$(cat)"
+    # file_path for Edit and Write, notebook_path for NotebookEdit. sed rather
+    # than a JSON parser, so the hook needs nothing installed.
+    f="$(printf '%s' "$input" | sed -nE 's/.*"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"([^"]*)".*/\2/p' | head -1)"
+    [ -n "$f" ] || exit 0
+    case "$f" in
+      "$top"/*) f="${f#"$top"/}" ;;
+      /*) exit 0 ;;  # outside this checkout
+    esac
+    frozen "$f" && hits+=("$f")
+    ;;
+  *)
+    echo "usage: swift-freeze.sh --commit | --tool" >&2
+    exit 64
+    ;;
+esac
+[ "${#hits[@]}" -gt 0 ] || exit 0
+
+list="$(printf '  %s\n' "${hits[@]}")"
+if [ "$copy" = mike ]; then
+  cat >&2 <<EOF
+The Swift Mac app (app/, dock/) is frozen: Mike uses the GPUI app now, and the
+Swift one is retiring. Make this change in the GPUI app in desktop/ instead
+(desktop/README.md, docs/gpui-port.md), with a spec in features/ if it changes
+what the app does:
+$list
+Only if Mike asked in this thread for a change to the Swift app itself:
+  touch "\$(git rev-parse --absolute-git-dir)/threadbear-swift-ok"
+lets edits and commits to it through in this worktree.
+EOF
+  # git stops on any nonzero exit; Claude Code needs 2 to refuse the tool call
+  # and pass this text back to the agent.
+  exit 2
+fi
+
+msg="Heads up: app/ and dock/ are the Swift Mac app, which is being retired in favour of the GPUI app in desktop/ (Mac, Windows and Linux). A change here won't carry over when the Swift app goes, so unless the user wants it in the Swift app specifically, make it in desktop/ instead and tell them why. Files:
+$list"
+if [ "$mode" = --tool ]; then
+  # A warning, not a refusal: the edit goes ahead, and the agent reads this.
+  node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:process.argv[1]}}))' "$msg" 2>/dev/null \
+    || printf '%s\n' "$msg" >&2
+else
+  printf '%s\n' "$msg" >&2
+fi
+exit 0

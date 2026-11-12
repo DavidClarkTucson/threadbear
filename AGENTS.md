@@ -8,8 +8,9 @@ new ones, and threads still get both, for skills written before.
 
 Threadbear is Mike's own agent app: a TypeScript runner daemon (`runner/`)
 that drives the official Claude Code (and later Codex) CLIs, and a native
-SwiftUI + AppKit Mac app (`app/`) that talks to it over the protocol in
-`docs/protocol.md`. Read `docs/plan.md` and `docs/protocol.md` before changing
+desktop app that talks to it over the protocol in `docs/protocol.md`: the GPUI
+one in `desktop/`, which replaces the frozen SwiftUI one in `app/` (see "The
+GPUI port"). Read `docs/plan.md` and `docs/protocol.md` before changing
 anything. The Convex mirror, the iPhone app (`ios/`) and the website (`web/`)
 are in `docs/convex-backend.md` and `docs/website.md`. The public landing
 page (threadbear.mikecann.app) is `site/`, a separate
@@ -237,8 +238,13 @@ look at the screen). Wake its screen with `caffeinate -u`, or the events go nowh
 ## The GPUI port
 
 The desktop app is being rewritten as one GPUI app for Mac, Windows and Linux
-(`docs/gpui-port.md`, `desktop/`). Until it replaces `app/`, a change to what the
-Mac app does should get a spec in `features/` (Gherkin, driven against both apps;
+(`docs/gpui-port.md`, `desktop/`). Mike uses it every day since 12 Nov, so the
+Swift app (`app/`, `dock/`) is frozen: changes go in `desktop/`, never in both.
+`scripts/swift-freeze.sh` refuses a Claude edit or a commit there in Mike's copy
+(the mock runner and the shared test tools in `app/Tools` stay open); its comment
+says how to let one through when Mike asks for a Swift change himself. In other
+people's copies it will only warn, from the release that gives them the GPUI app.
+A change to what the app does should get a spec in `features/` (Gherkin;
 `features/README.md`), so the two apps' differences stay visible in
 `docs/gpui-port/PARITY.md`. A change to how the transcript folds has to keep both
 languages' golden tests happy (`desktop/core/tests/golden`). Rust builds and spec

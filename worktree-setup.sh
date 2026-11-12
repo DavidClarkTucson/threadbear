@@ -81,3 +81,27 @@ for dir in . runner app/Tools/mock-runner; do
     (cd "$here" && "$NPM" ci --no-audit --no-fund --loglevel=error)
   fi
 done
+
+# The Swift app's freeze (scripts/swift-freeze.sh) as git's pre-commit hook,
+# so a commit to app/ or dock/ is refused in Mike's copy (and, once the GPUI
+# app is out, warned about in other people's) whichever agent makes it and
+# however it wrote the files. Hooks live in the shared .git, so this one
+# file covers the main checkout and every worktree, each running its own
+# copy of the script. Someone else's pre-commit hook, or a core.hooksPath of
+# their own, is left alone.
+hooks="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/hooks"
+if [ -n "$(git -C "$ROOT" config core.hooksPath || true)" ]; then
+  echo "pre-commit: core.hooksPath is set, so the Swift app's freeze isn't hooked in"
+elif [ -e "$hooks/pre-commit" ] && ! grep -q threadbear-swift-freeze "$hooks/pre-commit"; then
+  echo "pre-commit: there's already a hook, so the Swift app's freeze isn't hooked in"
+else
+  mkdir -p "$hooks"
+  cat > "$hooks/pre-commit" <<'HOOK'
+#!/bin/sh
+# threadbear-swift-freeze: put here by worktree-setup.sh
+f="$(git rev-parse --show-toplevel)/scripts/swift-freeze.sh"
+[ -x "$f" ] && exec "$f" --commit
+exit 0
+HOOK
+  chmod +x "$hooks/pre-commit"
+fi
