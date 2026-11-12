@@ -341,6 +341,30 @@ extension Automation {
         return (0..<session.displayCount).lazy.map { session.displayRow($0) }.first { $0.id.hasPrefix(prefix) }
     }
 
+    /// `edit-message` with `click`: the row hovered, so its pencil shows as
+    /// it does under the pointer, then a press and release on the pencil
+    /// through the window, hit-tested as a real click is. Nil once clicked,
+    /// or why it couldn't be.
+    static func clickPencil(_ row: TranscriptRow, app: AppModel) async -> String? {
+        guard let index = app.transcript.session?.displayIndex(of: row.id) else { return "error no such row" }
+        app.transcript.scroll(toRow: index, offset: 120)
+        guard let cell = app.transcript.tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? TextRowCell, let window = cell.window else { return "error row isn't drawn" }
+        guard cell.debugHover(true), !cell.edit.isHidden else { return "error no pencil by \(row.id)" }
+        defer { _ = cell.debugHover(false) }
+        let at = cell.edit.convert(NSPoint(x: cell.edit.bounds.midX, y: cell.edit.bounds.midY), to: nil)
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return "error no event" }
+        // A button tracks the press until it pulls the release off the
+        // queue, so the release goes on the queue first.
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        try? await Task.sleep(for: .milliseconds(100))
+        return nil
+    }
+
     static func scroll(toRow prefix: String?, offset: Double, app: AppModel) -> String {
         guard let row = displayedRow(prefix, app), let index = app.transcript.session?.displayIndex(of: row.id) else { return "error no such row" }
         app.transcript.scroll(toRow: index, offset: offset)

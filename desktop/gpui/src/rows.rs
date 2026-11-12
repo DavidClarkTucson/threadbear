@@ -188,7 +188,8 @@ impl ThreadPane {
                 _ => {}
             }
             let text = if message.text.is_empty() { " ".to_string() } else { message.text.clone() };
-            let answered = !message.answers.is_empty() || message.review.is_some();
+            let answered_words = answered_words(message);
+            let answered = answered_words.is_some();
             // As wide as its widest line, as the Swift bubble is (its text's
             // used width): GPUI's wrapped text takes all the width it's
             // given. The text keeps room for a wrapped line's trailing space,
@@ -218,7 +219,7 @@ impl ThreadPane {
                 // fits exactly would wrap.
                 .when_some(fit, |d, (ink, span)| d.child(div().w(span + px(1.)).mr(ink - span - px(1.)).child(SelectableText::new(("user-text", ix), text))))
                 .when_some(chips.map(|c| c.1), |d, lines| d.child(lines))
-                .when(answered, |d| d.child(answers_body(ix, message, cx)));
+                .when_some(answered_words, |d, words| d.child(answers_body(ix, &words, cx)));
             // The pencil, left of the bubble and level with its last line, on
             // hover, as Codex and ChatGPT put theirs (`Cells.updateEdit`).
             let editable = message.editable && pending.is_none() && threadbear_core::composer::can_rewind(&self.summary.provider) && self.subagent_id.is_none();
@@ -539,15 +540,28 @@ pub(crate) fn row_wrap(row: &Row, inner: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
+/// What a message that answered asks or a review draws (`userWords`): each
+/// question with its answer, then what he wrote under them. None for any
+/// other message, and for text that doesn't start with its answers, which is
+/// shown as it is. His words used to be dropped (thread 3fdaaeec, 12 Nov).
+pub(crate) struct AnsweredWords {
+    pub lines: Vec<(String, String)>,
+    pub extra: String,
+}
+
+pub(crate) fn answered_words(message: &UserMessage) -> Option<AnsweredWords> {
+    if let Some(review) = &message.review {
+        return Some(AnsweredWords { lines: review.lines.iter().map(|l| (l.label.clone(), l.text.clone())).collect(), extra: String::new() });
+    }
+    let extra = threadbear_core::composer::answers_extra(&message.text, &message.answers)?;
+    Some(AnsweredWords { lines: message.answers.iter().map(|a| (a.action.clone(), a.answer.clone())).collect(), extra })
+}
+
 /// The body of a message that answered asks or a review (`userWords`): each
 /// question small and quiet, its answer as his own words, then the rest.
-fn answers_body(ix: usize, message: &UserMessage, cx: &App) -> Div {
+fn answers_body(ix: usize, words: &AnsweredWords, cx: &App) -> Div {
     let question = style::secondary_label(cx);
-    let lines: Vec<(String, String)> = if let Some(review) = &message.review {
-        review.lines.iter().map(|l| (l.label.clone(), l.text.clone())).collect()
-    } else {
-        message.answers.iter().map(|a| (a.action.clone(), a.answer.clone())).collect()
-    };
+    let AnsweredWords { lines, extra } = words;
     let mut body = v_flex().gap(px(8.));
     for (i, (label, text)) in lines.iter().enumerate() {
         body = body.child(
@@ -555,6 +569,9 @@ fn answers_body(ix: usize, message: &UserMessage, cx: &App) -> Div {
                 .when(!label.is_empty(), |d| d.child(div().text_size(px(size::SMALL)).line_height(px(18.)).text_color(question).child(label.clone())))
                 .child(SelectableText::new(("answer-text", ix * 1000 + i), text.clone())),
         );
+    }
+    if !extra.is_empty() {
+        body = body.child(SelectableText::new(("answer-extra", ix), extra.to_owned()));
     }
     body
 }

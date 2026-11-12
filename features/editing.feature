@@ -34,3 +34,20 @@ Feature: Editing a message
     And I press Return
     Then the composer is still editing my first message
     And the approval for "rm -rf .build DerivedData" is still waiting
+
+  # Thread 3fdaaeec (12 Nov): Mike's answer to a daily brief's card, with a
+  # message from another thread's agent in its turn after it, and editing it
+  # looked gone. The pencil is a real click through the window here, as only
+  # calling its handler can't tell a pencil that's drawn but doesn't answer.
+  # The GPUI app drew it as a plain ring and dropped his words from the bubble.
+  @transcript.edit @composer.editing
+  Scenario: The pencil by an answer to a card, with another agent's message after it
+    Given a thread where I answered a card and another thread's agent wrote in after, called "Yesterday's brief"
+    When I open the thread "Yesterday's brief"
+    Then my answer to "How did yesterday feel?" shows "Good" and "It was good. I got a lot done."
+    When I click the pencil by my message "It was good"
+    Then the composer holds that message to edit, with "It was good" in it
+    When I replace what's in the composer with "It was a flat day"
+    And I press Return
+    Then the composer isn't editing
+    And the transcript has my message "It was a flat day"

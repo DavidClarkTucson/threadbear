@@ -27,6 +27,9 @@ pub(crate) fn lucide(symbol: &str) -> &'static [u8] {
         "photo" => lucide::Image.1,
         "doc.text" => lucide::FileText.1,
         "pencil.line" => lucide::PencilLine.1,
+        // The pencil by Mike's messages: missing, it fell to the circle below,
+        // and the edit control read as a stray ring (12 Nov).
+        "pencil" => lucide::Pencil.1,
         "square.and.pencil" => lucide::SquarePen.1,
         "magnifyingglass" => lucide::Search.1,
         "globe" => lucide::Globe.1,

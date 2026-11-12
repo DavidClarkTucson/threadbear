@@ -329,11 +329,34 @@ enum Automation {
                 return "ok sent again for \(account.id)"
             }
             return "ok \(account.id) \(account.provider)"
+        case "message-words":
+            // The words one of Mike's messages draws in its bubble, scrolled
+            // on screen first ({"row": its id or start}): "ok a | b", its
+            // lines joined, as an answer is one line. For what a bubble shows
+            // rather than what its message holds.
+            guard let row = displayedRow(c["row"] as? String, app), let index = app.transcript.session?.displayIndex(of: row.id) else { return "error no such row" }
+            app.transcript.scroll(toRow: index, offset: 120)
+            guard let cell = app.transcript.tableView.view(atColumn: 0, row: index, makeIfNecessary: true) as? TextRowCell else { return "error row isn't drawn" }
+            let lines = cell.textView.string.components(separatedBy: CharacterSet(charactersIn: "\n\u{2028}")).filter { !$0.isEmpty }
+            return "ok \(lines.joined(separator: " | "))"
         case "edit-message":
             // The pencil by one of Mike's messages, as a click on it does:
-            // {"row": the row's id or its start}.
+            // {"row": the row's id or its start}. `"click": true` clicks the
+            // pencil itself through the window, the row hovered first as it
+            // shows on hover, so a pencil that's drawn but doesn't answer
+            // fails (thread 3fdaaeec, 12 Nov), as calling the handler can't.
+            // `{"cmd":"edit-message","cancel":true}` leaves the edit.
+            if c["cancel"] as? Bool == true {
+                guard let id = app.selection else { return "error no thread open" }
+                app.cancelEditing(threadId: id)
+                return "ok"
+            }
             guard let row = displayedRow(c["row"] as? String, app) else { return "error no such row" }
-            app.transcript.editMessage(rowId: row.id)
+            if c["click"] as? Bool == true {
+                if let failed = await clickPencil(row, app: app) { return failed }
+            } else {
+                app.transcript.editMessage(rowId: row.id)
+            }
             return app.selection.flatMap { app.editing[$0] } != nil ? "ok editing" : "error that message can't be edited"
         case "subagent":
             // Show a sub-agent's transcript, as a click on its sidebar row
@@ -1333,25 +1356,6 @@ enum Automation {
             return hover(c, app: app)
         case "activity":
             return await activity(c, app: app)
-        case "edit-message":
-            // Clicks the pencil by one of Mike's messages (`row`: its row id
-            // or a prefix), as he would, which loads it into the composer
-            // to edit. `{"cmd":"edit-message","cancel":true}` leaves the edit.
-            if c["cancel"] as? Bool == true {
-                guard let id = app.selection else { return "error no thread open" }
-                app.cancelEditing(threadId: id)
-                return "ok"
-            }
-            guard let prefix = c["row"] as? String, let row = displayedRow(prefix, app),
-                  let index = app.transcript.session?.displayIndex(of: row.id) else { return "error no such row" }
-            app.transcript.scroll(toRow: index, offset: 120)
-            guard let cell = app.transcript.tableView.view(atColumn: 0, row: index, makeIfNecessary: true) as? TextRowCell else { return "error row isn't drawn" }
-            guard !cell.edit.isHidden || cell.debugHover(true) else { return "error \(row.id) can't be edited" }
-            cell.edit.performClick(nil)
-            _ = cell.debugHover(false)
-            try? await Task.sleep(for: .milliseconds(100))
-            guard let id = app.selection, let edit = app.editing[id] else { return "error the edit didn't start" }
-            return "ok editing seq \(edit.seq)"
         case "swipe":
             return await swipe(c, app: app)
         case "page-swipe":

@@ -641,6 +641,30 @@ fn answer_block(answer: &AskAnswer, number: Option<usize>) -> String {
     }
 }
 
+/// Decisions.extra: what Mike wrote himself in a message that answered asks,
+/// the text after the answers `answers_message` put first (empty when he
+/// wrote nothing), or None when the text doesn't start with them, so the
+/// bubble shows it all as it is. The GPUI bubble showed the questions and
+/// picks and dropped his words (thread 3fdaaeec, 12 Nov).
+pub fn answers_extra(text: &str, answers: &[AskAnswer]) -> Option<String> {
+    if answers.is_empty() {
+        return None;
+    }
+    let mut rest = text;
+    for answer in answers {
+        // Numbered or not, as `answers_message` wrote it.
+        let number = rest.find('.').and_then(|dot| rest[..dot].parse::<usize>().ok().filter(|_| rest[dot + 1..].starts_with(' ')));
+        let expected = answer_block(answer, number);
+        rest = rest.strip_prefix(expected.as_str())?;
+        if let Some(after) = rest.strip_prefix("\n\n") {
+            rest = after;
+        } else if !rest.is_empty() {
+            return None;
+        }
+    }
+    Some(rest.trim().to_owned())
+}
+
 /// Decisions.message: one ordinary message, each picked ask's question then
 /// its answer, numbered as on the card, then whatever Mike wrote.
 pub fn answers_message(asks: &[Ask], picks: &BTreeMap<i64, i64>, notes: &BTreeMap<i64, AskNote>, extra: &str) -> String {
@@ -701,6 +725,21 @@ mod tests {
         assert_eq!(text, "\u{FFFC} no pictures, [Picture 9] stays");
         assert_eq!(order, vec![0]);
         assert!(can_rewind("codex") && !can_rewind("opencode"));
+    }
+
+    #[test]
+    fn an_answer_keeps_the_words_written_under_it() {
+        let felt = AskAnswer { action: "How did yesterday feel?".into(), answer: "Good".into() };
+        assert_eq!(answers_extra("How did yesterday feel?\nGood\n\nIt was good.\n\nAnd busy.", std::slice::from_ref(&felt)).as_deref(), Some("It was good.\n\nAnd busy."));
+        assert_eq!(answers_extra("How did yesterday feel?\nGood", std::slice::from_ref(&felt)).as_deref(), Some(""));
+        // Numbered, as a card of several asks sends them.
+        let ship = AskAnswer { action: "Ship it?".into(), answer: "Yes\ntoday".into() };
+        let text = "1. How did yesterday feel?\n   Good\n\n2. Ship it?\n   Yes\n   today\n\nThanks";
+        assert_eq!(answers_extra(text, &[felt.clone(), ship]).as_deref(), Some("Thanks"));
+        // Text that doesn't start with its answers is shown as it is.
+        assert_eq!(answers_extra("Something else entirely", std::slice::from_ref(&felt)), None);
+        assert_eq!(answers_extra("How did yesterday feel?\nGoodish", std::slice::from_ref(&felt)), None);
+        assert_eq!(answers_extra("anything", &[]), None);
     }
 
     #[test]

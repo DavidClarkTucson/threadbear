@@ -348,7 +348,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         }
         // The window shell (shell.rs, rails.rs, header.rs), the Swift
         // app's commands of the same names.
-        "dock-move" | "panel" | "float" | "mode" | "zoom" | "rename" | "undo-archive" | "open-archived" | "error" | "mouse-button" | "copy-thread-id" | "menus" | "menu-item" | "app-menu" | "data-dir" | "share" | "signin" | "edit-message" | "refusal" | "appearance" | "resize" => shell_step(app, cmd, window, cx),
+        "dock-move" | "panel" | "float" | "mode" | "zoom" | "rename" | "undo-archive" | "open-archived" | "error" | "mouse-button" | "copy-thread-id" | "menus" | "menu-item" | "app-menu" | "data-dir" | "share" | "signin" | "edit-message" | "message-words" | "refusal" | "appearance" | "resize" => shell_step(app, cmd, window, cx),
         "search" => {
             let words = text(cmd, "text").to_string();
             let search = app.read(cx).search.clone();
@@ -889,13 +889,44 @@ fn shell_step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &m
             }
             Ok(json!(app.read(cx).share_status()))
         }
+        // The words one of Mike's messages draws in its bubble ({"row": its
+        // id or start}), from what the bubble lays out (rows.rs's
+        // `answered_words`): "ok a | b", its lines joined, as the Swift
+        // app's. For what a bubble shows rather than what its message holds;
+        // a card's answer dropped his words.
+        "message-words" => {
+            let prefix = text(cmd, "row").to_owned();
+            let pane = app.read(cx).pane.clone().ok_or("no thread open")?;
+            let row = pane.read(cx).feed.model().rows().iter().find(|r| r.id.starts_with(&prefix)).cloned().ok_or_else(|| format!("no row starting {prefix:?}"))?;
+            let threadbear_core::reducer::RowContent::User(message) = &row.content else { return Err(format!("{} isn't a message", row.id)) };
+            let words: Vec<String> = match crate::rows::answered_words(message) {
+                Some(words) => words.lines.iter().flat_map(|(label, text)| [label.clone(), text.clone()]).chain([words.extra]).collect(),
+                None => vec![message.text.clone()],
+            };
+            let lines: Vec<&str> = words.iter().flat_map(|w| w.lines()).filter(|l| !l.is_empty()).collect();
+            Ok(json!(format!("ok {}", lines.join(" | "))))
+        }
         // The pencil by one of Mike's messages, as a click on it does:
-        // {"row": the row's id or its start}.
+        // {"row": the row's id or its start}. `"click": true` clicks the
+        // pencil itself through the window, the pointer over it first as
+        // it shows on hover, so a pencil that's drawn but doesn't answer
+        // fails (thread 3fdaaeec, 12 Nov), as calling the handler can't.
         "edit-message" => {
             let prefix = text(cmd, "row").to_owned();
             let pane = app.read(cx).pane.clone().ok_or("no thread open")?;
-            let row = pane.read(cx).feed.model().rows().iter().find(|r| r.id.starts_with(&prefix)).map(|r| r.id.clone()).ok_or_else(|| format!("no row starting {prefix:?}"))?;
-            pane.update(cx, |p, cx| p.edit_message(&row, window, cx));
+            let (ix, row) = pane.read(cx).feed.model().rows().iter().enumerate().find(|(_, r)| r.id.starts_with(&prefix)).map(|(ix, r)| (ix, r.id.clone())).ok_or_else(|| format!("no row starting {prefix:?}"))?;
+            if cmd["click"].as_bool() == Some(true) {
+                pane.update(cx, |p, cx| p.scroll_command(None, Some(&row), 0., cx))?;
+                window.render_frame(cx);
+                let pencil = window.find_all(("edit-message", ix)).into_iter().next().ok_or("no pencil by that message")?;
+                let at = pencil.bounds().center();
+                window.pointer_move(at, None, cx);
+                window.render_frame(cx);
+                window.pointer_down(at, MouseButton::Left, cx);
+                window.pointer_up(at, MouseButton::Left, cx);
+            } else {
+                pane.update(cx, |p, cx| p.edit_message(&row, window, cx));
+            }
             let editing = app.read(cx).composer(cx).is_some_and(|c| c.read(cx).editing.is_some());
             Ok(json!(if editing { "ok editing" } else { "error that message can't be edited" }))
         }

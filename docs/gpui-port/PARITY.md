@@ -325,6 +325,40 @@ built parsers and gates with no launch of the app, which is the trap.)
   scripted run saw the viewer really open on picture 2 of 2 from the chip
   and 1 of 2 from the thumbnail, and the × take a picture out with the
   viewer still closed.
+### 2026-11-12 An answer to a card: his words, and a pencil that looks like one (`transcript.edit`)
+
+- Mike asked where editing a message had gone, on his answer to a daily
+  brief's card (thread 3fdaaeec), with another thread's agent's message in
+  that turn after it. In the GPUI app the pencil by a message was drawn as
+  a plain ring: `work::icon` had no "pencil", so it fell to its circle. And
+  a message that answered a card showed only the questions and picks,
+  dropping the words he wrote under them, which the Swift bubble shows
+  (`Decisions.extra`, now `composer::answers_extra`). Text that doesn't
+  start with its answers is shown as it is, as in the Swift app.
+- The pencil itself works in both apps for a message of this shape, and
+  the runner takes the edit (his own message, the start of its turn, its
+  id in the session's transcript): a real click through the window server
+  on Tinker Desk started the edit in both, and both activity logs named the
+  click, where his logs for the day have no click or hover on a pencil in
+  either app. The Swift app needed no change.
+- `edit-message` takes `"click": true` in both apps: the pencil pressed
+  through the window, hovered first, rather than its handler called. The
+  Swift app had two `edit-message` cases; the second could never run and
+  is gone. `message-words` says what a message's bubble draws. The mock
+  runner's `mock.cardAnswer` makes a thread of that shape.
+- Files: `desktop/gpui/src/rows.rs`, `desktop/gpui/src/rows/work.rs`,
+  `desktop/core/src/composer.rs`, `desktop/gpui/src/automation.rs`,
+  `app/Sources/Threadbear/Automation.swift`,
+  `app/Sources/Threadbear/Automation+Commands.swift`,
+  `app/Tools/mock-runner/server.mjs`, `features/editing.feature`,
+  `features/steps/editing.steps.ts`.
+- Verification: on Tinker Desk, editing.feature's four scenarios pass on
+  both apps, and the new one's words check matches the GPUI shot from
+  before the fix, where the bubble had "Good" and nothing under it.
+  `composer::answers_extra`'s unit test passes. A scrubbed copy of the real
+  thread (every word replaced, not kept) and a card answered live in the
+  app both edited on a pencil click in both apps; shots of the GPUI app
+  after the fix show the pencil and his words beside the Swift app's.
 
 ### 2026-11-12 An ask's link on the card, and answering a decision with the runner away, crashed the app (`card.needsyou`, `projects.decisions`)
 

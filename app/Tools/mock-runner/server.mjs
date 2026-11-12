@@ -1769,6 +1769,29 @@ async function dispatch(client, method, p) {
       setStatus(id, 'idle');
       return { thread: t.summary };
     }
+    case 'mock.cardAnswer': {
+      // A daily brief's shape (thread 3fdaaeec, 12 Nov): a schedule's
+      // message, a reply ending on a card, Mike's answer to it with his own
+      // words under the pick, then, inside that answer's turn, a message
+      // another thread's agent sent in (send_message) and the agent's reply.
+      // His answer is the message to edit: the pencil by it did nothing.
+      const t = need(p.threadId);
+      const id = t.summary.id;
+      const ask = 'How did yesterday feel?';
+      persist(id, { type: 'user.message', text: '[Scheduled: "Daily brief", Every day at 6:30]\n\nWrite the daily brief.', images: [], origin: 'schedule' }, 'turn_brief');
+      persist(id, { type: 'turn.started' }, 'turn_brief');
+      persist(id, { type: 'assistant.text', itemId: 'brief_m', text: '# Morning brief\n\nA quiet day: two meetings and the lawn.', final: true }, 'turn_brief');
+      persist(id, { type: 'turn.completed', outcome: 'completed', durationMs: 60000, needs: 'you', asks: [{ action: ask, options: ['Great', 'Good', 'Meh', 'Rough'] }] }, 'turn_brief');
+      const words = p.words ?? 'It was good. I got a lot done.';
+      persist(id, { type: 'user.message', text: `${ask}\nGood\n\n${words}`, images: [], answers: [{ action: ask, answer: 'Good' }] }, 'turn_felt');
+      persist(id, { type: 'turn.started' }, 'turn_felt');
+      persist(id, { type: 'system.note', text: 'Resumed session' }, 'turn_felt');
+      persist(id, { type: 'user.message', text: '[Sent by the agent in the thread "Auth remaining work" (6888a556)]\n\nNot settled yet: hold the video.', images: [] }, 'turn_felt');
+      persist(id, { type: 'assistant.text', itemId: 'felt_m', text: 'Good to hear. The Auth thread says to hold the video.', final: true }, 'turn_felt');
+      persist(id, { type: 'turn.completed', outcome: 'completed', durationMs: 18000, needs: 'nothing' }, 'turn_felt');
+      setStatus(id, 'idle');
+      return { thread: t.summary };
+    }
     case 'mock.review': {
       // As an agent's show_options would: {threadId, review: { id?, title,
       // note?, recommended?, options }}, the options as DesignReview has them
