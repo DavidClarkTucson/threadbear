@@ -3347,10 +3347,16 @@ itself), the runner checks:
   thread comes back when one runs;
 - `open`: what the agent said is still open, from end_turn's `open`
   (up to three short lines; offered only while the experiment is on):
-  what the runner can't see, like a reply worth sending, a decision
-  waiting elsewhere or a job still running. `[]` is the agent's word
-  that nothing is. The check-in of 11 Nov found Mike's typed "anything
-  else?" asks were mostly about these, in threads without a worktree.
+  what the runner can't see and that waits on someone else or runs
+  elsewhere, like a colleague's decision or a job still running. `[]` is
+  the agent's word that nothing is. The check-in of 11 Nov found Mike's
+  typed "anything else?" asks were mostly about these, in threads without
+  a worktree. Never a step that's Mike's (an ask, with needs "you", which
+  he can answer and which then goes) or one the agent means to do itself
+  later (a `schedule_message` to itself, which runs it; `snooze` only
+  brings the thread back). Until 12 Nov the description's first example
+  was "a reply worth sending", and a "Reply to Gautam" line stayed on a
+  card after Mike had sent it, with nothing to click.
 
 The result goes on `ThreadSummary.looseEnds`: `{ seq, ends, at }`, where
 `seq` is the done card's `turn.completed`. `ends: []` means it checked and
@@ -3375,6 +3381,51 @@ from that thread's backend row while it's open and puts them on its row in
 only when the row's `cardTurn` (API 76) is that card's turn: a newer
 turn's row can come before its messages.
 The sidebar's rows don't carry them, so a thread nobody has open has none.
+
+## A quiet inbox
+
+Experiment `quietInbox` (`runner/src/runner/quiet-inbox.ts`), off unless
+`runner.json` has `"experiments": { "quietInbox": true }`. On 12 Nov 2026
+Mike asked why three threads other threads had started sat in his inbox
+with nothing for him to do, and said of a done card listing threads its
+thread had started: "If that thread is waiting on another thread, then it
+shouldn't be in the inbox."
+
+When a turn finishes for good (completed, `needs: "nothing"`, nothing
+queued or running, no card waiting, no lab review of it started or owed,
+and not putting itself away with `archive`, `snooze` or `waitFor`), the
+runner gathers the thread's loose ends as the done card does (above),
+whether or not `looseEnds` is on, and then:
+
+- **Waiting on its threads.** If every loose end is a `thread` (one it
+  started that's working or waiting on Mike; `scheduled` ones aside), it
+  hibernates waiting on them exactly as end_turn's `waitFor` would
+  (`waitingOn`, a day at the latest, the same note and the same wake with
+  their replies; each wait is marked `quiet`, so the wake's message says
+  the runner put it away and that there may be nothing more to do).
+  `finished` is dropped, so anything waiting on it in turn
+  doesn't count it as finished until its own wake turn finishes.
+- **A helper archives itself.** If nothing is left at all (no `scheduled`
+  either), the thread's `startedBy.kind` is `thread`, and its `next` is
+  empty, it's archived (`archivedBy: "threadbear"`) after a `system.note`:
+  "Archived: another thread started this one, and it finished with nothing
+  left for you." Not if Mike has had anything to do with it: a message of
+  his after its first (an answer to its card counts), a star, or having
+  been unarchived by hand (`keptOut` on its record, set by any
+  `threads.update` with `archived: false` on an archived thread). Its
+  first message is its starter's brief whatever it looks like, as `tb new`
+  from an agent's shell has no "Sent by the agent" line.
+
+Anything else stays in the inbox: a turn that asks, fails or is stopped,
+one with follow-ups, uncommitted or unlanded work, an open PR, an agent's
+`open` line. A message, an archive or a hibernate that arrives while git
+runs wins, and a check that fails leaves the thread where it is. Threads a
+tool, a schedule, the librarian or the runner started are left alone: they
+are often what Mike wants to read, and no thread holds their result. A
+helper its starter writes to again comes out, runs and goes back the same
+way. The starter hears nothing new from this: it's woken only if it was
+waiting on the helper, and the helper shows as archived under "Threads it
+started" in its Highlights.
 
 ## Secrets
 

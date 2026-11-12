@@ -209,7 +209,8 @@ export const githubPr: PrLookup = (repo, branch) => {
 };
 
 // What the agent said is still open (end_turn's open): things only it
-// knows, like a reply worth sending or a decision waiting elsewhere.
+// knows that wait on someone else or run elsewhere, like a colleague's
+// decision. Never Mike's own step, which is an ask.
 export function agentLooseEnds(open: string[] | undefined): LooseEnd[] {
   return (open ?? []).map((text) => ({ kind: 'open' as const, text }));
 }

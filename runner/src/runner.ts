@@ -54,7 +54,7 @@ import type {
 } from './protocol.ts';
 import { agentsStillWorking, ErrorCode, LIMITS, PROTOCOL_VERSION, RpcError, sentByAgent } from './protocol.ts';
 import { activeProviders, cliName, providerInfo, providerName, providersForHello } from './providers.ts';
-import type { ArchivedBy, ArchiveVerdict, LibrarianStatus, Project, Schedule } from './protocol.ts';
+import type { ArchivedBy, ArchiveVerdict, LibrarianStatus, LooseEnd, Project, Schedule } from './protocol.ts';
 import { Projects } from './projects.ts';
 import type { Settings } from './settings.ts';
 import type {
@@ -158,6 +158,7 @@ import { hibernationPart, type HibernationPart } from './runner/hibernation.ts';
 import { newThreadsPart, type NewThreadsPart } from './runner/new-threads.ts';
 import { LAB_REVIEW_ROUNDS, applyAnswers, fixedSinceLastRound, labReviewPart, ledgerCard, openFindings, parseVerdict, type LabReviewPart } from './runner/lab-review.ts';
 import { looseEndsPart, type LooseEndsPart } from './runner/loose-ends.ts';
+import { quietInboxPart, type QuietInboxPart } from './runner/quiet-inbox.ts';
 import { CONFINED_NO_SANDBOX, sandboxFor } from './sandbox.ts';
 import { COPIED_REFUSAL, neutraliseCopied, realCopy } from './real-copy.ts';
 
@@ -473,6 +474,8 @@ type Runtime = {
   looseEndsAt?: number;
   // A loose-ends check is running: opening the thread doesn't start another.
   looseEndsBusy?: boolean;
+  // That check's look at git, while it's going (LooseEndsPart.checkLooseEnds).
+  looseEndsGather?: Promise<LooseEnd[]>;
 };
 
 export type ThreadState = { rec: ThreadRecord; rt: Runtime };
@@ -628,7 +631,7 @@ export const UNTIL_RESTART = '9999-12-31T00:00:00.000Z';
 export const NO_WAKE_TIME = UNTIL_RESTART;
 
 // Parts of the Runner that live in runner/ (see each file's top).
-export interface Runner extends LooseEndsPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, ContextUsagePart, MovesPart {}
+export interface Runner extends LooseEndsPart, QuietInboxPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, ContextUsagePart, MovesPart {}
 export class Runner {
   // While main.ts is still starting up: waking a thread for its waits
   // (reconcileWaits) would start a CLI whose tools aren't ready, so they
@@ -2470,6 +2473,12 @@ export class Runner {
       }
       this.markDirty(st);
     }
+    // Finished for good, with nothing for Mike: a helper thread with nothing
+    // left open archives itself, and one only waiting on threads it started
+    // hibernates until they're done (experiment quietInbox,
+    // runner/quiet-inbox.ts). Not one a schedule had out of the archive: the
+    // lines above have dealt with it.
+    if (finished && !review && !rec.labReviewOwed && !rt.turn && !rec.archivedAt && !this.stopping) void this.settleQuietly(st, Boolean(said?.next?.length));
     if (archive && !rt.turn && !rec.archivedAt && !this.stopping) {
       this.emit(st, { type: 'system.note', text: 'Archived, as the agent was asked to once it had finished.' });
       this.update({ threadId: rec.id, archived: true, archivedBy: 'agent' });
@@ -3010,7 +3019,12 @@ export class Runner {
         if (verdict) rec.archiveVerdict = verdict;
         else delete rec.archiveVerdict;
         stop = true;
-      } else delete rec.archivedAt;
+      } else {
+        // Brought back out by hand: it stays out, however its next turn ends
+        // (runner/quiet-inbox.ts).
+        if (rec.archivedAt) rec.keptOut = true;
+        delete rec.archivedAt;
+      }
     }
     if (archiving) {
       this.reconcileWaits();
@@ -3793,7 +3807,7 @@ export class Runner {
 
 // The Runner's other methods live in parts under runner/, one area each;
 // they go onto its prototype here, as the class's own methods would be.
-for (const part of [looseEndsPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, contextUsagePart, movesPart]) {
+for (const part of [looseEndsPart, quietInboxPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, contextUsagePart, movesPart]) {
   for (const [key, d] of Object.entries(Object.getOwnPropertyDescriptors(part))) {
     Object.defineProperty(Runner.prototype, key, { ...d, enumerable: false });
   }

@@ -23,6 +23,41 @@ export const looseEndsPart = {
     return rec.needs.seq;
   },
 
+  // What a finished thread has left open, as the done card lists it. Runs
+  // git (and gh, for a pushed branch), so it takes a moment; throws if
+  // one of those does.
+  async gatherLooseEnds(this: Runner, st: ThreadState): Promise<LooseEnd[]> {
+    const { rec } = st;
+    const ends: LooseEnd[] = [];
+    const w = rec.worktree;
+    const own = w && !w.removedAt ? w : undefined;
+    if (own) ends.push(...(await worktreeLooseEnds(own)));
+    // What it changed anywhere else, and the commits it made there.
+    this.catchUpHighlights(st);
+    const hl = rec.highlights;
+    const made = (hl?.items ?? []).filter((h) => h.kind === 'commit' && h.sha);
+    const commits = made.filter((h) => !h.pushed).map((h) => h.sha!);
+    const pushed = made.filter((h) => h.pushed).map((h) => h.sha!);
+    ends.push(...(await editedLooseEnds(hl?.edited ?? [], commits, own?.path, { pushed, dirs: [rec.cwd] })));
+    ends.push(...agentLooseEnds(rec.needs?.open));
+    ends.push(...this.childEnds(st));
+    ends.push(...scheduleLooseEnds(rec.id, this.schedulesFor?.(rec.id) ?? []));
+    return ends;
+  },
+
+  // The threads it started that are still working or waiting on Mike.
+  // Nothing here waits, so it's as things stand now.
+  childEnds(this: Runner, st: ThreadState): LooseEnd[] {
+    const children: ChildThread[] = [];
+    for (const other of this.threads.values()) {
+      const o = other.rec;
+      if (o.startedBy?.threadId !== st.rec.id || o.archivedAt || other.rt.deleted) continue;
+      const s = this.summary(other);
+      children.push({ id: o.id, title: o.title, working: o.status === 'running' || o.status === 'starting', needsYou: s.needsYou && s.needs !== 'nothing' });
+    }
+    return childLooseEnds(children);
+  },
+
   // Checks the thread's loose ends for its done card and puts them on its
   // summary. Quiet on failure: a card that says nothing is today's card.
   async checkLooseEnds(this: Runner, st: ThreadState): Promise<void> {
@@ -34,32 +69,18 @@ export const looseEndsPart = {
     rt.looseEndsRun = run;
     rt.looseEndsAt = this.clock.now();
     rt.looseEndsBusy = true;
-    const ends: LooseEnd[] = [];
+    let ends: LooseEnd[];
+    // Kept while it runs, so the quiet inbox's look at the same card
+    // (runner/quiet-inbox.ts) reads this one's answer and git runs once.
+    const gather = this.gatherLooseEnds(st);
+    rt.looseEndsGather = gather;
     try {
-      const w = rec.worktree;
-      const own = w && !w.removedAt ? w : undefined;
-      if (own) ends.push(...(await worktreeLooseEnds(own)));
-      // What it changed anywhere else, and the commits it made there.
-      this.catchUpHighlights(st);
-      const hl = rec.highlights;
-      const made = (hl?.items ?? []).filter((h) => h.kind === 'commit' && h.sha);
-      const commits = made.filter((h) => !h.pushed).map((h) => h.sha!);
-      const pushed = made.filter((h) => h.pushed).map((h) => h.sha!);
-      ends.push(...(await editedLooseEnds(hl?.edited ?? [], commits, own?.path, { pushed, dirs: [rec.cwd] })));
-      ends.push(...agentLooseEnds(rec.needs?.open));
-      const children: ChildThread[] = [];
-      for (const other of this.threads.values()) {
-        const o = other.rec;
-        if (o.startedBy?.threadId !== rec.id || o.archivedAt || other.rt.deleted) continue;
-        const s = this.summary(other);
-        children.push({ id: o.id, title: o.title, working: o.status === 'running' || o.status === 'starting', needsYou: s.needsYou && s.needs !== 'nothing' });
-      }
-      ends.push(...childLooseEnds(children));
-      ends.push(...scheduleLooseEnds(rec.id, this.schedulesFor?.(rec.id) ?? []));
+      ends = await gather;
     } catch (e) {
       this.log.warn("couldn't check a thread's loose ends", { threadId: rec.id, error: String(e) });
       return;
     } finally {
+      if (rt.looseEndsGather === gather) delete rt.looseEndsGather;
       if (rt.looseEndsRun === run) rt.looseEndsBusy = false;
     }
     // A newer check started, or the card it was for has gone.

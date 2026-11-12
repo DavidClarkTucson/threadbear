@@ -1463,9 +1463,13 @@ export function buildThreadbearTools(
           .describe('With needs "nothing": follow-ups worth doing next, in the user\'s voice, which they read later with this thread forgotten: which app or thing, and what they\'d see change or get, in their words, 8 to 15 words. See the description. Only ones that really came up; usually none.'),
         // The agent's own "anything else?" before Mike has to type it
         // (experiment looseEnds; docs/protocol.md, "Loose ends"): the
-        // runner sees git and threads, not a reply worth sending.
+        // runner sees git and threads, not a decision waiting on someone.
+        // Not Mike's own steps, nor the agent's for later: a "Reply to
+        // Gautam" line sat on a card he couldn't click or clear, after
+        // he'd sent it, and "I'll rebuild at 5:27" came back to his inbox
+        // unrun (12 Nov 2026).
         ...(opts.looseEnds?.() === true
-          ? { open: z.array(z.string()).max(3).optional().describe('With needs "nothing": what\'s still open that git and Threadbear can\'t see (a reply worth sending, a decision waiting elsewhere, a job still running), a short line each; [] when nothing is. The done card lists them.') }
+          ? { open: z.array(z.string()).max(3).optional().describe('With needs "nothing": what\'s still open that git and Threadbear can\'t see and that waits on someone else or runs elsewhere (a colleague\'s decision, a job still running), a short line each; [] when nothing is. Never a step for the user (that\'s an ask) or one you\'ll do yourself later (book it with schedule_message). The done card lists them.') }
           : {}),
         byline: z
           .string()
@@ -1478,7 +1482,7 @@ export function buildThreadbearTools(
         snooze: z
           .string()
           .optional()
-          .describe('Hibernates this thread once the turn is over, until 2h, 1d, tomorrow, an ISO time with its offset, "restart" (the runner next starting), "release" (it starting on a new release) or words saying when ("when the phone arrives"), with needs "nothing": when the user asked for that, or when the rest waits on a message (one wakes it), until it should have come. Asked after you called end_turn? Call it again with this.'),
+          .describe('Hibernates this thread once the turn is over, until 2h, 1d, tomorrow, an ISO time with its offset, "restart" (the runner next starting), "release" (it starting on a new release) or words saying when ("when the phone arrives"), with needs "nothing": when the user asked for that, or when the rest waits on a message (one wakes it), until it should have come. It only brings the thread back, it doesn\'t run you: for a step of your own later, use schedule_message. Asked after you called end_turn? Call it again with this.'),
         waitFor: waitForArg,
         findings: findingsArg,
       },
@@ -1580,7 +1584,7 @@ export function buildThreadbearTools(
         snooze: z
           .string()
           .optional()
-          .describe('Hibernate this thread once the turn is over, until 30m, 2h, 1d, tomorrow, an ISO time with its offset, "restart" (until the runner next starts), "release" (until it starts on a new release), or words saying when ("when the phone arrives"). Only with needs "nothing": when the user has asked for this thread to be snoozed or hibernated, or when the rest waits on a message (one wakes it), until it should have come. If they ask after you have called end_turn, call it again with this.'),
+          .describe('Hibernate this thread once the turn is over, until 30m, 2h, 1d, tomorrow, an ISO time with its offset, "restart" (until the runner next starts), "release" (until it starts on a new release), or words saying when ("when the phone arrives"). Only with needs "nothing": when the user has asked for this thread to be snoozed or hibernated, or when the rest waits on a message (one wakes it), until it should have come. It only brings the thread back, it doesn\'t run you: for a step of your own later, use schedule_message. If they ask after you have called end_turn, call it again with this.'),
         waitFor: waitForArg,
         findings: findingsArg,
       },

@@ -179,7 +179,7 @@ export type ThreadRecord = {
   // `until`: waits for something in particular, which the librarian
   // judges from its looks at that thread (met), not for any finish.
   // `review`: the thread is a review of this one's change (runner/lab-review.ts).
-  waitingOn?: { threadId: string; title: string; until?: string; review?: true; done?: { at: string; how: 'finished' | 'met' | 'archived' | 'deleted'; reply?: string; why?: string } }[];
+  waitingOn?: { threadId: string; title: string; until?: string; review?: true; quiet?: true; done?: { at: string; how: 'finished' | 'met' | 'archived' | 'deleted'; reply?: string; why?: string } }[];
   // Its last finished turn (nothing needed, nothing left running) and that
   // turn's reply, for threads waiting on it, including on a runner it
   // moves to (runner/hibernation.ts, reconcileWaits). Cleared by any new
@@ -211,6 +211,10 @@ export type ThreadRecord = {
   // A schedule's message brought it out of the archive (Runner.sendTo), and
   // who had archived it: a run that ends with nothing for Mike puts it back.
   unarchivedBySchedule?: { by?: ArchivedBy };
+  // Someone took it back out of the archive by hand (Runner.update): a
+  // helper thread that would archive itself when it finishes stays in the
+  // inbox instead (runner/quiet-inbox.ts).
+  keptOut?: boolean;
   starredAt?: string; // Mike starred it: the Starred section, oldest star first
   preview: string;
   lastSeq: number;

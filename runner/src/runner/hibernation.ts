@@ -245,7 +245,11 @@ export const hibernationPart = {
     });
     const one = waits.length === 1;
     const why = one ? `"${waits[0].title}" finished` : 'the threads it was waiting on finished';
-    const text = `The thread${one ? '' : 's'} you hibernated to wait on ${one ? 'has' : 'have'} finished.\n\n${parts.join('\n\n')}\n\nCarry on from here. read_thread has the rest of ${one ? 'it' : 'them'}.`;
+    // A wait the runner started (experiment quietInbox, quiet-inbox.ts): the
+    // agent never said it would wait, and may have nothing more to do.
+    const text = waits.every((x) => x.quiet)
+      ? `Threadbear hibernated this thread after your last turn, as all it had left open was the thread${one ? '' : 's'} it started. ${one ? 'It has' : 'They have'} finished now.\n\n${parts.join('\n\n')}\n\nIf that leaves something to do, or to tell the user, do it now; if not, say so in a line. read_thread has the rest of ${one ? 'it' : 'them'}.`
+      : `The thread${one ? '' : 's'} you hibernated to wait on ${one ? 'has' : 'have'} finished.\n\n${parts.join('\n\n')}\n\nCarry on from here. read_thread has the rest of ${one ? 'it' : 'them'}.`;
     this.wake(st, { why });
     this.armSnoozeTimer();
     this.sendTo(st, text, [], { origin: 'runner', queue: true });
