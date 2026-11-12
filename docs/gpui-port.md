@@ -127,6 +127,13 @@ or an optional `mpv` download. The web engine avoids a second big extra, but
 stock Chromium builds usually leave out H.264, which most screen recordings
 use, so stage 0 checks that first. If it can't play them, it's `mpv`.
 
+On the Mac it's settled (12 Nov): the runtime's minimal Chromium has no
+H.264, so a video plays in AVKit's own player and a PDF shows in PDFKit's
+view, each a native view over the pane or the review window's stage, placed
+the way the web panels' pages are (`desktop/gpui/src/media_view.rs`,
+`desktop/gpui/native/media_views.m`). Windows and Linux still open them in
+their own app.
+
 ### Self-update and restart handover
 
 Today the installed app notices main has changed, rebuilds itself in a private

@@ -7,9 +7,11 @@
 // A picture is drawn here with Copy Image; Markdown drawn as a page, or its
 // text with the bar's Preview/Markdown menu; code and plain text in the kit's
 // read-only editor, coloured by its highlighter; any text with the find bar
-// over it (file_find.rs). PDFs and everything else say they open in their
-// app, as this first pass has no viewer for them (`file.quicklook`), and web
-// pages go to the browser (`file.htmlpreview`, `panel.web` are later work).
+// over it (file_find.rs). On a Mac a video plays and a PDF shows in the
+// system's own view over the pane (media_view.rs), read from this Mac's own
+// file once the open gate has checked it; on Windows and Linux, and for
+// everything else, the pane says it opens in its app (`file.quicklook`), and
+// web pages go to the browser (`file.htmlpreview`, `panel.web` are later work).
 use crate::file_edit::{FileEdit, SaveFile};
 use crate::file_find::{FindBar, FindNext, FindPrevious};
 use crate::file_watch::FolderWatch;
@@ -139,6 +141,37 @@ pub(crate) enum FileBody {
     Picture { image: Arc<Image>, size: Option<(u32, u32)> },
     /// Something only its own app can show.
     Opaque { note: String },
+    /// A video or a PDF on this Mac, in the system's own view over the pane
+    /// (media_view.rs). Nothing's read for it here: the view reads the real
+    /// file the open gate found, as it's made.
+    Media(crate::media_view::Kind),
+}
+
+/// Which of the system's views a file in the pane shows in, by its name: a
+/// video or a PDF, on a Mac. None elsewhere, where they open in their app.
+pub(crate) fn media_kind(path: &str) -> Option<crate::media_view::Kind> {
+    use crate::media_view::Kind;
+    use threadbear_core::open_policy::Media;
+    if !crate::media_view::SHOWN_HERE {
+        return None;
+    }
+    threadbear_core::open_policy::media_kind(path).map(|m| match m {
+        Media::Video => Kind::PaneVideo,
+        Media::Pdf => Kind::PaneDocument,
+    })
+}
+
+/// The pane's view for this thread's file, opened this many times: opened
+/// again from a row, it plays again from the start, as the Swift pane's does.
+pub(crate) fn media_key(thread_id: &str, path: &str, opened: u64) -> String {
+    format!("pane {thread_id} {opened} {path}")
+}
+
+/// Whether the pane is showing a video or a PDF in the system's view, which
+/// has to be placed every frame (shell.rs draws the pane uncached then).
+pub(crate) fn shows_media(side: &SidePane, thread_id: &str) -> bool {
+    let Some(path) = side.previews.get(thread_id).and_then(|p| p.file_path()) else { return false };
+    side.files.open.get(thread_id).is_some_and(|f| f.path == path && matches!(f.body, FileBody::Media(_)))
 }
 
 /// An image's format from its name, for the kit's decoder.
@@ -296,6 +329,7 @@ impl SidePane {
                     self.previews.remove(&thread.id);
                     cx.notify();
                 }
+                _ if media_kind(path).is_some() => self.show_media_file(thread, path, preview.opened, cx),
                 _ => self.load_file(thread, path.clone(), preview.opened, cx),
             },
             Target::Page(url) => {
@@ -305,6 +339,23 @@ impl SidePane {
             }
             Target::Folder(_) => self.load_folder_for_preview(thread, cx),
         }
+    }
+
+    /// A video or a PDF: in the system's view over the pane, made as it's
+    /// drawn, if the open gate's rules let it (this Mac's own, a real one);
+    /// else why not, in its place.
+    fn show_media_file(&mut self, thread: &ThreadSummary, path: &str, opened: u64, cx: &mut Context<Self>) {
+        if self.files.open.get(&thread.id).is_some_and(|f| f.path == path && f.opened == opened) {
+            return;
+        }
+        let Some(kind) = media_kind(path) else { return };
+        let origin = if thread.is_remote() { crate::open_gate::Origin::OtherMac } else { crate::open_gate::Origin::ThisMac };
+        let body = match threadbear_core::open_policy::decide_media(path, origin) {
+            threadbear_core::open_policy::MediaVerdict::Show(_) => FileBody::Media(kind),
+            threadbear_core::open_policy::MediaVerdict::Refuse(note) => FileBody::Opaque { note },
+        };
+        self.files.open.insert(thread.id.clone(), OpenFile::new(path.to_owned(), opened, body));
+        cx.notify();
     }
 
     fn load_file(&mut self, thread: &ThreadSummary, path: String, opened: u64, cx: &mut Context<Self>) {
@@ -711,6 +762,19 @@ impl SidePane {
             FileBody::Loading => div().size_full().flex().items_center().justify_center().child(Spinner::new().with_size(px(14.)).color(p.secondary)).into_any_element(),
             FileBody::Failed { message } => pane_note(&failed_words(message), p).into_any_element(),
             FileBody::Opaque { note } => pane_note(note, p).into_any_element(),
+            FileBody::Media(kind) => {
+                let kind = *kind;
+                let origin = if thread.is_remote() { crate::open_gate::Origin::OtherMac } else { crate::open_gate::Origin::ThisMac };
+                let key = media_key(&thread.id, path, open.opened);
+                let path = path.to_owned();
+                // The view's slot is the whole pane; a film narrower than it
+                // sits in the middle with the pane's colour round it, as the
+                // Swift pane's player does.
+                match crate::media_view::slot(&key, window, |opening| crate::open_gate::show_media(&path, origin, kind, opening)) {
+                    Ok(view) => div().id("hl-media").size_full().child(view).into_any_element(),
+                    Err(why) => pane_note(&why, p).into_any_element(),
+                }
+            }
             FileBody::Picture { image, .. } => {
                 let source = ImageSource::Image(image.clone());
                 let (path2, entity) = (path.to_owned(), cx.entity().downgrade());
@@ -900,6 +964,29 @@ impl SidePane {
                         pane.insert("previewKind".into(), json!("note"));
                         pane.insert("previewText".into(), json!(note));
                     }
+                    // As the Swift pane says it (FilePreviewView.debugShows):
+                    // "video" with the film's size once its track has said;
+                    // a PDF, its pages.
+                    FileBody::Media(kind) => {
+                        let key = media_key(&thread.id, path, open.opened);
+                        if let Some(why) = crate::media_view::failure_of(&key) {
+                            pane.insert("previewKind".into(), json!("note"));
+                            pane.insert("previewText".into(), json!(why));
+                        } else if *kind == crate::media_view::Kind::PaneDocument {
+                            pane.insert("previewKind".into(), json!("pdf"));
+                            if let Some(state) = crate::media_view::state_of(&key) {
+                                pane.insert("previewText".into(), json!(format!("{} page{}", state.pages, if state.pages == 1 { "" } else { "s" })));
+                            }
+                        } else {
+                            pane.insert("previewKind".into(), json!("video"));
+                            if let Some(state) = crate::media_view::state_of(&key) {
+                                if state.width > 0. && state.height > 0. {
+                                    pane.insert("previewText".into(), json!(format!("{}x{}", state.width.round(), state.height.round())));
+                                }
+                                pane.insert("previewVideo".into(), json!({ "playing": state.playing, "muted": state.muted, "controls": state.controls, "looping": state.looping }));
+                            }
+                        }
+                    }
                     FileBody::Picture { size, .. } => {
                         pane.insert("previewKind".into(), json!("picture"));
                         pane.insert("previewText".into(), json!(size.map(|(w, h)| format!("{w}x{h}"))));
@@ -928,6 +1015,12 @@ impl SidePane {
 /// file end.
 #[cfg(feature = "automation")]
 pub(crate) fn preview_command(side: &Entity<SidePane>, thread: &ThreadSummary, cmd: &Value, window: &mut Window, cx: &mut App) -> Result<Value, String> {
+    if cmd["play"].as_bool() == Some(true) {
+        // The film's play button, for a picture of it playing.
+        let pane = side.read(cx);
+        let key = pane.files.open.get(&thread.id).filter(|o| matches!(o.body, FileBody::Media(crate::media_view::Kind::PaneVideo))).map(|o| media_key(&thread.id, &o.path, o.opened));
+        return if key.is_some_and(|k| crate::media_view::play(&k)) { Ok(json!("ok playing")) } else { Err("no video is showing".into()) };
+    }
     if cmd["copyImage"].as_bool() == Some(true) {
         let format = side.update(cx, |pane, cx| pane.copy_open_picture(cx)).ok_or("no picture is showing")?;
         return Ok(json!(format!("ok copied {format}")));

@@ -1373,6 +1373,11 @@ struct AppDump: Encodable {
                 if shows.hasPrefix("picture") {
                     pane.previewKind = "picture"
                     pane.previewText = String(shows.dropFirst("picture ".count))
+                } else if shows.hasPrefix("video") {
+                    // The film's size once its track has said it, as the
+                    // GPUI app's dump has it.
+                    pane.previewKind = "video"
+                    pane.previewText = shows == "video" ? nil : String(shows.dropFirst("video ".count))
                 } else {
                     pane.previewKind = shows
                 }

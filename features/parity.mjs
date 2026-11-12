@@ -12,10 +12,10 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const reports = path.resolve(process.argv[2] ?? path.join(here, 'reports'));
 const columns = [
-  { key: 'swift-mac', title: 'Swift', app: 'swift' },
-  { key: 'gpui-mac', title: 'Mac', app: 'gpui' },
-  { key: 'gpui-windows', title: 'Windows', app: 'gpui' },
-  { key: 'gpui-linux', title: 'Linux', app: 'gpui' },
+  { key: 'swift-mac', title: 'Swift', app: 'swift', os: 'mac' },
+  { key: 'gpui-mac', title: 'Mac', app: 'gpui', os: 'mac' },
+  { key: 'gpui-windows', title: 'Windows', app: 'gpui', os: 'windows' },
+  { key: 'gpui-linux', title: 'Linux', app: 'gpui', os: 'linux' },
 ];
 
 // The rows, in features.md's order, under their headings.
@@ -65,7 +65,9 @@ function cell(column, row) {
   let seen = false;
   let pending = false;
   for (const s of covering) {
-    if (s.tags.includes(`${column.app}-pending`) || s.tags.includes('manual')) {
+    // @windows-pending and @linux-pending: the GPUI app on that system.
+    const osPending = column.app === 'gpui' && s.tags.includes(`${column.os}-pending`);
+    if (s.tags.includes(`${column.app}-pending`) || osPending || s.tags.includes('manual')) {
       pending = true;
       continue;
     }

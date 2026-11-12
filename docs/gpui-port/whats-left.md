@@ -12,8 +12,11 @@ you go.
 - [x] The design review window: answering an agent's design options, stepping
   through every shot, zoom, minimap, the header's "Review design options (N)"
   and `review:` links (`review.*`, `transcript.review`, `header.pendingreviews`)
-- [ ] The review window plays clips and shows pages in place, as the Swift one
-  does, rather than stills that open in their apps (`review.media`)
+- [x] The review window plays clips in place, as the Swift one does, rather
+  than stills that open in their apps (`review.media`). In since 12 Nov on a
+  Mac
+- [ ] The review window shows pages in place, rather than stills that open in
+  the browser (`review.media`)
 - [x] Projects: the Projects page and sidebar view, a project's page, its
   decisions, Projects ▸ in the row and ... menus, the header's project tiles
   opening the page, New Thread in a project (`projects.*`, `header.projectchip`)
@@ -55,8 +58,11 @@ you go.
 - [x] No find bar (`file.find`)
 - [x] Files are read-only: no editing, autosave or ⌘S (`file.editor`,
   `file.conflict`)
-- [ ] PDFs, videos and .html files open in their own app rather than the pane
-  (`file.quicklook`, `file.video`, `file.htmlpreview`)
+- [x] PDFs and videos open in their own app rather than the pane
+  (`file.quicklook`, `file.video`). In since 12 Nov on a Mac; Windows and
+  Linux still open them in their app
+- [ ] .html files open in their own app rather than the pane
+  (`file.htmlpreview`)
 - [x] A folder doesn't update while it's open, takes one row at a time, has no
   type-to-select, no Space, ⌘↑ or ⌘⇧. keys, no icon view, and the path bar's
   "…" isn't a menu (`folder.*`)

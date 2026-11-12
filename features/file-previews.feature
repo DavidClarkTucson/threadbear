@@ -74,6 +74,24 @@ Feature: Files opened in the side pane
     And I open "logs/docs-build.txt" in the thread's folder in the pane
     Then the pane shows a "text" page with the words "Could not resolve image"
 
+  # A video plays in the system's own player over the pane, its first frame
+  # showing until it's played, sized to the film. The GPUI app does this on a
+  # Mac; on Windows and Linux it still opens in its own app.
+  @file.video @windows-pending @linux-pending
+  Scenario: A video opens in the pane in a player, at its own size
+    When I open the thread "Rebuild the three landing pages"
+    And I open "screens/hero-walkthrough.mp4" in the thread's folder in the pane
+    Then the pane is showing the file "screens/hero-walkthrough.mp4"
+    And the pane shows a video 1600 by 1058
+
+  # Quick Look draws a PDF in the Swift app; PDFKit's view does in the GPUI
+  # app on a Mac.
+  @file.quicklook @windows-pending @linux-pending
+  Scenario: A PDF opens in the pane
+    When I open the thread "Rebuild the three landing pages"
+    And I open "docs/launch-brief.pdf" in the thread's folder in the pane
+    Then the pane shows the PDF
+
   @file.picture
   Scenario: A picture is drawn in the pane, and Copy Image copies the picture itself
     When I open the thread "Rebuild the three landing pages"

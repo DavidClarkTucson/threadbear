@@ -597,6 +597,8 @@ impl ReviewWindow {
             return;
         }
         self.closed = true;
+        // Its clips stop and go with it.
+        crate::media_view::close_window(self.handle.window_id());
         let key = window_key(&self.session.thread_id, &self.session.review().id);
         reviews(cx).windows.remove(&key);
         self.save_now(cx);
@@ -935,6 +937,9 @@ pub(crate) fn plain_button(id: &'static str, title: &str, tip: &'static str, bus
 
 impl Render for ReviewWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // First, as it counts the frame the stage's clips are drawn in
+        // (media_view.rs); they hide while the title bar's menu is up.
+        let clips = crate::media_view::sweeper(window, crate::media_view::Cover { everything: self.more_open, menus: Vec::new() });
         self.sync_reply_box(window, cx);
         // The rail keeps the option on show in view as the stage moves.
         if self.session.mode == ReviewMode::Single && self.rail_follows != Some(self.session.focused()) {
@@ -1002,6 +1007,7 @@ impl Render for ReviewWindow {
             .child(titlebar)
             .when_some(error, |s, e| s.child(self.render_error_bar(e, cx)))
             .child(body)
+            .child(clips)
     }
 }
 
@@ -1274,9 +1280,11 @@ impl ReviewWindow {
             "sendLabel": s.send_label(),
             "editable": s.editable(),
             "minimap": self.stage.minimap_showing(),
-            // What the stage draws: here a clip or a page is its still.
+            // What the stage draws: a clip playing in the system's player
+            // (on a Mac), or a page or a clip that can't play as its still.
             "stage": match (s.mode, s.shown_shot()) {
                 (ReviewMode::All, _) => "all",
+                (_, Some(shot)) if shot.video().is_some_and(|v| crate::media_view::state_of(&stage::stage_key(v)).is_some()) => "player",
                 (_, Some(shot)) if shot.media.is_some() => "still",
                 _ => "picture",
             },

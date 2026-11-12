@@ -26,6 +26,12 @@ const OPENERS: &[&str] = &[
     "PopupMenuItem::link(",
     "Link::new(",
     "EditorHost",
+    // The Mac's own video and PDF views (gpui/native/media_views.m): what
+    // makes one reads the file, so only the gate's `show_media` does.
+    "tb_media_open",
+    // And nothing in the Objective-C beside the app opens anything either.
+    "openURL:",
+    "openFile:",
 ];
 
 /// The gate itself, a test helper that starts the mock runner, and the
@@ -48,12 +54,16 @@ const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs
 /// reads main's tree with git, runs the update script from the app's own
 /// bundle under `taskpolicy -b`, and opens the installed app again once this
 /// one has quit: fixed programs, on the app's own checkout and bundle.
+/// The Objective-C beside the app (its native/ folders) is read too: the
+/// video and PDF views are made in one, and only the gate asks for one.
 const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/src/terminal.rs", "let pty = tty::new(&options, self.size.window_size(), 0)?;", 1),
     ("gpui/src/hang_watch.rs", "let mut sample = Command::new(\"/usr/bin/sandbox-exec\");", 1),
     ("gpui/src/app_update.rs", "let started = Command::new(\"/bin/sh\").arg(\"-c\").arg(wait).arg(\"sh\").args(open).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();", 1),
     ("gpui/src/app_update.rs", "let out = Command::new(\"/usr/bin/git\").args(rules::rev_parse_arguments(checkout)).stdin(Stdio::null()).output().ok()?;", 1),
     ("gpui/src/app_update.rs", "let child = Command::new(program).args(arguments).current_dir(installed::home_dir()).stdin(Stdio::null()).stdout(out).stderr(err).spawn();", 1),
+    // Where the video and PDF views are made, called only from the gate.
+    ("gpui/native/media_views.m", "void *tb_media_open(void *nativeParent, const char *path, int kind, bool muted, float volume) {", 1),
     ("gpui/src/swift_import.rs", "let out = Command::new(\"/usr/bin/defaults\").args([\"export\", \"com.mikerosoft.threadbear\", \"-\"]).stderr(Stdio::null()).output().map_err(|e| format!(\"couldn't run defaults: {e}\"))?;", 1),
 ];
 
@@ -66,7 +76,7 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
                 continue;
             }
             rust_files(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs" || e == "m") {
             out.push(path);
         }
     }

@@ -95,6 +95,11 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSColor", "NSColorSpace", "NSAppearance", "objc2-core-foundation", "NSApplication", "NSResponder", "NSDockTile", "NSSound", "NSAlert", "NSButton", "NSControl", "NSCell", "NSView", "NSPasteboard", "NSRunningApplication", "NSEvent"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSBundle", "NSData", "NSUserDefaults"] }
 
+[build-dependencies]
+# Compiles native/media_views.m on a Mac (build.rs). Already in the build
+# through threadbear-web, at this version.
+cc = "=1.11.0"
+
 [features]
 # The scripted control the behaviour specs use (src/automation.rs). Off in
 # anything anyone runs for real: only `cargo build --features automation` has it.

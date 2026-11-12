@@ -245,6 +245,52 @@ built parsers and gates with no launch of the app, which is the trap.)
   and over its own turn's reply in a stretch a runner's turn carried on;
   `cargo check -p threadbear-gpui --features automation`. The
   `card.review` spec run against both apps is still to do.
+### 2026-11-12 Videos play in the pane, PDFs show there, and the review window plays its clips (`file.video`, `file.quicklook`, `review.media`)
+
+- On a Mac, an `.mp4`, `.m4v` or `.mov` opened in the pane (a pin, a file
+  link, the folder browser) plays in AVKit's own player over the pane, as
+  the Swift pane's FilePreviewView: the floating controls, its sound on,
+  paused on its first frame, sized to the film's shape in the middle of the
+  pane, Space to play, and the picture dragging out as the file. A PDF shows
+  in PDFKit's view in place of Quick Look. The web runtime's Chromium has no
+  H.264, so it isn't used for these.
+- The review window's clips play too: on the stage round and round with
+  controls and sound, keeping the mute and volume from the clip before;
+  among them all muted with no controls, a click going through to the cell.
+  A page on the stage is still its still with Open the page.
+- Each is a native view placed over its GPUI slot once a frame, as the web
+  panels' pages are, hidden under dialogs, sheets, the picture viewer and
+  the app's and the pane's menus, and stopped and taken away when its slot
+  isn't drawn (the preview closed, another thread or shot, the window
+  closed). The pane is drawn uncached while one's showing, so it's placed
+  every frame.
+- Only through the open gate (`show_media`, core's `decide_media`): this
+  Mac's own file, never another Mac's path read here, and only a real one of
+  the kind its name says after its symlinks are followed (an MPEG-4 or
+  QuickTime box, `%PDF-`), so a `.mp4` that's text or a link to a key file
+  says why in the pane instead. `open_gate_source.rs` now reads the
+  Objective-C beside the app too, and `tb_media_open` is the gate's alone.
+- Windows and Linux still open videos and PDFs in their own app: the specs
+  carry `@windows-pending @linux-pending`, which `cucumber.mjs` and
+  `parity.mjs` now understand. The Swift dump gives a video's size too, and
+  both apps take `preview` `play`.
+- Next: a video from another Mac (the Swift app fetches a copy), pages in the
+  review window and the pane (`file.htmlpreview`).
+- Files: `desktop/gpui/native/media_views.m`, `desktop/gpui/build.rs`,
+  `desktop/gpui/src/media_view.rs`, `desktop/gpui/src/open_gate.rs`,
+  `desktop/gpui/src/files.rs`, `desktop/gpui/src/shell.rs`,
+  `desktop/gpui/src/app.rs`, `desktop/gpui/src/review_window.rs`,
+  `desktop/gpui/src/review_window/stage.rs`, `desktop/core/src/open_policy.rs`,
+  `desktop/core/tests/open_gate_source.rs`, `app/Tools/mock-runner/server.mjs`,
+  `app/Sources/Threadbear/Views/HighlightsView.swift`,
+  `app/Sources/Threadbear/AppDump.swift`, `app/Sources/Threadbear/Automation.swift`,
+  `features/file-previews.feature`, `features/review.feature`,
+  `features/tools/media-shot.ts`.
+- Verification: on Tinker Desk, the video, PDF and clip scenarios pass on
+  both apps, with the rest of file previews, review, drag out, the picture
+  viewer, folders and highlights still passing on the GPUI app; core's gate
+  tests pass. `features/tools/media-shot.ts` took both windows from the
+  screen with the clip playing in the pane, the same size and place in each.
 
 ### 2026-11-12 An ask's link on the card, and answering a decision with the runner away, crashed the app (`card.needsyou`, `projects.decisions`)
 

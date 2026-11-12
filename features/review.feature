@@ -153,14 +153,20 @@ Feature: Design reviews
     When I press "C. Account pools" in the review
     Then the caption offers "http://localhost:5190/c" to try live
 
-  # The GPUI window can't play a clip or show a page yet: it shows the still
-  # with a button that opens the clip in its own app or the page in the
-  # browser (docs/gpui-port/PARITY.md).
-  @review.media @gpui-pending
-  Scenario: A clip plays on the stage, and a page shows in place
+  @review.media @windows-pending @linux-pending
+  Scenario: A clip plays on the stage
     Given the agent shows options with several shots each
     When I open that review
     And I press "C. Account pools" in the review
     Then the stage plays the clip
-    When I press "B. One picker, shot 2" in the review
+
+  # The GPUI window can't show a page in place yet: it shows the still with
+  # a button that opens the page in the browser (docs/gpui-port/PARITY.md).
+  # It plays a clip on a Mac; on Windows and Linux a clip is the same still,
+  # with a button that opens it in its own app.
+  @review.media @gpui-pending
+  Scenario: A page shows in place on the stage
+    Given the agent shows options with several shots each
+    When I open that review
+    And I press "B. One picker, shot 2" in the review
     Then the stage shows the page

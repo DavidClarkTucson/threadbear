@@ -3343,6 +3343,30 @@ ${process.env.MOCK_SCRIPTED_TURNS ? '' : "<p>The mock runner's stand-in for the 
   }
 }
 
+// A real PDF of one US Letter page with a line of text, made by hand so the
+// mock needs no PDF library: each object's byte offset goes in the table at
+// the end, which is what readers find the objects by. ASCII only, so a
+// string's length is its bytes.
+function onePagePdf(line) {
+  const text = `BT /F1 24 Tf 72 700 Td (${line.replace(/[()\\]/g, '\\$&')}) Tj ET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${text.length} >>\nstream\n${text}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let out = '%PDF-1.4\n';
+  const offsets = objects.map((body, i) => {
+    const at = out.length;
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+    return at;
+  });
+  const table = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}`;
+  return `${out}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${table}\n%%EOF\n`;
+}
+
 // The landing pages thread works in a real folder under the data dir, so its
 // highlights are files the app can preview: a mockup it pinned, a doc it
 // wrote, a screenshot it opened. Its other threads' highlights are only
@@ -3375,6 +3399,12 @@ The new hero is shorter, and every page now leads with what the app does.
 - Search moves to the top of the page.
 `);
     const before = file('screens/pricing-before.png', { copy: path.join(here, 'fixtures/demo-upload-resume/media/progress-before.png') });
+    // A real film (the site's inbox clip, 1600x1058 H.264), for a video in
+    // the pane (features/file-previews.feature). Only listed in the folder.
+    const clip = path.join(here, '../../../site/public/clips/inbox.mp4');
+    if (fs.existsSync(clip)) file('screens/hero-walkthrough.mp4', { copy: clip });
+    // And a one-page PDF, for a PDF in the pane.
+    file('docs/launch-brief.pdf', onePagePdf('Launch brief: the new hero ships Friday'));
     file('logs/docs-build.txt', 'Error: Could not resolve image /docs/hero.png\n  at src/pages/docs.astro:12\nBuild failed in 14.2s.\n');
     file('src/hero.ts', '// The hero at the top of the home page.\nexport function hero(words: string): string {\n  return `<h1>${words}</h1>`;\n}\n');
     site.summary.cwd = root;

@@ -1409,6 +1409,13 @@ impl Threadbear {
                     return page;
                 }
             }
+            // A video or a PDF in the system's view is placed where the pane
+            // draws it every frame (media_view.rs), which a cached pane
+            // wouldn't do, so it's drawn afresh while one's showing. It's
+            // then only a bar and the view.
+            if previewing && crate::files::shows_media(self.side.read(cx), &thread.id) {
+                return AnyView::from(self.side.clone()).into_any_element();
+            }
         }
         // Cached, like the Threads panel, so scrolling the transcript doesn't
         // redraw it every frame: it draws again when the app changes

@@ -72,6 +72,18 @@ Then('the pane shows a picture', async function (this: ThreadbearWorld) {
   await this.until('a picture in the pane', (d) => pane(d)?.previewKind === 'picture' && /\d+x\d+/.test(pane(d)?.previewText ?? ''));
 });
 
+// Both apps say "video" for the player in the pane, with the film's size
+// once its track has said it.
+Then('the pane shows a video {int} by {int}', async function (this: ThreadbearWorld, width: number, height: number) {
+  await this.until(`a ${width}x${height} video in the pane`, (d) => pane(d)?.previewKind === 'video' && pane(d)?.previewText === `${width}x${height}`);
+});
+
+// The Swift app says "quickLook" for whatever Quick Look draws, so it's that
+// there; the GPUI app's PDFKit view says "pdf" and its pages.
+Then('the pane shows the PDF', async function (this: ThreadbearWorld) {
+  await this.until('a PDF in the pane', (d) => pane(d)?.previewKind === 'quickLook' || (pane(d)?.previewKind === 'pdf' && pane(d)?.previewText === '1 page'));
+});
+
 When('I copy the picture in the pane', async function (this: ThreadbearWorld) {
   this.lastAnswer = await this.app.do({ cmd: 'preview', copyImage: true });
 });

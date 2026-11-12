@@ -307,8 +307,8 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 |---|---|---|---|---|---|---|
 | `file.host` | Preview host | File or page replaces the panel, Back | Drawn pane state. | build | M | `PaneModel`, `HighlightsView` (`PreviewBody`) |
 | `file.picture` | Picture view | Copy Image, drag out | Drawn image, with original bytes on the clipboard and drag out through `drag.fileout`. | build | S | `HighlightsView` (`FilePreviewView`) |
-| `file.video` | Video view | Plays in pane | Risk: GPUI has no video player, so it's a page in the optional web runtime (codecs in the CEF build unverified) or a player per OS. | hard | L | `HighlightsView` (`FilePreviewView`) |
-| `file.quicklook` | Quick Look fallback | PDFs and anything else | Risk: no cross-platform equivalent, so we write an in-app viewer for images, video and PDF, and everything else opens in its default app under the same code-runner rule. | hard | L | `HighlightsView` (`QuickLookView`) |
+| `file.video` | Video view | Plays in pane | On a Mac, AVKit's player over the pane (`media_view.rs`), as the Swift pane's: the web runtime's Chromium has no H.264. Windows and Linux open it in its app for now. | hard | L | `HighlightsView` (`FilePreviewView`) |
+| `file.quicklook` | Quick Look fallback | PDFs and anything else | On a Mac, PDFs in PDFKit's view over the pane (`media_view.rs`); everything else, and PDFs on Windows and Linux, opens in its default app under the same code-runner rule. | hard | L | `HighlightsView` (`QuickLookView`) |
 | `file.textview` | Text viewer | Selectable, coloured code | gpui-kit code editor, read-only. | kit | M | `TextFileView` |
 | `file.markdown` | Markdown preview | Drawn, comfortable width, remembers mode | `TextView`. | kit | M | `TextFileView`, `HighlightsView` (`MarkdownViewMenu`) |
 | `file.editor` | Text editor | Edit raw, autosave, ⌘S, line numbers | gpui-kit code editor, with autosave ours (unverified that it shows line numbers). | kit | L | `TextFileView`, `LineNumberRuler` |
@@ -381,7 +381,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `review.zoom` | Zoom and pan | Scroll or pinch to pointer, ⌘0, double-click, Esc | Scroll and keys drawn by us; pinch needs per-OS input on macOS, Windows and Linux (unverified through GPUI's gesture hook). | shim | L | `ReviewWindow` (`ReviewImageScroll`) |
 | `review.minimap` | Minimap | Jump to part | Drawn. | build | S | `ReviewWindow` (`ReviewMinimap`) |
 | `review.holdspace` | Hold Space compare | Flick to today's version | Key handling, drawn. | build | S | `ReviewWindow` |
-| `review.media` | Video and HTML shots | Loop, muted among many | Risk: GPUI has no video player and many looping pages in the optional web runtime may be too heavy (unverified). | hard | L | `ReviewWindow` (`ReviewVideo`) |
+| `review.media` | Video and HTML shots | Loop, muted among many | On a Mac, clips loop in AVKit's player (`media_view.rs`), with controls and sound on the stage and muted among many. Pages, and clips on Windows and Linux, are a still with a button for now. | hard | L | `ReviewWindow` (`ReviewVideo`) |
 | `review.picks` | Picks and notes | Tick, None, Send, drafts | Drawn, with `Textarea`. | build | M | `ReviewSession`, `ReviewWindow` |
 | `review.openlive` | Open live | Tries a running option | Through the open gate. | build | S | `ReviewWindow` |
 

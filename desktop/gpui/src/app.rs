@@ -1206,6 +1206,8 @@ impl Threadbear {
         // What came across from the Swift app, while its note's up. Set
         // after, as the literal above is as long as serde_json's macro goes.
         dump["importNote"] = json!(self.import_note);
+        // Videos and PDFs up in the system's views, in any window (media_view.rs).
+        dump["media"] = crate::media_view::dump();
         // The card a page swipe shows while it's under way (swipe_nav.rs).
         dump["pageSwipe"] = self.page_swipe_dump();
         // The last archive or hibernate flight: where it started and aimed,
@@ -1373,7 +1375,15 @@ impl Render for Threadbear {
         // The web panels' pages are native views: shown and placed once the
         // window's laid out, where their panels were drawn (web_panels.rs).
         let pages = crate::web_panels::sweeper(self.open_menu_at(), self.share_popover.is_some());
+        // Videos and PDFs in the system's views the same way (media_view.rs),
+        // hidden under the picture viewer and the pane's own menus too.
+        let media = {
+            let side = self.side.read(cx);
+            let everything = self.share_popover.is_some() || side.viewer.is_open();
+            let menus = self.open_menu_at().into_iter().chain(side.menu.as_ref().map(|m| m.position)).collect();
+            crate::media_view::sweeper(window, crate::media_view::Cover { everything, menus })
+        };
         // Last: every press in the window, for the activity log (tips.rs).
-        self.render_shell(window, cx).children(open_menu).child(pages).child(crate::tips::window_presses())
+        self.render_shell(window, cx).children(open_menu).child(pages).child(media).child(crate::tips::window_presses())
     }
 }

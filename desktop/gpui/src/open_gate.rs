@@ -259,6 +259,53 @@ pub(crate) fn open_file(path: &str, origin: Origin, cx: &mut App) {
     }
 }
 
+// ---------------------------------------------------------------- shown in the app
+
+/// A video or a PDF in the Mac's own view (media_view.rs), in `opening`'s
+/// window view: only this Mac's own file, and only a real one of the kind
+/// the view is for, after its symlinks are followed (`decide_media`). The
+/// view reads the real file the rules found, never the path as given. The
+/// only maker of those views, so nothing reads a film or a PDF any other
+/// way (desktop/core/tests/open_gate_source.rs).
+pub(crate) fn show_media(path: &str, origin: Origin, kind: crate::media_view::Kind, opening: crate::media_view::Opening) -> Result<crate::media_view::Media, String> {
+    use crate::media_view::Kind;
+    use policy::{Media, MediaVerdict};
+    let wants = if kind == Kind::PaneDocument { Media::Pdf } else { Media::Video };
+    let name = threadbear_core::highlights::last_component(path).to_owned();
+    if policy::media_kind(path) != Some(wants) {
+        return Err(format!("{name} isn't {}, so Threadbear didn't open it.", if wants == Media::Pdf { "a PDF" } else { "a video" }));
+    }
+    match policy::decide_media(path, origin) {
+        MediaVerdict::Refuse(why) => Err(why),
+        MediaVerdict::Show(real) => open_media(&real, kind, opening).ok_or_else(|| format!("{name} couldn't be read, so it isn't showing.")),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_media(real: &Path, kind: crate::media_view::Kind, opening: crate::media_view::Opening) -> Option<crate::media_view::Media> {
+    use std::os::unix::ffi::OsStrExt as _;
+    extern "C" {
+        fn tb_media_open(parent: *mut std::ffi::c_void, path: *const std::ffi::c_char, kind: i32, muted: bool, volume: f32) -> *mut std::ffi::c_void;
+    }
+    let path = std::ffi::CString::new(real.as_os_str().as_bytes()).ok()?;
+    // Among them all they're muted, as they all play at once; on the stage,
+    // where the last clip was left; in the pane, with its sound.
+    let (muted, volume) = match kind {
+        crate::media_view::Kind::CellVideo => (true, 1.),
+        crate::media_view::Kind::StageVideo => opening.audio.unwrap_or((false, 1.)),
+        _ => (false, 1.),
+    };
+    let view = unsafe { tb_media_open(opening.parent, path.as_ptr(), kind as i32, muted, volume) };
+    // Safety: a view tb_media_open just made, owned by nothing else.
+    unsafe { crate::media_view::Media::from_native(view, kind) }
+}
+
+/// Elsewhere there's no view for them: they open in their own app.
+#[cfg(not(target_os = "macos"))]
+fn open_media(_real: &Path, _kind: crate::media_view::Kind, _opening: crate::media_view::Opening) -> Option<crate::media_view::Media> {
+    None
+}
+
 /// A file shown in its folder (Finder, or the system's file browser), which
 /// shows it without opening it. Another Mac's file isn't on this one.
 pub(crate) fn reveal(path: &str, origin: Origin, cx: &mut App) {

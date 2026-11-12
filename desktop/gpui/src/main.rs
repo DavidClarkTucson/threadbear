@@ -49,6 +49,7 @@ mod installed;
 mod key_hints;
 mod librarian;
 mod mac_switch;
+mod media_view;
 mod move_sheet;
 mod new_thread;
 mod notify;

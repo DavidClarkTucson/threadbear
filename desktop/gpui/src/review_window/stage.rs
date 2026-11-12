@@ -125,7 +125,7 @@ impl ReviewWindow {
         let dark = cx.theme().is_dark();
         let single = self.session.mode == ReviewMode::Single;
         let caption = if single { self.session.shown_option().cloned().map(|o| self.render_caption(&o, cx)) } else { None };
-        let images = if single { self.render_shot(window, cx) } else { self.render_gallery(cx) };
+        let images = if single { self.render_shot(window, cx) } else { self.render_gallery(window, cx) };
         let stepper = self.render_stepper(cx);
         let room = self.stage.room.clone();
         v_flex()
@@ -207,7 +207,7 @@ impl ReviewWindow {
     fn render_shot(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let (Some(shot), Some(room)) = (self.session.shown_shot(), self.stage.room()) else { return div().into_any_element() };
         if shot.media.is_some() {
-            return self.render_media(&shot, room, cx);
+            return self.render_media(&shot, room, window, cx);
         }
         let scale = f64::from(window.scale_factor()).max(1.);
         let (w, h) = pixels(&shot.image);
@@ -254,18 +254,29 @@ impl ReviewWindow {
         }
     }
 
-    /// A clip or a page, which this window can't play or show yet: its still,
-    /// fitted, with a button that opens it where it can, through the open
+    /// A clip or a page. On a Mac the clip plays on the stage in the
+    /// system's player, round and round with its controls and its sound on,
+    /// as the Swift window's does: some clips are there to be heard. A page,
+    /// or a clip anywhere else (or one the open gate won't play), is its
+    /// still, fitted, with a button that opens it where it can, through the
     /// gate (the clip in the app this computer plays videos in, the page in
-    /// the browser). The Swift window plays the clip on the stage with its
-    /// sound, and shows the page in place with its scripts off.
-    fn render_media(&mut self, shot: &ReviewShot, room: Bounds<Pixels>, cx: &mut Context<Self>) -> AnyElement {
+    /// the browser). The Swift window shows the page in place with its
+    /// scripts off.
+    fn render_media(&mut self, shot: &ReviewShot, room: Bounds<Pixels>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Zoom is for pictures: a clip or page has its own ways to move round.
         self.stage.zoom = None;
         self.after_zoom();
         let fit = GalleryLayout::fit(rules::aspect(&shot.image), f64::from(room.size.width), f64::from(room.size.height));
+        if let Some(video) = shot.video().filter(|_| crate::media_view::SHOWN_HERE) {
+            let path = video.to_owned();
+            // Fitted as its still is, so the controls sit on the film.
+            if let Ok(view) = crate::media_view::slot(&stage_key(video), window, |opening| crate::open_gate::show_media(&path, Origin::ThisMac, crate::media_view::Kind::StageVideo, opening)) {
+                return div().id("review-media").absolute().size_full().flex().items_center().justify_center().child(div().flex_none().w(pt(fit.0)).h(pt(fit.1)).child(view)).into_any_element();
+            }
+        }
+        let play_tip = if crate::media_view::SHOWN_HERE { "Play it in the app this computer plays videos in" } else { "Play it in the app this computer plays videos in: this window can't play clips yet" };
         let (icon, words, tip, path) = match (shot.video(), shot.page()) {
-            (Some(video), _) => (IconName::Play, "Play the clip", "Play it in the app this computer plays videos in: this window can't play clips yet", video.to_owned()),
+            (Some(video), _) => (IconName::Play, "Play the clip", play_tip, video.to_owned()),
             (_, Some(page)) => (IconName::Globe, "Open the page", "Open it in your browser: this window can't show pages yet", page.to_owned()),
             _ => return div().into_any_element(),
         };
@@ -346,7 +357,7 @@ impl ReviewWindow {
 
     /// All of them side by side, each its first shot, as many columns as make
     /// them biggest (`ReviewGalleryLayout`).
-    fn render_gallery(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_gallery(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(room) = self.stage.room() else { return div().into_any_element() };
         let options = self.session.review().options.clone();
         let (w, h) = ((f64::from(room.size.width) - f64::from(STAGE_INSET) * 2.).max(0.), (f64::from(room.size.height) - f64::from(STAGE_INSET) * 2.).max(0.));
@@ -357,7 +368,7 @@ impl ReviewWindow {
         for first in (0..options.len()).step_by(layout.columns.max(1)) {
             let mut row = h_flex().gap(gpui_kit::px(CELL_SPACING));
             for index in first..(first + layout.columns).min(options.len()) {
-                row = row.child(self.render_cell(index, &options[index], layout.cell_width, layout.cell_height, cx));
+                row = row.child(self.render_cell(index, &options[index], layout.cell_width, layout.cell_height, window, cx));
             }
             rows = rows.child(row);
         }
@@ -366,7 +377,7 @@ impl ReviewWindow {
 
     /// An option among them all: its first shot, how many it has, and the
     /// agent's pick marked; a tick's outline round it once it's picked.
-    fn render_cell(&mut self, index: usize, option: &ReviewOption, width: f64, height: f64, cx: &mut Context<Self>) -> AnyElement {
+    fn render_cell(&mut self, index: usize, option: &ReviewOption, width: f64, height: f64, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let picked = self.session.draft().picked_ids.contains(&option.id);
         let count = option.shot_count();
         let recommended = self.session.review().recommended.as_deref() == Some(option.id.as_str());
@@ -392,9 +403,12 @@ impl ReviewWindow {
             .child(img(crate::rows::markdown::picture_file(&path)).size_full().object_fit(ObjectFit::Fill).with_fallback(move || {
                 div().size_full().flex().items_center().justify_center().child(Icon::new(IconName::ImageOff).with_size(gpui_kit::px(28.)).text_color(unavailable)).into_any_element()
             }))
-            // Its first shot a clip or a page, which the Swift grid plays or
-            // shows: here a still, marked as one.
-            .children(media_badge(&option.shot(0)));
+            // Its first shot a clip or a page: a still, marked as one, and on
+            // a Mac a clip plays over it, muted and with no controls, as they
+            // all play at once to be compared moving. A click on it goes
+            // through the player to this cell, which enlarges it.
+            .children(media_badge(&option.shot(0)))
+            .children(self.cell_clip(index, &option.shot(0), window));
         v_flex()
             .relative()
             .flex_none()
@@ -629,6 +643,22 @@ pub(super) fn thumb(image: &ImageRef, width: f32, height: f32, radius: f32, cx: 
         .overflow_hidden()
         .bg(style::primary_opacity(cx, 0.08))
         .child(img(crate::rows::markdown::picture_file(&image.path)).w(px((w * scale) as f32)).h(px((h * scale) as f32)).object_fit(ObjectFit::Fill))
+}
+
+/// The stage's player for a clip (media_view.rs), one per window.
+pub(super) fn stage_key(path: &str) -> String {
+    format!("review stage {path}")
+}
+
+impl ReviewWindow {
+    /// A cell's clip playing over its still, on a Mac: muted, looping, no
+    /// controls. One the gate won't play leaves the still.
+    fn cell_clip(&mut self, index: usize, shot: &ReviewShot, window: &mut Window) -> Option<AnyElement> {
+        let video = shot.video().filter(|_| crate::media_view::SHOWN_HERE)?.to_owned();
+        let key = format!("review cell {index} {video}");
+        let view = crate::media_view::slot(&key, window, |opening| crate::open_gate::show_media(&video, Origin::ThisMac, crate::media_view::Kind::CellVideo, opening)).ok()?;
+        Some(div().absolute().inset_0().child(view).into_any_element())
+    }
 }
 
 /// A clip's or a page's mark on its still in the grid.

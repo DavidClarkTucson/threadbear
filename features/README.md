@@ -31,7 +31,8 @@ code, and make it fail first when you can.
   `docs/gpui-port/features.md`, such as `@sidebar.search`. `verify-pairing.mjs`
   checks both of these, and `parity.mjs` builds the table in
   `docs/gpui-port/PARITY.md` from them.
-- `@gpui-pending` or `@swift-pending` means that app doesn't pass it yet.
+- `@gpui-pending` or `@swift-pending` means that app doesn't pass it yet;
+  `@windows-pending` or `@linux-pending`, the GPUI app on that system.
   `@manual` means nobody's found a way to automate it (a real trackpad gesture,
   say). The table counts both as not done.
 - `@long-thread` runs a scenario on a made-up long thread and one short demo

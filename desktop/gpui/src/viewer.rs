@@ -37,6 +37,12 @@ impl ViewerState {
 }
 
 impl ViewerState {
+    /// Up over the window: a video or PDF view in the pane hides under it
+    /// (media_view.rs), as it would be drawn over it.
+    pub(crate) fn is_open(&self) -> bool {
+        self.open
+    }
+
     fn current_path(&self) -> Option<&str> {
         self.pictures.get(self.index).map(|p| p.0.as_str())
     }

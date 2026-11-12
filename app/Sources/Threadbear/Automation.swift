@@ -936,6 +936,11 @@ enum Automation {
                 guard view.copyImage(to: board), let types = board.pasteboardItems?.first?.types else { return "error nothing copied" }
                 return "ok copied " + types.map(\.rawValue).joined(separator: ",")
             }
+            if c["play"] as? Bool == true {
+                // The film's play button, for a picture of it playing.
+                guard FilePreviewView.current?.debugPlay() == true else { return "error no video is showing" }
+                return "ok playing"
+            }
             if c["close"] as? Bool == true {
                 app.closePreview(in: thread.id)
             } else if c["back"] as? Bool == true {

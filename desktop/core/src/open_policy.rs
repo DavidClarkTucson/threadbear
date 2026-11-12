@@ -358,6 +358,99 @@ pub fn still_same(path: &str, asked: &Look, app_for: &dyn Fn(&Path) -> Option<Op
     look(Path::new(path), app_for).is_some_and(|now| now.resolved == asked.resolved && now.runs == asked.runs)
 }
 
+// ---------------------------------------------------------------- shown in the app
+
+/// What the app shows in a view of its own rather than handing to another
+/// app: a video in AVKit's player, a PDF in PDFKit's view (on a Mac, where
+/// those views are; elsewhere they still open in their own app).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Media {
+    Video,
+    Pdf,
+}
+
+/// Films AVFoundation plays on every Mac this runs on: MPEG-4 and QuickTime
+/// movies. WebM, MKV and AVI aren't among them, so they open in their app.
+const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov"];
+
+/// What a path's name says it is, for choosing the view. `decide_media`
+/// checks the real file before anything reads it.
+pub fn media_kind(path: &str) -> Option<Media> {
+    let ext = extension(Path::new(path));
+    if VIDEO_EXTENSIONS.contains(&ext.as_str()) {
+        Some(Media::Video)
+    } else if ext == "pdf" {
+        Some(Media::Pdf)
+    } else {
+        None
+    }
+}
+
+/// Whether a file starts the way its kind's files do. An MPEG-4 or QuickTime
+/// file is a run of boxes, each a 4-byte size and a 4-letter type, the first
+/// `ftyp` (or, in older QuickTime files, `moov`, `mdat`, `wide`, `free`,
+/// `skip` or `pnot`); a PDF starts `%PDF-`.
+pub fn looks_like(kind: Media, head: &[u8]) -> bool {
+    match kind {
+        Media::Video => head.len() >= 8 && [b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip", b"pnot"].iter().any(|t| &head[4..8] == *t),
+        Media::Pdf => head.starts_with(b"%PDF-"),
+    }
+}
+
+/// What to do with a video or PDF the pane or the review window would show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MediaVerdict {
+    /// Show this file: the real one, symlinks followed, which is what the
+    /// view reads.
+    Show(PathBuf),
+    /// Don't, and say why.
+    Refuse(String),
+}
+
+/// Decides about showing the file at `path` (absolute) in the app's own
+/// view: only this Mac's own file (another Mac's path names a file on that
+/// Mac, and one here at the same path isn't it), and only a real one of the
+/// kind its name says, after its symlinks are followed, so a `.mp4` that's a
+/// link to a key file or a script is never read as a film.
+pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
+    let given = crate::highlights::last_component(path);
+    let name = if given.is_empty() { "That file" } else { given };
+    let Some(kind) = media_kind(path) else {
+        return MediaVerdict::Refuse(format!("{name} isn't a video or a PDF, so it opens in its own app."));
+    };
+    let (what, verb) = match kind {
+        Media::Video => ("a video", "play it"),
+        Media::Pdf => ("a PDF", "show it"),
+    };
+    if origin == Origin::OtherMac {
+        return MediaVerdict::Refuse(format!("{name} is on another Mac, so it can't {} here yet.", if kind == Media::Video { "play" } else { "show" }));
+    }
+    let given_path = Path::new(path);
+    if !given_path.is_absolute() {
+        return MediaVerdict::Refuse(format!("Threadbear couldn't tell where {name} is."));
+    }
+    let Ok(resolved) = std::fs::canonicalize(given_path) else {
+        return MediaVerdict::Refuse(format!("{name} isn't there any more."));
+    };
+    let real_kind = media_kind(&resolved.to_string_lossy());
+    let is_file = std::fs::metadata(&resolved).is_ok_and(|m| m.is_file());
+    let head = if is_file && real_kind == Some(kind) { read_head(&resolved) } else { Vec::new() };
+    if !looks_like(kind, &head) {
+        return MediaVerdict::Refuse(format!("{name} isn't really {what}, so Threadbear didn't {verb}."));
+    }
+    MediaVerdict::Show(resolved)
+}
+
+/// The first few bytes of a file, or none if it can't be read.
+fn read_head(path: &Path) -> Vec<u8> {
+    use std::io::Read;
+    let mut head = Vec::with_capacity(16);
+    if let Ok(file) = std::fs::File::open(path) {
+        let _ = file.take(16).read_to_end(&mut head);
+    }
+    head
+}
+
 /// A link shown in a question: long ones cut in the middle (`LinkPolicy.shown`).
 pub fn shown(url: &str, limit: usize) -> String {
     let count = url.chars().count();
@@ -599,6 +692,81 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// The start of a real MPEG-4 file: its `ftyp` box.
+    const MP4_HEAD: &[u8] = b"\0\0\0\x20ftypisom\0\0\x02\0isomiso2avc1mp41";
+
+    fn bytes(s: &Scratch, rel: &str, body: &[u8]) -> PathBuf {
+        let p = s.path(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, body).unwrap();
+        p
+    }
+
+    #[test]
+    fn a_real_video_on_this_mac_plays() {
+        let s = Scratch::new("media-real");
+        let clip = bytes(&s, "clips/hero.mp4", MP4_HEAD);
+        assert_eq!(decide_media(&clip.to_string_lossy(), Origin::ThisMac), MediaVerdict::Show(clip.clone()));
+        let old = bytes(&s, "old.MOV", b"\0\0\0\x08wide\0\0\0\0mdat");
+        assert_eq!(decide_media(&old.to_string_lossy(), Origin::ThisMac), MediaVerdict::Show(old));
+        let pdf = bytes(&s, "spec.pdf", b"%PDF-1.7\n");
+        assert_eq!(decide_media(&pdf.to_string_lossy(), Origin::ThisMac), MediaVerdict::Show(pdf));
+    }
+
+    #[test]
+    fn another_macs_video_never_plays_here() {
+        let s = Scratch::new("media-other");
+        let clip = bytes(&s, "hero.mp4", MP4_HEAD);
+        // The same path is here too, but it isn't the file that thread means.
+        let MediaVerdict::Refuse(why) = decide_media(&clip.to_string_lossy(), Origin::OtherMac) else { panic!() };
+        assert!(why.contains("on another Mac"), "{why}");
+    }
+
+    #[test]
+    fn only_a_real_video_plays() {
+        let s = Scratch::new("media-fake");
+        // Named like a film, but text, or a folder.
+        let text = bytes(&s, "notes.mp4", b"#!/bin/sh\nrm -rf ~\n");
+        assert!(matches!(decide_media(&text.to_string_lossy(), Origin::ThisMac), MediaVerdict::Refuse(w) if w.contains("isn't really a video")));
+        let folder = s.path("folder.mp4");
+        fs::create_dir_all(&folder).unwrap();
+        assert!(matches!(decide_media(&folder.to_string_lossy(), Origin::ThisMac), MediaVerdict::Refuse(_)));
+        let fake_pdf = bytes(&s, "fake.pdf", b"<html>");
+        assert!(matches!(decide_media(&fake_pdf.to_string_lossy(), Origin::ThisMac), MediaVerdict::Refuse(w) if w.contains("isn't really a PDF")));
+        // Not a video or a PDF by name at all.
+        let key = bytes(&s, "id_ed25519", MP4_HEAD);
+        assert!(matches!(decide_media(&key.to_string_lossy(), Origin::ThisMac), MediaVerdict::Refuse(_)));
+        assert!(matches!(decide_media(&s.path("gone.mp4").to_string_lossy(), Origin::ThisMac), MediaVerdict::Refuse(w) if w.contains("isn't there")));
+        assert!(matches!(decide_media("clips/hero.mp4", Origin::ThisMac), MediaVerdict::Refuse(_)));
+    }
+
+    /// A link is judged by what it leads to: a `.mp4` link to a film plays
+    /// that film, and one to anything else (even with a film's first bytes)
+    /// doesn't.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_named_like_a_video_is_judged_by_what_it_leads_to() {
+        let s = Scratch::new("media-link");
+        let real = bytes(&s, "take2.mov", MP4_HEAD);
+        let link = s.path("latest.mp4");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(decide_media(&link.to_string_lossy(), Origin::ThisMac), MediaVerdict::Show(real));
+        let secret = bytes(&s, "secret.key", MP4_HEAD);
+        let posing = s.path("clip.mp4");
+        std::os::unix::fs::symlink(&secret, &posing).unwrap();
+        assert!(matches!(decide_media(&posing.to_string_lossy(), Origin::ThisMac), MediaVerdict::Refuse(_)));
+    }
+
+    #[test]
+    fn media_kinds_by_name() {
+        assert_eq!(media_kind("/a/b/Launch.MP4"), Some(Media::Video));
+        assert_eq!(media_kind("/a/b.m4v"), Some(Media::Video));
+        assert_eq!(media_kind("/a/b.pdf"), Some(Media::Pdf));
+        assert_eq!(media_kind("/a/b.webm"), None);
+        assert_eq!(media_kind("/a/.mp4"), None);
+        assert!(!looks_like(Media::Video, b"\0\0\0"));
     }
 
     #[test]
