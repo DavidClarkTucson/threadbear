@@ -132,6 +132,10 @@ try {
   post('right-control', 'words:Bigger please');
   const after = await replyBecomes('Bigger please');
   check('Voice Type\'s ⌘V after ticking an option lands in the reply box', after === 'Bigger please', JSON.stringify(after));
+  check('the option stays ticked', (await review()).pickedIds.join(',') === 'B');
+  if (process.env.TB_REVIEW_PASTE_SHOT) {
+    await app.do({ cmd: 'screenshot', review: REVIEW, path: process.env.TB_REVIEW_PASTE_SHOT });
+  }
 
   // With the keys in the box, the same ⌘V lands too: it isn't this second window
   // that loses it.
@@ -140,9 +144,6 @@ try {
   post('right-control', 'words:In the box');
   const inBox = await replyBecomes('In the box');
   check('Voice Type\'s ⌘V with the keys in the reply box lands there', inBox === 'In the box', JSON.stringify(inBox));
-  if (process.env.TB_REVIEW_PASTE_SHOT) {
-    await app.do({ cmd: 'screenshot', review: REVIEW, path: process.env.TB_REVIEW_PASTE_SHOT });
-  }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
