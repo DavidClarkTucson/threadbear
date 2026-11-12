@@ -938,34 +938,11 @@ struct AppDump: Encodable {
         let key = app.selection ?? "new"
         let transcript = transcriptInfo(app.transcript)
         let appearance = window?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
-        return AppDump(
-            instance: instance,
-            connection: connectionName(app.connection),
-            runnerVersion: app.runnerVersion,
-            banner: app.banner.map { BannerInfo(style: $0.style.rawValue, text: $0.text, detail: $0.detail) },
-            limit: app.selectedThread.flatMap { limitInfo(app, thread: $0) },
-            archivedNote: app.archivedNote?.threadId,
-            flight: ArchiveFlight.lastFlight,
-            milestoneNote: app.milestoneNote.map { ThreadMilestones.title($0.tier) },
-            error: app.errorMessage,
-            window: window.map { Window(width: Int(contentSize($0).width), height: Int(contentSize($0).height), appearance: appearance) },
-            sidebar: Sidebar(mode: String(describing: app.sidebarMode), sections: sections,
-                             snoozed: ThreadSections.snoozed(app.threads.values, now: now).count, archived: app.archivedCount,
-                             sort: app.inboxOrder.rawValue, loading: !app.threadsLoaded),
-            selection: app.selectedThread.map { thread($0) },
-            subagent: app.subagentSelection?.subagentId,
-            panels: app.selectedThread.flatMap { panels($0, app: app) },
-            actions: app.selectedThread.map { thread in
+        let banner: BannerInfo? = app.banner.map { BannerInfo(style: $0.style.rawValue, text: $0.text, detail: $0.detail) }
+        let actions: [ActionInfo] = app.selectedThread.map { thread in
                 thread.actions.map { ActionInfo(id: $0.id, title: $0.title, kind: $0.kind.rawValue, running: app.isRunning(action: $0, in: thread.id)) }
-            } ?? [],
-            composer: composer(app, key: key),
-            newThread: newThreadPageDump(app),
-            palette: slashPalette,
-            moveSheet: app.moveRequest == nil ? nil : moveSheetNow,
-            decisions: app.selectedThread.flatMap { decisions($0, app: app) },
-            transcript: transcript,
-            usage: usage(app),
-            project: app.openProject.map { project in
+            } ?? []
+        let project: ProjectInfo? = app.openProject.map { project in
                 let threads = ProjectSections.threads(in: project.id, from: app.threads.values)
                 return ProjectInfo(id: project.id, title: project.title,
                                    parent: project.parentId.flatMap { app.project($0)?.title },
@@ -973,12 +950,57 @@ struct AppDump: Encodable {
                                    tab: app.projectDecisionsOn ? app.projectTab(project.id).rawValue : nil,
                                    folders: project.folders, threads: threads.map(\.id),
                                    patches: PatchGroups.patches(of: project, in: threads).map(\.patch.id), archived: project.archived)
-            },
+            }
+        var projectCards: [String]? = nil
+        if app.openProject == nil && app.showsProjectsHome {
+            projectCards = app.projectCards.map { card -> String in
+                let status: String = card.status.isQuiet ? "quiet" : card.status.parts.map(\.text).joined(separator: " · ")
+                let parts: String = card.parts.isEmpty ? "" : " (parts: " + card.parts.map(\.title).joined(separator: ", ") + ")"
+                return card.project.title + ": " + status + parts
+            }
+        }
+        let pools: [PoolInfo] = app.usesPools ? app.pools.map { pool in
+                PoolInfo(id: pool.id, title: pool.title, logins: pool.accountIds, folders: pool.folders,
+                         rail: Pools.railSubtitle(pool, accounts: app.accounts), status: Pools.statusLine(pool, accounts: app.accounts, now: app.now))
+            } : []
+        let panelMotion: PanelMotion? = app.dock.motionFrom.map { from in
+                func rects(_ frames: [String: CGRect]) -> [String: PanelMotion.Rect] {
+                    Dictionary(frames.map { ($0.key.replacingOccurrences(of: "threadbear.", with: ""), PanelMotion.Rect(x: $0.value.minX.rounded(), y: $0.value.minY.rounded(), width: $0.value.width.rounded(), height: $0.value.height.rounded())) }, uniquingKeysWith: { a, _ in a })
+                }
+                return PanelMotion(from: rects(from), to: rects(app.dock.panelFrames))
+            }
+        let openElsewhere: String? = app.selection.flatMap { id in
+                !app.showsHomePage && app.openProject == nil && app.dock.layout.contains(WindowDock.threadPanel(id)) ? id : nil
+            }
+        let windowInfo: Window? = window.map { Window(width: Int(contentSize($0).width), height: Int(contentSize($0).height), appearance: appearance) }
+        return AppDump(
+            instance: instance,
+            connection: connectionName(app.connection),
+            runnerVersion: app.runnerVersion,
+            banner: banner,
+            limit: app.selectedThread.flatMap { limitInfo(app, thread: $0) },
+            archivedNote: app.archivedNote?.threadId,
+            flight: ArchiveFlight.lastFlight,
+            milestoneNote: app.milestoneNote.map { ThreadMilestones.title($0.tier) },
+            error: app.errorMessage,
+            window: windowInfo,
+            sidebar: Sidebar(mode: String(describing: app.sidebarMode), sections: sections,
+                             snoozed: ThreadSections.snoozed(app.threads.values, now: now).count, archived: app.archivedCount,
+                             sort: app.inboxOrder.rawValue, loading: !app.threadsLoaded),
+            selection: app.selectedThread.map { thread($0) },
+            subagent: app.subagentSelection?.subagentId,
+            panels: app.selectedThread.flatMap { panels($0, app: app) },
+            actions: actions,
+            composer: composer(app, key: key),
+            newThread: newThreadPageDump(app),
+            palette: slashPalette,
+            moveSheet: app.moveRequest == nil ? nil : moveSheetNow,
+            decisions: app.selectedThread.flatMap { decisions($0, app: app) },
+            transcript: transcript,
+            usage: usage(app),
+            project: project,
             projectDecisions: app.openProject.flatMap { projectDecisionLines($0, app: app) },
-            projectCards: app.openProject == nil && app.showsProjectsHome ? app.projectCards.map { card in
-                card.project.title + ": " + (card.status.isQuiet ? "quiet" : card.status.parts.map(\.text).joined(separator: " · "))
-                    + (card.parts.isEmpty ? "" : " (parts: " + card.parts.map(\.title).joined(separator: ", ") + ")")
-            } : nil,
+            projectCards: projectCards,
             homePage: homePageDump(app),
             scheduleEditor: app.scheduleEditor.map { ScheduleEditorInfo(isNew: $0.isNew, text: $0.text, once: $0.once, cron: $0.once ? nil : $0.repeatChoice.cron) },
             settingsWindow: SettingsWindow.current?.isVisible == true ? SettingsWindowInfo(
@@ -987,22 +1009,12 @@ struct AppDump: Encodable {
                 privateFolders: app.runnerSettings?.models.privateFolders, smallJobsPool: app.runnerSettings?.models.pool,
                 runners: runnersInfo(app), devices: devicesInfo(app), keyboard: keyboardInfo()) : nil,
             librarian: app.librarian.map(LibrarianText.state),
-            pools: app.usesPools ? app.pools.map { pool in
-                PoolInfo(id: pool.id, title: pool.title, logins: pool.accountIds, folders: pool.folders,
-                         rail: Pools.railSubtitle(pool, accounts: app.accounts), status: Pools.statusLine(pool, accounts: app.accounts, now: app.now))
-            } : [],
+            pools: pools,
             dock: app.dock.layout.summary.replacingOccurrences(of: "threadbear.", with: ""),
-            panelMotion: app.dock.motionFrom.map { from in
-                func rects(_ frames: [String: CGRect]) -> [String: PanelMotion.Rect] {
-                    Dictionary(frames.map { ($0.key.replacingOccurrences(of: "threadbear.", with: ""), PanelMotion.Rect(x: $0.value.minX.rounded(), y: $0.value.minY.rounded(), width: $0.value.width.rounded(), height: $0.value.height.rounded())) }, uniquingKeysWith: { a, _ in a })
-                }
-                return PanelMotion(from: rects(from), to: rects(app.dock.panelFrames))
-            },
+            panelMotion: panelMotion,
             threadsShowing: app.threadsShowing,
             threadPanels: threadPanels(app),
-            openElsewhere: app.selection.flatMap { id in
-                !app.showsHomePage && app.openProject == nil && app.dock.layout.contains(WindowDock.threadPanel(id)) ? id : nil
-            },
+            openElsewhere: openElsewhere,
             keyHints: keyHints(app),
             pageSwipe: pageSwipe(app),
             zoom: TextZoom.shared.percent,
