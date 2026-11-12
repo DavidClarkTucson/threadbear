@@ -27,10 +27,37 @@ pub use mac::page::Page;
 /// A web panel's page: a patch's site or the Convex dashboard (mac/panel.rs),
 /// and the native menu for controls over one.
 #[cfg(target_os = "macos")]
-pub use mac::host::{popup_menu, MenuItem};
+pub use mac::host::{keyboard_holder, popup_menu, send_keys, take_keyboard, MenuItem};
 #[cfg(target_os = "macos")]
 pub use mac::panel::PanelPage;
 pub use panel_rules::{site, Event as PanelEvent, Kind as PanelKind};
+
+/// Who has the keyboard in the window GPUI's view fills (AppKit's first
+/// responder), for the dump and for giving it back (web_panels.rs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardHolder {
+    /// GPUI's own view: what GPUI has focused gets the keys.
+    App,
+    /// A page's view that's showing, after a click in it.
+    Page,
+    /// A page's view that's hidden.
+    HiddenPage,
+    /// Nobody, or the window itself: a page's view that had it went.
+    Window,
+    Other,
+}
+
+impl KeyboardHolder {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::App => "app",
+            Self::Page => "page",
+            Self::HiddenPage => "hidden page",
+            Self::Window => "window",
+            Self::Other => "other",
+        }
+    }
+}
 
 /// The helper processes' main (the threadbear-web-helper binary).
 pub fn helper_main() -> i32 {
@@ -107,6 +134,17 @@ mod elsewhere {
     pub fn popup_menu(_view: *mut std::ffi::c_void, _x: f32, _y: f32, _items: &[MenuItem]) -> Option<usize> {
         None
     }
+
+    /// No pages here to take the keyboard from GPUI's view.
+    pub fn keyboard_holder(_view: *mut std::ffi::c_void) -> crate::KeyboardHolder {
+        crate::KeyboardHolder::App
+    }
+
+    pub fn take_keyboard(_view: *mut std::ffi::c_void) -> bool {
+        false
+    }
+
+    pub fn send_keys(_view: *mut std::ffi::c_void, _text: &str) {}
 
     /// A web panel's page (mac/panel.rs has the real one). There's no
     /// runtime here to make one, so none is ever made.

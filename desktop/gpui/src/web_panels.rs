@@ -185,7 +185,50 @@ pub(crate) fn sweeper(menu_at: Option<Point<Pixels>>, popover: bool) -> AnyEleme
         f.set(f.get() + 1);
         f.get()
     });
-    canvas(move |_, window, cx| sweep(frame, menu_at, popover, window, cx), |_, _, _, _| {}).absolute().size_0().into_any_element()
+    canvas(
+        move |_, window, cx| sweep(frame, menu_at, popover, window, cx),
+        |_, _, window, _| {
+            // A press anywhere GPUI draws is one outside every page (a page's
+            // own view takes the presses over it), so the keyboard comes back
+            // from a page that had it, as a click in another view takes it in
+            // any Mac app. GPUI's view never asks for it on a click itself.
+            window.on_mouse_event(|_: &MouseDownEvent, phase, window, _| {
+                if phase.capture() && threadbear_web::keyboard_holder(native_view(window).unwrap_or(std::ptr::null_mut())) == threadbear_web::KeyboardHolder::Page {
+                    reclaim_keyboard(window);
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_0()
+    .into_any_element()
+}
+
+/// Gives GPUI's view its window's keyboard back. Without it, once a page's
+/// view had the keyboard and then went out of sight (⌘N's new-thread page,
+/// another thread, a menu or a dialog over it), AppKit gave the keyboard to
+/// the window itself while GPUI drew its caret in the box: keys with ⌘ still
+/// reached GPUI, as AppKit offers those to every view, so a dictated paste
+/// landed, but every letter went to the window, which beeps (Mike, 12 Nov;
+/// features/tools/real-typing.ts plays it with real keys).
+fn reclaim_keyboard(window: &Window) {
+    if let Some(view) = native_view(window) {
+        threadbear_web::take_keyboard(view);
+    }
+}
+
+/// The automation's `native-keys`: `text` typed through AppKit, so the keys
+/// go wherever AppKit sends a person's (`keyboard` in the dump).
+pub(crate) fn send_keys(window: AnyWindowHandle, text: &str, cx: &mut AsyncApp) -> Result<(), String> {
+    let view = cx.update_window(window, |_, window, _| native_view(window).map(|v| v as usize)).map_err(|e| e.to_string())?.ok_or("the window has no view")?;
+    threadbear_web::send_keys(view as *mut c_void, text);
+    Ok(())
+}
+
+/// Who has the main window's keyboard, for the dump: "app" (GPUI's own
+/// view), "page", "hidden page", "window" (nobody) or "other".
+pub(crate) fn keyboard_dump(window: &Window) -> Value {
+    json!(threadbear_web::keyboard_holder(native_view(window).unwrap_or(std::ptr::null_mut())).name())
 }
 
 fn sweep(frame: u64, menu_at: Option<Point<Pixels>>, popover: bool, window: &mut Window, cx: &mut App) {
@@ -210,6 +253,26 @@ fn sweep(frame: u64, menu_at: Option<Point<Pixels>>, popover: bool, window: &mut
     if panels.read(cx).covered != covered_any {
         panels.update(cx, |p, _| p.covered = covered_any);
     }
+    // Only a page that's showing keeps the keyboard from GPUI's view, and
+    // only until GPUI focuses something else (⌘N's new-thread box, say), as
+    // the Swift app's focusComposer makes its box first responder.
+    use threadbear_web::KeyboardHolder;
+    let focused = window.focused(cx);
+    let moved = LAST_FOCUS.with(|last| {
+        let mut last = last.borrow_mut();
+        let moved = last.as_ref().and_then(|l| l.upgrade()) != focused;
+        *last = focused.as_ref().map(|f| f.downgrade());
+        moved
+    });
+    let holder = threadbear_web::keyboard_holder(native_view(window).unwrap_or(std::ptr::null_mut()));
+    if matches!(holder, KeyboardHolder::HiddenPage | KeyboardHolder::Window | KeyboardHolder::Other) || (holder == KeyboardHolder::Page && moved && focused.is_some()) {
+        reclaim_keyboard(window);
+    }
+}
+
+thread_local! {
+    /// What GPUI had focused at the main window's last frame.
+    static LAST_FOCUS: std::cell::RefCell<Option<WeakFocusHandle>> = const { std::cell::RefCell::new(None) };
 }
 
 /// The window's own view, a page's parent.

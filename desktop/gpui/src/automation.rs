@@ -146,6 +146,17 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     if cmd["cmd"] == "webPanel" {
         return crate::web_panels::automation(cmd, cx).await;
     }
+    // `text` typed as a person's keys are, through AppKit, to whoever has the
+    // window's keyboard (`keyboard` in the dump): a page's view takes them
+    // from GPUI's. Out here, not in an update, as AppKit hands them straight
+    // to GPUI, which updates the window itself.
+    if cmd["cmd"] == "native-keys" {
+        // A frame first, as a person's keys come after the screen has caught
+        // up with their last one: a scripted window behind others draws only
+        // when asked, and it's a frame that places the pages.
+        cx.update_window(window, |_, window, cx| window.render_frame(cx)).map_err(|e| e.to_string())?;
+        return crate::web_panels::send_keys(window, text(cmd, "text"), cx).map(|()| json!("ok"));
+    }
     // The activity log (activity.rs), as the Swift app's `activity`: a press
     // or a key, then what today's file has, a moment later.
     if cmd["cmd"] == "activity" {
@@ -240,7 +251,10 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
                     })
                     .ok();
             }
-            Ok(app.read(cx).dump(cx))
+            let mut dump = app.read(cx).dump(cx);
+            // Who AppKit gives the keys to: GPUI's view, or a page's.
+            dump["keyboard"] = crate::web_panels::keyboard_dump(window);
+            Ok(dump)
         }
         "status" => Ok(json!("ok")),
         // The Settings window, as the Swift command: opened (on `tab`), or

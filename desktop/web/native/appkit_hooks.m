@@ -246,6 +246,77 @@ bool tb_view_has_keyboard(void *nativeView) {
   return view && [responder isKindOfClass:[NSView class]] && [(NSView *)responder isDescendantOf:view];
 }
 
+// Who has the keyboard in the window GPUI's view `nativeView` fills: 0 that
+// view, 1 a page's view inside it that's showing, 2 nobody or the window
+// itself, 3 a page's view inside it that's hidden, 4 anything else. A page's
+// view is a subview of GPUI's (tb_view_set_parent), so "inside it" is a page.
+int tb_view_keyboard_holder(void *nativeView) {
+  NSView *view = (__bridge NSView *)nativeView;
+  NSWindow *window = view.window;
+  if (!view || !window) {
+    return 2;
+  }
+  NSResponder *responder = window.firstResponder;
+  if (responder == view) {
+    return 0;
+  }
+  if (!responder || responder == window) {
+    return 2;
+  }
+  if ([responder isKindOfClass:[NSView class]] && [(NSView *)responder isDescendantOf:view]) {
+    return [(NSView *)responder isHiddenOrHasHiddenAncestor] ? 3 : 1;
+  }
+  return 4;
+}
+
+// Gives GPUI's view its window's keyboard (web_panels.rs says when). It never
+// takes it back by itself: it doesn't accept first responder, so a click on
+// it leaves the keyboard with a page's view, and once that view's hidden,
+// with the window, which beeps at every letter.
+bool tb_view_take_keyboard(void *nativeView) {
+  NSView *view = (__bridge NSView *)nativeView;
+  NSWindow *window = view.window;
+  if (!view || !window || window.firstResponder == view) {
+    return false;
+  }
+  return [window makeFirstResponder:view];
+}
+
+// A scripted app's stand-in for typing `text` (UTF-8, letters and spaces):
+// each character's key down and up handed to the window GPUI's view is in,
+// which gives them to whoever has its keyboard, as AppKit does a person's
+// keys. A script's own keystrokes go straight into GPUI and never meet AppKit,
+// so they can't tell who has the keyboard.
+void tb_view_send_keys(void *nativeView, const char *text) {
+  NSView *view = (__bridge NSView *)nativeView;
+  NSWindow *window = view.window;
+  NSString *all = text ? [NSString stringWithUTF8String:text] : nil;
+  if (!window || !all) {
+    return;
+  }
+  // US keyboard key codes, which is all the input context reads besides the
+  // characters themselves.
+  static const unsigned short codes[26] = {0, 11, 8, 2, 14, 3, 5, 4, 34, 38, 40, 37, 46, 45, 31, 35, 12, 15, 1, 17, 32, 9, 13, 7, 16, 6};
+  for (NSUInteger i = 0; i < all.length; i++) {
+    NSString *one = [all substringWithRange:NSMakeRange(i, 1)];
+    unichar c = [one.lowercaseString characterAtIndex:0];
+    unsigned short code = (c >= 'a' && c <= 'z') ? codes[c - 'a'] : 49;
+    for (int down = 1; down >= 0; down--) {
+      NSEvent *event = [NSEvent keyEventWithType:(down ? NSEventTypeKeyDown : NSEventTypeKeyUp)
+                                        location:NSZeroPoint
+                                   modifierFlags:0
+                                       timestamp:[[NSProcessInfo processInfo] systemUptime]
+                                    windowNumber:window.windowNumber
+                                         context:nil
+                                      characters:one
+                     charactersIgnoringModifiers:one
+                                       isARepeat:NO
+                                         keyCode:code];
+      [window sendEvent:event];
+    }
+  }
+}
+
 @interface TBMenuTarget : NSObject
 @property(nonatomic) NSInteger chosen;
 - (void)pick:(NSMenuItem *)item;

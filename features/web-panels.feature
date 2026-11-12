@@ -171,6 +171,37 @@ Feature: Web pages in a thread's panels
     And I press ⌘A
     Then the page's own text is selected
 
+  # GPUI draws its caret where its own focus is, but AppKit gives letters to
+  # whichever view has the window's keyboard, and GPUI's view never took it
+  # back from a page's. ⌘V reaches GPUI anyway, so a dictated paste landed in
+  # the new-thread box and every letter after it beeped (Mike, 12 Nov). The
+  # letters are typed through AppKit, as a person's are.
+  @panel.web @web-runtime @swift-pending
+  Scenario: After a page had the keyboard, letters go to the new-thread box ⌘N opens
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When the panel's page has the keyboard
+    And I press Command-N
+    And I type "hello" on the keyboard
+    Then the composer says "hello"
+    And the app has the keyboard
+
+  @panel.web @web-runtime @swift-pending
+  Scenario: A page with the keyboard put out of sight gives it back to the thread's box
+    Given the web runtime is installed
+    When I open the thread "Add dark mode to the dashboard"
+    And the thread's url panel shows the page server
+    And I show the "mock.page" section of the pane
+    Then the panel shows the page "Panel home"
+    When the panel's page has the keyboard
+    And I show the "threadbear.highlights" section of the pane
+    And I type "hello" on the keyboard
+    Then the composer says "hello"
+    And the app has the keyboard
+
   @panel.bar @web-runtime @swift-pending
   Scenario: Reload goes back to the panel's own page, and Open in browser opens it
     Given the web runtime is installed

@@ -243,6 +243,17 @@ When("the panel's page has the keyboard", async function (this: ThreadbearWorld)
   await this.until('the page with the keyboard', (d) => (web(d)?.page as { hasKeyboard?: boolean } | undefined)?.hasKeyboard === true);
 });
 
+// Through AppKit, to whoever has the window's keyboard, as a person's keys
+// go (the app's `native-keys`); a script's own keystrokes would go straight
+// into the app and never meet a page.
+When('I type {string} on the keyboard', async function (this: ThreadbearWorld, text: string) {
+  await this.app.do({ cmd: 'native-keys', text });
+});
+
+Then('the app has the keyboard', async function (this: ThreadbearWorld) {
+  await this.until("the app's own view with the keyboard", (d) => (d as { keyboard?: string }).keyboard === 'app');
+});
+
 When('I press ⌘A', async function (this: ThreadbearWorld) {
   await this.app.do({ cmd: 'menu-key', key: 'a', modifiers: ['cmd'] });
 });

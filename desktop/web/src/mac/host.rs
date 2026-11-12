@@ -30,6 +30,10 @@ unsafe extern "C" {
     pub(crate) fn tb_view_input_count(view: *mut c_void) -> u64;
     pub(crate) fn tb_view_note_input(view: *mut c_void);
     pub(crate) fn tb_view_has_keyboard(view: *mut c_void) -> bool;
+    // Who has a window's keyboard, and giving it back to GPUI's view.
+    fn tb_view_keyboard_holder(view: *mut c_void) -> i32;
+    fn tb_view_take_keyboard(view: *mut c_void) -> bool;
+    fn tb_view_send_keys(view: *mut c_void, text: *const c_char);
     fn tb_popup_menu(view: *mut c_void, x: f64, y: f64, titles: *const *const c_char, symbols: *const *const c_char, tips: *const *const c_char, checked: *const bool, count: i32) -> i32;
     fn tb_main_bundle_identifier() -> *const c_char;
 }
@@ -61,6 +65,35 @@ pub fn popup_menu(view: *mut c_void, x: f32, y: f32, items: &[MenuItem]) -> Opti
     let checked: Vec<bool> = items.iter().map(|i| i.checked).collect();
     let chosen = unsafe { tb_popup_menu(view, f64::from(x), f64::from(y), t.as_ptr(), s.as_ptr(), p.as_ptr(), checked.as_ptr(), items.len() as i32) };
     usize::try_from(chosen).ok().filter(|i| *i < items.len())
+}
+
+/// Who has the keyboard in the window GPUI's view `view` fills.
+pub fn keyboard_holder(view: *mut c_void) -> crate::KeyboardHolder {
+    use crate::KeyboardHolder;
+    if view.is_null() {
+        return KeyboardHolder::Window;
+    }
+    match unsafe { tb_view_keyboard_holder(view) } {
+        0 => KeyboardHolder::App,
+        1 => KeyboardHolder::Page,
+        2 => KeyboardHolder::Window,
+        3 => KeyboardHolder::HiddenPage,
+        _ => KeyboardHolder::Other,
+    }
+}
+
+/// Gives GPUI's view `view` its window's keyboard; true if it moved.
+pub fn take_keyboard(view: *mut c_void) -> bool {
+    !view.is_null() && unsafe { tb_view_take_keyboard(view) }
+}
+
+/// A scripted app's typing: `text`'s keys handed to the window GPUI's view
+/// `view` is in, which gives them to whoever has its keyboard.
+pub fn send_keys(view: *mut c_void, text: &str) {
+    let Ok(text) = CString::new(text) else { return };
+    if !view.is_null() {
+        unsafe { tb_view_send_keys(view, text.as_ptr()) };
+    }
 }
 
 /// Where Chromium has got to in this process.
