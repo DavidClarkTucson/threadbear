@@ -49,7 +49,12 @@ impl RowDebug {
                     PlanCardState::SentBack => "sent back",
                 };
                 if card.entries.is_empty() {
-                    format!("plan ({state}): {}", PlanCardText::summary(&card.text))
+                    // Its title too, as the card draws it over the plan (the
+                    // nightly parity run looks for both).
+                    match PlanCardText::split(&card.text).0 {
+                        Some(title) => format!("plan ({state}): {title}: {}", PlanCardText::summary(&card.text)),
+                        None => format!("plan ({state}): {}", PlanCardText::summary(&card.text)),
+                    }
                 } else {
                     format!("plan ({state}), {}", card.entries.iter().map(|e| e.text.clone()).collect::<Vec<_>>().join("; "))
                 }
@@ -60,7 +65,12 @@ impl RowDebug {
                     let loose = match &card.loose_ends {
                         None => String::new(),
                         Some(ends) if ends.is_empty() => ", loose ends: none".to_owned(),
-                        Some(ends) => format!(", loose ends: {}", ends.iter().map(|e| e.text.clone()).collect::<Vec<_>>().join("; ")),
+                        Some(ends) => {
+                            // A booked check-in is drawn under its own label.
+                            let booked: Vec<String> = ends.iter().filter(|e| e.is_booked()).map(|e| e.text.clone()).collect();
+                            let coming = if booked.is_empty() { String::new() } else { format!(", Coming back: {}", booked.join("; ")) };
+                            format!(", loose ends: {}{coming}", ends.iter().map(|e| e.text.clone()).collect::<Vec<_>>().join("; "))
+                        }
                     };
                     let next = if card.next.is_empty() {
                         String::new()
