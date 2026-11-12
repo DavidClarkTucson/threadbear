@@ -146,6 +146,14 @@ impl RowGestures {
         tracking || self.leaving.as_ref().is_some_and(|s| s.row == id)
     }
 
+    /// A row's swipe under way, or a row on its way out of the list: an
+    /// update's restart waits for it (app_update.rs). Only while it's recent,
+    /// so a gesture whose end never came can't hold the update off for good.
+    pub(crate) fn under_way(&self) -> bool {
+        let recent = |at: Option<Instant>, within: f32| at.is_some_and(|at| at.elapsed().as_secs_f32() < within);
+        (self.swipe.is_swiping() && recent(self.moved_at, 30.)) || recent(self.leaving.as_ref().map(|s| s.at), 2.)
+    }
+
     /// For scripts: how far along the row is and whether it's past the line,
     /// as the Swift app's `swipe` says it.
     pub(crate) fn along(&self) -> String {

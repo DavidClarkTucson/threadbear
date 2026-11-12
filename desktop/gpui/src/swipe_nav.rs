@@ -52,6 +52,15 @@ pub(crate) struct SwipeNav {
     replaying: bool,
 }
 
+impl SwipeNav {
+    /// A page swipe following the fingers: an update's restart waits for it
+    /// (app_update.rs). Only while its events are recent, so a gesture whose
+    /// end never came can't hold the update off for good.
+    pub(crate) fn under_way(&self) -> bool {
+        (self.touched || self.swipe.direction().is_some()) && self.last_event.is_some_and(|at| at.elapsed().as_secs_f32() < 30.)
+    }
+}
+
 /// System Settings' "Swipe between pages" with two fingers
 /// (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`). Elsewhere it's on.
 pub(crate) fn scroll_swipes_on() -> bool {

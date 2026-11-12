@@ -173,7 +173,7 @@ fn load_average() -> Option<f64> {
 
 /// How long since the last key or click anywhere on the Mac: just how long.
 #[cfg(target_os = "macos")]
-fn idle_seconds() -> Option<f64> {
+pub(crate) fn idle_seconds() -> Option<f64> {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;

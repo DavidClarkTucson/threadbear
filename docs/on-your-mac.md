@@ -246,8 +246,11 @@ File references are where to look.
   folder here. The new app is put together and signed here as
   `~/Applications/.Threadbear GPUI.app.next` and goes in when the app quits
   or restarts, the old one kept as `.Threadbear GPUI.app.old` until the next
-  launch. The app restarts onto it by itself only while you're in another
-  app with nothing typed, and writes what it did and the build's output to
+  launch. The app restarts onto it by itself once nothing's typed and
+  nothing's open that a restart would close (a menu, a dialog, a drag):
+  straight away while you're in another app, and with the app in front
+  once you haven't touched the Mac for five seconds (it asks macOS how
+  long since the last key, click or pointer move, nothing more). It writes what it did and the build's output to
   `~/Library/Logs/threadbear-desktop-update.log` (the one before it in
   `.log.1` once that passes 2 MB). `followMain: false` stops it too.
 - **Following GitHub on a second machine** (`runner/src/follow-origin.ts`):

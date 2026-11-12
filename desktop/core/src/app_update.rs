@@ -204,20 +204,52 @@ pub fn apply_staged(install: &Path, next: &Path, old: &Path, swapping: &Path, ru
     Ok(Some(staged))
 }
 
-/// The idle time, with the app in front, that counts as not using it.
+/// With the app in front, this long with no input at all (a key, a click,
+/// the pointer moving, a scroll) counts as not using it. Mike, 12 Nov: "The
+/// auto restart should wait for there to be inactivity for five seconds
+/// before starting."
 pub const AUTO_RESTART_IDLE_SECONDS: f64 = 5.;
 
+/// What a restart to take a staged build is weighed against, once a second.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RestartMoment {
+    /// A build is staged.
+    pub staged: bool,
+    /// The threads are in, so there's a list and a thread to put back.
+    pub loaded: bool,
+    /// Words or pictures in a box that a restart would lose: a message box,
+    /// a schedule being edited, a thread being renamed.
+    pub has_drafts: bool,
+    /// Something under way that a restart would cut off: a drag (a file, a
+    /// row, a selection with the button held), a trackpad gesture, a menu, a
+    /// popover, a sheet or a dialog.
+    pub held: bool,
+    /// A window other than the main one has focus with a field being typed
+    /// in (Settings, a review's notes): it would close with the restart.
+    pub other_window_input: bool,
+    /// The app is in front.
+    pub active: bool,
+    /// Seconds since the last input.
+    pub idle_for: f64,
+}
+
 /// Whether to restart on its own to take a staged build: nothing typed would
-/// be lost, the threads are in, and Mike isn't in the app (another app is in
-/// front), or he hasn't touched it for a while and the restart wouldn't be
-/// seen (`in_place`: a handover with the window on screen). Running threads
-/// don't hold it up: the runner owns the turns and the app replays what it
-/// missed when it reconnects (`shouldAutoRestart`).
-pub fn should_auto_restart(staged: bool, loaded: bool, has_drafts: bool, active: bool, idle_for: f64, in_place: bool) -> bool {
-    if !staged || !loaded || has_drafts {
+/// be lost, nothing under way would be cut off, the threads are in, and Mike
+/// isn't in the app (another app is in front) or hasn't touched it for
+/// `AUTO_RESTART_IDLE_SECONDS`. Running threads don't hold it up: the runner
+/// owns the turns and the app replays what it missed when it reconnects
+/// (`shouldAutoRestart`).
+///
+/// The Swift app restarts in front only when its handover would go unseen
+/// (the new build comes up under the old window). The GPUI app has no
+/// handover, so its window goes and comes back on the thread he had open:
+/// Mike would rather that than clicking Restart to Update (12 Nov), as he
+/// keeps the app in front and the update otherwise never went in.
+pub fn should_auto_restart(m: &RestartMoment) -> bool {
+    if !m.staged || !m.loaded || m.has_drafts || m.held || m.other_window_input {
         return false;
     }
-    !active || (in_place && idle_for >= AUTO_RESTART_IDLE_SECONDS)
+    !m.active || m.idle_for >= AUTO_RESTART_IDLE_SECONDS
 }
 
 /// The update script's arguments, run at background priority (`taskpolicy
@@ -282,20 +314,40 @@ mod tests {
         assert_eq!(decide("t1", &running, Some(&build("bbb", "t2")), None, None), Action::DropStaged);
     }
 
+    /// A moment that would restart: staged, loaded, nothing typed or under
+    /// way, the app in front and untouched for the idle time.
+    fn quiet() -> RestartMoment {
+        RestartMoment { staged: true, loaded: true, active: true, idle_for: AUTO_RESTART_IDLE_SECONDS, ..Default::default() }
+    }
+
     #[test]
-    fn restarts_by_itself_only_when_nothing_would_be_interrupted() {
-        let idle = AUTO_RESTART_IDLE_SECONDS;
-        // Another app in front: straight away, handover or not.
-        assert!(should_auto_restart(true, true, false, false, 0., true));
-        assert!(should_auto_restart(true, true, false, false, 0., false));
-        // In front: only after a while with no input, and only unseen.
-        assert!(!should_auto_restart(true, true, false, true, idle - 1., true));
-        assert!(should_auto_restart(true, true, false, true, idle, true));
-        assert!(!should_auto_restart(true, true, false, true, idle * 100., false));
-        // Unsent words, no build or no thread list: never.
-        assert!(!should_auto_restart(true, true, true, false, idle, true));
-        assert!(!should_auto_restart(false, true, false, false, idle, true));
-        assert!(!should_auto_restart(true, false, false, false, idle, true));
+    fn restarts_in_front_once_untouched_for_five_seconds() {
+        assert_eq!(AUTO_RESTART_IDLE_SECONDS, 5.);
+        assert!(should_auto_restart(&quiet()));
+        assert!(should_auto_restart(&RestartMoment { idle_for: 600., ..quiet() }));
+        // Touched within the last five seconds: not yet.
+        assert!(!should_auto_restart(&RestartMoment { idle_for: 4.9, ..quiet() }));
+        assert!(!should_auto_restart(&RestartMoment { idle_for: 0., ..quiet() }));
+    }
+
+    #[test]
+    fn restarts_straight_away_with_another_app_in_front() {
+        assert!(should_auto_restart(&RestartMoment { active: false, idle_for: 0., ..quiet() }));
+    }
+
+    #[test]
+    fn never_restarts_over_something_typed_or_under_way() {
+        for (why, moment) in [
+            ("unsent words", RestartMoment { has_drafts: true, ..quiet() }),
+            ("a drag, a gesture, a menu, a sheet or a dialog", RestartMoment { held: true, ..quiet() }),
+            ("typing in another window", RestartMoment { other_window_input: true, ..quiet() }),
+            ("no build staged", RestartMoment { staged: false, ..quiet() }),
+            ("the threads not in yet", RestartMoment { loaded: false, ..quiet() }),
+        ] {
+            assert!(!should_auto_restart(&moment), "in front: {why}");
+            // Nor with another app in front: what's typed or open would still go.
+            assert!(!should_auto_restart(&RestartMoment { active: false, idle_for: 0., ..moment }), "behind: {why}");
+        }
     }
 
     #[test]

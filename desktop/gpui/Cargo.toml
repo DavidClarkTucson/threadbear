@@ -90,9 +90,11 @@ raw-window-handle = "=0.6.2"
 # words selected in a reply (selection_bar.rs). NSRunningApplication:
 # whether Chrome's running, for a web link's per-profile items (open_gate.rs).
 # NSEvent: System Settings' "Swipe between pages", and NSUserDefaults its
-# natural scrolling, for a page swipe (swipe_nav.rs).
+# natural scrolling, for a page swipe (swipe_nav.rs). NSWindow and NSPanel:
+# whether an alert, a file picker or a sheet is up, which an update's
+# restart waits for (app_update.rs).
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSColor", "NSColorSpace", "NSAppearance", "objc2-core-foundation", "NSApplication", "NSResponder", "NSDockTile", "NSSound", "NSAlert", "NSButton", "NSControl", "NSCell", "NSView", "NSPasteboard", "NSRunningApplication", "NSEvent"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSColor", "NSColorSpace", "NSAppearance", "objc2-core-foundation", "NSApplication", "NSResponder", "NSDockTile", "NSSound", "NSAlert", "NSButton", "NSControl", "NSCell", "NSView", "NSPasteboard", "NSRunningApplication", "NSEvent", "NSWindow", "NSPanel"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSBundle", "NSData", "NSUserDefaults"] }
 
 [build-dependencies]

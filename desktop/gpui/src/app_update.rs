@@ -11,12 +11,16 @@
 // Quitting swaps the staged bundle in, so the next launch is the new app; a
 // launch that finds one staged (the app was killed rather than quit) swaps it
 // in and starts again. Restart to Update, in the app menu and the Updates
-// panel, does it now, and the app does it by itself while Mike's in another
-// app with nothing typed, then puts back the list and the thread he had open.
+// panel, does it now, and the app does it by itself once nothing typed would
+// be lost and nothing under way cut off, then puts back the list and the
+// thread he had open: straight away while Mike's in another app, and with the
+// app in front once he hasn't touched it for five seconds.
 //
 // No handover here (the Swift app's Handover.swift starts the new build under
-// the old window, so the window never goes): a restart is the window going
-// and coming back, so the app only restarts by itself while it isn't in front.
+// the old window, so the window never goes): a restart in front is the window
+// going and coming back. The Swift app only restarts in front when that would
+// go unseen, but Mike keeps this app in front, so its updates never went in
+// until he clicked (12 Nov); he'd rather it went in by itself.
 use crate::app::Threadbear;
 use crate::installed;
 use gpui_kit::*;
@@ -214,6 +218,81 @@ fn note(line: &str) {
     }
 }
 
+/// What the app's windows have up that a restart would close, read once a
+/// second for `consider_auto_restart`.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct WindowsNow {
+    /// A dialog, sheet, prompt or menu in one of them, or one of AppKit's own
+    /// panels (an alert, a file picker) up over them.
+    pub(crate) held: bool,
+    /// A window other than the main one has focus with a field being typed in.
+    pub(crate) other_window_input: bool,
+}
+
+pub(crate) fn windows_now(main: AnyWindowHandle, cx: &mut App) -> WindowsNow {
+    use gpui_kit::component::WindowExt as _;
+    let mut now = WindowsNow { held: native_panel_up(), other_window_input: false };
+    for handle in cx.windows() {
+        let looked = handle.update(cx, |_, window, cx| {
+            // The kit's menus take the keys while they're open.
+            let menu = window.context_stack().iter().any(|c| c.contains("PopupMenu"));
+            let held = menu || window.has_active_dialog(cx) || window.has_active_sheet(cx) || window.has_active_prompt();
+            (held, window.is_window_active() && window.has_focused_input(cx))
+        });
+        // A window being drawn right now can't be read: count it as busy.
+        let (held, typing) = looked.unwrap_or((true, false));
+        now.held |= held;
+        now.other_window_input |= typing && handle.window_id() != main.window_id();
+    }
+    now
+}
+
+/// An alert running (`runModal`), or a file picker or a prompt's sheet with
+/// the keys: each is a panel AppKit made, and the app's own windows aren't.
+#[cfg(target_os = "macos")]
+fn native_panel_up() -> bool {
+    use objc2::runtime::NSObjectProtocol as _;
+    use objc2::{ClassType as _, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSPanel};
+    let Some(mtm) = MainThreadMarker::new() else { return false };
+    let app = NSApplication::sharedApplication(mtm);
+    app.modalWindow().is_some() || app.keyWindow().is_some_and(|w| w.isKindOfClass(NSPanel::class()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_panel_up() -> bool {
+    false
+}
+
+/// The app is in front (`NSApp.isActive`, as the Swift app asks): not each
+/// window's activation (`thread::is_looking`), which goes when a file picker
+/// or an alert takes the keys, though the app's still in front under it.
+#[cfg(target_os = "macos")]
+fn app_active() -> bool {
+    let Some(mtm) = objc2::MainThreadMarker::new() else { return true };
+    objc2_app_kit::NSApplication::sharedApplication(mtm).isActive()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_active() -> bool {
+    crate::thread::is_looking()
+}
+
+/// Seconds since the last key, click, pointer move or scroll anywhere on the
+/// Mac (the hang watch's own question), which with the app in front is input
+/// to it. Covers every window of the app, Settings and the review window too.
+#[cfg(target_os = "macos")]
+fn idle_seconds() -> f64 {
+    crate::hang_watch::idle_seconds().unwrap_or(0.)
+}
+
+/// Elsewhere there's no asking yet, so it never counts as idle: in front it
+/// waits for Restart to Update or for another app to be in front.
+#[cfg(not(target_os = "macos"))]
+fn idle_seconds() -> f64 {
+    0.
+}
+
 impl Threadbear {
     /// From the app's start: only the installed app follows main.
     pub(crate) fn start_updater(&mut self, cx: &mut Context<Self>) {
@@ -241,9 +320,14 @@ impl Threadbear {
                 cx.background_executor().timer(LOOK_EVERY).await;
             }
         });
+        let main = self.main_window;
         let restarts = cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(RESTART_LOOK).await;
-            if this.update(cx, |t, cx| t.consider_auto_restart(cx)).is_err() {
+            // The windows are looked at here, outside the app's own update:
+            // a window's dialogs and focus are read through its root, which
+            // reads the app back.
+            let windows = cx.update(|cx| windows_now(main, cx));
+            if this.update(cx, |t, cx| t.consider_auto_restart(windows, cx)).is_err() {
                 break;
             }
         });
@@ -342,8 +426,9 @@ impl Threadbear {
                     note(&format!("{} is staged; it goes in when the app quits or is opened again", info.short));
                     self.updater.staged = Some(info);
                     self.updater.failed = None;
+                    // The next of the once-a-second looks weighs restarting
+                    // into it, with what the windows have up.
                     self.menus_stale = true;
-                    self.consider_auto_restart(cx);
                 }
                 None => self.updater.failed = Some(tree),
             },
@@ -360,29 +445,60 @@ impl Threadbear {
         cx.notify();
     }
 
-    /// Words or pictures in a message box, or a schedule editor open: the
-    /// Swift app doesn't restart under either (`hasDrafts`), as Mike may be
-    /// halfway through.
+    /// Words or pictures in a message box, a schedule editor open or a thread
+    /// being renamed: the Swift app doesn't restart under the first two
+    /// (`hasDrafts`), as Mike may be halfway through.
     fn has_unsent_words(&self, cx: &App) -> bool {
         let boxes = self.composers.values().chain(self.new_thread.composer.iter());
         boxes.into_iter().any(|c| {
             let (text, images) = c.read(cx).draft_for_saving(cx);
             !text.trim().is_empty() || !images.is_empty()
         }) || self.schedule_editor.is_some()
+            || self.rename_field.is_some()
+    }
+
+    /// Something of the app's own under way that a restart would cut off: a
+    /// drag, a page or row swipe, the button held (a selection being made),
+    /// one of its menus, the share popover or the Move to sheet.
+    fn under_way(&self, cx: &App) -> bool {
+        cx.has_active_drag()
+            || crate::reply_links::left_held()
+            || self.swipe_nav.under_way()
+            || self.sidebar.gestures.under_way()
+            || self.sidebar.menu.is_some()
+            || crate::tips::any_menu_up()
+            || gpui_kit::base::GlobalState::is_in_deferred_context(cx)
+            || self.share_popover.is_some()
+            || self.move_sheet.is_some()
+    }
+
+    /// What a restart by itself is weighed against just now, with what the
+    /// windows have up (`windows_now`). A script reads it too (`updates` with
+    /// `restartCheck`), as a scripted app never restarts.
+    pub(crate) fn restart_moment(&self, windows: WindowsNow, cx: &App) -> rules::RestartMoment {
+        rules::RestartMoment {
+            staged: self.updater.staged.is_some(),
+            loaded: self.sidebar.loaded && matches!(self.status, threadbear_client::runner::Status::Connected { .. }),
+            has_drafts: self.has_unsent_words(cx),
+            held: windows.held || self.under_way(cx),
+            other_window_input: windows.other_window_input,
+            active: app_active(),
+            idle_for: idle_seconds(),
+        }
     }
 
     /// Restarts into the staged build as soon as that wouldn't interrupt
-    /// anything (`should_auto_restart`): checked every second.
-    pub(crate) fn consider_auto_restart(&mut self, cx: &mut Context<Self>) {
+    /// anything (`should_auto_restart`): checked every second, with what the
+    /// windows have up (`windows_now`).
+    pub(crate) fn consider_auto_restart(&mut self, windows: WindowsNow, cx: &mut Context<Self>) {
         if self.updater.restarting || self.updater.staged.is_none() || self.updater.preview {
             return;
         }
-        let loaded = self.sidebar.loaded && matches!(self.status, threadbear_client::runner::Status::Connected { .. });
-        let active = crate::thread::is_looking();
-        // No handover, so nothing in front of Mike counts as unseen.
-        if rules::should_auto_restart(true, loaded, self.has_unsent_words(cx), active, 0., false) {
-            note("restarting into the staged build: nothing typed, and the app isn't in front");
-            self.restart_for_update(true, cx);
+        let moment = self.restart_moment(windows, cx);
+        if rules::should_auto_restart(&moment) {
+            note(if moment.active { "restarting into the staged build: nothing typed, and no input for five seconds" } else { "restarting into the staged build: nothing typed, and the app isn't in front" });
+            // In front it comes back in front; behind, it stays behind.
+            self.restart_for_update(!moment.active, cx);
         }
     }
 

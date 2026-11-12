@@ -1698,10 +1698,12 @@ minutes, so it builds on one of your check hosts (`checkHosts` in
 builds on this Mac in the background, and with them set but none
 answering, its Updates panel says it's waiting for a Mac and it tries again
 later. The new version goes in when you quit it, when you choose Restart to
-Update in its app menu or Updates panel, or by itself while you're in
-another app with nothing typed, and it opens again on the list and the
-thread you had. It has no handover yet, so its window goes for a moment and
-comes back.
+Update in its app menu or Updates panel, or by itself once nothing's typed
+and nothing's open that a restart would close (a menu, a dialog, a drag, a
+field you're typing in another of its windows): straight away while you're
+in another app, and with it in front once you haven't touched the Mac for
+five seconds. It opens again on the list and the thread you had. It has no
+handover yet, so its window goes for a moment and comes back.
 
 The Updates icon on the left-hand rail shows what's on its way for the app,
 the runner and the Claude Code and Codex tools. A grey dot means something

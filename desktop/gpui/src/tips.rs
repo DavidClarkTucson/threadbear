@@ -45,6 +45,11 @@ pub(crate) fn menu_up(which: u8, up: bool) {
     MENU_UP.with(|m| m.set(if up { m.get() | which } else { m.get() & !which }));
 }
 
+/// Whether any of those menus is up, which an update's restart waits for.
+pub(crate) fn any_menu_up() -> bool {
+    MENU_UP.with(|m| m.get() != 0)
+}
+
 /// What a tooltip shows while a menu is up: nothing.
 struct NoTip;
 

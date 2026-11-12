@@ -53,3 +53,21 @@ Feature: The Updates panel
     When the app's next version is waiting for a Mac to build it on
     And I open the Updates panel
     Then the Updates panel lists "The app has a new version on main, waiting for a Mac to build it on."
+
+  # Going in by itself: straight away with another app in front, and in front
+  # once it's had five seconds with no input (core's should_auto_restart, with
+  # its tests), but never over words typed or a menu that's open. The GPUI app
+  # says what its once-a-second look sees (`updates` with `restartCheck`), as
+  # a scripted app never restarts. The Swift app restarts in front only when
+  # its handover would go unseen, and has no such check.
+  @system.selfupdate @swift-pending
+  Scenario: The next version waits to go in while words are typed or a menu is open
+    When the app's next version, def5678, is ready
+    And I open the thread "Morning brief"
+    Then a restart onto it waits for nothing
+    When I type "half a thought" in the composer
+    Then a restart onto it waits for the words typed
+    When I clear the composer
+    Then a restart onto it waits for nothing
+    When I open the Hibernate menu for "Morning brief"
+    Then a restart onto it waits for the open menu

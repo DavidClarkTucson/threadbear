@@ -80,6 +80,18 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
         let client = app.read_with(cx, |t, _| t.client.clone()).map_err(|e| e.to_string())?;
         return call(client, method, cmd["params"].clone()).await.map_err(|e| e.message);
     }
+    // What a restart onto a staged build by itself would wait for now
+    // (app_update.rs), read as its once-a-second look reads it: the windows
+    // first, outside any update, then the app. A scripted app never restarts.
+    if cmd["cmd"] == "updates" && cmd["restartCheck"].as_bool() == Some(true) {
+        let main = app.read_with(cx, |t, _| t.main_window).map_err(|e| e.to_string())?;
+        let windows = cx.update(|cx| crate::app_update::windows_now(main, cx));
+        let m = app.read_with(cx, |t, cx| t.restart_moment(windows, cx)).map_err(|e| e.to_string())?;
+        return Ok(json!({
+            "staged": m.staged, "loaded": m.loaded, "hasDrafts": m.has_drafts, "held": m.held,
+            "otherWindowInput": m.other_window_input, "active": m.active, "idleFor": m.idle_for,
+        }));
+    }
     // The runners' figures, asked for and waited on, as the Swift command does.
     if cmd["cmd"] == "runners" && cmd["stats"].as_bool() == Some(true) {
         return crate::runners_panel::stats_command(app, cx).await;

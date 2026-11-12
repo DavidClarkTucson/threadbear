@@ -165,6 +165,13 @@ pub(crate) fn watch() -> impl IntoElement {
     .inset_0()
 }
 
+/// Whether the left button is down in the window (`LEFT_HELD`): an update's
+/// restart waits for the release (app_update.rs), and a draft box's words
+/// step aside for a selection being made from outside them (draft_boxes.rs).
+pub(crate) fn left_held() -> bool {
+    LEFT_HELD.with(Cell::get)
+}
+
 /// Called first by every link handler: during a probe it notes the link and
 /// says so, and the handler does nothing else.
 pub(crate) fn noted_by_probe(url: &str) -> bool {

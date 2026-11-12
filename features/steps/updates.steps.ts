@@ -44,3 +44,31 @@ Then('the app menu has {string}', async function (this: ThreadbearWorld, title: 
   }
   assert.fail(`${title} isn't in the app menu: ${JSON.stringify(titles)}`);
 });
+
+// What a restart onto the staged version by itself waits for, as the GPUI
+// app's once-a-second look sees it (`updates` with `restartCheck`). Whether
+// the app's in front and how long the desktop's been idle are the machine's,
+// so only what holds the restart off is checked.
+type RestartCheck = { staged: boolean; loaded: boolean; hasDrafts: boolean; held: boolean; otherWindowInput: boolean };
+
+async function restartWaits(world: ThreadbearWorld, what: string, wanted: (c: RestartCheck) => boolean) {
+  let seen: RestartCheck | undefined;
+  for (let i = 0; i < 40; i += 1) {
+    seen = JSON.parse(await world.app.do({ cmd: 'updates', restartCheck: true })) as RestartCheck;
+    if (wanted(seen)) return;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  assert.fail(`a restart should wait for ${what}, but the app saw ${JSON.stringify(seen)}`);
+}
+
+Then('a restart onto it waits for nothing', async function (this: ThreadbearWorld) {
+  await restartWaits(this, 'nothing', (c) => c.staged && c.loaded && !c.hasDrafts && !c.held && !c.otherWindowInput);
+});
+
+Then('a restart onto it waits for the words typed', async function (this: ThreadbearWorld) {
+  await restartWaits(this, 'the words typed', (c) => c.hasDrafts);
+});
+
+Then('a restart onto it waits for the open menu', async function (this: ThreadbearWorld) {
+  await restartWaits(this, 'the open menu', (c) => c.held && !c.hasDrafts);
+});
