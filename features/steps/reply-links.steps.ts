@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { After, Given, Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
+import { tempFolder } from '../support/temp.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 import { okValue, type Dump, type Row } from '../support/driver.ts';
 import { previewLine } from '../support/pane.ts';
@@ -14,16 +14,9 @@ import { previewLine } from '../support/pane.ts';
 
 type LinkWorld = ThreadbearWorld & { file?: string };
 
-// A scenario's files, each in a folder of its own, gone after it.
-const made: string[] = [];
-After(() => {
-  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-});
-
 Given('a file {string} saying {string} in a folder of its own', function (this: LinkWorld, name: string, text: string) {
-  // Its real path, so what an app resolves (symlinks followed) reads the same.
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-links-')));
-  made.push(dir);
+  // A folder of its own, gone after the scenario (support/temp.ts).
+  const dir = tempFolder('tb-links-');
   this.file = path.join(dir, name);
   fs.writeFileSync(this.file, text.replaceAll('\\n', '\n'));
 });

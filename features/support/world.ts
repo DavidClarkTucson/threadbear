@@ -6,6 +6,7 @@ import { sleep, type Driver, type Dump, type Row, type Thread } from './driver.t
 import { GpuiDriver } from './gpui.ts';
 import { longThreadFolder } from './long-thread.ts';
 import { SwiftDriver } from './swift.ts';
+import { removeTempFolders } from './temp.ts';
 import { webRuntimeCleanup, webRuntimeSetup } from './web-runtime.ts';
 
 // Whatever a person running the specs asked for (features/README.md), kept
@@ -117,5 +118,7 @@ After(async function (this: ThreadbearWorld, { result, pickle }) {
     if (fs.existsSync(file)) this.attach(fs.readFileSync(file), 'image/png');
   }
   await this.app.stop();
+  // Only now: Windows won't remove the folder the Terminal's shell is in.
+  removeTempFolders();
   webRuntimeCleanup();
 });

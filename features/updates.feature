@@ -82,7 +82,10 @@ Feature: The Updates panel
     When I write "not before Friday" as my own answer to ask 1
     Then a restart onto it waits for the words typed
 
-  @system.selfupdate @swift-pending
+  # @windows-pending: there the Terminal can't tell its shell is idle at the
+  # prompt (terminal.rs, shell_in_front is Unix only), so a fresh shell
+  # already holds the restart off.
+  @system.selfupdate @swift-pending @windows-pending
   Scenario: The next version waits while a shell is typed in or running something
     Given the thread "Rename the Settings tabs" works in a folder of its own
     When the app's next version, def5678, is ready

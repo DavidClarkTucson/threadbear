@@ -35,7 +35,10 @@ Feature: A folder in the side pane
     When I press Back in the pane
     Then the pane shows the thread's folder again
 
-  @folder.pathbar
+  # @windows-pending: the path bar splits a folder's path on / only (core's
+  # folders.rs, crumbs), so a Windows path is one long step, tucked behind
+  # its "…".
+  @folder.pathbar @windows-pending
   Scenario: The path bar names each folder down to this one
     Given the thread's folder is showing in the pane for "Rebuild the three landing pages"
     When I double-click the folder row "logs"

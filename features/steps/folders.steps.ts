@@ -1,8 +1,8 @@
-import { After, Given, Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tempFolder } from '../support/temp.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 import { okValue } from '../support/driver.ts';
 import { pane, previewLine } from '../support/pane.ts';
@@ -17,20 +17,13 @@ async function showFiles(world: ThreadbearWorld) {
   await world.until('the folder browser to be showing', (d) => pane(d)?.section === 'threadbear.files' && names(d).length > 0);
 }
 
-/** Folders a scenario made, to go when it ends. */
-const made = new WeakMap<ThreadbearWorld, string[]>();
-After(function (this: ThreadbearWorld) {
-  for (const dir of made.get(this) ?? []) fs.rmSync(dir, { recursive: true, force: true });
-});
-
 // The demo thread's own folder sits in the mock runner's temp folder, which
 // is deep on a Mac (/private/var/folders/...) but /tmp/tb-spec-... on Linux,
 // short enough for the path bar to show whole, so nothing was tucked behind
 // its … there (11 Nov). A folder made deep, in a temp folder of its own.
 Given('the thread {string} works in a folder too deep for the path bar to show whole', async function (this: ThreadbearWorld, title: string) {
   const thread = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
-  const top = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-folders-')));
-  made.set(this, [...(made.get(this) ?? []), top]);
+  const top = tempFolder('tb-folders-');
   const folder = path.join(top, 'a-folder-of-its-own', 'with-more-folders', 'above-the-one', 'it-works-in');
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(path.join(folder, 'notes.md'), 'made by the scenario\n');

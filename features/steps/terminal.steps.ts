@@ -2,12 +2,12 @@
 // and say what the panel shows in the dump's `terminal`; the GPUI app's `keys`
 // and `press` go through its keyboard and input method, the Swift app's to the
 // shell as SwiftTerm's `send` does.
-import { After, Given, Then, When } from '@cucumber/cucumber';
+import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { okValue, type Dump } from '../support/driver.ts';
+import { tempFolder } from '../support/temp.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 
 /** Each scenario's folders, by thread id, the threads' ids by title, and what it noted. */
@@ -43,15 +43,11 @@ async function untilScreen(world: ThreadbearWorld, what: string, check: (lines: 
   }
 }
 
-After(function (this: ThreadbearWorld) {
-  for (const folder of state(this).folders.values()) fs.rmSync(folder, { recursive: true, force: true });
-});
-
 // A real folder, as the demo threads' are Mike's and on no other machine. A
 // temp one, made for the scenario, so the shell never starts in anyone's.
 Given('the thread {string} works in a folder of its own', async function (this: ThreadbearWorld, title: string) {
   const thread = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
-  const folder = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-terminal-')));
+  const folder = tempFolder('tb-terminal-');
   state(this).folders.set(thread.id, folder);
   state(this).ids.set(title, thread.id);
   await this.app.do({ cmd: 'mock', method: 'terminal', params: { threadId: thread.id, cwd: folder } });
