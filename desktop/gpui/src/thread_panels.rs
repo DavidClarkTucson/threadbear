@@ -251,7 +251,17 @@ impl Threadbear {
                 }
                 let composer = self.composer_for(&thread.id, window, cx);
                 let (client, summary) = (self.client.clone(), thread.clone());
-                let pane = cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx));
+                // One kept loaded since it was last open shows at once.
+                let pane = match self.kept.take(&thread.id, cx) {
+                    Some(pane) => {
+                        pane.update(cx, |p, cx| {
+                            p.summary_changed(&summary, cx);
+                            p.shown_again(cx);
+                        });
+                        pane
+                    }
+                    None => cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx)),
+                };
                 composer.update(cx, |c, cx| {
                     c.attach(pane.downgrade());
                     cx.notify();
@@ -353,8 +363,9 @@ impl Threadbear {
                 continue;
             }
             // The main panel may be reading it now (Move to Main Panel).
+            // Otherwise it's kept loaded, for opening again (pane_cache.rs).
             if main_thread.as_deref() != Some(id.as_str()) {
-                left.pane.read(cx).unsubscribe();
+                self.kept.keep(left.pane, cx);
             }
         }
         for (id, panel) in &self.thread_panels.panes {

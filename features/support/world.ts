@@ -88,6 +88,14 @@ After({ tags: '@sidebar.skeleton' }, () => {
   delete process.env.TB_DEV_APP_NO_READY;
 });
 
+// A runner slow to read a thread (switching-threads.feature).
+Before({ tags: '@thread.loading or @thread.kept' }, () => {
+  process.env.THREADBEAR_MOCK_EVENTS_DELAY_MS = '3000';
+});
+After({ tags: '@thread.loading or @thread.kept' }, () => {
+  delete process.env.THREADBEAR_MOCK_EVENTS_DELAY_MS;
+});
+
 Before(async function (this: ThreadbearWorld, { pickle }) {
   // A scenario about paging needs a thread longer than one page of events.
   const long = pickle.tags.some((t) => t.name === '@long-thread');

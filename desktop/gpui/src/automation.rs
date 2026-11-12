@@ -756,6 +756,20 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         }
         // Everything the thread has, not just its newest page, then how long a
         // frame takes to draw while it's scrolled (the risk check in stage 0).
+        // The open thread's read and the threads kept loaded, without the
+        // rows a dump carries, so asking often doesn't slow what it times
+        // (features/tools/switch-perf.ts).
+        "pane-timing" => {
+            let t = app.read(cx);
+            let pane = t.pane.as_ref().map(|p| p.read(cx));
+            Ok(json!({
+                "threadId": pane.map(|p| p.summary.id.clone()),
+                "state": pane.map(|p| p.load_state()),
+                "rows": pane.map(|p| p.feed.model().rows().len()),
+                "timing": pane.map(|p| p.timing_json()),
+                "kept": t.kept.ids(cx),
+            }))
+        }
         "load-all" => {
             app.update(cx, |t, cx| t.load_all_events(cx));
             Ok(json!("ok"))

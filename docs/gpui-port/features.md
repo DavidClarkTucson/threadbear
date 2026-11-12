@@ -139,6 +139,8 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `toast.milestone` | Milestone toast | Thread count passes 100 and each thousand | `Toast`, using time since the last in-app input in place of the system idle time. | kit | S | `DetailView`, `AppModel+Milestones` |
 | `thread.newpage` | New-thread page | Centred composer, heading, project chip, note, room card | Drawn page reusing the composer. | build | M | `DetailView` (`ComposerPlacement`, `NewThreadHeading`, `AccountRoomCard`) |
 | `thread.loadfailure` | Load failure states | Couldn't load, Try again, no record, Nothing yet | Drawn. | build | S | `DetailView` |
+| `thread.loading` | Reading a thread | A small spinner in the middle of the transcript, no words, until its rows are read | Kit spinner over the list while the pane isn't loaded. | build | S | `DetailView` |
+| `thread.kept` | Threads kept loaded | The last 24 threads opened stay loaded, so switching back shows one at once and catches up from its last seq | `PaneCache` of panes, still subscribed; least recently shown goes first. | build | M | `AppModel+Selection` (`sessions`, `maxSessions`) |
 
 ## 5. Transcript row kinds
 

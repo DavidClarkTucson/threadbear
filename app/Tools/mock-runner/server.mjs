@@ -857,6 +857,11 @@ async function dispatch(client, method, p) {
       return { thread: s };
     }
     case 'threads.events': {
+      // THREADBEAR_MOCK_EVENTS_DELAY_MS: a runner slow to read a thread (one
+      // busy handing over, a loaded Mac), for the spinner while a thread's
+      // read and switching back to one kept loaded (switching-threads.feature).
+      const eventsDelay = Number(process.env.THREADBEAR_MOCK_EVENTS_DELAY_MS ?? 0);
+      if (eventsDelay > 0) await new Promise((r) => setTimeout(r, eventsDelay));
       const t = need(p.threadId);
       const failing = failingEvents.get(t.summary.id) ?? 0;
       if (failing > 0) {

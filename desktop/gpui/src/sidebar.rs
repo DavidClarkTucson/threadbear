@@ -553,7 +553,7 @@ impl Threadbear {
             Some(next) => self.open(next, window, cx),
             None => {
                 self.selected = None;
-                self.pane = None;
+                self.leave_pane(cx);
                 cx.notify();
             }
         }
@@ -1269,9 +1269,7 @@ impl Threadbear {
     /// `app.newThread()`: leaves the open thread for a fresh start, the
     /// cursor in the new box.
     pub(crate) fn new_thread(&mut self, cx: &mut Context<Self>) {
-        if let Some(old) = self.pane.take() {
-            old.read(cx).unsubscribe();
-        }
+        self.leave_pane(cx);
         self.selected = None;
         self.shows_home = false;
         self.projects.open = None;

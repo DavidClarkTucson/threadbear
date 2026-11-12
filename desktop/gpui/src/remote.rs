@@ -113,7 +113,8 @@ impl Threadbear {
             self.threads.remove(&id);
             self.failed_on_account.remove(&id);
         }
-        // An open remote thread keeps up with its row.
+        // An open remote thread keeps up with its row, and so do the ones
+        // kept loaded (pane_cache.rs).
         if let Some(id) = self.selected.clone() {
             if let (Some(pane), Some(t)) = (self.pane.clone(), self.threads.get(&id).cloned()) {
                 if t.runner_id.is_some() {
@@ -121,6 +122,14 @@ impl Threadbear {
                 }
             }
         }
+        for pane in self.kept.panes().cloned().collect::<Vec<_>>() {
+            let Some(t) = self.threads.get(&pane.read(cx).summary.id).filter(|t| t.runner_id.is_some()).cloned() else { continue };
+            pane.update(cx, |p, cx| p.summary_changed(&t, cx));
+        }
+        // A kept thread that's no longer listed (deleted, here or on its
+        // runner, while the connection was down) goes from the kept ones.
+        let listed: HashSet<String> = self.threads.keys().cloned().collect();
+        self.kept.retain(cx, |id| listed.contains(id));
     }
 
     /// `loadRelayLogins`: that runner's logins for the pickers, from the

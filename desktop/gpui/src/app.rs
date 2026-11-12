@@ -34,6 +34,9 @@ pub struct Threadbear {
     pub(crate) pane: Option<Entity<ThreadPane>>,
     /// The open pane's requests to the app (a thread: link was clicked).
     pub(crate) pane_events: Option<Subscription>,
+    /// The threads opened lately, kept loaded so switching back is at once
+    /// (pane_cache.rs).
+    pub(crate) kept: crate::pane_cache::PaneCache,
     pub(crate) search: Entity<InputState>,
     /// The sections folded away under their headings, by key.
     pub(crate) folded: HashSet<&'static str>,
@@ -383,6 +386,7 @@ impl Threadbear {
             selected: None,
             pane: None,
             pane_events: None,
+            kept: Default::default(),
             search,
             folded,
             composers: HashMap::new(),
@@ -721,6 +725,10 @@ impl Threadbear {
                     for pane in self.pane.iter().chain(self.thread_panels.panes()) {
                         pane.update(cx, |p, cx| p.load(cx));
                     }
+                    // Kept ones catch up from their last seq when next shown.
+                    for pane in self.kept.panes() {
+                        pane.update(cx, |p, _| p.connection_back());
+                    }
                 }
             }
             Seen::Note(method, params) => match method.as_str() {
@@ -736,6 +744,9 @@ impl Threadbear {
                             pane.update(cx, |p, cx| p.summary_changed(&t, cx));
                         }
                         if let Some(pane) = self.thread_panel_pane(&t.id) {
+                            pane.update(cx, |p, cx| p.summary_changed(&t, cx));
+                        }
+                        if let Some(pane) = self.kept.get(&t.id, cx) {
                             pane.update(cx, |p, cx| p.summary_changed(&t, cx));
                         }
                         let before = self.threads.insert(t.id.clone(), t.clone());
@@ -755,6 +766,7 @@ impl Threadbear {
                 "thread.deleted" => {
                     let id = params["threadId"].as_str().unwrap_or("");
                     crate::terminal::thread_deleted(id, cx);
+                    self.kept.forget(id, cx);
                     // Its panel of its own goes with it (`forget`).
                     self.close_thread_panel(id, cx);
                     self.threads.remove(id);
@@ -803,8 +815,13 @@ impl Threadbear {
                     // An open review window hears its review change whichever
                     // thread is open here (review_window.rs).
                     crate::review_window::receive_event(&params, cx);
-                    // Each pane takes its own thread's events only.
+                    // Each pane takes its own thread's events only: the open
+                    // ones, and those kept loaded, which stay subscribed.
+                    let id = params["threadId"].as_str().unwrap_or("");
                     for pane in self.pane.iter().chain(self.thread_panels.panes()) {
+                        pane.update(cx, |p, cx| p.event(&params, cx));
+                    }
+                    if let Some(pane) = self.kept.get(id, cx) {
                         pane.update(cx, |p, cx| p.event(&params, cx));
                     }
                 }
@@ -893,7 +910,7 @@ impl Threadbear {
                         // changed while it was away (a loose-ends check that
                         // finished then isn't sent again), and each pane's
                         // reload reads its own summary (Codex's review, 12 Nov).
-                        let panes: Vec<_> = this.pane.iter().chain(this.subagent_pane.iter()).chain(this.thread_panels.panes()).cloned().collect();
+                        let panes: Vec<_> = this.pane.iter().chain(this.subagent_pane.iter()).chain(this.thread_panels.panes()).chain(this.kept.panes()).cloned().collect();
                         for pane in panes {
                             let Some(mut t) = this.threads.get(&pane.read(cx).summary.id).cloned() else { continue };
                             t.runner_id = pane.read(cx).summary.runner_id.clone();
@@ -901,7 +918,8 @@ impl Threadbear {
                         }
                         crate::terminal::list_loaded(&this.threads, cx);
                         this.note_failed_accounts(&before);
-                        // Other runners' rows stay listed beside these.
+                        // Other runners' rows stay listed beside these (and
+                        // kept threads no longer listed go, remote.rs).
                         this.apply_remote_index(cx);
                         this.list_error = None;
                         this.sidebar.loaded = true;
@@ -1044,15 +1062,29 @@ impl Threadbear {
         if let Some(runner) = summary.runner_id.clone() {
             self.load_remote_logins(runner, cx);
         }
-        if let Some(old) = &self.pane {
-            old.read(cx).unsubscribe();
-        }
+        // Kept loaded since it was last open: shown as it was at once, and
+        // caught up if it needs to be (pane_cache.rs). Taken out before the
+        // open one goes in, which could otherwise push it out. A pane brought
+        // from a panel is the thread's one, and a kept one can't be too.
+        let kept = self.kept.take(&id, cx).filter(|_| moved.is_none());
+        // The thread that was open stays loaded, for switching back.
+        self.leave_pane(cx);
         let client = self.client.clone();
         let composer = self.composer_for(&id, window, cx);
         self.selected = Some(id);
         self.shows_home = false;
         self.projects.open = None;
-        let pane = moved.unwrap_or_else(|| cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx)));
+        let pane = match (moved, kept) {
+            (Some(pane), _) => pane,
+            (None, Some(pane)) => {
+                pane.update(cx, |p, cx| {
+                    p.summary_changed(&summary, cx);
+                    p.shown_again(cx);
+                });
+                pane
+            }
+            (None, None) => cx.new(|cx| ThreadPane::new(client, summary, composer.clone(), cx)),
+        };
         composer.update(cx, |c, cx| {
             c.attach(pane.downgrade());
             c.focus(window, cx);
@@ -1138,14 +1170,21 @@ impl Threadbear {
 
     pub(crate) fn select_none(&mut self, cx: &mut Context<Self>) {
         self.close_subagent(cx);
-        if let Some(old) = self.pane.take() {
-            old.read(cx).unsubscribe();
-        }
+        self.leave_pane(cx);
         self.selected = None;
         self.shows_home = false;
         self.projects.open = None;
         self.note_navigation();
         cx.notify();
+    }
+
+    /// The main panel's thread stops being shown there: it's kept loaded
+    /// (pane_cache.rs), still subscribed, for switching back to it.
+    pub(crate) fn leave_pane(&mut self, cx: &mut Context<Self>) {
+        self.pane_events = None;
+        if let Some(old) = self.pane.take() {
+            self.kept.keep(old, cx);
+        }
     }
 
     /// `threads.update` for the open thread, with the summary changed here
