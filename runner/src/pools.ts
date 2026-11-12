@@ -367,23 +367,21 @@ export function toShared(saved: Pool[], previous: SharedPool[], accounts: Accoun
   const seen = (m: PoolMember) => !!localLogin(m, accounts, runnerId);
   const out: SharedPool[] = saved.map((p) => {
     const before = previous.find((x) => x.id === p.id)?.members ?? [];
-    // This runner's logins that another runner's pinned member already stands for.
-    const held = new Set(before.filter((m) => pinnedElsewhere(m, runnerId)).map((m) => localLogin(m, accounts, runnerId)?.id).filter((id): id is string => !!id && p.accountIds.includes(id)));
+    // Each of this runner's logins in the order given, as the member(s)
+    // that stand for it: another runner's pinned ones that match it here,
+    // else its own.
     const chosen: PoolMember[] = [];
     for (const id of p.accountIds) {
-      if (held.has(id)) continue;
+      const pinned = before.filter((m) => pinnedElsewhere(m, runnerId) && localLogin(m, accounts, runnerId)?.id === id);
       const a = accounts.find((x) => x.id === id);
-      const m = a && memberOf(a, runnerId, accounts, pin);
-      if (m && !chosen.some((c) => memberKey(c) === memberKey(m))) chosen.push(m);
+      const mine = pinned.length ? pinned : a ? [memberOf(a, runnerId, accounts, pin)] : [];
+      for (const m of mine) if (!chosen.some((c) => memberKey(c) === memberKey(m))) chosen.push(m);
     }
     const members: PoolMember[] = [];
     let next = 0;
     for (const m of before) {
-      const here = localLogin(m, accounts, runnerId);
-      if (!here) members.push(m);
-      else if (pinnedElsewhere(m, runnerId)) {
-        if (held.has(here.id)) members.push(m);
-      } else if (next < chosen.length) members.push(chosen[next++]!);
+      if (!seen(m)) members.push(m);
+      else if (next < chosen.length) members.push(chosen[next++]!);
     }
     members.push(...chosen.slice(next));
     return { id: p.id, title: p.title, members, ...(p.folders?.length ? { folders: [...p.folders] } : {}), ...(p.icon ? { icon: p.icon } : {}) };

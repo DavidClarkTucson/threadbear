@@ -156,3 +156,9 @@ test('sameEmailWarnings: one line per shared address, for tb accounts', () => {
   assert.deepEqual(sameEmailWarnings(TWIN), ["claude-main and claude-2 share an email, so they share one usage limit, and other runners can't tell them apart in a shared pool."]);
   assert.deepEqual(sameEmailWarnings(M5), [], 'claude-1 and codex-main are different providers');
 });
+
+test("a reorder on another runner moves the Mac's pinned member too", () => {
+  const shared = roundTrip(toShared([{ id: 'mix', title: 'Mix', accountIds: ['claude-2', 'codex-main'] }], [], [...TWIN, login('codex-main', 'mike@example.net', 'codex')], 'm5'));
+  const after = toShared([{ id: 'mix', title: 'Mix', accountIds: ['codex-main', 'claude-main'] }], shared, HZ, 'hz');
+  assert.deepEqual(after[0]!.members, [{ provider: 'codex', email: 'mike@example.net' }, { provider: 'claude', email: 'mike@example.net', runnerId: 'm5', accountId: 'claude-2' }]);
+});
