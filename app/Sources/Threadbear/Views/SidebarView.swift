@@ -811,7 +811,11 @@ struct ThreadRowView: View {
                         }
                     }
                     .foregroundStyle(.secondary)
-                    Spacer(minLength: zoomed(6))
+                    // With the hover buttons up, room for them here too, as
+                    // beside the title: they're centred on the row, over both
+                    // lines, so a long project line ran on under them (Mike,
+                    // 12 Nov). It's cut short before them instead.
+                    Spacer(minLength: showsActions ? CGFloat(mode.rowActions.count) * zoomed(24) : zoomed(6))
                     if !showsActions {
                         // A new status ("Working" to the time) blurs
                         // across rather than snapping.

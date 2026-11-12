@@ -1335,6 +1335,10 @@ impl Threadbear {
         let runner_label = self.runner_label(t);
         let place_tip_text = if byline.is_some() { byline.as_ref().unwrap().tip.clone() } else { rows::place_tip(t) };
         let place_id: ElementId = ElementId::Name(format!("place-{id}").into());
+        // The hover buttons' room: 24 a button, as the Swift row keeps
+        // beside its title, which takes in the 2 between them and leaves a
+        // little gap before the first.
+        let actions_room = mode.actions().len() as f32 * 24.;
 
         let title_el = div()
             .flex_1()
@@ -1379,7 +1383,11 @@ impl Threadbear {
                         .child(format!("\u{2022} {runner}")),
                 )
             })
-            .child(div().flex_1().min_w(px(6.)))
+            // With the hover buttons up, room for them here as on the title's
+            // line: they're centred on the row, over both lines, so a long
+            // project line ran on under them (Mike, 12 Nov). It's cut short
+            // before them instead.
+            .child(div().flex_1().min_w(px(if show_buttons { actions_room } else { 6. })))
             .when(!show_buttons, |s| s.child(render_trailing(&trailing, id.clone(), p)));
 
         let actions = mode.actions();
@@ -1433,7 +1441,7 @@ impl Threadbear {
                 this.open_row_menu(menu_id.clone(), ev.position, window, cx)
             }))
             .child(tile)
-            .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(h_flex().child(title_el).when(show_buttons, |s| s.child(div().flex_none().w(px(actions.len() as f32 * 24.)).h(px(1.))))).child(second_line))
+            .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(h_flex().child(title_el).when(show_buttons, |s| s.child(div().flex_none().w(px(actions_room)).h(px(1.))))).child(second_line))
             .when_some(buttons, |s, b| s.child(h_flex().absolute().right(px(TRAILING - 5.)).top_0().bottom_0().items_center().gap(px(2.)).child(b)))
             .into_any_element();
         self.swipe_slot(&id, swipe_action, row, cx)
