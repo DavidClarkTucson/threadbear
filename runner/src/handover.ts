@@ -609,10 +609,19 @@ export class ThreadRouter implements ThreadControl {
     return this.runner.reviewOwes(threadId);
   }
 
+  // A failure to reach the other runner leaves its threads out: list_threads
+  // still shows this runner's.
   async list(include: Bucket[] = ['inbox']): Promise<ThreadSummary[]> {
+    return this.listEverywhere(include).catch(() => this.runner.list(include));
+  }
+
+  // Throws instead, for matching a short id (threadbear-mcp.ts, allForIds):
+  // a list without the other runner's threads said "No thread" for one of
+  // them (12 Nov).
+  async listEverywhere(include: Bucket[] = ['inbox']): Promise<ThreadSummary[]> {
     const local = this.runner.list(include);
     const e = this.elsewhere();
-    return e ? mergeSummaries(local, await e.list(include).catch(() => [])) : local;
+    return e ? mergeSummaries(local, await e.list(include)) : local;
   }
 
   async search(query: string, limit = 50): Promise<ThreadSummary[]> {

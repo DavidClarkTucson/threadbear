@@ -78,6 +78,9 @@ export type ThreadControl = {
   sandboxed?: (cwd: string) => boolean;
   // cross-runner.ts: a new thread on another runner (undefined: it's this one).
   startOn?: (threadId: string, req: StartRequest) => Promise<string | undefined>;
+  // list, but failing when the other runner of a handover can't be asked
+  // rather than leaving its threads out (handover.ts, ThreadRouter).
+  listEverywhere?: (include: ('inbox' | 'snoozed' | 'archived')[]) => Promise<ThreadSummary[]>;
 } & Async<Runner, 'list' | 'search' | 'get' | 'events' | 'create' | 'send' | 'update' | 'interrupt' | 'delete'>;
 
 // Messages a thread when the Mac app restarts onto a new build (app-restarts.ts).
@@ -206,6 +209,11 @@ export function approvalTitle(name: string, input: Record<string, unknown>, find
 export const LAND_WAIT_MS = 1000;
 const LAND_POLL_MS = 50;
 
+// A short id's lookup, when the other runner of a handover doesn't answer:
+// tries, a second apart, which covers a new runner's first seconds.
+const ID_LIST_TRIES = 4;
+const ID_LIST_RETRY_MS = 1000;
+
 export function buildThreadbearTools(
   control: ThreadControl,
   selfId: string,
@@ -254,6 +262,25 @@ export function buildThreadbearTools(
   const oneReply = opts.oneReply?.() === true;
   const all = async (): Promise<ThreadSummary[]> => control.list(['inbox', 'snoozed', 'archived']);
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  // Every thread, for matching a short id. In a handover the list comes
+  // partly from the other runner, and a plain list leaves its threads out
+  // when it can't be asked, so a short id said "No thread" for a thread
+  // that was there: a turn kept on a draining runner sent to df5c7153
+  // half a minute after the new runner started, before its link answered
+  // (12 Nov). So a failure here is tried again for a few seconds, then
+  // said, rather than taken for an empty list.
+  const allForIds = async (id: string): Promise<ThreadSummary[]> => {
+    if (!control.listEverywhere) return all();
+    for (let tries = 1; ; tries++) {
+      try {
+        return await control.listEverywhere(['inbox', 'snoozed', 'archived']);
+      } catch (e) {
+        if (tries >= ID_LIST_TRIES) throw new Error(`Couldn't look ${id} up just now (${e instanceof Error ? e.message : String(e)}). Try again in a moment, or use the whole id.`);
+        await sleep(ID_LIST_RETRY_MS);
+      }
+    }
+  };
 
   // The current turn's events, oldest first: back a page at a time until
   // its turn.started.
@@ -317,7 +344,7 @@ export function buildThreadbearTools(
       });
       if (t?.id === id) return { id };
     }
-    const hits = whole ? [] : (await all()).filter((t) => t.id === id || t.id.startsWith(id));
+    const hits = whole ? [] : (await allForIds(id)).filter((t) => t.id === id || t.id.startsWith(id));
     // A whole id here needs nothing from the backend.
     if (hits.some((t) => t.id === id)) return { id };
     const rt = await others();
