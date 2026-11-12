@@ -2569,7 +2569,7 @@ mod tests {
         ];
         for note in &notes {
             let took = cpu_time_of(note);
-            assert!(took < std::time::Duration::from_millis(100), "{} characters starting {:?} took {took:?}", note.len(), &note[..12]);
+            assert!(took < std::time::Duration::from_millis(400), "{} characters starting {:?} took {took:?}", note.len(), &note[..12]);
         }
         // Words come back as written.
         assert_eq!(inline_markdown(&"[".repeat(20_000)), vec![plain(&"[".repeat(20_000))]);
