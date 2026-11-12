@@ -192,6 +192,13 @@ impl Element for SelectableText {
             .with_document_order(self.document_order)
             .with_text_bounds(vec![bounds])
             .with_rendered_element(handle, window, cx);
+        // The ends paint registers, carried through until it does: cleared
+        // here and set again there, every frame would count as the ends
+        // moving, which redraws a touch selection's handles for ever.
+        let registration = match handle.registered_selection_edges(window, cx) {
+            Some((start, end)) => registration.with_selection_edges(start, end),
+            None => registration,
+        };
         handle.register(registration, window, cx);
         hitbox
     }
@@ -202,7 +209,7 @@ impl Element for SelectableText {
         inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         handle: &mut Self::RequestLayoutState,
-        _: &mut Self::PrepaintState,
+        hitbox: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -221,8 +228,29 @@ impl Element for SelectableText {
         let color = self
             .selection_color
             .unwrap_or_else(|| crate::Theme::global(cx).tokens.colors.selection);
+        let mut edges: Option<(usize, usize)> = None;
         for range in projection.ranges().iter().flatten().cloned() {
+            edges = Some(edges.map_or((range.start, range.end), |(start, end)| (start.min(range.start), end.max(range.end))));
             Self::paint_selection(&layout, range, color, window);
+        }
+        // Registered again with where the selection's ends were drawn, as a
+        // TextView does after its paint, so `TextSelection::painted_edges`
+        // knows this text's part of a selection too.
+        let line_height = layout.line_height();
+        let painted = edges.and_then(|(start, end)| Some((layout.position_for_index(start)?, layout.position_for_index(end)?))).map(|(start, end)| {
+            (crate::touch_selection::caret_line_box(start, line_height), crate::touch_selection::caret_line_box(end, line_height))
+        });
+        // Only when they differ from what prepaint carried over.
+        if painted != handle.registered_selection_edges(window, cx) {
+            let registration = TextSelectionRegistration::new(hitbox.clone(), bounds)
+                .with_document_order(self.document_order)
+                .with_text_bounds(vec![bounds])
+                .with_rendered_element(handle, window, cx);
+            let registration = match painted {
+                Some((start, end)) => registration.with_selection_edges(start, end),
+                None => registration,
+            };
+            handle.register(registration, window, cx);
         }
         self.styled_text.paint(
             global_id,

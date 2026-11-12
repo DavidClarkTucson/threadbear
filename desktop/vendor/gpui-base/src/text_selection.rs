@@ -965,6 +965,25 @@ impl TextSelectionHandle {
     }
 
     /// Registers this participant and its geometry for the current frame.
+    /// The selection ends this participant registered last, in its last
+    /// registration this window has: for one that learns its ends only as it
+    /// paints, to carry them through its earlier registration in the same
+    /// frame rather than clear them and set them again.
+    pub(crate) fn registered_selection_edges(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<(Bounds<Pixels>, Bounds<Pixels>)> {
+        let state = WindowSelectionState::existing(window, cx)?;
+        let id = self.0.entity_id();
+        state
+            .read(cx)
+            .participants
+            .borrow()
+            .get(&id)
+            .and_then(|registration| registration.registration.selection_edges)
+    }
+
     pub fn register(
         &self,
         mut registration: TextSelectionRegistration,
@@ -1958,16 +1977,24 @@ impl WindowSelectionState {
         )
     }
 
-    /// [`TextSelection::painted_edges`].
+    /// [`TextSelection::painted_edges`]. `None` as soon as a participant that
+    /// has part of the selection drew no ends: the pair from the others would
+    /// leave its part out.
     fn painted_edges(&self) -> Option<(Bounds<Pixels>, Bounds<Pixels>)> {
         let mut start: Option<(u64, Bounds<Pixels>)> = None;
         let mut end: Option<(u64, Bounds<Pixels>)> = None;
-        for registration in self.participants.borrow().values() {
+        for (id, registration) in self.participants.borrow().iter() {
             let geometry = &registration.registration;
             if geometry.scope != self.active_scope || registration.participant.upgrade().is_none() {
                 continue;
             }
             let Some((edge_start, edge_end)) = geometry.selection_edges else {
+                // Part of the selection, as its snapshot says (`participates`
+                // alone takes in every participant at the same document
+                // order, such as other messages' plain text).
+                if self.participant_snapshot(*id).is_some() {
+                    return None;
+                }
                 continue;
             };
             let order = registration.document_order;
