@@ -541,17 +541,18 @@ Fixes from Codex's review of the slice before:
   project_decisions}.rs`, `desktop/gpui/src/rows/export.rs`,
   `app/Tools/mock-runner/server.mjs`, `features/connection.feature`,
   `features/steps/connection.steps.ts`, `features/support/{driver,gpui,swift}.ts`.
-- Codex reviewed it twice (gpt-6.1-sol, high). Fixed from those: a failed
+- Codex reviewed it four times (gpt-6.1-sol, high). Fixed from those: a failed
   held message joins what's in the box, and waits while an older message
   is being edited; held messages go in the drafts file at a quit (a card's
   answers as the message's words), and a quit stops them going so they
   can't go twice; one echo lands only one of two identical messages; the
   runner's "restarting, send again" refusal goes again; and each request
-  takes its place in the restart queue where it's made (`Client::place`),
-  so a held message can't be overtaken by a later one, even when it's cut
-  off again.
+  takes its place in its thread's queue where it's made (`Client::place`)
+  and keeps it until it's answered, so a held or turned-away message can't
+  be overtaken by a later one; a quit keeps every message not yet on its
+  way, a card's answers as words.
 - Verification: `cargo test -p threadbear-client -p threadbear-core` on the
-  cloud box (`restart_hold.rs` 19 tests, `pending_message_tests.rs`), and
+  cloud box (`restart_hold.rs` 21 tests, `pending_message_tests.rs`), and
   `TB_APP=gpui` cucumber for `@transcript.pending`, `@banner.connection`,
   `@banner.error` and `@system.applog`: 14 scenarios passed, including the
   one that fails if the raw connection error shows during a restart.

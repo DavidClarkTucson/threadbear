@@ -109,13 +109,14 @@ thread_local! {
     /// its thread, so one still held for a restarting runner when the app
     /// quits is kept with the drafts and comes back in the box next time
     /// (Swift's `heldForResend` into DraftStore), rather than lost.
-    /// With whether it's held now: set from the connection's task as it
-    /// says so, not from the transcript's copy, which hears a moment later.
+    /// With whether it's not yet on its way (held, or behind another): set
+    /// from the connection's task as it says so, not from the transcript's
+    /// copy, which hears a moment later.
     static OUTBOX_DRAFTS: std::cell::RefCell<HashMap<String, (String, crate::composer::RestoreDraft, Arc<std::sync::atomic::AtomicBool>)>> = std::cell::RefCell::new(HashMap::new());
 }
 
-/// The boxes' words of a thread's messages still held for the new runner,
-/// oldest first, for the drafts file.
+/// The boxes' words of a thread's messages not yet on their way (held for
+/// the new runner, or behind another), oldest first, for the drafts file.
 pub(crate) fn held_drafts(thread_id: &str) -> Vec<crate::composer::RestoreDraft> {
     use std::sync::atomic::Ordering;
     outbox(thread_id)
@@ -713,7 +714,10 @@ impl ThreadPane {
         // sent again if it never arrived (`Resend::was_idle`).
         let was_idle = !self.summary.busy() && list.len() == 1;
         set_outbox(&thread_id, list);
-        let held = Arc::new(std::sync::atomic::AtomicBool::new(holding));
+        // Not yet on its way: held for a restart, or waiting behind another
+        // message to this thread. What a quit keeps in the drafts file
+        // (`held_drafts`), as `stop_holding` stops it going.
+        let held = Arc::new(std::sync::atomic::AtomicBool::new(!remote));
         // A card's answers aren't in the box's words: the message as it
         // goes, back in the box's form, so a quit keeps them too, held or
         // given back (`RestoreDraft::for_saving`).

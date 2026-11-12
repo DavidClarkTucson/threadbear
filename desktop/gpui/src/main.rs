@@ -156,12 +156,16 @@ pub async fn call(client: Arc<Client>, method: impl Into<String>, params: Value)
 /// `threads.update` (a rename, a pick, an archive) for a thread: one of this
 /// runner's goes in restart order while it's connected (`inRestartOrder`),
 /// so a pick the restarting runner turns away goes again on the new one,
-/// and nothing made later lands before it. With no connection it fails, as
-/// before; another Mac's thread goes as it is.
+/// and nothing made later lands before it. With no connection it waits for
+/// a restarting runner, or fails if none is restarting; another Mac's
+/// thread goes as it is.
 /// Its place in that order is taken as this is called, where the click is
 /// handled, so call it there and await it later, not inside a task.
 pub fn call_for_thread(client: Arc<Client>, remote: bool, method: &'static str, params: Value) -> impl std::future::Future<Output = Result<Value, RpcError>> + 'static {
-    let place = (!remote && client.connected_session().is_some()).then(|| client.place(params["threadId"].as_str().unwrap_or("")));
+    // Connected or not: while a restart's under way it waits for the new
+    // runner in its place, and with none it fails (Codex's review, 12 Nov:
+    // one made while down skipped the queue once the new runner was up).
+    let place = (!remote).then(|| client.place(params["threadId"].as_str().unwrap_or("")));
     async move {
         let Some(place) = place else {
             return call(client, method, params).await;
