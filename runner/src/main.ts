@@ -533,13 +533,11 @@ async function main(): Promise<void> {
       schedule: ({ scheduleId, action }) => (action === 'run' ? scheduler.runNow(scheduleId) : scheduler.update({ scheduleId, paused: action === 'pause' })),
       // The Mac's Move sheet asking, through the relay (threads.movePreview).
       moveDescribe: async (id) => {
-        if (!experimentOn(cfg.home, 'moveToRunner')) throw new Error(`Moving threads is off on ${cfg.sync.name ?? defaultRunnerName()}: turn on the moveToRunner experiment there.`);
         const info = await describeMovePreview(id);
         if (!info) throw new Error("That thread isn't on this runner.");
         return info;
       },
       movePreview: async (p) => {
-        if (!experimentOn(cfg.home, 'moveToRunner')) throw new Error(`Moving threads is off on ${cfg.sync.name ?? defaultRunnerName()}: turn on the moveToRunner experiment there.`);
         return runner.previewMove({ ...p, self: syncRunnerId });
       },
     },
@@ -815,7 +813,6 @@ async function main(): Promise<void> {
   runner.movedInAtMostAsk = () => Boolean(sync.ownerKey());
   const moves = (movesRef = new Moves({
     self: () => syncRunnerId,
-    on: () => experimentOn(cfg.home, 'moveToRunner'),
     backend: () => sync.movesBackend(),
     log,
     // A move coming here of a thread still on its old runner: its row in
@@ -873,7 +870,6 @@ async function main(): Promise<void> {
   moves.start();
   const startedMoves = new Map<string, string>();
   const moveOn = () => {
-    if (!experimentOn(cfg.home, 'moveToRunner')) throw new RpcError(ErrorCode.badParams, 'Moving threads to another runner is an experiment that is off on this runner.');
     if (!sync.ownerKey()) throw new RpcError(ErrorCode.badParams, "Only the main Mac's runner can move a thread.");
   };
   methods['threads.move'] = async (p) => {

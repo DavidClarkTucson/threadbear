@@ -108,8 +108,7 @@ const HELP = `tb: talk to the Threadbear runner
   tb move <threadId> <folder>
   tb move <threadId> --to <runner> [--cwd DIR] [--account ID] [--preview]
                                   moves the thread whole to another of your machines
-                                  (the moveToRunner experiment; asked of the main Mac's
-                                  runner). --preview says where it would go and what
+                                  (asked of the main Mac's runner). --preview says where it would go and what
                                   stops it, without moving
   tb delete <threadId>
   tb accounts                     the Claude and Codex logins (* new threads start on it)

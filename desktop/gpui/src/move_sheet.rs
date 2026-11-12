@@ -1,5 +1,5 @@
 // The Move sheet (MoveSheet.swift) and the Move to menu's path through
-// AppModel+Moves.swift, for the `moveToRunner` experiment. A move that can just
+// AppModel+Moves.swift. A move that can just
 // go (threads.movePreview says nothing's in the way) goes straight away; the
 // sheet is for a problem or something that won't come, and it asks the other
 // runner again as the folder or login changes, so what it says can't be done
@@ -34,11 +34,6 @@ pub(crate) struct MoveRequest {
 }
 
 impl Threadbear {
-    /// The menu shows: the experiment's on here and there's somewhere to go.
-    pub(crate) fn can_move_threads(&self) -> bool {
-        self.remote.experiments.iter().any(|e| e == "moveToRunner")
-    }
-
     /// `moveTargets`: every runner but the one it's on, offline ones included
     /// so the menu can grey them.
     pub(crate) fn move_targets(&self, runner_id: Option<&str>) -> Vec<RunnerInfo> {

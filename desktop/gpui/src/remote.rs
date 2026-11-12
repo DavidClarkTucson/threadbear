@@ -31,8 +31,7 @@ pub(crate) struct RemoteState {
     pub(crate) fetching: HashSet<String>,
     /// `runners.list`: every runner, this Mac's too.
     pub(crate) all_runners: Vec<RunnerInfo>,
-    /// `hello.experiments`: what's on for this runner (the Move to menu is
-    /// `moveToRunner`'s).
+    /// `hello.experiments`: what's on for this runner.
     pub(crate) experiments: Vec<String>,
     /// The runner has said which other Macs' threads there are (or that it
     /// can't), so a thread not among them isn't coming.

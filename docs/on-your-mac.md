@@ -323,8 +323,8 @@ File references are where to look.
   own copy) and deleted threads after 30 days in the trash. Archived
   threads keep their pictures unless you set `"archivedMediaDays": <days>`
   in `runner.json`.
-- **Moving threads** (the `moveToRunner` experiment, off by default;
-  `runner/src/moves.ts`): watches your Convex deployment for threads you've
+- **Moving threads** (`runner/src/moves.ts`, only with the Convex
+  backend): watches your Convex deployment for threads you've
   moved to or from this machine. One moving away is packed (its folder,
   its Claude transcript, its worktree's git work), sealed to the other
   machine's key, uploaded in pieces and deleted from the deployment once

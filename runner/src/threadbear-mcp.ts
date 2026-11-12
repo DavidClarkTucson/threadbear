@@ -1969,7 +1969,7 @@ export function buildThreadbearTools(
         if (to?.trim()) {
           const remote = opts.remote?.();
           const mover = remote?.move;
-          if (!mover || !remote.runners) throw new Error("Moving a thread to another machine needs the main Mac's runner, connected to Threadbear's backend, with the moveToRunner experiment on.");
+          if (!mover || !remote.runners) throw new Error("Moving a thread to another machine needs the main Mac's runner, connected to Threadbear's backend.");
           if (then?.trim()) throw new Error('`then` only goes with a folder move. Send the message after: it waits and moves with the thread.');
           // The runner is picked now, before any card, and the move goes to
           // that one by id: a name is another Mac's own word and can change

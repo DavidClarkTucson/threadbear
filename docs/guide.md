@@ -981,6 +981,28 @@ window can be seen; a runner too old to send them says so. The runners are
 in your order, the same as in Settings > Runners and on the phone: drag one
 to change it.
 
+A thread can move to another of your machines whole: the same thread, with
+its whole conversation, its pictures and Highlights, and the git work in
+its own worktree (commits and uncommitted changes alike). Right-click it
+(or use its **...** menu) and pick **Move to**, then the machine; offline
+ones are greyed. It waits for the turn it's on to end, and its message box
+and any open card are locked until it lands or you cancel; a message sent
+from your phone meanwhile goes with it. It goes straight away, to the
+folder and login that machine guesses. If it can't go, or something won't
+come (background jobs, changes in a checkout other threads share), a small
+window shows the folder and login with why; change either and it checks
+again, then press **Move**. The row says "Moving to" with a spinner until
+it's gone, then the thread is listed under the other machine, in the same
+place and still open, and its next message carries on in the same Claude
+session there. If anything goes wrong before it lands, it stays where it
+was and the row says why for a minute, in its tooltip. Its schedules come
+too, but not a schedule's shell check or the thread's "Always allow"
+answers: set those again on the new machine. A thread moved to your main
+Mac arrives asking before tools run, even if it had Full access or Auto
+there. Agents can do the same with `move_thread` and a `runner`, and
+`tb move <thread> --to <machine>` (`--preview` to see where it would go).
+Moves are started from your first Mac and need Threadbear's backend.
+
 ## Accounts, pools and Usage
 <!-- slug: accounts -->
 

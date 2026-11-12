@@ -766,26 +766,24 @@ impl Threadbear {
         if self.projects_supported && !t.is_remote() {
             rows.push(self.thread_projects_menu(t));
         }
-        // Move to ▸ another runner (`ThreadMoveMenu`), behind the experiment;
+        // Move to ▸ another runner (`ThreadMoveMenu`);
         // while a move's going, Cancel Move instead.
-        if self.can_move_threads() {
-            let moving = t.moving.as_ref().filter(|m| !matches!(m["state"].as_str(), Some("cancelled") | Some("failed")));
-            if moving.is_some() {
-                rows.push(MenuRow::item("Cancel Move", "xmark.circle", MenuAction::CancelMove));
-            } else {
-                let targets = self.move_targets(t.runner_id.as_deref());
-                if !targets.is_empty() {
-                    let children = targets
-                        .into_iter()
-                        .map(|r| {
-                            let title = if r.online { r.name.clone() } else { format!("{}, offline", r.name) };
-                            let mut row = MenuRow::item(title, crate::icons::runner_symbol(r.icon.as_deref()), MenuAction::MoveTo(r.id, r.name));
-                            row.enabled = r.online;
-                            row
-                        })
-                        .collect();
-                    rows.push(MenuRow::submenu("Move to", "arrow.right.square", children));
-                }
+        let moving = t.moving.as_ref().filter(|m| !matches!(m["state"].as_str(), Some("cancelled") | Some("failed")));
+        if moving.is_some() {
+            rows.push(MenuRow::item("Cancel Move", "xmark.circle", MenuAction::CancelMove));
+        } else {
+            let targets = self.move_targets(t.runner_id.as_deref());
+            if !targets.is_empty() {
+                let children = targets
+                    .into_iter()
+                    .map(|r| {
+                        let title = if r.online { r.name.clone() } else { format!("{}, offline", r.name) };
+                        let mut row = MenuRow::item(title, crate::icons::runner_symbol(r.icon.as_deref()), MenuAction::MoveTo(r.id, r.name));
+                        row.enabled = r.online;
+                        row
+                    })
+                    .collect();
+                rows.push(MenuRow::submenu("Move to", "arrow.right.square", children));
             }
         }
         // "Copy thread id" comes after a divider, as `.iconContextMenu` adds it.

@@ -3430,7 +3430,7 @@ built parsers and gates with no launch of the app, which is the trap.)
   same thread open, 1180 by 800, dark.
 ### 2026-11-09 Move to another runner (`sidebar.move`)
 
-- The row menu's Move to ▸ (behind `moveToRunner`): it goes straight away when
+- The row menu's Move to ▸: it goes straight away when
   the other runner has a clean answer, else the sheet comes up with its guess at
   the folder and login, what's in the way and what won't come, and asks again as
   they change. Cancel Move while it's going, and "Moving to bruce" on the row.
