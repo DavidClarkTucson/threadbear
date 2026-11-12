@@ -78,6 +78,27 @@ test('thread store saves atomically and loads every thread', () => {
   assert.deepEqual(broken, []);
 });
 
+// A handover lets go of every idle thread at once; rewriting and fsyncing
+// each unchanged thread.json held a restart back 5.5 s (12 Nov).
+test('saveIfChanged leaves an unchanged thread.json alone and writes a changed or missing one', () => {
+  const home = tmpDir();
+  ensureHome(home);
+  const store = new ThreadStore(home);
+  const rec = { id: 'abc', title: 't', cwd: '/tmp', accountId: 'claude-main', provider: 'claude', permissionMode: 'full', status: 'idle', createdAt: 'x', updatedAt: 'x', lastActivityAt: 'x', preview: '', lastSeq: 0, lastSeenSeq: 0, lastTurnCompletedSeq: 0, queue: [], pendingApprovals: [] } as ThreadRecord;
+  store.create(rec);
+  const file = path.join(home, 'threads', 'abc', 'thread.json');
+  const ino = fs.statSync(file).ino;
+  assert.equal(store.saveIfChanged(rec), false);
+  // Not even renamed over: the same file.
+  assert.equal(fs.statSync(file).ino, ino);
+  rec.title = 'renamed';
+  assert.equal(store.saveIfChanged(rec), true);
+  assert.equal(new ThreadStore(home).load('abc')?.title, 'renamed');
+  fs.rmSync(file);
+  assert.equal(store.saveIfChanged(rec), true);
+  assert.equal(new ThreadStore(home).load('abc')?.title, 'renamed');
+});
+
 test('data dir layout and a 0600 token', () => {
   const home = tmpDir();
   ensureHome(home);

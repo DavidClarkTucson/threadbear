@@ -164,7 +164,7 @@ export const handoversPart = {
     rt.deltaTimer?.cancel();
     rt.wakeTimer?.cancel();
     rt.generation++;
-    this.store.save(rec);
+    this.store.saveIfChanged(rec);
     rt.deleted = true;
     this.dirty.delete(rec.id);
     this.threads.delete(rec.id);

@@ -513,6 +513,22 @@ export class ThreadStore {
     atomicWriteFileSync(path.join(this.threadDir(rec.id), 'thread.json'), JSON.stringify(rec, null, 1) + '\n');
   }
 
+  // save(), unless thread.json already holds exactly this. A handover lets
+  // go of every idle thread at once (letGo), nearly all of them unchanged,
+  // and an fsync each for ~1,250 threads held the new runner back 5.5 s
+  // (12 Nov). Reading the file back is a few milliseconds for all of them.
+  saveIfChanged(rec: ThreadRecord): boolean {
+    const file = path.join(this.threadDir(rec.id), 'thread.json');
+    const text = JSON.stringify(rec, null, 1) + '\n';
+    try {
+      if (fs.readFileSync(file, 'utf8') === text) return false;
+    } catch {
+      // missing or unreadable: write it
+    }
+    atomicWriteFileSync(file, text);
+    return true;
+  }
+
   // Moves a thread's folder to trash/<id>-<time> so it's out of the list but
   // can still be put back by hand.
   trash(id: string, now: number): void {
