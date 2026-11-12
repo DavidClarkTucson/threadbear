@@ -84,8 +84,9 @@ fn cli_failure_key(cli: &threadbear_core::updates::CliStatus) -> String {
 /// the limit box at the top of its composer (composer.rs).
 pub(crate) struct LimitAdvice {
     pub(crate) text: String,
-    /// The login with the most room to switch to, and the button's words.
-    pub(crate) target: Option<(String, String)>,
+    /// The logins it could carry on with now, best first, each with its
+    /// row in the Continue now on menu: "mike (78% left)".
+    pub(crate) targets: Vec<(String, String)>,
     /// A turn stopped at the limit (or the thread is waiting for room), so
     /// there's something to carry on: the box offers to do it by itself.
     /// Not for another Mac's thread, whose runner the setting can't reach
@@ -93,9 +94,6 @@ pub(crate) struct LimitAdvice {
     pub(crate) stopped: bool,
     /// It's waiting, and carries on by itself at this time.
     pub(crate) carries_on_at: Option<i64>,
-    /// Its pool will move it rather than wait for this login, so the switch
-    /// button pins it outside the pool.
-    pub(crate) pool: bool,
 }
 
 impl Threadbear {
@@ -816,17 +814,18 @@ impl Threadbear {
     /// `limitAdvice`: when a thread can't go on where it is, says so, and
     /// where it could go instead.
     pub(crate) fn limit_advice(&self, thread: &ThreadSummary, cx: &App) -> Option<LimitAdvice> {
-        use threadbear_core::new_thread::{has_room, pool_logins, switch_target, switch_title, usage_of};
+        use threadbear_core::new_thread::{continue_title, has_room, pool_logins, switch_targets, usage_of};
         let accounts = &self.logins.accounts;
-        let target = switch_target(accounts, &thread.account_id).map(|a| (a.id.clone(), switch_title(a, accounts)));
+        let targets: Vec<(String, String)> = switch_targets(accounts, &thread.account_id).into_iter().map(|a| (a.id.clone(), continue_title(a, accounts))).collect();
         let local = thread.runner_id.is_none();
         // A pool thread is the runner's to move: nothing while its pool has a
-        // login with room, and when it carries on once it's waiting. The
-        // button still offers a login outside the pool, which pins it there.
+        // login with room, and when it carries on once it's waiting. Once
+        // the whole pool is out it asks: Continue now on a login outside
+        // the pool (which pins it there), or wait.
         if self.logins.uses_pools() {
             if let Some(pool) = thread.pool_id.as_deref().and_then(|id| self.logins.pool(id)) {
                 if let Some(until) = thread.waiting_for_room_until_ms() {
-                    return Some(LimitAdvice { text: format!("Every login in {} is out of room.", pool.title), target, stopped: local, carries_on_at: Some(until), pool: true });
+                    return Some(LimitAdvice { text: format!("Every login in {} is out of room.", pool.title), targets, stopped: local, carries_on_at: Some(until) });
                 }
                 if pool_logins(pool, accounts, None).into_iter().any(has_room) {
                     return None;
@@ -857,7 +856,7 @@ impl Threadbear {
             }
         }
         text.push('.');
-        Some(LimitAdvice { text, target, stopped: local && (failed_on_limit || waiting.is_some()), carries_on_at: waiting, pool: thread.pool_id.is_some() && self.logins.uses_pools() })
+        Some(LimitAdvice { text, targets, stopped: local && (failed_on_limit || waiting.is_some()), carries_on_at: waiting })
     }
 
     /// The limit box's Carry on by itself (`setCarryOnAtReset`): shown at
@@ -873,11 +872,40 @@ impl Threadbear {
         let Some(advice) = self.limit_advice(thread, cx) else { return Value::Null };
         // "Yes" or "No" when the box offers to carry on by itself.
         let carry_on = advice.stopped.then(|| if thread.carry_on_at_reset { "Yes" } else { "No" });
-        json!({ "text": advice.text, "button": advice.target.map(|(_, title)| limit_button_title(title, advice.pool)), "carryOn": carry_on })
+        // The button and the login its menu has picked, the first unless
+        // another was chosen; then every login the menu offers.
+        let picked = self.limit_pick.get(&thread.id).filter(|id| advice.targets.iter().any(|(t, _)| t == *id)).cloned();
+        let button = picked.as_deref().and_then(|id| advice.targets.iter().find(|(t, _)| t == id)).or(advice.targets.first()).map(|(_, title)| format!("Continue now on {title}"));
+        let menu: Vec<&String> = advice.targets.iter().map(|(_, title)| title).collect();
+        json!({ "text": advice.text, "button": button, "logins": menu, "carryOn": carry_on })
     }
 
     pub(crate) fn switch_account(&mut self, thread: &str, account: String, cx: &mut Context<Self>) {
         self.update_thread(thread, |_| {}, json!({ "accountId": account }), cx);
+    }
+
+    /// The limit box's Continue now on: pins the thread to that login and,
+    /// when its turn stopped at the limit on this Mac, carries on there at
+    /// once (`threads.update` `carryOn`) rather than waiting for a message.
+    pub(crate) fn continue_now_on(&mut self, thread: &str, account: String, carry_on: bool, cx: &mut Context<Self>) {
+        let mut change = json!({ "accountId": account });
+        if carry_on {
+            change["carryOn"] = json!(true);
+        }
+        self.limit_pick.remove(thread);
+        // At once, so the box goes and can't be pressed twice: pinned to
+        // that login, and no longer waiting. A refusal puts it back.
+        let to = account.clone();
+        self.update_thread(
+            thread,
+            move |t| {
+                t.account_id = to;
+                t.pool_id = None;
+                t.waiting_for_room = None;
+            },
+            change,
+            cx,
+        );
     }
 
     /// Whether the open thread's last turn failed with its login refused
@@ -1373,16 +1401,6 @@ fn abbreviate(path: &str) -> String {
         Ok(home) if !home.is_empty() && path == home => "~".into(),
         Ok(home) if !home.is_empty() && path.starts_with(&format!("{home}/")) => format!("~{}", &path[home.len()..]),
         _ => path.to_string(),
-    }
-}
-
-/// The limit box's button: "Switch to mike (78% left)", or "Pin to ..." on a
-/// pool thread, as a login outside the pool pins it there.
-pub(crate) fn limit_button_title(title: String, pool: bool) -> String {
-    if pool {
-        title.replacen("Switch to", "Pin to", 1)
-    } else {
-        title
     }
 }
 

@@ -305,8 +305,10 @@ export const poolsPart = {
   },
 
   // A wait's time has come: look again. A login with room (the thread's
-  // own, if it's back) carries on by itself; with none, wait again.
-  endWait(this: Runner, st: ThreadState): void {
+  // own, if it's back) carries on by itself; with none, wait again. An
+  // early end names the login to move to (earlyLogin), never the one it
+  // ran dry on, whose reading may say it has room when it hasn't.
+  endWait(this: Runner, st: ThreadState, early?: string): void {
     const { rec, rt } = st;
     delete rec.waitingForRoom;
     this.markDirty(st);
@@ -325,7 +327,11 @@ export const poolsPart = {
       return;
     }
     let moved = false;
-    if (!current || !pool.accountIds.includes(current.id) || !loginOk(current)) {
+    const to = early === undefined ? undefined : accounts.find((a) => a.id === early);
+    if (to) {
+      this.moveLogin(st, to, current ? `${current.title} ${limitWhy(current, now, true)}` : `${rec.accountId} isn't on this Mac`);
+      moved = true;
+    } else if (!current || !pool.accountIds.includes(current.id) || !loginOk(current)) {
       const next = nextLogin(pool, accounts, rec, now);
       if ('waitUntil' in next) {
         this.startWait(st, next, `Still no room in ${pool.title}.`);
@@ -356,22 +362,30 @@ export const poolsPart = {
     }
   },
 
-  // A pool thread waiting for room whose pool has a login with room now,
-  // so the wait can end early. The time a wait was given is only a guess
+  // A pool thread waiting for room whose pool has another login with room
+  // now: that login, so the wait can end early and move there. The time a wait was given is only a guess
   // from what this runner knew then. On 12 Nov a thread hit its limit
   // while its turn finished on a draining runner that had started before
   // a new login joined the pool. That runner said "every login is out of
   // room" and set a wait for 1 pm, though the new login had 81% left, and
   // the runner that took the thread over kept the wait.
-  poolHasRoomFor(this: Runner, st: ThreadState): boolean {
-    const { rec } = st;
-    if (rec.carryOnAtReset === false) return false;
+  earlyLogin(this: Runner, st: ThreadState): string | undefined {
+    const { rec, rt } = st;
+    const w = rec.waitingForRoom;
+    // A snoozed or busy thread keeps its wait for the timer, which a wake
+    // doesn't otherwise bring back.
+    if (!w || rt.deleted || rt.turn || rec.queue.length || this.bucket(rec) !== 'inbox' || rec.carryOnAtReset === false) return undefined;
     const pool = this.poolById(rec.poolId);
-    if (!pool) return false;
-    const accounts = this.usableAccounts();
-    const current = accounts.find((a) => a.id === rec.accountId);
-    if (current && pool.accountIds.includes(current.id) && loginOk(current)) return true;
-    return !('waitUntil' in nextLogin(pool, accounts, rec, this.clock.now()));
+    if (!pool) return undefined;
+    const now = this.clock.now();
+    // Another login: never the one it ran dry on, whose block a reading
+    // from another of its sessions can clear (a model's own limit).
+    const next = nextLogin(pool, this.usableAccounts(), rec, now);
+    if ('waitUntil' in next) return undefined;
+    // The login the wait is for is back at its reset, a minute before
+    // `until`. That's the timer's, with its minute of grace, as a provider
+    // can still refuse for a few seconds after a reset.
+    return next.accountId !== w.accountId || now < Date.parse(w.until) - WAIT_SLACK_MS ? next.accountId : undefined;
   },
 
   // One timer for every thread waiting for room, at the earliest `until`
@@ -391,7 +405,11 @@ export const poolsPart = {
         const w = st.rec.waitingForRoom;
         if (!w) continue;
         const t = Date.parse(w.until);
-        if (!(t > now) || this.poolHasRoomFor(st)) this.endWait(st);
+        if (!(t > now)) this.endWait(st);
+        else {
+          const early = this.earlyLogin(st);
+          if (early) this.endWait(st, early);
+        }
       }
       let next = Infinity;
       for (const st of this.threads.values()) {

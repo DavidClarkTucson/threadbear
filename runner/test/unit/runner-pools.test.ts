@@ -372,6 +372,100 @@ test('a waiting pool thread carries on as soon as a usage reading shows a login 
   assert.equal(h.adapter.last.opts.account.id, 'claude-3');
 });
 
+test("an early carry-on leaves the login the wait is for to the timer, with its minute's grace", async () => {
+  const h = poolHarness();
+  h.setUsage('claude-main', room(60, 200));
+  h.setUsage('claude-3', room(0.2, 90));
+  const { thread } = h.runner.create({ text: 'x', poolId: 'claude' });
+  h.adapter.last.init();
+  limit(h.adapter.last);
+  await tick();
+  assert.equal(h.runner.get(thread.id).waitingForRoom?.until, new Date(START + 91 * MIN).toISOString());
+  // At claude-3's reset the usage store says it's full again, but the
+  // provider can still refuse for a few seconds: not yet.
+  h.clock.advance(90 * MIN);
+  h.setUsage('claude-3', room(100, 390));
+  h.runner.sendAccounts();
+  await tick();
+  assert.equal(h.adapter.sessions.length, 1, 'not at the reset itself');
+  h.clock.advance(1 * MIN);
+  await tick();
+  assert.equal(h.adapter.sessions.length, 2);
+  assert.equal(h.adapter.last.opts.account.id, 'claude-3');
+});
+
+test('a snoozed waiting thread keeps its wait when a login has room, and carries on when the wait comes due', async () => {
+  const h = poolHarness();
+  h.setUsage('claude-main', room(60, 200));
+  h.setUsage('claude-3', room(0.2, 90));
+  const { thread } = h.runner.create({ text: 'x', poolId: 'claude' });
+  h.adapter.last.init();
+  limit(h.adapter.last);
+  await tick();
+  const w = h.runner.get(thread.id).waitingForRoom;
+  assert.ok(w);
+  h.runner.update({ threadId: thread.id, snoozedUntil: new Date(START + 60 * MIN).toISOString() });
+  h.setUsage('claude-3', room(100, 400));
+  h.runner.sendAccounts();
+  await tick();
+  assert.deepEqual(h.runner.get(thread.id).waitingForRoom, w, 'kept while snoozed');
+  assert.equal(h.adapter.sessions.length, 1);
+  h.clock.advance(92 * MIN);
+  await tick();
+  assert.equal(h.runner.get(thread.id).waitingForRoom, undefined);
+  assert.equal(h.adapter.last.opts.account.id, 'claude-3');
+});
+
+test("the limit box's Continue now on: a login named with carryOn pins the thread there and carries on at once", async () => {
+  const h = poolHarness();
+  h.setUsage('claude-main', room(60, 200));
+  h.setUsage('claude-3', room(0.2, 90));
+  const { thread } = h.runner.create({ text: 'x', poolId: 'claude' });
+  h.adapter.last.init();
+  limit(h.adapter.last);
+  await tick();
+  assert.ok(h.runner.get(thread.id).waitingForRoom);
+  const one: Account = { id: 'claude-1', provider: 'claude', title: 'one@example.com', configDir: '/tmp/one', usage: room(70, 300) };
+  h.fake.base = [...h.fake.base, one];
+  h.runner.update({ threadId: thread.id, accountId: 'claude-1', carryOn: true });
+  await tick();
+  const t = h.runner.get(thread.id);
+  assert.equal(t.poolId, undefined, 'pinned');
+  assert.equal(t.waitingForRoom, undefined);
+  assert.equal(h.adapter.last.opts.account.id, 'claude-1');
+  assert.equal(h.adapter.last.sent.at(-1)?.text, CARRY_ON_MOVED);
+  assert.equal(userMessages(h, thread.id).at(-1).origin, 'runner');
+  // Once it's going, carryOn on another switch does nothing more.
+  const sessions = h.adapter.sessions.length;
+  h.runner.update({ threadId: thread.id, accountId: 'claude-main', carryOn: true });
+  await tick();
+  assert.equal(h.adapter.sessions.length, sessions);
+});
+
+test('after a restart an early carry-on moves to the login with room, never back to the one that ran dry', async () => {
+  const pools: Pool[] = [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3', 'claude-1'] }, { id: 'codex', title: 'Codex', accountIds: ['codex-main'] }];
+  const h = poolHarness({ pools });
+  h.setUsage('claude-main', room(60, 200));
+  h.setUsage('claude-3', room(0.2, 90));
+  const { thread } = h.runner.create({ text: 'x', poolId: 'claude' });
+  h.adapter.last.init();
+  limit(h.adapter.last);
+  await tick();
+  assert.ok(h.runner.get(thread.id).waitingForRoom);
+  // A new runner forgets what ran dry, and a reading from another of
+  // main's sessions says it has room (a model's own limit, say).
+  const h2 = h.restart();
+  await tick();
+  assert.equal(h2.adapter.sessions.length, 0, 'not back onto main');
+  const one: Account = { id: 'claude-1', provider: 'claude', title: 'one@example.com', configDir: '/tmp/one', usage: room(81, 300) };
+  h.fake.base = [...h.fake.base, one];
+  h2.runner.sendAccounts();
+  await tick();
+  assert.equal(h2.adapter.sessions.length, 1);
+  assert.equal(h2.adapter.last.opts.account.id, 'claude-1');
+  assert.equal(h2.runner.get(thread.id).accountId, 'claude-1');
+});
+
 test('nothing in the pool has room: the thread waits, and the wait outlives a restart', async () => {
   const h = poolHarness();
   h.setUsage('claude-main', room(60, 200));

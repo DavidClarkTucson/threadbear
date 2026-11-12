@@ -73,7 +73,7 @@ Scenarios passing: Swift: 207 of 220, Mac: 208 of 220, Windows: 192 of 220, Linu
 | `header.more` ... menu | pass | pass | pass | pass |
 | `banner.connection` Connection banner | pass | pass | pass | pass |
 | `banner.error` Error banner | pass | pass | pass | pass |
-| `banner.limit` Limit banner | pass | pass | pending | pass |
+| `banner.limit` Limit banner | pending | pass | pending | pass |
 | `toast.archived` Archived toast | pass | pass | pass | pass |
 | `toast.inboxend` Inbox end toast | pass | pass | pass | pass |
 | `thread.newpage` New-thread page | pass | pass | pass | pass |
@@ -221,6 +221,22 @@ One entry a slice, newest first. Every entry has a `Verification:` line: a spec
 run or a screenshot from the running app. A slice with no runtime check doesn't
 count. (Ghostex's port log is where this shape comes from; its slices 214 to 268
 built parsers and gates with no launch of the app, which is the trap.)
+
+### 2026-11-12 The limit box asks: Continue now on (`banner.limit`)
+
+- A pool thread no longer waits while its pool has a login with room: the
+  runner moves it between the pool's logins by itself, and since 12 Nov
+  ends a wait early when one has room (a login joining the pool, a reading
+  showing room, a thread handed over from a draining runner). So the box
+  only shows once the whole pool is out, and asks what to do: Continue now
+  on, with a menu of the logins with room (`switch_targets`, the same
+  provider's first, then by room), or wait, carrying on by itself at the
+  reset as before. Continue now on pins the thread to that login and carries
+  on at once (`threads.update { accountId, carryOn: true }`), where Switch
+  to / Pin to only pinned it and left it for a message.
+- The Swift app is frozen with Pin to, so the scenario is `@swift-pending`.
+- Both the dump's `limit.button` ("Continue now on mike (78% left)") and
+  `limit.logins` (the menu's rows) say what it offers.
 
 ### 2026-11-12 The model picker's Login line: pin a thread to one of a pool's logins (`composer.modelpicker`)
 

@@ -2780,6 +2780,10 @@ export class Runner {
     // carries on by itself (the limit box's menu). false also ends a wait
     // under way; true starts one if the thread is stuck at its limit now.
     carryOnAtReset?: boolean;
+    // With accountId, on a thread whose last turn stopped at its login's
+    // limit: carry on there now, rather than wait for a message (the limit
+    // box's Continue now on).
+    carryOn?: boolean;
     // A move Mike made (the app, tb) or allowed on a card: a thread shut in
     // a sandbox may leave it. Without it, a move or login change that would
     // take it out is refused (ThreadRecord.confined).
@@ -2790,6 +2794,12 @@ export class Runner {
     // Checked before anything changes, so a refused rename changes nothing else either.
     if (params.title !== undefined && params.titleBy === 'agent' && rec.titleByMike && params.title.trim() !== rec.title) {
       throw new RpcError(ErrorCode.badParams, `The user named this thread "${rec.title}" themselves, so it keeps that title. Only rename it if they ask you to.`);
+    }
+    // Continue now on can't start a turn while a restart refuses them, and
+    // a carry-on put off till after it would be lost to "Carry on by itself:
+    // No" or a second click (Codex's review): say so, and change nothing.
+    if (params.carryOn && params.accountId !== undefined && (this.refusing || this.draining)) {
+      throw new RpcError(ErrorCode.busy, 'Threadbear is restarting, so it can\'t carry on just now. Try again in a moment.');
     }
     let release = false;
     let stop = false;
@@ -3027,6 +3037,8 @@ export class Runner {
       rt.releaseWhenIdle = true;
       if (!rt.turn) this.scheduleIdle(st);
     }
+    // Its first turn on the new login releases the old CLI (deliver).
+    if (params.carryOn && accountChanged && !stop && !rt.turn && !rec.queue.length && this.bucket(rec) === 'inbox' && rec.limitHitTurn !== undefined) this.carryOn(st, CARRY_ON_MOVED);
     // Archived here, archived in the CLI's own app too (Codex Desktop's
     // list), once the session has let go of it: a turn is interrupted
     // first, then released, so that can take a moment. Resuming unarchives.

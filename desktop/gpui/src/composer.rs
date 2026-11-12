@@ -267,12 +267,14 @@ impl Composer {
         }
     }
 
-    /// `LimitBox`: the thread's login is at its limit, or its last turn
-    /// stopped on it. At the top of the box, over a line like the card of
-    /// asks: what happened, Switch to (a pool thread's Pin to) the login with
-    /// the most room, and whether it carries on by itself once the limit
-    /// resets. Mike asked for it here on 10 Nov, in place of a bar across the
-    /// top of the thread that read as an error and offered only the switch.
+    /// `LimitBox`: the thread's login is at its limit (a pool thread's whole
+    /// pool, as the runner moves it between the pool's logins by itself),
+    /// or its last turn stopped on it. At the top of the box, over a line
+    /// like the card of asks: what happened, Continue now on with a menu of
+    /// the logins with room (12 Nov, in place of a single Switch to / Pin
+    /// to), and whether it carries on by itself once the limit resets. Mike
+    /// asked for it here on 10 Nov, in place of a bar across the top of the
+    /// thread that read as an error and offered only the switch.
     fn render_limit_box(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         use gpui_kit::base::TestSupportExt as _;
         use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -308,17 +310,40 @@ impl Composer {
             .text_size(px(style::size::LABEL))
             .line_height(px(16.))
             .child(h_flex().items_start().gap(px(8.)).child(div().flex_none().pt(px(1.)).child(mark)).child(crate::highlights::tipped(div().id("limit-text").flex_1().min_w_0(), text.clone()).child(text)));
-        if advice.target.is_some() || advice.stopped {
-            let mut row = h_flex().gap(px(10.)).items_center();
-            if let Some((account, title)) = advice.target.clone() {
-                let title = crate::header::limit_button_title(title, advice.pool);
-                let tip = "Carry on this thread on that login now, from where it is";
-                let (app, id) = (self.app.clone(), thread.id.clone());
+        if !advice.targets.is_empty() || advice.stopped {
+            // Wraps in a narrow window rather than running past the box's edge.
+            let mut row = h_flex().flex_wrap().gap(px(10.)).items_center();
+            if let Some(first) = advice.targets.first() {
+                // Continue now on, and a menu of the logins with room to pick
+                // which (Mike, 12 Nov). It pins the thread there and carries
+                // on at once; the first is the one with the most room.
+                let picked = app.read(cx).limit_pick.get(&thread.id).and_then(|id| advice.targets.iter().find(|(t, _)| t == id)).unwrap_or(first).clone();
+                let tip = "Pin this thread to that login and carry on there now, from where it stopped";
+                let (account, title) = picked.clone();
+                let (app_c, id) = (self.app.clone(), thread.id.clone());
+                let carry_on = advice.stopped;
                 row = row.child(
-                    div().id("limit-switch").test_support().aria_label(tip).child(Button::new("limit-switch-button").label(title).small().secondary().tooltip(tip).on_click(move |_, _, cx| {
-                        app.update(cx, |a, cx| a.switch_account(&id, account.clone(), cx)).ok();
+                    div().id("limit-switch").test_support().aria_label(tip).child(Button::new("limit-switch-button").label("Continue now on").small().secondary().tooltip(tip).on_click(move |_, _, cx| {
+                        app_c.update(cx, |a, cx| a.continue_now_on(&id, account.clone(), carry_on, cx)).ok();
                     })),
                 );
+                let targets = advice.targets.clone();
+                let (app_m, id) = (self.app.clone(), thread.id.clone());
+                let menu = Button::new("limit-login-button").label(title).small().secondary().dropdown_caret(true).tooltip("Which login to carry on with").dropdown_menu(move |menu: PopupMenu, _, _| {
+                    let mut menu = menu;
+                    for (account, title) in &targets {
+                        let (app, id, account) = (app_m.clone(), id.clone(), account.clone());
+                        menu = menu.item(PopupMenuItem::new(title.clone()).checked(account == picked.0).on_click(move |_, _, cx| {
+                            app.update(cx, |a, cx| {
+                                a.limit_pick.insert(id.clone(), account.clone());
+                                cx.notify();
+                            })
+                            .ok();
+                        }));
+                    }
+                    menu
+                });
+                row = row.child(div().id("limit-login").test_support().child(menu));
             }
             if advice.stopped {
                 let on = thread.carry_on_at_reset;

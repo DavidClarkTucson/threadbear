@@ -83,6 +83,9 @@ pub struct Threadbear {
     /// (`failedOnAccount`), so the limit line blames that login only while
     /// the thread's still on it, not the one it's just been switched to.
     pub(crate) failed_on_account: HashMap<String, String>,
+    /// The login each thread's limit box has picked in its Continue now on
+    /// menu, when it isn't the first.
+    pub(crate) limit_pick: HashMap<String, String>,
     /// The Threads button's badge, kept until the app next changes (the same
     /// observer clears it), as working it out sorts every thread.
     pub(crate) inbox_count_cache: std::cell::Cell<Option<usize>>,
@@ -412,6 +415,7 @@ impl Threadbear {
             menu_signature: String::new(),
             menus_stale: true,
             failed_on_account: HashMap::new(),
+            limit_pick: HashMap::new(),
             inbox_count_cache: Default::default(),
             last_window_title: String::new(),
             archived_note: None,
