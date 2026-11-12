@@ -92,6 +92,9 @@ pub struct Composer {
     /// The chip row's right edge and the send button's, at the last paint:
     /// the button past the row would be chips running past the box.
     pub(crate) controls_fit: Rc<Cell<(f32, f32)>>,
+    /// The box's top edge in the window at the last paint: the room the
+    /// slash palette has over it (high up on the new-thread page).
+    pub(crate) box_top: Rc<Cell<f32>>,
     /// One of Mike's messages being edited (`AppModel.editing`): sending
     /// replaces it and carries on from there.
     pub(crate) editing: Option<MessageEdit>,
@@ -172,6 +175,7 @@ impl Composer {
             palette_scroll: ScrollHandle::new(),
             card_width: Rc::new(Cell::new(style::MAX_CONTENT_WIDTH)),
             controls_fit: Rc::new(Cell::new((0., 0.))),
+            box_top: Rc::new(Cell::new(f32::MAX)),
             _subs: vec![sub],
         }
     }
@@ -1327,6 +1331,7 @@ impl Render for Composer {
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
         let palette = self.render_palette(window, cx);
         let width = self.card_width.clone();
+        let top = self.box_top.clone();
         // The folder's actions, on shelves on the box's top edge, in from its
         // rounded corner (ActionChips), as wide as the box leaves them.
         let shelves = self.pane().and_then(|pane| {
@@ -1380,7 +1385,16 @@ impl Render for Composer {
                     .child(body)
                     // Measures the box for the palette, which sits on its top
                     // edge, and for the shelves, which get as many chips as fit.
-                    .child(canvas(move |bounds, _, _| width.set(f32::from(bounds.size.width)), |_, _, _, _| {}).absolute().size_full())
+                    .child(canvas(move |bounds, window, _| {
+                        width.set(f32::from(bounds.size.width));
+                        // A box that moved draws again, so an open palette
+                        // fits the room it has now.
+                        let moved = (top.get() - f32::from(bounds.top())).abs() > 0.5;
+                        top.set(f32::from(bounds.top()));
+                        if moved {
+                            window.refresh();
+                        }
+                    }, |_, _, _, _| {}).absolute().size_full())
                     .children(palette),
                     ),
             )

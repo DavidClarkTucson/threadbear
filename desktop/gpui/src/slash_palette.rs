@@ -300,6 +300,10 @@ impl Composer {
         let layout = crate::slash_resize::kept(self, cx);
         let auto_height = slash::palette_height(f64::from(viewport.height / zoom), 300., 560.);
         let (width, height) = crate::slash_resize::size(layout, f64::from(self.card_width.get() / zoom), size(viewport.width / zoom, viewport.height / zoom), auto_height);
+        // No taller than the room over the box, so it doesn't run off the
+        // top of the window where the box sits high up (the new-thread page).
+        let room = f64::from(self.box_top.get() / zoom) - 8. - 8.;
+        let height = if room > 0. { height.min(room.max(160.)) } else { height };
         // Each column as wide as its longest entry needs, or as it was
         // dragged to, the description the rest; measured over every command,
         // not just the matches, so the columns hold still while typing
