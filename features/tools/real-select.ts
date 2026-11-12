@@ -50,6 +50,7 @@ try {
   await sleep(500);
   await app.do({ cmd: 'open', id: threadId });
   await sleep(800);
+
   await app.do({ cmd: 'mock', method: 'stream', params: { threadId, text: reply, hz: 60 } });
   const finished = (d: Dump) => d.transcript.rows.some((r) => r.kind === 'footer' && r.turn === 'turn_stream');
   for (let i = 0; i < 400 && !finished(await app.dump()); i += 1) await sleep(50);
@@ -185,6 +186,49 @@ try {
     }
   }
 
+  const asked = 'Where do the three branches stand today?';
+  // A drag from my message on into the reply under it (the mock's canned
+  // answer): the bar over my message's line, where that selection starts,
+  // not over the reply's. The message is well above, so scrolled to first.
+  async function fromMessage(label: string) {
+    // In a thread of its own, as my message and the mock's long canned
+    // answer to it push the first thread's reply around.
+    const other = 'select-test-message';
+    await app.do({ cmd: 'mock', method: 'thread', params: { id: other, title: 'Selecting from a message' } });
+    await sleep(500);
+    await app.do({ cmd: 'open', id: other });
+    await sleep(800);
+    await app.do({ cmd: 'send', text: asked });
+    for (let i = 0; i < 100 && !(await app.dump()).transcript.rows.some((r) => r.kind === 'user'); i += 1) await sleep(50);
+    await sleep(500);
+    for (let i = 0; i < 600 && (await app.dump()).selection?.status === 'running'; i += 1) await sleep(50);
+    const rows = (await app.dump()).transcript.rows;
+    const userRowId = rows.find((r) => r.kind === 'user')!.id;
+    const at = rows.findIndex((r) => r.id === userRowId);
+    const cannedId = rows.slice(at).find((r) => r.kind === 'assistant')!.id;
+    await app.do({ cmd: 'scroll', row: userRowId, offset: 160 });
+    await sleep(800);
+    const [wx, wy] = windowFrame(app.pid!);
+    const ls: Line[] = [...JSON.parse(answer(await app.do({ cmd: 'text-lines', row: userRowId }))), ...JSON.parse(answer(await app.do({ cmd: 'text-lines', row: cannedId })))];
+    const find = (words: string) => {
+      const l = ls.find((l) => l.text.includes(words));
+      if (!l) throw new Error(`no line with ${words}: ${JSON.stringify(ls.map((l) => l.text))}`);
+      return { mid: wy + l.y + Math.min(l.h, 26) / 2, left: wx + l.x + 1, right: wx + l.x + l.w - 2, line: l };
+    };
+    const mine = find('Where do the three');
+    const theirs = find('You said');
+    // A click clear of both first, under the reply's first line.
+    await click([theirs.left + 40, theirs.mid + 400], 1);
+    const r = await drag([mine.left, mine.mid], [theirs.right, theirs.mid], 0.3, 90, 0.016);
+    // Only the reply's part: what's copied leaves my message's words out,
+    // a separate bug (12 Nov, on main before this script), so not asked of
+    // it here.
+    const ok = r.after.text.includes('You said') && r.after.bar !== null;
+    if (!ok) failed += 1;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${label}: a drag from my message into the reply\n      got ${JSON.stringify(r.after.text)}${r.after.bar === null ? ' (no bar)' : ''}`);
+    barOver(`${label}: the bar over my message, where that selection starts`, r.after, mine.line);
+  }
+
   // The bar just over `line`, the selection's first: clear of it (the bar's
   // 29 points tall, 6 above the line), not over it as it was after a
   // Shift-click, and not stranded somewhere above either.
@@ -215,6 +259,7 @@ try {
   await app.do({ cmd: 'mock', method: 'stream', params: { threadId, seconds: 120, hz: 1 } });
   await sleep(1500);
   await round('working');
+  await fromMessage('idle');
   console.log(failed === 0 ? 'PASS' : `FAIL (${failed})`);
   if (failed) process.exitCode = 1;
 } catch (error) {

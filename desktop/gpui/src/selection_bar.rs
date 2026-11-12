@@ -45,6 +45,8 @@ struct Bar {
     last: Point<Pixels>,
     /// Where it was drawn, so a press on it doesn't put it away.
     drawn: Option<Bounds<Pixels>>,
+    /// The selection's ends it was last placed over, when its words said.
+    placed: Option<(Point<Pixels>, Point<Pixels>)>,
 }
 
 thread_local! {
@@ -125,6 +127,12 @@ pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
     .inset_0()
 }
 
+/// Where the window's selection starts and ends, as its words last drew it:
+/// each end's caret, at the middle of its line.
+fn painted_ends(window: &Window, cx: &App) -> Option<(Point<Pixels>, Point<Pixels>)> {
+    TextSelection::painted_edges(window, cx).map(|(start, end)| (point(start.left(), start.center().y), point(end.left(), end.center().y)))
+}
+
 fn on_bar(at: Point<Pixels>) -> bool {
     BAR.with(|b| b.borrow().as_ref().and_then(|b| b.drawn).is_some_and(|d| d.contains(&at)))
 }
@@ -152,7 +160,7 @@ fn selection_ended(pane: &WeakEntity<ThreadPane>, release: Point<Pixels>, window
     let same_line = (press.at.y - release.y).abs() < gpui_kit::px(style::zoomed(size::BODY_LINE) / 2.);
     let press_first = if same_line { press.at.x <= release.x } else { press.at.y < release.y };
     let (first, last) = if press_first { (press.at, release) } else { (release, press.at) };
-    BAR.with(|b| *b.borrow_mut() = Some(Bar { thread: press.thread, message, words, html, first, last, drawn: None }));
+    BAR.with(|b| *b.borrow_mut() = Some(Bar { thread: press.thread, message, words, html, first, last, drawn: None, placed: None }));
     entity.update(cx, |_, cx| cx.notify());
 }
 
@@ -256,13 +264,22 @@ fn quote_in_composer(pane: &Entity<ThreadPane>, words: &str, window: &mut Window
 /// The bar, over the selection it was made for, if it's this thread's.
 pub(crate) fn overlay(pane: &ThreadPane, window: &Window, cx: &mut Context<ThreadPane>) -> Option<AnyElement> {
     let (first, last) = BAR.with(|b| b.borrow().as_ref().filter(|b| b.thread == pane.summary.id).map(|b| (b.first, b.last)))?;
-    // Where the selection was drawn, when its words say (a reply's do):
-    // the press and release are only its ends for a plain drag. A
-    // Shift-click's press is the far end, which put the bar over the
+    // Where the selection was drawn, when its words say (replies' and
+    // messages' do): the press and release are only its ends for a plain
+    // drag. A Shift-click's press is the far end, which put the bar over the
     // selection's own first line; and the words can have moved since.
-    let (first, last) = TextSelection::painted_edges(window, cx)
-        .map_or((first, last), |(start, end)| (point(start.left(), start.center().y), point(end.left(), end.center().y)));
+    // Those are from the frame before; the bar checks them again as it's
+    // drawn, after the words have said where they are now, and comes back
+    // here if they've moved.
+    let placed = painted_ends(window, cx);
+    BAR.with(|b| {
+        if let Some(bar) = b.borrow_mut().as_mut() {
+            bar.placed = placed;
+        }
+    });
+    let (first, last) = placed.unwrap_or((first, last));
     let weak = cx.weak_entity();
+    let moved_pane = weak.clone();
     let line = gpui_kit::px(style::zoomed(size::BODY_LINE));
     let height = gpui_kit::px(style::zoomed(BAR_HEIGHT));
     let gap = gpui_kit::px(style::zoomed(GAP));
@@ -297,11 +314,22 @@ pub(crate) fn overlay(pane: &ThreadPane, window: &Window, cx: &mut Context<Threa
         .child(divider(cx))
         .child(item("selection-copy", "Copy", "doc.on.doc", "Copy", Action::Copy, cx))
         // Where it ends up, so a press on it doesn't count as one away.
-        .child(canvas(|_, _, _| {}, |bounds, _, _, _| BAR.with(|b| {
-            if let Some(bar) = b.borrow_mut().as_mut() {
+        // And whether the selection it's over is still where it was placed.
+        .child(canvas(|_, _, _| {}, move |bounds, _, window, cx| {
+            let now = painted_ends(window, cx);
+            let moved = BAR.with(|b| {
+                let mut b = b.borrow_mut();
+                let Some(bar) = b.as_mut() else { return false };
                 bar.drawn = Some(bounds);
+                now.is_some() && now != bar.placed
+            });
+            if moved {
+                let pane = moved_pane.clone();
+                cx.defer(move |cx| {
+                    let _ = pane.update(cx, |_, cx| cx.notify());
+                });
             }
-        })).absolute().inset_0());
+        }).absolute().inset_0());
     Some(deferred(anchored().position(at).snap_to_window_with_margin(px(4.)).child(bar)).with_priority(2).into_any_element())
 }
 
@@ -345,7 +373,7 @@ pub(crate) fn select_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_j
             return Err(format!("dragging across {words:?} in {}'s draft selected {:?}", row.id, selected.trim()));
         }
         let (words, html) = selection_now(&pane, window, cx).ok_or("nothing got selected")?;
-        BAR.with(|b| *b.borrow_mut() = Some(Bar { thread: pane.read(cx).summary.id.clone(), message: Some(message), words, html, first, last, drawn: None }));
+        BAR.with(|b| *b.borrow_mut() = Some(Bar { thread: pane.read(cx).summary.id.clone(), message: Some(message), words, html, first, last, drawn: None, placed: None }));
         pane.update(cx, |_, cx| cx.notify());
         window.render_frame(cx);
         return match action {
@@ -376,7 +404,7 @@ pub(crate) fn select_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_j
     let texts: Vec<Bounds<Pixels>> = gpui_kit::base::test_support::texts(window).into_iter().filter(|t| t.visible() && t.path().contains(&mine)).map(|t| t.bounds()).collect();
     let first = texts.first().map(|b| point(b.left(), b.top() + gpui_kit::px(style::zoomed(size::BODY_LINE) / 2.))).ok_or("that reply isn't on screen")?;
     let last = texts.last().map(|b| point(b.right(), b.bottom() - gpui_kit::px(style::zoomed(size::BODY_LINE) / 2.))).unwrap_or(first);
-    BAR.with(|b| *b.borrow_mut() = Some(Bar { thread: pane.read(cx).summary.id.clone(), message: Some(message), words, html, first, last, drawn: None }));
+    BAR.with(|b| *b.borrow_mut() = Some(Bar { thread: pane.read(cx).summary.id.clone(), message: Some(message), words, html, first, last, drawn: None, placed: None }));
     pane.update(cx, |_, cx| cx.notify());
     window.render_frame(cx);
     match action {
@@ -389,8 +417,8 @@ pub(crate) fn select_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_j
     }
 }
 
-/// `text-lines`: where a reply's words are drawn, each paragraph or list
-/// item the kit laid out as its own text, in window points: "ok [{text, x,
+/// `text-lines`: where a reply's (or a message's) words are drawn, each
+/// paragraph or list item the kit laid out as its own text, in window points: "ok [{text, x,
 /// y, w, h}]". For a script that drags across them with the real pointer
 /// (features/tools/real-select.ts), which needs to know where to press.
 /// The row's place is its index in its own thread, so with two threads'
@@ -404,10 +432,11 @@ pub(crate) fn text_lines_command(app: &Entity<crate::app::Threadbear>, cmd: &ser
     let pane = app.read(cx).pane.clone().ok_or("no thread open")?;
     let ix = pane.read(cx).feed.model().rows().iter().position(|r| r.id.starts_with(prefix)).ok_or("no such row")?;
     window.render_frame(cx);
-    let mine = ElementId::NamedInteger("reply-links".into(), ix as u64);
+    // A reply's paragraphs, or a message of Mike's (rows.rs's "user-text").
+    let mine = [ElementId::NamedInteger("reply-links".into(), ix as u64), ElementId::NamedInteger("user-text".into(), ix as u64)];
     let lines: Vec<serde_json::Value> = gpui_kit::base::test_support::texts(window)
         .into_iter()
-        .filter(|t| t.visible() && t.path().contains(&mine))
+        .filter(|t| t.visible() && mine.iter().any(|m| t.path().contains(m)))
         .map(|t| {
             let b = t.bounds();
             json!({ "text": t.text(), "x": f32::from(b.left()), "y": f32::from(b.top()), "w": f32::from(b.size.width), "h": f32::from(b.size.height) })
