@@ -225,12 +225,25 @@ pub fn cli_pending(cli: &CliStatus) -> bool {
     matches!(cli.status.as_str(), "behind" | "held" | "missing") || cli.update.as_ref().is_some_and(|u| matches!(u.state.as_str(), "waiting" | "running" | "failed"))
 }
 
+/// The tooltip's line for a Threadbear Runner.app (or launch.mjs) that only
+/// install-runner.sh brings up to date.
+pub const REINSTALL_LINE: &str = "The runner needs reinstalling, which only you can do";
+
 /// The icon's tooltip: "Updates", then a line for each thing going on, or
 /// that everything is up to date. The panel has the rest.
 pub fn icon_tooltip(app: &AppSide, runner: Option<&RunnerUpdates>, clis: &[CliStatus]) -> String {
     let mut lines = vec!["Updates".to_owned()];
-    if app.is_pending() || app.failed || runner_pending(runner) || runner_failed(runner) {
-        lines.push(tooltip(app, runner));
+    // A runner app to reinstall gets its own line, as it's the one that's
+    // Mike's to do (the accent dot); left in, it read as "A runner update",
+    // which looks like one on its way by itself (12 Nov, Mike: "I thought
+    // blue dots reserved for something that needs me to action on it").
+    let moving = runner.map(|r| RunnerUpdates { launcher_changed: false, ..r.clone() });
+    let moving = moving.as_ref();
+    if app.is_pending() || app.failed || runner_pending(moving) || runner_failed(moving) {
+        lines.push(tooltip(app, moving));
+    }
+    if runner.is_some_and(|r| r.launcher_changed) {
+        lines.push(REINSTALL_LINE.to_owned());
     }
     if let Some(line) = upstream_tooltip(runner.and_then(|r| r.upstream.as_ref())) {
         lines.push(line);
@@ -787,6 +800,9 @@ mod tests {
         assert_eq!(runner_lines(Some(&failed)), ["The runner couldn't update to main at abc1234: npm ci failed"]);
         let launcher = RunnerUpdates::decode(&json!({ "state": "idle", "launcherChanged": true })).unwrap();
         assert!(needs_you(&app, Some(&launcher)));
+        assert_eq!(icon_tooltip(&app, Some(&launcher), &[]), "Updates\nThe runner needs reinstalling, which only you can do");
+        let both = RunnerUpdates::decode(&json!({ "state": "building", "commit": "abc1234", "launcherChanged": true })).unwrap();
+        assert_eq!(icon_tooltip(&app, Some(&both), &[]), "Updates\nA runner update\nThe runner needs reinstalling, which only you can do");
         assert_eq!(runner_lines(Some(&launcher)), ["launch.mjs has changed on main. It only updates when you run this, once nothing is busy:"]);
         let behind = RunnerUpdates::decode(&json!({ "state": "idle", "behindRunners": [{ "name": "bruce", "problem": "3 days behind" }] })).unwrap();
         assert!(needs_you(&app, Some(&behind)));
