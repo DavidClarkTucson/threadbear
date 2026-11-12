@@ -197,7 +197,23 @@ pub(crate) struct SettingsWindow {
     /// The ding's volume (Notifications).
     volume: Entity<SliderState>,
     scroll: ScrollHandle,
+    /// The list of sections down the left: up and down move through them
+    /// while it has the keyboard, which it has as the window opens and
+    /// again once a section is clicked (`SettingsSidebar`'s focus).
+    sidebar_focus: FocusHandle,
     _subs: Vec<Subscription>,
+}
+
+// Settings' sidebar keys (`onMoveCommand`).
+actions!(settings_sidebar, [PreviousSection, NextSection]);
+
+const SIDEBAR_CONTEXT: &str = "SettingsSidebar";
+
+fn bind_sidebar_keys(cx: &mut App) {
+    static BOUND: std::sync::Once = std::sync::Once::new();
+    BOUND.call_once(|| {
+        cx.bind_keys([KeyBinding::new("up", PreviousSection, Some(SIDEBAR_CONTEXT)), KeyBinding::new("down", NextSection, Some(SIDEBAR_CONTEXT))]);
+    });
 }
 
 impl SettingsWindow {
@@ -282,8 +298,11 @@ impl SettingsWindow {
             keyboard: Default::default(),
             volume,
             scroll: ScrollHandle::new(),
+            sidebar_focus: cx.focus_handle(),
             _subs: subs,
         };
+        bind_sidebar_keys(cx);
+        window.focus(&this.sidebar_focus, cx);
         this.follow_saved_instructions(instructions_now, window, cx);
         this
     }
@@ -299,6 +318,14 @@ impl SettingsWindow {
             window.set_window_title(tab.title());
             self.scroll.set_offset(point(gpui_kit::px(0.), gpui_kit::px(0.)));
             cx.notify();
+        }
+    }
+
+    /// The section above or below the one showing, stopping at the ends.
+    fn step_section(&mut self, step: i32, window: &mut Window, cx: &mut Context<Self>) {
+        let at = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0) as i32 + step;
+        if let Some(tab) = usize::try_from(at).ok().and_then(|i| Tab::ALL.get(i)) {
+            self.show(*tab, window, cx);
         }
     }
 
@@ -457,6 +484,13 @@ impl SettingsWindow {
         let on_fill = style::primary_opacity(cx, 0.1);
         let (fg, secondary) = (cx.theme().foreground, style::secondary_text(cx));
         v_flex()
+            .id("settings-sidebar")
+            // A click on a section gives the list the keyboard (GPUI focuses
+            // what's pressed), so the arrows carry on from there.
+            .track_focus(&self.sidebar_focus)
+            .key_context(SIDEBAR_CONTEXT)
+            .on_action(cx.listener(|this, _: &PreviousSection, window, cx| this.step_section(-1, window, cx)))
+            .on_action(cx.listener(|this, _: &NextSection, window, cx| this.step_section(1, window, cx)))
             .w(px(SIDEBAR_WIDTH))
             .flex_none()
             .h_full()

@@ -6,6 +6,7 @@
 #![cfg_attr(not(feature = "automation"), allow(dead_code, unused_imports))]
 mod activity;
 mod activity_panels;
+mod about_window;
 mod alert;
 mod app;
 mod archive_flight;
@@ -103,6 +104,7 @@ mod usage;
 mod viewer;
 mod web_panels;
 mod web_runtime;
+mod window_menu;
 
 use app::Threadbear;
 use gpui_kit::*;
@@ -221,6 +223,9 @@ fn main() {
             move |window, cx| cx.new(|cx| Threadbear::new(settings, window, cx)),
         )
         .expect("failed to open the window");
+        // Its close quits, and File's and Window's commands reach whichever
+        // window is in front (window_menu.rs).
+        window.update(cx, |_, w, cx| window_menu::install(w, cx)).ok();
         deep_links::listen(links, app.downgrade(), window, cx);
         if let Some(note) = brought {
             app.update(cx, |t, cx| t.show_import_note(note, cx));

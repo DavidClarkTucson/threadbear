@@ -16,7 +16,7 @@ use crate::tips::Tip as _;
 
 /// `ActivityBar.width`.
 pub(crate) const BAR_WIDTH: f32 = 44.;
-const BUTTON: f32 = 32.;
+pub(crate) const BUTTON: f32 = 32.;
 
 /// What one button says and does, built fresh each frame.
 pub(crate) struct RailButton {
@@ -140,7 +140,7 @@ impl Threadbear {
     }
 
     /// The column down the left (`ActivityBar`).
-    pub(crate) fn render_activity_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_activity_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let inbox_count = self.inbox_count(cx);
         let mut views = vec![];
         let mode = self.mode;
@@ -157,27 +157,36 @@ impl Threadbear {
             button.tip = self.shortcut_tip("Scheduled", ShortcutCommand::ShowScheduled);
             button.hint = self.shortcut_display(ShortcutCommand::ShowScheduled);
             button.badge = Some(self.scheduled.active_count());
-            views.push(rail_button(button, |this, _, cx| {
+            views.push(rail_button(button, |this, window, cx| {
                 this.unfold_threads(cx);
-                this.set_mode(SidebarMode::Scheduled, cx)
+                this.set_mode(SidebarMode::Scheduled, cx);
+                // Its page takes the thread's place, and the list the
+                // keyboard, so Esc there goes back to the Inbox.
+                window.focus(&this.sidebar.focus, cx);
             }, cx));
         }
         if self.projects_supported {
             let mut button = RailButton::new("rail-projects", "square.stack.3d.up", "Projects", mode == SidebarMode::Projects);
             button.tip = self.shortcut_tip("Projects", ShortcutCommand::ShowProjects);
             button.hint = self.shortcut_display(ShortcutCommand::ShowProjects);
-            views.push(rail_button(button, |this, _, cx| {
+            views.push(rail_button(button, |this, window, cx| {
                 this.unfold_threads(cx);
-                this.set_mode(SidebarMode::Projects, cx)
+                this.set_mode(SidebarMode::Projects, cx);
+                // Its page takes the thread's place, and the list the
+                // keyboard, so Esc there goes back to the Inbox.
+                window.focus(&this.sidebar.focus, cx);
             }, cx));
             let mut button = RailButton::new("rail-librarian", "books.vertical", "Librarian", mode == SidebarMode::Librarian);
             button.tip = self.shortcut_tip("Librarian", ShortcutCommand::ShowLibrarian);
             button.hint = self.shortcut_display(ShortcutCommand::ShowLibrarian);
             // The look under way and the ones waiting (`pendingCount`).
             button.badge = self.librarian.status.as_ref().map(|s| s.pending_count());
-            views.push(rail_button(button, |this, _, cx| {
+            views.push(rail_button(button, |this, window, cx| {
                 this.unfold_threads(cx);
-                this.set_mode(SidebarMode::Librarian, cx)
+                this.set_mode(SidebarMode::Librarian, cx);
+                // Its page takes the thread's place, and the list the
+                // keyboard, so Esc there goes back to the Inbox.
+                window.focus(&this.sidebar.focus, cx);
             }, cx));
         }
         // Connectors, Runners and Updates at the foot (activity_panels.rs),
@@ -203,7 +212,9 @@ impl Threadbear {
         let mut button = RailButton::new("rail-updates", "arrow.down.circle", self.updates_tooltip(), self.activity_panel_showing(shell::UPDATES, cx));
         button.dot = self.updates_dot();
         button.quiet_dot = self.updates_quiet_dot();
-        foot.push(rail_button(button, |this, _, cx| this.toggle_under_threads(shell::UPDATES, cx), cx));
+        let updates = rail_button(button, |this, _, cx| this.toggle_under_threads(shell::UPDATES, cx), cx);
+        // Right-click: the app's update in a popover (updates_panel.rs).
+        foot.push(self.with_update_popover(updates, window, cx));
         // Usage, as a honey pot filled to the room the next thread would get,
         // its tooltip each pool's best room (usage.rs). Toggles its panel
         // under the threads, as VS Code's bar does its views.

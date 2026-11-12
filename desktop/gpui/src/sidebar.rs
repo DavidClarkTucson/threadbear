@@ -7,6 +7,7 @@
 // slow thing with no optimistic state, deleting a chat, shows a spinner in its
 // place and stops taking clicks until it lands.
 use crate::app::Threadbear;
+use crate::shell::SidebarMode;
 use crate::{call, icons, now_ms, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::dialog::DialogButtonProps;
@@ -48,10 +49,100 @@ impl SidebarView {
 
 impl Render for SidebarView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        match self.app.upgrade() {
-            Some(app) => app.update(cx, |t, cx| t.render_threads_panel(window, cx)),
-            None => div().into_any_element(),
+        let Some(app) = self.app.upgrade() else { return div().into_any_element() };
+        let focus = app.read(cx).sidebar.focus.clone();
+        let content = app.update(cx, |t, cx| t.render_threads_panel(window, cx));
+        // A click anywhere in the panel that isn't a field gives it the
+        // keyboard (GPUI focuses the innermost focusable thing pressed), as
+        // clicking a row does the Swift list's.
+        let (up, down, escape) = (self.app.clone(), self.app.clone(), self.app.clone());
+        div()
+            .size_full()
+            .track_focus(&focus)
+            .key_context(LIST_CONTEXT)
+            .on_action(move |_: &SelectPreviousThread, window, cx| {
+                up.update(cx, |t, cx| t.step_thread(-1, window, cx)).ok();
+            })
+            .on_action(move |_: &SelectNextThread, window, cx| {
+                down.update(cx, |t, cx| t.step_thread(1, window, cx)).ok();
+            })
+            .on_action(move |_: &BackToInbox, window, cx| {
+                escape.update(cx, |t, cx| t.list_escape(window, cx)).ok();
+            })
+            .child(content)
+            .into_any_element()
+    }
+}
+
+// The Threads panel's keys (`onMoveCommand`, `onExitCommand`).
+actions!(thread_list, [SelectPreviousThread, SelectNextThread, BackToInbox]);
+
+/// The Threads panel's key context: its keys work while it has the keyboard,
+/// and a field in it (the search) keeps its own arrows and Esc.
+const LIST_CONTEXT: &str = "ThreadList";
+
+pub(crate) fn bind_keys(cx: &mut App) {
+    static BOUND: std::sync::Once = std::sync::Once::new();
+    BOUND.call_once(|| {
+        cx.bind_keys([KeyBinding::new("up", SelectPreviousThread, Some(LIST_CONTEXT)), KeyBinding::new("down", SelectNextThread, Some(LIST_CONTEXT)), KeyBinding::new("escape", BackToInbox, Some(LIST_CONTEXT))]);
+    });
+}
+
+impl Threadbear {
+    /// The threads the arrow keys walk, top to bottom, as drawn: a folded
+    /// section's rows aren't, unless a search draws them, and Archived only
+    /// its few (`order` in SidebarView).
+    pub(crate) fn arrow_order(&self, cx: &App) -> Vec<String> {
+        let now = now_ms();
+        let searching = !self.search.read(cx).value().trim().is_empty();
+        let mut out = Vec::new();
+        for section in self.shown_sections(cx, now) {
+            if !searching && self.folded.contains(section.key) {
+                continue;
+            }
+            let total = section.rows.len();
+            let shown = if section.key == "archived" {
+                let selected = self.selected.as_ref().and_then(|id| section.rows.iter().position(|t| &t.id == id));
+                rows::archive_rows(total, self.sidebar.archive_limit, searching, selected).0
+            } else {
+                total
+            };
+            out.extend(section.rows.into_iter().take(shown).map(|t| t.id));
         }
+        out
+    }
+
+    /// Up or down a thread from the open one (from nothing open, the first
+    /// or the last), kept in view, with the keyboard staying in the list.
+    pub(crate) fn step_thread(&mut self, step: i32, window: &mut Window, cx: &mut Context<Self>) {
+        if self.mode != SidebarMode::Inbox {
+            return;
+        }
+        let order = self.arrow_order(cx);
+        let next = match self.selected.as_ref().and_then(|s| order.iter().position(|id| id == s)) {
+            None if step >= 0 => order.first(),
+            None => order.last(),
+            Some(i) => order.get((i as i32 + step).clamp(0, order.len() as i32 - 1) as usize),
+        };
+        let Some(next) = next.cloned().filter(|n| self.selected.as_ref() != Some(n)) else { return };
+        self.open(next.clone(), window, cx);
+        // Opening puts the cursor in the thread's box; the arrows keep it here.
+        window.focus(&self.sidebar.focus, cx);
+        self.reveal_row(&next, cx);
+    }
+
+    /// Esc in the Threads panel: the Scheduled, Projects or Librarian view
+    /// goes back to the Inbox.
+    fn list_escape(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.mode != SidebarMode::Inbox {
+            self.set_mode(SidebarMode::Inbox, cx);
+        }
+    }
+
+    /// Scrolls the thread's row into view once it's drawn.
+    pub(crate) fn reveal_row(&mut self, id: &str, cx: &mut Context<Self>) {
+        *self.sidebar.reveal.borrow_mut() = Some((id.to_owned(), 0));
+        cx.notify();
     }
 }
 
@@ -232,7 +323,14 @@ pub(crate) struct SidebarState {
     /// folded then (row_motion.rs).
     was_folding: bool,
     was_folded: HashSet<&'static str>,
-    scroll: ScrollHandle,
+    pub(crate) scroll: ScrollHandle,
+    /// The Threads panel's keyboard: a click in it takes it, and then the
+    /// arrows move through the threads and Esc goes back to the Inbox
+    /// (`ThreadList`'s focus).
+    pub(crate) focus: FocusHandle,
+    /// A row to bring into view once it's laid out: the arrows', Next Inbox
+    /// Thread's or a thread chip's (`revealSelectionRequests`).
+    pub(crate) reveal: crate::row_motion::Reveal,
     /// Where the rows were and where they're going (row_motion.rs).
     pub(crate) motion: std::rc::Rc<crate::row_motion::RowMotion>,
     /// A row swiped or dragged with the mouse (row_swipe.rs).
@@ -258,6 +356,7 @@ impl SidebarState {
     pub(crate) fn new(cx: &mut Context<Threadbear>) -> Self {
         // Redraws once a second while something ticks (a working row's timer,
         // a sub-agent's duration), otherwise every 20 s so "5m" moves on.
+        bind_keys(cx);
         let tick = cx.spawn(async move |this, cx| {
             let mut n = 0u32;
             loop {
@@ -296,6 +395,8 @@ impl SidebarState {
             was_folding: false,
             was_folded: HashSet::new(),
             scroll: ScrollHandle::new(),
+            focus: cx.focus_handle(),
+            reveal: Default::default(),
             motion: Default::default(),
             gestures: Default::default(),
             sort_button: Default::default(),
@@ -1052,6 +1153,10 @@ impl Threadbear {
         if loaded {
             motion.rows_drawn(drawn, &quiet, cx.reduce_motion());
         }
+        // Last in the list, so it's laid out after every row (row_motion.rs).
+        if self.sidebar.reveal.borrow().is_some() {
+            list = list.child(motion.reveal_marker(self.sidebar.reveal.clone(), self.sidebar.scroll.clone(), self.sidebar_view.as_ref().map(|v| v.entity_id())));
+        }
         let new_thread_active = self.selected.is_none();
         let conn_note = self.connection_note();
         let list_error = self.list_error.clone();
@@ -1565,6 +1670,9 @@ impl Threadbear {
                 "tile": tile,
                 "hoverButtons": hovered.then(|| mode.actions().iter().map(|a| a.tip(t)).collect::<Vec<_>>()),
                 "runner": t.runner_id.as_deref().map(|id| self.runner_place_of(id)),
+                // Laid out within the part of the list that's showing (null
+                // for a row that isn't drawn, as in a folded section).
+                "inView": self.sidebar.motion.in_view(&t.id, &self.sidebar.scroll),
             })
         };
         let shown = self.shown_sections(cx, now);

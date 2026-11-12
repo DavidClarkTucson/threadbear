@@ -281,6 +281,9 @@ actions!(
         HideOtherApps,
         ShowAllApps,
         MinimizeWindow,
+        ZoomWindow,
+        BringAllToFront,
+        CloseWindow,
     ]
 );
 
@@ -361,11 +364,15 @@ commands!(
     (HideOthers, HideOtherApps, None),
     (ShowAll, ShowAllApps, None),
     (Minimize, MinimizeWindow, None),
+    (Zoom, ZoomWindow, None),
+    (BringAllToFront, BringAllToFront, None),
+    (Close, CloseWindow, None),
 );
 
-/// Every Mac app's own keys (the standard app and Window menus), whatever
-/// shortcuts.json says: ⌘Q quits, ⌘H hides, ⌥⌘H hides the rest, ⌘M
-/// minimizes. Elsewhere Control-Q quits, as apps there do.
+/// Every Mac app's own keys (the standard app, File and Window menus),
+/// whatever shortcuts.json says: ⌘Q quits, ⌘H hides, ⌥⌘H hides the rest,
+/// ⌘W closes the window in front, ⌘M minimizes. Elsewhere Control-Q quits,
+/// as apps there do.
 /// How the menu shows a standard key (`standard_keys`).
 fn standard_key_display(command: Command) -> Option<&'static str> {
     let mac = cfg!(target_os = "macos");
@@ -373,16 +380,17 @@ fn standard_key_display(command: Command) -> Option<&'static str> {
         Command::Quit => Some(if mac { "⌘Q" } else { "Ctrl+Q" }),
         Command::Hide if mac => Some("⌘H"),
         Command::HideOthers if mac => Some("⌥⌘H"),
+        Command::Close if mac => Some("⌘W"),
         Command::Minimize if mac => Some("⌘M"),
         _ => None,
     }
 }
 
-fn standard_keys() -> [(&'static str, Command); 4] {
+fn standard_keys() -> Vec<(&'static str, Command)> {
     if cfg!(target_os = "macos") {
-        [("cmd-q", Command::Quit), ("cmd-h", Command::Hide), ("alt-cmd-h", Command::HideOthers), ("cmd-m", Command::Minimize)]
+        vec![("cmd-q", Command::Quit), ("cmd-h", Command::Hide), ("alt-cmd-h", Command::HideOthers), ("cmd-w", Command::Close), ("cmd-m", Command::Minimize)]
     } else {
-        [("ctrl-q", Command::Quit), ("", Command::Hide), ("", Command::HideOthers), ("", Command::Minimize)]
+        vec![("ctrl-q", Command::Quit)]
     }
 }
 
@@ -672,7 +680,7 @@ impl Threadbear {
             Command::ResetPanelLayout => self.reset_panel_layout(cx),
             Command::CollapseThreads => self.toggle_threads_collapsed(cx),
             Command::ToggleFrameRate => self.toggle_frame_rate(window, cx),
-            Command::About => window.push_notification("Threadbear (GPUI)", cx),
+            Command::About => self.show_about(window, cx),
             Command::RestartToUpdate => self.restart_to_update(cx),
             Command::TakeTheTour | Command::FinishSettingUp => window.push_notification("That isn't in this app yet.", cx),
             Command::HibernateHour => self.hibernate_open("hour", window, cx),
@@ -691,6 +699,9 @@ impl Threadbear {
             Command::HideOthers => cx.hide_other_apps(),
             Command::ShowAll => cx.unhide_other_apps(),
             Command::Minimize => window.minimize_window(),
+            Command::Zoom => window.zoom_window(),
+            Command::BringAllToFront => crate::window_menu::bring_all_to_front(cx),
+            Command::Close => crate::window_menu::close_front_window(cx),
         }
         self.sync_menus(cx);
     }
@@ -730,6 +741,8 @@ impl Threadbear {
             }
         }
         self.mode = SidebarMode::Inbox;
+        // Its row in view, wherever the list was scrolled to.
+        self.reveal_row(id, cx);
         cx.notify();
     }
 
@@ -892,6 +905,8 @@ impl Threadbear {
         if self.folded.remove("inbox") {
             self.sidebar_settings_changed(cx);
         }
+        // Brought into view, as the arrow keys do (`revealSelectionRequests`).
+        self.reveal_row(&next, cx);
         self.open(next, window, cx);
     }
 
@@ -987,9 +1002,7 @@ impl Threadbear {
         let macos = cfg!(target_os = "macos");
         let mut desired: HashMap<String, Command> = HashMap::new();
         for (chord, command) in standard_keys() {
-            if !chord.is_empty() {
-                desired.insert(chord.to_owned(), command);
-            }
+            desired.insert(chord.to_owned(), command);
         }
         for command in Command::ALL {
             if let Some(key) = command.shortcut().and_then(|c| self.shortcuts.key(c)) {
@@ -1100,6 +1113,11 @@ impl Threadbear {
                         Separator,
                         item("Settings…", Command::Settings),
                         Separator,
+                    ])
+                    // The system's Services, for the words selected in a
+                    // text box (a Mac's own; the Swift app has it).
+                    .chain(cfg!(target_os = "macos").then_some([Services, Separator]).into_iter().flatten())
+                    .chain([
                         item("Hide Threadbear", Command::Hide),
                         item("Hide Others", Command::HideOthers),
                         item("Show All", Command::ShowAll),
@@ -1108,7 +1126,18 @@ impl Threadbear {
                     ])
                     .collect(),
             ),
-            TopMenu::new("File", vec![item("New Thread", Command::NewThread)]),
+            TopMenu::new("File", vec![item("New Thread", Command::NewThread), Separator, item("Close", Command::Close)]),
+            // The text commands, as AppKit's standard Edit menu has them;
+            // AppKit adds AutoFill, Start Dictation and Emoji & Symbols
+            // under them on a Mac (window_menu.rs).
+            TopMenu::new(
+                "Edit",
+                {
+                    use crate::window_menu::EditItem as E;
+                    let edit = |e: E| MenuEntry::Edit(e);
+                    vec![edit(E::Undo), edit(E::Redo), Separator, edit(E::Cut), edit(E::Copy), edit(E::Paste), edit(E::Delete), edit(E::SelectAll)]
+                },
+            ),
             TopMenu::new(
                 "View",
                 vec![
@@ -1154,7 +1183,9 @@ impl Threadbear {
                     item("Show Archived", Command::ShowArchived),
                 ],
             ),
-            TopMenu::new("Window", vec![item("Minimize", Command::Minimize)]),
+            // AppKit adds Fill, Center, Move & Resize and the list of open
+            // windows (the main one and any panel in a window of its own).
+            TopMenu::new("Window", vec![item("Minimize", Command::Minimize), item("Zoom", Command::Zoom), Separator, item("Bring All to Front", Command::BringAllToFront)]),
             TopMenu::new("Help", vec![item("Take the Tour", Command::TakeTheTour), item("Finish Setting Up", Command::FinishSettingUp)]),
         ]
     }
@@ -1210,21 +1241,44 @@ impl Threadbear {
     /// Every menu as data, for the specs and `app-menu` (Automation's `menus`).
     #[cfg(feature = "automation")]
     pub(crate) fn menus_for_dump(&self, cx: &App) -> Value {
-        menus_json(&self.menu_model(cx), &self.shortcuts)
+        let mut out = menus_json(&self.menu_model(cx), &self.shortcuts);
+        // And what AppKit put in each menu by itself (Emoji & Symbols, Enter
+        // Full Screen, the open windows), as the Swift app's `menus` reads
+        // the real menu bar, which has them.
+        for top in out.as_array_mut().into_iter().flatten() {
+            let title = top["title"].as_str().unwrap_or_default().to_owned();
+            let ours: Vec<String> = top["items"].as_array().into_iter().flatten().filter_map(|i| i["title"].as_str().map(str::to_owned)).collect();
+            let extra = crate::window_menu::system_items(&title, &ours);
+            if let Some(items) = top["items"].as_array_mut() {
+                items.extend(extra.into_iter().map(|t| serde_json::json!({ "title": t, "enabled": true, "system": true })));
+            }
+        }
+        out
     }
 
     #[cfg(feature = "automation")]
     pub(crate) fn run_menu_item(&mut self, title: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
         let menus = self.menu_model(cx);
-        fn find(entries: &[MenuEntry], title: &str) -> Option<Command> {
+        enum Found {
+            Command(Command),
+            Edit(crate::window_menu::EditItem),
+        }
+        fn find(entries: &[MenuEntry], title: &str) -> Option<Found> {
             entries.iter().find_map(|e| match e {
-                MenuEntry::Item { title: t, command, .. } if t == title => Some(*command),
+                MenuEntry::Item { title: t, command, .. } if t == title => Some(Found::Command(*command)),
+                MenuEntry::Edit(item) if item.title() == title => Some(Found::Edit(*item)),
                 MenuEntry::Submenu { items, .. } => find(items, title),
                 _ => None,
             })
         }
-        let command = menus.iter().find_map(|m| find(&m.items, title)).ok_or_else(|| format!("no menu item {title:?}"))?;
-        self.command_chosen(command, window, cx);
+        match menus.iter().find_map(|m| find(&m.items, title)).ok_or_else(|| format!("no menu item {title:?}"))? {
+            Found::Command(command) => self.command_chosen(command, window, cx),
+            // To wherever the keyboard is, as the menu bar sends it.
+            Found::Edit(item) => {
+                let action = item.action();
+                cx.defer_in(window, move |_, window, cx| window.dispatch_action(action, cx));
+            }
+        }
         Ok(())
     }
 
@@ -1273,7 +1327,7 @@ impl Threadbear {
             // the list) can't take the start of a swipe from them.
             .child(self.page_swipe_watch(cx))
             .child(self.row_press_watch(cx))
-            .child(self.render_activity_bar(cx))
+            .child(self.render_activity_bar(window, cx))
             .child(div().flex_1().min_w_0().h_full().child(self.dock_view.clone()))
             .when_some(rail, |s, r| s.child(r))
             // An archived or hibernated thread's page on its way to its
@@ -1458,6 +1512,10 @@ impl TopMenu {
 pub(crate) enum MenuEntry {
     Item { title: String, command: Command, enabled: bool },
     Submenu { title: String, items: Vec<MenuEntry> },
+    /// An Edit menu item: the text box's own action (window_menu.rs).
+    Edit(crate::window_menu::EditItem),
+    /// The system's Services submenu, filled by macOS.
+    Services,
     Separator,
 }
 
@@ -1488,6 +1546,14 @@ fn menus_json(menus: &[TopMenu], shortcuts: &ShortcutBindings) -> Value {
                     Some(out)
                 }
                 MenuEntry::Submenu { title, items } => Some(serde_json::json!({ "title": title, "items": entries(items, shortcuts) })),
+                MenuEntry::Edit(item) => {
+                    let mut out = serde_json::json!({ "title": item.title(), "enabled": true });
+                    if let Some(key) = item.key() {
+                        out["key"] = Value::String(key.to_owned());
+                    }
+                    Some(out)
+                }
+                MenuEntry::Services => Some(serde_json::json!({ "title": "Services", "enabled": true, "items": [] })),
                 MenuEntry::Separator => None,
             })
             .collect()
@@ -1502,6 +1568,8 @@ fn gpui_menus(menus: &[TopMenu]) -> Vec<Menu> {
             .map(|e| match e {
                 MenuEntry::Item { title, command, enabled } => MenuItem::Action { name: title.clone().into(), action: command.action(), os_action: None, checked: false, disabled: !enabled },
                 MenuEntry::Submenu { title, items } => MenuItem::submenu(Menu::new(title.clone()).items(entries(items))),
+                MenuEntry::Edit(item) => MenuItem::Action { name: item.title().into(), action: item.action(), os_action: item.os_action(), checked: false, disabled: false },
+                MenuEntry::Services => MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuEntry::Separator => MenuItem::Separator,
             })
             .collect()

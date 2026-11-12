@@ -265,9 +265,23 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
             let mut dump = app.read(cx).dump(cx);
             // Who AppKit gives the keys to: GPUI's view, or a page's.
             dump["keyboard"] = crate::web_panels::keyboard_dump(window);
+            // Whether the Threads panel has the keyboard (its arrows and Esc).
+            if dump["sidebar"].is_object() {
+                dump["sidebar"]["keyboard"] = json!(app.read(cx).sidebar.focus.contains_focused(window, cx));
+            }
             Ok(dump)
         }
         "status" => Ok(json!("ok")),
+        // Threadbear > About Threadbear, through the menu item, as the Swift
+        // command. The window opens just after, so the next ask says what it
+        // shows: its lines, " | " between them.
+        "den" => {
+            if let Some(lines) = crate::about_window::dump(cx) {
+                return Ok(json!(format!("ok {}", lines.join(" | "))));
+            }
+            app.update(cx, |t, cx| t.run_menu_item("About Threadbear", window, cx))?;
+            Ok(json!("ok opening"))
+        }
         // The Settings window, as the Swift command: opened (on `tab`), or
         // `"close": true` closes it.
         "settings" => {
@@ -308,7 +322,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         }
         // The activity bar's panels, as the Swift app's commands of these names.
         "runners" => crate::runners_panel::automation(app, cmd, window, cx),
-        "updates" => crate::updates_panel::automation(app, cmd, cx),
+        "updates" => crate::updates_panel::automation(app, cmd, window, cx),
         "connectors" => crate::connectors_panel::automation(app, cmd, cx),
         "usage" => crate::usage::automation(app, cmd, cx),
         "move" => crate::move_sheet::automation(app, cmd, window, cx),
@@ -406,6 +420,8 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // The keys the composer's slash palette takes, where the cursor is
         // (the Swift `arrow`, `tab`, `escape`).
         "arrow" => {
+            // With {"settings": true} this is the Settings window's, where its
+            // list of sections has the keyboard.
             window.press(if text(cmd, "dir") == "up" { "up" } else { "down" }, cx);
             Ok(json!("ok"))
         }

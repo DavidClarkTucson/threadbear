@@ -1025,6 +1025,9 @@ impl Threadbear {
     pub(crate) fn open_thread_link(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let matches: Vec<String> = self.threads.keys().filter(|k| *k == id || k.starts_with(id)).cloned().collect();
         if let [only] = matches.as_slice() {
+            // In the Inbox view, its section unfolded and its row in view,
+            // as Swift's `openThread` has it.
+            self.reveal_thread(only, cx);
             return self.open(only.clone(), window, cx);
         }
         crate::composer_answers::beep();

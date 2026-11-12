@@ -31,12 +31,81 @@ pub(crate) struct RowMotion {
     /// The list's top in the window this frame.
     list_top: Cell<f32>,
     glides: RefCell<Glides>,
+    /// Where each row was laid out this frame, from the list's top: its top
+    /// and height, for scrolling one into view (`reveal`).
+    placed: RefCell<HashMap<String, (f32, f32)>>,
 }
+
+/// A row to scroll into view once it's been laid out, and how many frames
+/// it's been waited for (a folded section opening, the list loading).
+pub(crate) type Reveal = Rc<RefCell<Option<(String, u8)>>>;
+
+/// How much of the list's foot the fade covers: a row under it isn't in view.
+const FOOT_FADE: f32 = 34.;
+/// Room left above or below a row scrolled into view.
+const REVEAL_MARGIN: f32 = 4.;
 
 impl RowMotion {
     /// The rows about to be drawn, by key, top to bottom (`Glides::rows_drawn`).
     pub(crate) fn rows_drawn(&self, rows: Vec<String>, quiet: &HashSet<String>, reduce: bool) {
+        self.placed.borrow_mut().retain(|k, _| rows.contains(k));
         self.glides.borrow_mut().rows_drawn(rows, quiet, reduce, Instant::now());
+    }
+
+    /// Whether the row is laid out within the part of the list that's showing.
+    pub(crate) fn in_view(&self, key: &str, scroll: &ScrollHandle) -> Option<bool> {
+        let (top, height) = *self.placed.borrow().get(key)?;
+        let seen = -f32::from(scroll.offset().y);
+        let tall = f32::from(scroll.bounds().size.height) - FOOT_FADE;
+        Some(top >= seen - 0.5 && top + height <= seen + tall + 0.5)
+    }
+
+    /// The last thing the list draws: once the rows above it are laid out this
+    /// frame, scrolls the one `reveal` names into view, as little as it takes
+    /// (SwiftUI's `scrollTo` with no anchor), and has `view` drawn again for
+    /// it. A row not laid out yet is looked for again a few frames running.
+    pub(crate) fn reveal_marker(self: &Rc<Self>, reveal: Reveal, scroll: ScrollHandle, view: Option<EntityId>) -> impl IntoElement {
+        let motion = self.clone();
+        canvas(
+            move |_, window, cx| {
+                let Some((key, tries)) = reveal.borrow().clone() else { return };
+                let placed = motion.placed.borrow().get(&key).copied();
+                let redraw = |cx: &mut App| {
+                    if let Some(view) = view {
+                        cx.notify(view);
+                    }
+                };
+                match placed {
+                    Some((top, height)) => {
+                        *reveal.borrow_mut() = None;
+                        let offset = scroll.offset();
+                        let seen = -f32::from(offset.y);
+                        let tall = (f32::from(scroll.bounds().size.height) - FOOT_FADE).max(height);
+                        let to = if top < seen {
+                            top - REVEAL_MARGIN
+                        } else if top + height > seen + tall {
+                            top + height - tall + REVEAL_MARGIN
+                        } else {
+                            return;
+                        };
+                        let most = f32::from(scroll.max_offset().y);
+                        scroll.set_offset(point(offset.x, gpui_kit::px(-to.clamp(0., most.max(0.)))));
+                        redraw(cx);
+                    }
+                    None if tries < 20 => {
+                        *reveal.borrow_mut() = Some((key, tries + 1));
+                        window.request_animation_frame();
+                        redraw(cx);
+                    }
+                    None => *reveal.borrow_mut() = None,
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_0()
     }
 
     /// Notes where the list is this frame, for rows to measure from: the
@@ -134,6 +203,7 @@ impl Element for Glide {
 
     fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) {
         let top = f32::from(bounds.origin.y) - self.motion.list_top.get();
+        self.motion.placed.borrow_mut().insert(self.key.clone(), (top, f32::from(bounds.size.height)));
         let offset = self.motion.glides.borrow_mut().place(&self.key, top, Instant::now());
         if offset != 0. {
             window.request_animation_frame();
