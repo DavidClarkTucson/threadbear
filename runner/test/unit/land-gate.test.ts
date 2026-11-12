@@ -128,7 +128,7 @@ test('a landing touching what a red workflow checks is held, with what failed an
   assert.doesNotMatch(held, /docs\/x\.md/);
   assert.match(held, /gh run view 7 --log-failed/);
   assert.match(held, /tb land --despite-red/);
-  assert.deepEqual(notes, []);
+  assert.equal(notes.length, 0);
   // Files it doesn't check never ask GitHub at all.
   const quiet = fakeGh([run(7, 'failure', 'a')]);
   assert.equal(await landHold(root, ['docs/x.md', 'features/README.md'], () => {}, quiet), undefined);
