@@ -8,6 +8,7 @@ mod activity;
 mod activity_panels;
 mod alert;
 mod app;
+mod archive_flight;
 mod app_update;
 #[cfg(feature = "automation")]
 mod automation;

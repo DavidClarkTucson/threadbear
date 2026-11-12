@@ -211,6 +211,8 @@ pub struct Threadbear {
     pub(crate) thread_panels: crate::thread_panels::ThreadPanels,
     /// Two fingers across the window going back or forward (swipe_nav.rs).
     pub(crate) swipe_nav: crate::swipe_nav::SwipeNav,
+    /// Pages on their way to the Archived and Hibernating headings (archive_flight.rs).
+    pub(crate) flight: crate::archive_flight::Flights,
     _events: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -437,6 +439,7 @@ impl Threadbear {
             main_view: None,
             thread_panels: Default::default(),
             swipe_nav: Default::default(),
+            flight: Default::default(),
             _events: events,
             _subs: vec![appearance, searching, frame, menus, looking, quitting, side_changed, main_context],
         };
@@ -1205,6 +1208,9 @@ impl Threadbear {
         dump["importNote"] = json!(self.import_note);
         // The card a page swipe shows while it's under way (swipe_nav.rs).
         dump["pageSwipe"] = self.page_swipe_dump();
+        // The last archive or hibernate flight: where it started and aimed,
+        // and once it's landed, where the heading's box was (archive_flight.rs).
+        dump["flight"] = self.flight.dump();
         dump
     }
 

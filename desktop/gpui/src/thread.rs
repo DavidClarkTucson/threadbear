@@ -1265,7 +1265,15 @@ impl Render for ThreadPane {
                 Some(message) if !self.loaded && self.subagent_missing => s.child(div().flex_1().flex().items_center().justify_center().text_size(px(13.)).text_color(muted).child(message)),
                 Some(message) if !self.loaded => s.child(self.render_load_failure(message, cx)),
                 _ if self.loaded && self.subagent_id.is_some() && self.feed.model().rows().is_empty() => s.child(div().flex_1().flex().items_center().justify_center().text_size(px(13.)).text_color(muted).child("Nothing yet.")),
-                _ => s.child(div().flex_1().min_h_0().child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx))),
+                _ => s.child(
+                    div()
+                        .relative()
+                        .flex_1()
+                        .min_h_0()
+                        .child(transcript_list(&self.scroller, bg, cx.processor(|this, ix: usize, window, cx| this.render_item(ix, window, cx)), cx))
+                        // Where an archive's page starts from (archive_flight.rs); a sub-agent's never flies.
+                        .when(self.subagent_id.is_none(), |s| s.child(crate::archive_flight::transcript_mark(cx.entity_id()))),
+                ),
             })
             // A sub-agent can't be written to: it takes its brief from the
             // agent that started it.

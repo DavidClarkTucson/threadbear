@@ -384,6 +384,8 @@ struct AppDump: Encodable {
     var limit: LimitInfo?
     /// The Archived note with Undo at the top of the thread panel: its thread.
     var archivedNote: String?
+    /// The last archive or hibernate flight (`ArchiveFlight.Record`).
+    var flight: ArchiveFlight.Record?
     /// The milestone note at the top of the thread panel: its first line.
     var milestoneNote: String?
     var error: String?
@@ -935,6 +937,7 @@ struct AppDump: Encodable {
             banner: app.banner.map { BannerInfo(style: $0.style.rawValue, text: $0.text, detail: $0.detail) },
             limit: app.selectedThread.flatMap { limitInfo(app, thread: $0) },
             archivedNote: app.archivedNote?.threadId,
+            flight: ArchiveFlight.lastFlight,
             milestoneNote: app.milestoneNote.map { ThreadMilestones.title($0.tier) },
             error: app.errorMessage,
             window: window.map { Window(width: Int(contentSize($0).width), height: Int(contentSize($0).height), appearance: appearance) },

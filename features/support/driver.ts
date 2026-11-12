@@ -109,6 +109,10 @@ export type Dump = {
   zoom?: number;
   /** The thread the Archived note names, while it's up. */
   archivedNote?: string | null;
+  /** The last archive or hibernate flight: where the page started (the
+   * transcript, in window points from the top left) and aimed, and once it
+   * landed, where the heading's box was. */
+  flight?: Flight | null;
   /** "end" or "empty" while the end-of-inbox note is up. */
   inboxEndNote?: string | null;
   /** The panel bar's title line and its buttons' tips. */
@@ -135,6 +139,9 @@ export type Dump = {
     shells: string[];
   } | null;
 };
+
+export type Rect = { x: number; y: number; width: number; height: number };
+export type Flight = { to: 'archive' | 'hibernate'; thread?: string | null; start: Rect; end?: { x: number; y: number } | null; onHeading: boolean; landed: boolean; landedBox?: Rect | null };
 
 /** `dot` is the accent dot (something only you can do), `quietDot` the grey one. */
 export type RailButton = { title: string; badge?: number | null; dot?: boolean; quietDot?: boolean; active: boolean };

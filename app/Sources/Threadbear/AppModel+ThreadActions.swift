@@ -924,7 +924,7 @@ extension AppModel {
     private func flyToArchive(_ threadId: String) {
         guard transcript.session?.threadId == threadId, transcript.session?.subagentId == nil else { return }
         noteFlightLeaving(threadId)
-        let started = ArchiveFlight.launch(from: transcript.scrollView) { [weak self] in
+        let started = ArchiveFlight.launch(from: transcript.scrollView, thread: threadId) { [weak self] in
             self?.flyingToArchive.remove(threadId)
             self?.leavingTheInbox.remove(threadId)
             self?.archiveLandings &+= 1
@@ -947,7 +947,7 @@ extension AppModel {
         // waiting on a schedule) counts: its heading is there and stays.
         let headingThere = !flyingToHibernate.isEmpty || !sections.hibernating.isEmpty
         if showing { noteFlightLeaving(threadId) }
-        let started = showing && ArchiveFlight.launch(from: transcript.scrollView, to: .hibernate, headingThere: headingThere) { [weak self] in
+        let started = showing && ArchiveFlight.launch(from: transcript.scrollView, to: .hibernate, headingThere: headingThere, thread: threadId) { [weak self] in
             self?.flyingToHibernate.remove(threadId)
             self?.leavingTheInbox.remove(threadId)
             self?.moonStirs()

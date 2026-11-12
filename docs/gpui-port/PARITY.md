@@ -258,6 +258,34 @@ built parsers and gates with no launch of the app, which is the trap.)
   `features/remote-threads.feature`, `features/steps/connection.steps.ts`.
 - Verification: on Tinker Desk, the new scenario fails on the code before
   the fix with the panic at entity_map.rs:156, and passes with it.
+### 2026-11-12 The archive and hibernate flights (`juice.archiveflight`, `juice.hibernateflight`)
+
+- Archiving the open thread (the row's button, ⌘E, the done card, a swipe,
+  the menu) drops its page into the Archived heading, and hibernating it
+  sinks the page, dimming, into Hibernating's moon, while the next thread
+  fades in under it; the box hops and the moon dips as it lands, and the
+  row and the heading's count wait for it there. The path, its easing and
+  the timings are the Swift app's (core's `archive_flight.rs`, with tests).
+- GPUI can't take a picture of a view, or scale or turn one, so the page is a
+  card the page's colour with a transcript's shape on it, flying level. It's
+  drawn by a view of its own over the window, so its frames redraw neither
+  the transcript nor the sidebar, and it's timed from its first frame: a
+  click that holds the main thread (opening a heavy next thread) delays it
+  rather than eating it. A stall mid-flight still holds it, where the Swift
+  app's runs on in Core Animation. The hibernate's next thread doesn't rise
+  its 8 pt as it fades in.
+- Both dumps give `flight`: where the page started, where it aimed, and the
+  heading's box once it landed. `features/tools/motion-clip.ts` records a
+  scene in both apps on the real screen, side by side.
+- Files: `desktop/core/src/archive_flight.rs`, `desktop/gpui/src/archive_flight.rs`,
+  `sidebar.rs`, `shell.rs`, `thread.rs`, `app.rs`; the Swift app's
+  `ArchiveFlight.swift` and `AppDump.swift` (the dump); `features/archive-flight.feature`.
+- Verification: on Tinker Desk, `@juice.archiveflight` and
+  `@juice.hibernateflight` pass on GPUI and Swift (2 of 2 each), with the
+  sidebar's archive and hibernate scenarios on GPUI (11 of 11); clips of both
+  apps side by side, at speed, a quarter speed and with the main thread
+  stalled 0.3 s after the click, in
+  `~/Library/Caches/Threadbear/gpui-compare/archive-flight/`.
 
 ### 2026-11-12 Opening a thread whose agent had shown a pin crashed the app (`panel.requests`)
 

@@ -1272,6 +1272,9 @@ impl Threadbear {
             .child(self.render_activity_bar(cx))
             .child(div().flex_1().min_w_0().h_full().child(self.dock_view.clone()))
             .when_some(rail, |s, r| s.child(r))
+            // An archived or hibernated thread's page on its way to its
+            // heading, over the sidebar and the panel alike (archive_flight.rs).
+            .child(self.flight.overlay(cx))
             .children(self.render_swipe_card(cx).map(|card| deferred(card).with_priority(1)))
             // A click or a key in the window means he's at it, for a window
             // the system never tells it's in front of (an X server with no

@@ -437,8 +437,8 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `tour.intros` | One-card intros | First open of a page, pools | Drawn. | build | S | `Tour` (`TourIntro`) |
 | `tour.setup` | Finish setting up | Checklist, self-ticking | Drawn. | build | S | `SetupChecklist` |
 | `tour.about` | About (the Den) | Waving bear, build, numbers | Own GPUI window, drawn. | build | S | `DenWindow` |
-| `juice.archiveflight` | Archive flight | Page snapshot drops into the heading | Risk: GPUI animates from the foreground thread and the same click opens the next thread, so it needs a free main thread or a different flight design. | hard | M | `ArchiveFlight`, `ArchiveFlightPath` |
-| `juice.hibernateflight` | Hibernate flight | Sinks into the moon | Risk: same foreground-thread problem as `juice.archiveflight`. | hard | S | `ArchiveFlight` |
+| `juice.archiveflight` | Archive flight | Page snapshot drops into the heading | Built (`archive_flight.rs`, the path in core's `archive_flight`): GPUI can't picture a view or scale and turn one, so a card the page's colour with a transcript's shape on it flies the Swift path, level, in a view of its own over the window, timed by the clock; the next thread fades in under it and the box bounces. Drawn on the main thread, so a stall there holds it where Core Animation's carries on. | hard | M | `ArchiveFlight`, `ArchiveFlightPath` |
+| `juice.hibernateflight` | Hibernate flight | Sinks into the moon | Built with `juice.archiveflight`: sinks, dimming, into the moon, which dips as it lands. The next thread doesn't rise as it fades in (8 pt in the Swift app). | hard | S | `ArchiveFlight` |
 | `juice.inboxzero` | Inbox zero bear | Rises and waves, asleep after bedtime | Bear geometry with `Animation`. | build | M | `Juice`, `InkLayers` |
 | `juice.panebear` | Pane bear | Waves over new thread page | Bear geometry with `Animation`. | build | S | `Juice` (`PaneBear`) |
 | `juice.workingbear` | Working bear secrets | Waves back on hover, hops on click | Bear geometry with `Animation`. | build | S | `WavingBearView` |

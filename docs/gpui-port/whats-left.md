@@ -132,8 +132,13 @@ you go.
   through Convex here (`settings.runners`, `remote.rs`)
 - [ ] Help's two items, About's window, the tour and Finish Setting Up are
   stubs (`menu.help`, `tour.*`)
-- [ ] The bears and the little animations: the working and waking bears, the
-  archive and hibernate flights, inbox zero, the message rising from the box,
+- [x] The archive and hibernate flights: the open thread's page drops into
+  the Archived heading or sinks into the moon, and the heading's box bounces
+  (`juice.archiveflight`, `juice.hibernateflight`). A drawn card with a
+  transcript's shape, not a picture of the real one, and level, as GPUI can't
+  picture or turn a view
+- [ ] The bears and the little animations: the working and waking bears,
+  inbox zero, the message rising from the box,
   the Librarian's wobble (`juice.*`, `foundation.bear`, `transcript.working`,
   `transcript.woke`, `transcript.sendlift`, `librarian.picture`)
 - [ ] The system accent colour isn't followed (always blue), and Reduce Motion

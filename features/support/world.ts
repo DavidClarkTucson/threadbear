@@ -28,6 +28,8 @@ export class ThreadbearWorld extends World {
   notedRow?: { id: string; height: number };
   /** What the last `share` command said. */
   shareResult?: string;
+  /** The thread whose page flew to its heading (archive-flight.steps.ts). */
+  flownFrom?: string;
 
   constructor(options: IWorldOptions) {
     super(options);

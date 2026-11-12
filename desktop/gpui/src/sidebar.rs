@@ -462,6 +462,9 @@ impl Threadbear {
 
     pub(crate) fn archive_row(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let next = self.neighbour_of(&id, cx, now_ms());
+        // The open thread's page drops into the Archived heading, before the
+        // thread moves and the next one opens (archive_flight.rs).
+        self.launch_flight(&id, crate::archive_flight::Destination::Archive, cx);
         let at = iso_time(now_ms());
         // "Archived" and Undo, at the top of the panel (`ArchivedToast`).
         if let Some(title) = self.threads.get(&id).map(|t| t.title.clone()) {
@@ -492,6 +495,8 @@ impl Threadbear {
     /// Snooze until a moment, moving off it if it's open (`AppModel.snooze`).
     pub(crate) fn snooze_row(&mut self, id: String, until_ms: i64, window: &mut Window, cx: &mut Context<Self>) {
         let next = self.neighbour_of(&id, cx, now_ms());
+        // The open thread's page sinks into the moon (archive_flight.rs).
+        self.launch_flight(&id, crate::archive_flight::Destination::Hibernate, cx);
         let until = iso_time(until_ms);
         let local = until.clone();
         self.update_thread(
@@ -531,6 +536,7 @@ impl Threadbear {
     /// Hibernate until the runner next starts (`snoozedUntil: "restart"`).
     pub(crate) fn snooze_until_restart(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let next = self.neighbour_of(&id, cx, now_ms());
+        self.launch_flight(&id, crate::archive_flight::Destination::Hibernate, cx);
         self.update_thread(
             &id,
             |t| {
@@ -548,6 +554,7 @@ impl Threadbear {
     /// with the runner's reason if it can't.
     pub(crate) fn hibernate_when(&mut self, id: String, said: String, window: &mut Window, cx: &mut Context<Self>) {
         let next = self.neighbour_of(&id, cx, now_ms());
+        self.launch_flight(&id, crate::archive_flight::Destination::Hibernate, cx);
         let before = self.threads.get(&id).cloned();
         if let Some(t) = self.threads.get_mut(&id) {
             t.snoozed_until = Some("9999-12-31T00:00:00.000Z".into());
@@ -924,7 +931,14 @@ impl Threadbear {
         let clock: Clock = rows::local_now();
         let query = self.search.read(cx).value().trim().to_lowercase();
         let searching = !query.is_empty();
-        let sections = self.shown_sections(cx, now);
+        let mut sections = self.shown_sections(cx, now);
+        // A thread whose page is on its way to Archived or Hibernating isn't
+        // listed or counted there until it lands (archive_flight.rs).
+        for section in &mut sections {
+            section.rows.retain(|t| !self.flight.holds(section.key, &t.id));
+        }
+        // Where flights can aim, noted afresh as the list draws.
+        crate::archive_flight::sidebar_drawing();
         // When a schedule next messages each thread, for those under
         // Hibernating for it (`app.wakes`).
         let wakes = threadbear_core::inbox::wakes(&self.scheduled.list);
@@ -976,7 +990,12 @@ impl Threadbear {
                 };
                 for t in section.rows.iter().take(shown.0) {
                     let wake = (section.key == "hibernating").then(|| wakes.get(&t.id)).flatten();
-                    let row = self.render_row(t, section.key, wake, now, &clock, &p, cx);
+                    let mut row = self.render_row(t, section.key, wake, now, &clock, &p, cx);
+                    // The open row closes up as its page flies, lifting the
+                    // heading below it, which the flight allows for.
+                    if self.selected.as_ref() == Some(&t.id) {
+                        row = div().relative().child(row).child(crate::archive_flight::mark(crate::archive_flight::Mark::OpenRow)).into_any_element();
+                    }
                     body = place(t.id.clone(), row, body);
                     if !matches!(section.key, "hibernating" | "archived") {
                         for (i, sub) in self.render_subagents(t, section.key, now, &p, cx).into_iter().enumerate() {
@@ -1049,6 +1068,8 @@ impl Threadbear {
                     .relative()
                     .flex_1()
                     .min_h_0()
+                    // A flight with its heading out of sight falls off the list's bottom.
+                    .child(crate::archive_flight::mark(crate::archive_flight::Mark::List))
                     .child(div().id("sidebar-list").size_full().overflow_y_scroll().track_scroll(&self.sidebar.scroll).child(list))
                     .child(div().absolute().left_0().right_0().bottom_0().h(px(34.)).bg(linear_gradient(180., linear_color_stop(p.side.opacity(0.), 0.), linear_color_stop(p.side, 0.88)))),
             )
@@ -1194,7 +1215,15 @@ impl Threadbear {
             .pt(px(18.))
             .pb(px(6.))
             .items_center()
-            .child(icon(symbol, 11., secondary).flex_none())
+            .child(match key {
+                // Where an archived or hibernated thread's page lands, bouncing
+                // as it does (archive_flight.rs).
+                "archived" | "hibernating" => {
+                    let kind = if key == "archived" { crate::archive_flight::Mark::ArchiveBox } else { crate::archive_flight::Mark::HibernateBox };
+                    div().relative().flex_none().child(self.flight.landing_icon(key, icon(symbol, 11., secondary), secondary, fg, cx.reduce_motion())).child(crate::archive_flight::mark(kind)).into_any_element()
+                }
+                _ => icon(symbol, 11., secondary).flex_none().into_any_element(),
+            })
             .child(div().flex_none().text_size(px(style::size::SIDEBAR_HEADING)).line_height(px(16.)).font_semibold().text_color(secondary).group_hover(hover_group, move |s| s.text_color(fg)).child(title.clone()))
             .child(div().flex_1().min_w_0().h(px(1.)).mx(px(4.)).bg(hairline))
             .when_some(count_el, |s, n| s.child(div().flex_none().text_size(px(style::size::SIDEBAR_META)).text_color(faint).child(n)))
