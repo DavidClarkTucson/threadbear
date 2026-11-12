@@ -169,3 +169,54 @@ rm -rf "$HOME"/.cache/threadbear-check/gpui/target-*
   assert.ok(fs.existsSync(path.join(h.base, target, '.in-use')));
   assert.ok(Date.now() - fs.statSync(path.join(h.base, src)).mtimeMs < HOUR, 'the copy looks used, whatever rsync set');
 });
+
+// 12 Nov: seven targets of 5 to 7 GiB on Tinker Desk, grown between runs
+// until it had 1.8 GiB free and no check could run there.
+const MANY = {
+  'src-aaa': 0, 'target-aaa': 0, // this checkout
+  'src-bbb': 1, 'target-bbb': 1,
+  'src-ccc': 2, 'target-ccc': 2,
+  'src-ddd': 3, 'target-ddd': 3,
+  'src-eee': 4, 'target-eee': 4,
+  'src-fff': 5, 'target-fff': 5,
+  'src-ggg': 0.1, 'target-ggg': 0.1, // building now
+};
+
+test('past the cap, the idle ones longest unused go even with room to spare, copies and all', (t) => {
+  const h = host(t, 400, MANY);
+  const r = h.trim();
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.left(), ['target-aaa', 'target-bbb', 'target-ccc', 'target-ggg']);
+  assert.match(r.stderr, /More than 4 build folders/);
+  const srcs = fs.readdirSync(h.base).filter((n) => n.startsWith('src-')).sort();
+  assert.deepEqual(srcs, ['src-aaa', 'src-bbb', 'src-ccc', 'src-ggg']);
+});
+
+test('the cap never takes one in use, so a busy host can go past it', (t) => {
+  const h = host(t, 400, MANY);
+  // Long runs: the marker's new, the folders' own times as old as they were.
+  for (const [k, hours] of [['ddd', 3], ['eee', 4], ['fff', 5]] as const) {
+    const p = path.join(h.base, `target-${k}`);
+    fs.writeFileSync(path.join(p, '.in-use'), '');
+    fs.utimesSync(p, new Date(Date.now() - hours * HOUR), new Date(Date.now() - hours * HOUR));
+  }
+  assert.equal(h.trim().status, 0);
+  assert.equal(h.left().length, 7);
+});
+
+test('with no checkout of its own (check-remote.sh) it gives room back and never refuses', (t) => {
+  const h = host(t, 1, WORK);
+  const r = h.trim('-');
+  assert.equal(r.status, 0, r.stderr);
+  // No folder is its own, so aaa (idle a moment) is fair game too, but only
+  // until there's room: bbb and ccc are enough.
+  assert.deepEqual(h.left(), ['target-aaa', 'target-ddd']);
+  const full = host(t, 0, { 'target-ggg': 0.1 });
+  assert.equal(full.trim('-').status, 0);
+});
+
+test('a copy whose target has gone goes too, unless it was touched lately', (t) => {
+  const h = host(t, 400, { 'src-aaa': 0, 'target-aaa': 0, 'src-old': 5, 'src-new': 0.1 });
+  assert.equal(h.trim().status, 0);
+  assert.deepEqual(fs.readdirSync(h.base).filter((n) => n.startsWith('src-')).sort(), ['src-aaa', 'src-new']);
+});

@@ -6,10 +6,13 @@
 # its saves started failing (THREADBEAR-1R).
 #
 #   trim-remote-cache.sh <this checkout's key>
+#   trim-remote-cache.sh -
 #
-# Exit 3: too little disk left to build on.
+# Exit 3: too little disk left to build on. With - (scripts/check-remote.sh,
+# finding the host short for a check of its own) there's no checkout of ours
+# here: it only gives room back, and never refuses.
 set -u
-own="${1:?usage: trim-remote-cache.sh <key>}"
+own="${1:?usage: trim-remote-cache.sh <key>|-}"
 
 # Under this, idle checkouts lose their target folders: room for a build from
 # nothing (a debug target has reached 7 GiB) with some to spare.
@@ -23,6 +26,11 @@ REFUSE_COLD_GIB=8
 # compiles, and remote.sh touches .in-use inside it every minute of a run, so
 # this also covers a run that's only driving a built binary.
 BUSY_MINUTES=15
+# At most this many checkouts keep a target here, however much room there is.
+# Room is only looked at when a run starts, and on 12 Nov seven targets of 5
+# to 7 GiB had grown between runs until Tinker Desk had 1.8 GiB left and no
+# check could run there. Idle ones past this go, longest unused first.
+MAX_TARGETS=4
 
 free_gib() {
   local kb
@@ -39,26 +47,54 @@ free_gib() {
 # Removes a target folder if the host is short and nothing's using it. Look
 # inside it, not at it: a checkout's own time only moves when rsync writes
 # into it, and cargo working inside a folder doesn't change that folder's.
+# With "always" it goes even with room to spare (one past MAX_TARGETS).
 evict() {
-  [ "$(free_gib)" -lt "$TRIM_GIB" ] || return 0
+  [ "${2:-}" = always ] || [ "$(free_gib)" -lt "$TRIM_GIB" ] || return 0
   [ -d "$1" ] || return 0
   [ -z "$(find "$1" -mmin -"$BUSY_MINUTES" 2>/dev/null | head -1)" ] || return 0
-  echo "Short of disk on this host, so removing $1, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
+  if [ "${2:-}" = always ]; then
+    echo "More than $MAX_TARGETS build folders on this host, so removing $1, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
+  else
+    echo "Short of disk on this host, so removing $1, which nothing has used lately. Its checkout rebuilds next time it runs." >&2
+  fi
   # Moved aside first, as the deleting takes a while and a run that starts in
   # that time should find no folder rather than half of one. It's still called
   # target-*, so one left by a crash here goes the next time room is short.
   local gone="target-gone-$$-${1#target-}"
   mv "$1" "$gone" && rm -rf "$gone"
+  # Its copy too (node_modules and all): a checkout whose target went is
+  # copied over again anyway, and an old one may never come back.
+  case "$1" in target-*) rm -rf "src-${1#target-}" ;; esac
+  return 0
 }
 
 # The one folder every checkout shared before they each got their own.
 evict target
+# Past the cap first, whatever the room: the newest MAX_TARGETS stay (this
+# checkout's always among them), and of the rest, those idle go.
+# This checkout's own counts as one of them whether or not it's built yet.
+limit=$MAX_TARGETS; [ "$own" = - ] || limit=$((MAX_TARGETS - 1))
+n=0
+for t in $(ls -dt target-* 2>/dev/null); do
+  case "$t" in target-gone-*|"target-$own") continue ;; esac
+  n=$((n + 1))
+  [ "$n" -le "$limit" ] || evict "$t" always
+done
 # Longest since a run first: remote.sh touches each target as a run starts.
 # Names are target-<hex>, so the unquoted list is safe.
 for t in $(ls -dtr target-* 2>/dev/null); do
   [ "$t" = "target-$own" ] || evict "$t"
 done
 
+# A copy whose target has gone (deleted by hand, or by an older trim that left
+# copies) is up to 2.4 GiB of node_modules nothing uses: a run makes its target
+# before it copies anything. Not one touched lately, in case it's mid-start.
+for c in $(ls -d src-* 2>/dev/null); do
+  [ "$c" != "src-$own" ] && [ ! -e "target-${c#src-}" ] || continue
+  [ -n "$(find "$c" -maxdepth 0 -mmin -"$BUSY_MINUTES" 2>/dev/null)" ] || rm -rf "$c"
+done
+
+[ "$own" != - ] || exit 0
 need="$REFUSE_GIB"
 # By size, not whether it's empty: a first build that died early leaves a
 # folder with next to nothing to build on.

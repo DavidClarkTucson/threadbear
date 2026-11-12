@@ -116,3 +116,42 @@ test('a Linux host that could not run it anyway is not named as short of room', 
   assert.doesNotMatch(r.stderr, /h1/);
   assert.deepEqual(r.copies, ['h2']);
 });
+
+// 12 Nov: Tinker Desk had 1.8 GiB free, with 63 GB of it idle GPUI targets
+// (desktop/scripts/remote.sh's), and the check gave up on it.
+test("a host short only of what idle GPUI build folders hold gets them back and runs the check", () => {
+  const s = setup({ h1: { state: 'free' } });
+  const trim = path.join(s.repo, 'desktop', 'scripts', 'trim-remote-cache.sh');
+  fs.mkdirSync(path.dirname(trim), { recursive: true });
+  fs.copyFileSync(path.join(import.meta.dirname, '..', '..', '..', 'desktop', 'scripts', 'trim-remote-cache.sh'), trim);
+  const gpui = path.join(s.fake, 'h1', 'home', '.cache', 'threadbear-check', 'gpui');
+  const old = new Date(Date.now() - 24 * 3_600_000);
+  for (const k of ['aaa', 'bbb', 'ccc']) {
+    fs.mkdirSync(path.join(gpui, `target-${k}`, 'debug'), { recursive: true });
+    fs.utimesSync(path.join(gpui, `target-${k}`, 'debug'), old, old);
+    fs.utimesSync(path.join(gpui, `target-${k}`), old, old);
+  }
+  // 1 GiB free, and 6 more for each target gone.
+  fs.writeFileSync(path.join(s.fake, 'h1', 'bin', 'df'), `#!/bin/bash
+[ "$*" = "-Pk ." ] || exit 9
+n=$(ls -d ${JSON.stringify(gpui)}/target-* 2>/dev/null | wc -l)
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/disk3s5 1 1 $(( (1 + (3 - n) * 6) * ${GiB} )) 1% /"
+`, { mode: 0o755 });
+  const r = s.run('h1', 3600);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stderr, /h1 was short of disk; idle GPUI build folders there were given back/);
+  assert.deepEqual(r.copies, ['h1']);
+  assert.equal(fs.readdirSync(gpui).filter((n) => n.startsWith('target-')).length, 1, 'only until there was room');
+});
+
+test('a host still short after giving back what it can is passed over, with what it has then', () => {
+  const s = setup({ h1: { state: 'free', df: macDf(GiB) }, h2: { state: 'free' } });
+  const trim = path.join(s.repo, 'desktop', 'scripts', 'trim-remote-cache.sh');
+  fs.mkdirSync(path.dirname(trim), { recursive: true });
+  fs.copyFileSync(path.join(import.meta.dirname, '..', '..', '..', 'desktop', 'scripts', 'trim-remote-cache.sh'), trim);
+  const r = s.run('h1,h2', 3600);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stderr, /Passing over h1: it has 1\.0 GiB free/);
+  assert.deepEqual(r.copies, ['h2']);
+});

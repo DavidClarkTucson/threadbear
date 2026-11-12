@@ -403,6 +403,21 @@ probe='mkdir -p ~/'"$BASE_REL"'/runs && chmod go-w ~/'"$BASE_REL"' ~/'"$BASE_REL
 # Hosts with no room, as "<host> has <n> GiB free": those this choosing passed
 # over, and those whose copy failed for lack of it, which aren't asked again.
 LOW="" LOW_COPY=""
+# A host short of room may only be short because of the GPUI build folders
+# desktop/scripts/remote.sh keeps there (63 GB of them on Tinker Desk, 12 Nov,
+# with 1.8 GiB free). Those idle get given back by the same script remote.sh
+# uses, and the disk read again: true if it now has room. $2 is the host's
+# folder as its probe gave it, already checked as a plain path. Sent in the command,
+# not on stdin, as watched runs ssh in the background, where stdin is empty.
+TRIM="$ROOT/desktop/scripts/trim-remote-cache.sh"
+make_room() {
+  [ -f "$TRIM" ] || return 1
+  local kb
+  watched "$1" "${SSH[@]}" "$1" "cd '$2/gpui' 2>/dev/null || exit 0; bash -c \"\$(printf %s '$(base64 <"$TRIM" | tr -d '\n')' | base64 -d)\" trim -" </dev/null || true
+  kb="$(watched "$1" "${SSH[@]}" "$1" "cd '$2' && $free_cmd" 2>/dev/null)" || return 1
+  low_on_room "$kb"
+  [ $? = 1 ]
+}
 pass_over() {
   echo "Passing over $1: it has $FREE_GIB GiB free, and this check wants $MIN_FREE_GIB GiB." >&2
   LOW+="${LOW:+, }$1 has $FREE_GIB GiB free"
@@ -450,8 +465,10 @@ choose() {
     low_on_room "$kb"
     case $? in
       0)
-        pass_over "$h"
-        continue ;;
+        make_room "$h" "$b" && echo "$h was short of disk; idle GPUI build folders there were given back, and it has room now." >&2 || {
+          pass_over "$h"
+          continue
+        } ;;
       # Not knowing is no reason to stop checks; a failure there still says.
       2) echo "Couldn't read how much disk $h has free; trying it anyway." >&2 ;;
     esac
