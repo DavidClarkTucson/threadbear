@@ -25,6 +25,8 @@ import { NewThread, ProjectPage, ProjectsList, RunnerPage, RunnersList, Schedule
 import { duration, fold, splitTurns, type Item } from './turns';
 import { folderName, sender } from './format';
 import * as Icon from './icons';
+import { ReviewRow } from './review-row';
+import { reviewSeq, type LabReviewLedger } from './lab-review';
 
 type Approval = NonNullable<Row['pendingApproval']>;
 type Ask = NonNullable<Row['asks']>[number];
@@ -198,6 +200,9 @@ function ThreadView({ token, threadId }: { token: string; threadId: string }) {
   const after = picturesByRow(messages, pictures);
   const linkTo = (id: string) => threadPath(inbox?.find((r) => r.threadId.startsWith(id))?.threadId ?? id);
   const act = async (change: Parameters<typeof update>[0]['change']) => setPending(await update({ token, threadId, change }));
+  // Another lab's review goes over its turn's reply, as on the Mac (backend API 76).
+  const review = t.review as LabReviewLedger | undefined;
+  const reviewAt = review ? reviewSeq(messages, t.cardTurn) : undefined;
 
   // The meta line under the last reply: how long its turn took and what the
   // thread has cost, as on the Mac.
@@ -232,11 +237,14 @@ function ThreadView({ token, threadId }: { token: string; threadId: string }) {
     const m = item.m;
     const from = sender(m);
     return (
-      <div key={m.seq} className={`msg ${m.role}`}>
+      <Fragment key={m.seq}>
+      {m.seq === reviewAt && review ? <ReviewRow review={review} threadPath={linkTo} /> : null}
+      <div className={`msg ${m.role}`}>
         {from ? <div className="origin">{from.who}</div> : m.role === 'user' && m.origin && m.origin !== 'user' && m.origin !== 'phone' ? <div className="origin">{originLabel(m.origin)}</div> : null}
         {from ? <MessageText text={from.body} pictures={inText} seq={m.seq} rows={messages} threadPath={linkTo} /> : <MessageText text={m.text} pictures={inText} seq={m.seq} rows={messages} threadPath={linkTo} pictureChips={m.role === 'user'} pasted={m.role === 'user' ? pastedOf(pictures, m.seq, m.text).byNumber : undefined} button={m.role === 'assistant' ? buttonFor(m) : undefined} />}
         <Pictures items={[...(after.get(m.seq) ?? []), ...(m.role === 'user' ? pastedOf(pictures, m.seq, m.text).unplaced : [])]} />
       </div>
+      </Fragment>
     );
   };
 

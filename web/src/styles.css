@@ -517,3 +517,18 @@ button.fold:hover > svg:last-child, button.fold:focus-visible > svg:last-child {
 .ask-run-command { margin: 0 0 6px; padding: 10px 12px; background: var(--hover); border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 .ask-run-note { font-size: 12px; color: var(--muted, #888); margin-bottom: 4px; }
 .ask-run-failed { color: #d9534f; }
+
+/* Another lab's review over its turn's reply (review-row.tsx): small and
+   quiet, as on the Mac, since it happens in the background. */
+.lab-review { font-size: 12.5px; line-height: 1.5; margin: 2px 0 -4px; }
+.lab-review-head { display: block; color: var(--faint); text-decoration: none; }
+a.lab-review-head:hover { color: var(--muted); }
+.lab-finding { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
+.lab-mark { flex: none; width: 14px; height: 19px; display: flex; align-items: center; }
+.lab-mark svg { width: 13px; height: 13px; }
+.lab-mark.fixed { color: #34c759; }
+.lab-mark.disputed { color: var(--orange); }
+.lab-mark.left { color: var(--accent); }
+.lab-mark.none { color: var(--faint); }
+.lab-claim { color: var(--muted); }
+.lab-detail { color: var(--faint); }

@@ -288,6 +288,11 @@ public struct PhoneThread: Codable, Sendable, Hashable, Identifiable {
     /// done card's "Still open" list. Nil when it hasn't checked, and from
     /// an older runner; empty when nothing's left.
     public var looseEnds: [PhoneLooseEnd]?
+    /// Another lab's review of the last turn's change (backend API 76),
+    /// drawn over that turn's reply, and the turn it's from (`cardTurn`, as
+    /// message rows name turns). Both nil from an older runner or backend.
+    public var review: PhoneLabReview?
+    public var cardTurn: String?
     /// What the last completed turn said it needs from Mike, "you" or
     /// "nothing" (backend API 15). Absent: it said neither.
     public var needs: String?

@@ -167,9 +167,14 @@ struct ThreadView: View {
                             loadMore(thread, detail: detail, paged: paged)
                         }
                     }
+                    // Another lab's review goes over its turn's reply, as on the Mac (backend API 76).
+                    let reviewAt = thread.review == nil ? nil : LabReviewText.replySeq(in: messages, cardTurn: thread.cardTurn)
                     ForEach(items) { item in
                         switch item {
                         case let .message(message) where message.plan: PlanCard(message: message)
+                        case let .message(message) where message.seq == reviewAt:
+                            if let review = thread.review { ReviewRow(review: review, openThread: { pushThread($0) }) }
+                            MessageView(message: message, pinned: pins.under[message.seq] ?? [])
                         case let .message(message): MessageView(message: message, pinned: pins.under[message.seq] ?? [])
                         case let .tools(run): ToolRunView(items: run)
                         case let .worked(worked): WorkedView(worked: worked)
