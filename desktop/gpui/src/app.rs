@@ -1115,14 +1115,17 @@ impl Threadbear {
         self.show_error(threadbear_core::thread_link::unopened_link_message(matches.len()), cx);
     }
 
-    /// The pane showing a thread now, if one is: the main panel's, or the
-    /// thread's own panel. Not a sub-agent's, which shows another transcript.
+    /// The pane holding a thread now, if one does: the main panel's, the
+    /// thread's own panel, or one kept loaded. Not a sub-agent's, which shows
+    /// another transcript.
     pub(crate) fn pane_for(&self, id: &str, cx: &App) -> Option<Entity<ThreadPane>> {
         let main = self.pane.clone().filter(|p| {
             let p = p.read(cx);
             p.summary.id == id && p.subagent_id.is_none()
         });
-        main.or_else(|| self.thread_panel_pane(id))
+        // A thread kept loaded (pane_cache.rs) hears too, so it's right
+        // when it's shown again.
+        main.or_else(|| self.thread_panel_pane(id)).or_else(|| self.kept.get(id, cx))
     }
 
     /// A thread's message box, kept while others are open so what's typed

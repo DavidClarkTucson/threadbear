@@ -641,8 +641,8 @@ impl ThreadPane {
             self.resubscribe(cx);
         }
         self.mark_seen();
-        self.check_queued(cx);
-        cx.notify();
+        // What's on its way to it as the outbox has it now.
+        self.show_outbox(cx);
     }
 
     /// What happened while it wasn't subscribed, from the last seq it has
