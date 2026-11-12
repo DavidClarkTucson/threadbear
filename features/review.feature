@@ -77,6 +77,9 @@ Feature: Design reviews
     Then the review has "B" ticked and the reply "Bigger, please"
     When I paste ". That one." in the review with ⌘V
     Then the review has "B" ticked and the reply "Bigger, please. That one."
+    When I close the review
+    And I open the review
+    Then the review has "B" ticked and the reply "Bigger, please. That one."
 
   @review.picks
   Scenario: Sending answers the agent, and the review can't be changed after

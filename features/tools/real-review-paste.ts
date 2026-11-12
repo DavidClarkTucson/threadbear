@@ -136,6 +136,10 @@ try {
   if (process.env.TB_REVIEW_PASTE_SHOT) {
     await app.do({ cmd: 'screenshot', review: REVIEW, path: process.env.TB_REVIEW_PASTE_SHOT });
   }
+  await reviewInFront();
+  post('right-control', 'words:. That one.');
+  const repeated = await replyBecomes('Bigger please. That one.');
+  check('a second dictated phrase lands once in the now-focused box', repeated === 'Bigger please. That one.', JSON.stringify(repeated));
 
   // With the keys in the box, the same ⌘V lands too: it isn't this second window
   // that loses it.

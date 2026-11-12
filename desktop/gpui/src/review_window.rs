@@ -281,6 +281,9 @@ pub(crate) struct ReviewWindow {
     /// The thread's folder: a relative link in the agent's notes is from there.
     cwd: String,
     reply: Entity<TextareaState>,
+    /// The draft last put in the box. A render can run before the box's
+    /// Change event, so compare drafts before replacing text being edited.
+    reply_synced: String,
     /// Holds the keys when the reply box hasn't got them: the arrows step,
     /// Space flicks to today's version, Return and Esc go in and out.
     focus: FocusHandle,
@@ -305,10 +308,11 @@ impl ReviewWindow {
     fn new(parts: Parts, review: DesignReview, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let session = ReviewSession::new(&parts.thread_id, review, parts.cache);
         let typed = session.draft().reply.clone().unwrap_or_default();
-        let reply = cx.new(|cx| TextareaState::new(window, cx).placeholder("Add a reply").auto_grow(1, 13).default_value(typed));
+        let reply = cx.new(|cx| TextareaState::new(window, cx).placeholder("Add a reply").auto_grow(1, 13).default_value(typed.clone()));
         let mut subs = vec![cx.subscribe_in(&reply, window, |this, state, ev: &InputEvent, _, cx| match ev {
             InputEvent::Change => {
                 let text = state.read(cx).value().to_string();
+                this.reply_synced = text.clone();
                 if this.session.set_reply(&text) {
                     this.edited(cx);
                 }
@@ -361,6 +365,7 @@ impl ReviewWindow {
             session,
             cwd: parts.cwd,
             reply,
+            reply_synced: typed,
             focus,
             save_timer: None,
             call_task: None,
@@ -418,8 +423,11 @@ impl ReviewWindow {
     /// changed it: the runner's copy from another window, or an answer.
     fn sync_reply_box(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let wanted = self.session.shown_draft().reply.clone().unwrap_or_default();
-        if self.reply.read(cx).value().as_ref() != wanted.as_str() {
-            self.reply.update(cx, |s, cx| s.set_value(wanted, window, cx));
+        if self.reply_synced != wanted {
+            if self.reply.read(cx).value().as_ref() != wanted.as_str() {
+                self.reply.update(cx, |s, cx| s.set_value(wanted.clone(), window, cx));
+            }
+            self.reply_synced = wanted;
         }
         let editable = self.session.editable();
         self.reply.update(cx, |s, cx| s.set_disabled(!editable, cx));
@@ -782,12 +790,11 @@ impl ReviewWindow {
         let Some(words) = cx.read_from_clipboard().and_then(|c| c.text()).filter(|w| !w.is_empty()) else { return };
         let handle = self.reply.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
-        // At the box's cursor, as its own Paste puts them.
-        self.reply.update(cx, |s, cx| s.insert(words, window, cx));
-        // Into the draft now, not when the box's Change arrives: a frame
-        // drawn before then puts the draft's reply back in the box
-        // (`sync_reply_box`), and the words went.
+        // Replace its selection, or insert at its cursor, as its own Paste does.
+        self.reply.update(cx, |s, cx| s.replace(words, window, cx));
+        // Save and Send must see the paste before the box's Change arrives.
         let text = self.reply.read(cx).value().to_string();
+        self.reply_synced = text.clone();
         if self.session.set_reply(&text) {
             self.edited(cx);
         }
