@@ -68,8 +68,16 @@ async function shoot(name: 'swift' | 'gpui', app: Driver): Promise<void> {
     // The fold button, by its tip: Hide while open, Show folded.
     let said = '';
     for (const tip of [`Hide ${heading}`, `Show ${heading}`]) {
-      said = await app.do({ cmd: 'label-point', label: tip });
+      // The Swift app's driver throws on a label it can't find.
+      said = await app.do({ cmd: 'label-point', label: tip }).catch((e: Error) => String(e.message));
       if (/^ok /.test(said)) break;
+    }
+    // The Swift app's fold button has no tip anchor it can find, so the
+    // Inbox heading is found by its sort button, 80 points left of it.
+    if (!/^ok /.test(said) && heading === 'Inbox') {
+      const sort = await app.do({ cmd: 'label-point', label: 'Sort: ', prefix: true }).catch((e: Error) => String(e.message));
+      const m = /ok (-?\d+) (-?\d+)/.exec(sort);
+      if (m) said = `ok ${Number(m[1]) - 80} ${m[2]}`;
     }
     const [, bx, by] = /ok (-?\d+) (-?\d+)/.exec(said) ?? [];
     if (bx === undefined) throw new Error(`${name}: no ${heading} heading (${said})`);
