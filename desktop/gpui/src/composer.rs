@@ -114,10 +114,27 @@ pub(crate) struct MessageEdit {
 
 /// What a refused send gives back: the words and pictures, and the picks that
 /// went with them (AppModel.restoreDraft and the `failed` closure in `send`).
+#[derive(Clone)]
 pub struct RestoreDraft {
     pub(crate) text: String,
     pub(crate) images: Vec<ImageRef>,
     pub(crate) card: Option<SavedPicks>,
+}
+
+impl RestoreDraft {
+    /// `first`'s words and pictures, then `then`'s, a blank line between
+    /// (`restoreDraft`: what's given back goes before anything typed since).
+    /// Pictures are marks in the words, in order, so their lists join too.
+    pub(crate) fn joined(first: RestoreDraft, then: RestoreDraft) -> RestoreDraft {
+        let text = match (first.text.trim().is_empty(), then.text.trim().is_empty()) {
+            (_, true) => first.text,
+            (true, false) => then.text,
+            (false, false) => format!("{}\n\n{}", first.text, then.text),
+        };
+        let mut images = first.images;
+        images.extend(then.images);
+        RestoreDraft { text, images, card: first.card.or(then.card) }
+    }
 }
 
 #[derive(Clone)]
@@ -316,8 +333,20 @@ impl Composer {
     /// A chip still being copied in isn't part of it yet, nor is a stray
     /// U+FFFC pasted as text.
     /// The words and pictures in the box, for drafts.rs to keep.
+    /// What to keep through a quit: what's waiting to be given back (not
+    /// drawn yet), messages still held for a restarting runner, then the box.
     pub(crate) fn draft_for_saving(&self, cx: &App) -> (String, Vec<ImageRef>) {
-        self.draft(cx)
+        let (text, images) = self.draft(cx);
+        let mut all = RestoreDraft { text, images, card: None };
+        if let Some(id) = &self.thread_id {
+            for held in crate::thread::held_drafts(id).into_iter().rev() {
+                all = RestoreDraft::joined(held, all);
+            }
+        }
+        if let Some(restore) = &self.restore {
+            all = RestoreDraft::joined(restore.clone(), all);
+        }
+        (all.text, all.images)
     }
 
     /// Whether the box holds anything a restart would lose: words, or a
@@ -622,12 +651,24 @@ impl Composer {
         )
     }
 
+    /// Puts words back in the box, once it's next drawn. Two given back
+    /// before then are both kept, the older first (a held message and
+    /// another, while this thread wasn't open).
     pub fn restore_draft(&mut self, draft: RestoreDraft, cx: &mut Context<Self>) {
-        self.restore = Some(draft);
+        self.restore = Some(match self.restore.take() {
+            Some(earlier) => RestoreDraft::joined(earlier, draft),
+            None => draft,
+        });
         cx.notify();
     }
 
     fn apply_restore(&mut self, restore: RestoreDraft, window: &mut Window, cx: &mut Context<Self>) {
+        // A picture still on its way into the box would drop out of the
+        // words joined below: wait for it, and put these back after.
+        if self.box_chips(cx).iter().any(|(_, chip)| matches!(chip, threadbear_core::inline_chips::BoxChip::Picture(None))) {
+            self.restore = Some(restore);
+            return;
+        }
         let RestoreDraft { text: draft, images, card } = restore;
         if let Some(saved) = card {
             if self.card.seq == Some(saved.seq) {
@@ -638,9 +679,10 @@ impl Composer {
                 self.push_card_state(cx);
             }
         }
-        if !self.input.read(cx).value().is_empty() {
-            return;
-        }
+        // Anything typed since stays, after what's given back
+        // (`restoreDraft`), rather than the words given back being lost.
+        let (now_text, now_images) = self.draft(cx);
+        let RestoreDraft { text: draft, images, .. } = RestoreDraft::joined(RestoreDraft { text: draft, images, card: None }, RestoreDraft { text: now_text, images: now_images, card: None });
         // Chips again where the marks are, each picture back in place, and
         // the cards and threads linked in the words as theirs.
         let content = self.content_for(&draft, &images);

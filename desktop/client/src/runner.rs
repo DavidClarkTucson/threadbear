@@ -141,7 +141,10 @@ impl RpcError {
     pub fn turned_away_by_restart(&self) -> bool {
         match self.code {
             THREAD_NOT_FOUND | NOT_CONNECTED => true,
-            BUSY => self.message.starts_with("The runner is handing over to a new one"),
+            // A handover's refusal, or a restart's own once it has begun
+            // ("The runner is restarting; send again in a moment.",
+            // restart.ts `begin`): both before anything was taken.
+            BUSY => self.message.starts_with("The runner is handing over to a new one") || self.message.starts_with("The runner is restarting"),
             _ => false,
         }
     }
@@ -346,6 +349,20 @@ impl Client {
     /// model he picked first. `progress` hears when it's held and when it
     /// goes.
     pub async fn call_in_restart_order(&self, method: &str, params: Value, progress: ProgressFn) -> Result<Value, RpcError> {
+        self.in_restart_order(method, params, &progress, None).await.map(|v| v.unwrap_or(Value::Null))
+    }
+
+    /// A message to one of this runner's threads (`AppModel.post`):
+    /// `call_in_restart_order`, and one cut off on its way as a restarting
+    /// runner closed its port, so no answer came, waits for the new runner
+    /// and goes again there, unless the thread shows it arrived. Only for an
+    /// idle thread with nothing else on its way to it (`Resend::was_idle`).
+    /// Ok(None) when it had arrived after all.
+    pub async fn send_through_restart(&self, params: Value, resend: Resend, progress: ProgressFn) -> Result<Option<Value>, RpcError> {
+        self.in_restart_order("threads.send", params, &progress, Some(&resend)).await
+    }
+
+    async fn in_restart_order(&self, method: &str, params: Value, progress: &ProgressFn, resend: Option<&Resend>) -> Result<Option<Value>, RpcError> {
         let Some(session) = self.connected_session() else {
             if !self.restart_under_way() {
                 return Err(RpcError::not_connected());
@@ -360,10 +377,8 @@ impl Client {
                         return Err(RpcError::local(NOT_CONNECTED, "The runner didn't come back"));
                     };
                     progress(Progress::Sending);
-                    match self.call(method, params.clone()).await {
-                        Err(e) => self.again_after_restart(e, now, method, &params, &progress).await,
-                        ok => ok,
-                    }
+                    let first = self.call(method, params.clone()).await;
+                    self.settle(first, now, method, &params, progress, resend).await
                 })
                 .await;
         };
@@ -377,44 +392,56 @@ impl Client {
                     let now = match self.connected_session() {
                         Some(now) => now,
                         None => {
-                            let resend = self.waits.lock().unwrap().1;
-                            self.wait_for_session(Some(session), resend).await.ok_or_else(RpcError::not_connected)?
+                            let resend_wait = self.waits.lock().unwrap().1;
+                            self.wait_for_session(Some(session), resend_wait).await.ok_or_else(RpcError::not_connected)?
                         }
                     };
                     progress(Progress::Sending);
-                    match self.call(method, params.clone()).await {
-                        Err(e) => self.again_after_restart(e, now, method, &params, &progress).await,
-                        ok => ok,
-                    }
+                    let first = self.call(method, params.clone()).await;
+                    self.settle(first, now, method, &params, progress, resend).await
                 })
                 .await;
         }
-        match self.call(method, params.clone()).await {
-            Err(e) if e.turned_away_by_restart() && self.restart_under_way() => {
-                progress(Progress::Held);
-                self.behind_restart(self.again_after_restart(e, session, method, &params, &progress)).await
-            }
-            other => other,
+        let first = self.call(method, params.clone()).await;
+        let again = matches!(&first, Err(e) if self.restart_under_way() && (e.turned_away_by_restart() || Self::may_resend(e, method, resend)));
+        if !again {
+            return first.map(Some);
         }
+        // To the back of the queue, as it goes again on the new runner. A cut
+        // off one hears it's held from `settle`.
+        if first.as_ref().is_err_and(RpcError::turned_away_by_restart) {
+            progress(Progress::Held);
+        }
+        self.behind_restart(self.settle(first, session, method, &params, progress, resend)).await
     }
 
-    /// A message to one of this runner's threads (`AppModel.post`):
-    /// `call_in_restart_order`, and one cut off on its way as a restarting
-    /// runner closed its port, so no answer came, waits for the new runner
-    /// and goes again there, unless the thread shows it arrived. Only for an
-    /// idle thread with nothing else on its way to it (`Resend::was_idle`).
-    /// Ok(None) when it had arrived after all.
-    pub async fn send_through_restart(&self, params: Value, resend: Resend, progress: ProgressFn) -> Result<Option<Value>, RpcError> {
-        match self.call_in_restart_order("threads.send", params.clone(), progress.clone()).await {
-            Err(e) if e.code == CLOSED && resend.was_idle && self.restart_under_way() => {
+    /// A message cut off on its way that may have never arrived, to an idle
+    /// thread with nothing else on its way (`Resend::was_idle`).
+    fn may_resend(error: &RpcError, method: &str, resend: Option<&Resend>) -> bool {
+        error.code == CLOSED && method == "threads.send" && resend.is_some_and(|r| r.was_idle)
+    }
+
+    /// What's done with a request's first answer, inside its turn in the
+    /// restart queue, so nothing behind it overtakes it while it goes again:
+    /// one turned away goes again on the new runner (`againAfterRestart`),
+    /// and a message cut off on its way goes again unless it arrived.
+    async fn settle(&self, first: Result<Value, RpcError>, sent_on: u64, method: &str, params: &Value, progress: &ProgressFn, resend: Option<&Resend>) -> Result<Option<Value>, RpcError> {
+        let mut result = first;
+        if let Err(e) = &result {
+            if e.turned_away_by_restart() && self.restart_under_way() {
+                result = self.again_after_restart(e.clone(), sent_on, method, params, progress).await;
+            }
+        }
+        match result {
+            Err(e) if Self::may_resend(&e, method, resend) && self.restart_under_way() => {
                 progress(Progress::Held);
-                self.behind_restart(self.resend_cut_off(e, params, resend, &progress)).await
+                self.resend_cut_off(e, params.clone(), resend.expect("may_resend has one"), progress).await
             }
             other => other.map(Some),
         }
     }
 
-    async fn resend_cut_off(&self, error: RpcError, params: Value, resend: Resend, progress: &ProgressFn) -> Result<Option<Value>, RpcError> {
+    async fn resend_cut_off(&self, error: RpcError, params: Value, resend: &Resend, progress: &ProgressFn) -> Result<Option<Value>, RpcError> {
         let id = resend.thread_id.as_str();
         // The connection it was cut off on is gone, so any that's up now is
         // the new runner's (`run` clears it before failing what was on its way).
@@ -706,6 +733,7 @@ mod tests {
         let e = |code, message: &str| RpcError { code, message: message.into(), data: None };
         assert!(e(THREAD_NOT_FOUND, "Thread not found").turned_away_by_restart());
         assert!(e(BUSY, "The runner is handing over to a new one; send again in a moment.").turned_away_by_restart());
+        assert!(e(BUSY, "The runner is restarting; send again in a moment.").turned_away_by_restart());
         assert!(!e(BUSY, "The thread is busy").turned_away_by_restart());
         assert!(e(NOT_CONNECTED, "Not connected to the runner").turned_away_by_restart());
         // It may have arrived: that's for `send_through_restart` to find out.

@@ -67,11 +67,11 @@ When('the runner restarts and is gone for {int} seconds', async function (this: 
 
 Then('the transcript shows my message {string} just once', async function (this: ThreadbearWorld, words: string) {
   // Landed (no longer "waiting" or "sending"), and not sent twice.
-  const d = await this.until(`"${words}" landed`, (d) => d.transcript.rows.some((r) => r.text === words));
+  await this.until(`"${words}" landed`, (d) => d.transcript.rows.some((r) => r.text === words));
   await new Promise((r) => setTimeout(r, 1500));
   const again = await this.app.dump();
   const count = again.transcript.rows.filter((r) => typeof r.text === 'string' && r.text.endsWith(words)).length;
-  assert.equal(count, 1, `"${words}" shows ${count} times: ${JSON.stringify(again.transcript.rows.slice(-4).map((r) => r.text))} (first seen ${d.transcript.rows.length} rows)`);
+  assert.equal(count, 1, `"${words}" shows ${count} times: ${JSON.stringify(again.transcript.rows.slice(-4).map((r) => r.text))}`);
 });
 
 Given('the runner takes {int} seconds to answer each message', async function (this: ThreadbearWorld, seconds: number) {

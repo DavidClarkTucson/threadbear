@@ -264,7 +264,7 @@ impl ThreadPane {
         let mut events: Vec<Event> = self.feed.model().events().to_vec();
         let mut before = self.feed.model().first_seq();
         let more = self.feed.model().has_older_events();
-        let app = self.composer.read(cx).app.clone();
+        let app = self.app.clone();
         let key = format!("copying/{id}");
         cx.spawn(async move |this, cx| {
             // From the app's own update (a menu), so not from inside this one.

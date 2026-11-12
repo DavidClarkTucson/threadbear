@@ -23,6 +23,8 @@ enum Reply {
     Ok,
     Refuse(i64, &'static str),
     Close,
+    /// Says it's restarting, then closes without an answer.
+    RestartAndClose,
 }
 
 #[derive(Default)]
@@ -156,6 +158,12 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<Runner>>, port: u
                     Reply::Refuse(code, message) => Some(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } }).to_string()),
                     Reply::Close => {
                         // Taken or not, as the test says, and no answer.
+                        let _ = tx.send(Message::Close(None));
+                        None
+                    },
+                    Reply::RestartAndClose => {
+                        let notice = json!({ "jsonrpc": "2.0", "method": "runner.notice", "params": { "level": "info", "message": "The runner is restarting now." } });
+                        let _ = tx.send(Message::text(notice.to_string()));
                         let _ = tx.send(Message::Close(None));
                         None
                     }
@@ -518,4 +526,54 @@ async fn backs_off_when_the_runner_just_went_away() {
     .unwrap();
     // Never more than two seconds: it's this Mac's own runner.
     assert_eq!(waits, vec![500, 1000, 2000, 2000]);
+}
+
+/// A held message cut off on the next runner too goes again in its place in
+/// the queue, ahead of one held after it (Codex's review, 12 Nov).
+#[tokio::test]
+async fn a_held_message_cut_off_again_keeps_its_place() {
+    let fake = Fake::start().await;
+    let (client, mut rx) = connect(&fake).await;
+    fake.notice("The runner is restarting now.");
+    settle().await;
+    fake.go_down();
+    until_disconnected(&mut rx).await;
+    // The first goes to the new runner, which restarts and closes on it.
+    fake.reply_with(&[Reply::RestartAndClose]);
+    let first = tokio::spawn({
+        let client = client.clone();
+        async move { client.send_through_restart(send("first"), resend("first", 10, true), progress().0).await }
+    });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let second = tokio::spawn({
+        let client = client.clone();
+        async move { client.send_through_restart(send("second"), resend("second", 10, false), progress().0).await }
+    });
+    settle().await;
+    fake.up();
+    assert!(matches!(tokio::time::timeout(Duration::from_secs(8), first).await.unwrap().unwrap(), Ok(Some(_))));
+    assert!(matches!(tokio::time::timeout(Duration::from_secs(8), second).await.unwrap().unwrap(), Ok(Some(_))));
+    let order: Vec<(String, u64)> = fake.sends().iter().map(|(_, p, c)| (p["text"].as_str().unwrap().to_owned(), *c)).collect();
+    assert_eq!(order, vec![("first".into(), 2), ("first".into(), 3), ("second".into(), 3)]);
+}
+
+/// A restart that has begun turns new turns away before taking them
+/// ("The runner is restarting; send again in a moment."): it goes again.
+#[tokio::test]
+async fn a_send_the_restarting_runner_refuses_goes_again() {
+    let fake = Fake::start().await;
+    let (client, mut rx) = connect(&fake).await;
+    fake.notice("The runner is restarting now.");
+    settle().await;
+    fake.reply_with(&[Reply::Refuse(-32020, "The runner is restarting; send again in a moment.")]);
+    let sending = tokio::spawn({
+        let client = client.clone();
+        async move { client.call_in_restart_order("threads.send", send("refused once"), progress().0).await }
+    });
+    settle().await;
+    fake.go_down();
+    until_disconnected(&mut rx).await;
+    fake.up();
+    assert!(tokio::time::timeout(Duration::from_secs(5), sending).await.unwrap().unwrap().is_ok());
+    assert_eq!(fake.sends().len(), 2);
 }

@@ -104,6 +104,24 @@ fn set_outbox(thread_id: &str, list: Vec<PendingMessage>) {
     });
 }
 
+thread_local! {
+    /// What each message on its way was in the box, by its pending id with
+    /// its thread, so one still held for a restarting runner when the app
+    /// quits is kept with the drafts and comes back in the box next time
+    /// (Swift's `heldForResend` into DraftStore), rather than lost.
+    static OUTBOX_DRAFTS: std::cell::RefCell<HashMap<String, (String, crate::composer::RestoreDraft)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// The boxes' words of a thread's messages still held for the new runner,
+/// oldest first, for the drafts file.
+pub(crate) fn held_drafts(thread_id: &str) -> Vec<crate::composer::RestoreDraft> {
+    outbox(thread_id)
+        .iter()
+        .filter(|m| m.waiting_for_runner)
+        .filter_map(|m| OUTBOX_DRAFTS.with(|d| d.borrow().get(&m.id).filter(|(t, _)| t == thread_id).map(|(_, draft)| draft.clone())))
+        .collect()
+}
+
 /// How a send got on, as the connection's task reports it.
 enum SendStep {
     Progress(Progress),
@@ -112,6 +130,9 @@ enum SendStep {
 
 pub struct ThreadPane {
     client: Arc<Client>,
+    /// The app, from the composer as the pane's made: never read from the
+    /// composer later, as a send comes from inside the composer's own update.
+    pub(crate) app: WeakEntity<crate::app::Threadbear>,
     pub(crate) summary: ThreadSummary,
     pub(crate) feed: ThreadFeed,
     loaded: bool,
@@ -156,8 +177,10 @@ impl ThreadPane {
         // Any scroll or layout change: older rows may be due and where the
         // view is reading is remembered for when the thread is left.
         let scrolled = cx.observe(&scroller, |this: &mut ThreadPane, _, cx| this.after_list_change(cx));
+        let app = composer.read(cx).app.clone();
         let mut pane = ThreadPane {
             client,
+            app,
             summary,
             feed: ThreadFeed::new(TranscriptModel::new(None)),
             loaded: false,
@@ -194,8 +217,10 @@ impl ThreadPane {
     /// thread's summary says it has done something.
     pub fn new_subagent(client: Arc<Client>, summary: ThreadSummary, subagent_id: String, composer: Entity<Composer>, cx: &mut Context<Self>) -> Self {
         let scroller = cx.new(|cx| TranscriptList::new(0, cx));
+        let app = composer.read(cx).app.clone();
         let mut pane = ThreadPane {
             client,
+            app,
             summary,
             feed: ThreadFeed::new(TranscriptModel::new(None)),
             loaded: false,
@@ -658,7 +683,7 @@ impl ThreadPane {
         // By count, never its words (activity.rs).
         crate::activity::sent(Some(&self.summary.id), images.len(), answers.as_object().map(|a| a.len()).or_else(|| answers.as_array().map(Vec::len)).unwrap_or(0), false);
         let thread_id = self.summary.id.clone();
-        let app = self.composer.read(cx).app.clone();
+        let app = self.app.clone();
         // Another Mac's thread goes through this Mac's runner, whose restart
         // isn't that runner's: it's sent as it is.
         let remote = self.summary.runner_id.is_some();
@@ -681,6 +706,9 @@ impl ThreadPane {
         // sent again if it never arrived (`Resend::was_idle`).
         let was_idle = !self.summary.busy() && list.len() == 1;
         set_outbox(&thread_id, list);
+        if let Some(draft) = &draft {
+            OUTBOX_DRAFTS.with(|d| d.borrow_mut().insert(pending_id.clone(), (thread_id.clone(), draft.clone())));
+        }
         self.show_outbox(cx);
         self.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
 
@@ -724,6 +752,8 @@ impl ThreadPane {
                     }
                 }
             }
+            // Gone or taken: no longer one to keep through a quit.
+            OUTBOX_DRAFTS.with(|d| d.borrow_mut().remove(&pending_id));
             if let Err(e) = res {
                 // Off the end of the transcript and back in the box, and the
                 // error bar says so, naming the thread, until it's dismissed.
@@ -1413,4 +1443,7 @@ fn change_outbox(app: &WeakEntity<crate::app::Threadbear>, thread_id: &str, cx: 
     if let Some(pane) = pane {
         pane.update(cx, |p, cx| p.show_outbox(cx));
     }
+    // A held message is in the drafts file while it's held, and out of it
+    // once it's gone or come back to the box (`held_drafts`).
+    app.update(cx, |app, cx| app.drafts_changed(cx)).ok();
 }

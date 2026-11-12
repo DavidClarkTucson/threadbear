@@ -10,7 +10,7 @@
 //
 // Never the words of a message, a draft or a reply: thread ids, method
 // names, counts, and the runner's and the connection's own error text.
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -18,22 +18,26 @@ use std::sync::Mutex;
 /// Past this the file starts again, the old one kept as `.1`.
 pub const MAX_BYTES: u64 = 2 * 1024 * 1024;
 
+/// Opens the file to add to its end. The app hands over core's
+/// `private_file::append` (owner-only from the first byte, never through a
+/// symlink), which this crate can't reach itself.
+pub type Opener = fn(&Path) -> std::io::Result<File>;
+
 struct LogFile {
     path: PathBuf,
     file: File,
     bytes: u64,
+    opener: Opener,
 }
 
 static FILE: Mutex<Option<LogFile>> = Mutex::new(None);
 
-/// Starts copying lines to `path`, adding to what's there.
-pub fn open(path: &Path) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let file = OpenOptions::new().create(true).append(true).open(path)?;
+/// Starts copying lines to `path`, adding to what's there. Its folder must
+/// be there already.
+pub fn open(path: &Path, opener: Opener) -> std::io::Result<()> {
+    let file = opener(path)?;
     let bytes = file.metadata().map(|m| m.len()).unwrap_or(0);
-    *FILE.lock().unwrap_or_else(|e| e.into_inner()) = Some(LogFile { path: path.to_owned(), file, bytes });
+    *FILE.lock().unwrap_or_else(|e| e.into_inner()) = Some(LogFile { path: path.to_owned(), file, bytes, opener });
     Ok(())
 }
 
@@ -52,7 +56,7 @@ pub fn write(category: &str, message: &str) {
     if log.bytes + line.len() as u64 > MAX_BYTES {
         let old = log.path.with_extension("log.1");
         let _ = std::fs::rename(&log.path, &old);
-        match OpenOptions::new().create(true).append(true).open(&log.path) {
+        match (log.opener)(&log.path) {
             Ok(file) => {
                 log.file = file;
                 log.bytes = 0;
@@ -83,7 +87,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tb-app-log-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("desktop.log");
-        open(&path).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        open(&path, |p| std::fs::OpenOptions::new().create(true).append(true).open(p)).unwrap();
         write("connection", "connected to runner 1.2.3");
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.ends_with(" connection connected to runner 1.2.3\n"), "{text}");
