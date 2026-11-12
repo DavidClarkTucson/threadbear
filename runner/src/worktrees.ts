@@ -429,6 +429,30 @@ export async function land(t: LandTarget, opts: LandOptions = {}): Promise<numbe
   }
 }
 
+// A landed entry's branch, moved to what landed for an owner that's gone,
+// with that worktree's own tb land lock held, and only while it's clean and
+// still on what it asked to land.
+async function moveGoneBranch(e: QueueEntry, landed: string): Promise<void> {
+  const gitDir = await gitOut(e.path, ['rev-parse', '--absolute-git-dir']);
+  if (!gitDir) return;
+  let release: (() => Promise<void>) | undefined;
+  try {
+    release = await holdLock(path.join(gitDir, 'threadbear-land-worktree.lock'), false);
+  } catch {
+    return;
+  }
+  if (!release) return; // a new tb land there sees to it
+  try {
+    if ((await gitOut(e.path, ['rev-parse', 'HEAD'])) === e.commit &&
+        (await gitOut(e.path, ['rev-parse', '--abbrev-ref', 'HEAD'])) === e.branch &&
+        (await gitOut(e.path, ['status', '--porcelain', '--untracked-files=all'])) === '') {
+      await git(e.path, ['reset', '-q', '--keep', landed]);
+    }
+  } finally {
+    await release();
+  }
+}
+
 const entryLockFile = (common: string, id: string): string => path.join(queueDir(common), `${id}.lock`);
 
 // Whether an entry's tb is still waiting for its answer: it holds its
@@ -1007,6 +1031,10 @@ async function landLocked(
       for (const g of group) {
         const now = readEntry(common, g.entry.id);
         if (now) writeEntry(common, { ...now, result: { landed: g.tip, commits: g.commits, together: [t.branch, ...together.filter((b) => b !== g.entry.branch)] } });
+        // One whose tb has gone never hears: move its branch here, as it
+        // would have, or its next tb land would land a commit made empty
+        // on purpose a second time (rebase keeps those).
+        if (!(await ownerWaiting(common, g.entry))) await moveGoneBranch(g.entry, g.tip);
       }
       const moved = (await git(t.path, ['update-ref', `refs/heads/${t.branch}`, checked, own])).ok &&
         (await git(t.path, ['checkout', '-q', t.branch])).ok;
@@ -1038,6 +1066,9 @@ export async function mainNotReady(mainCheckout: string): Promise<string | undef
     ['CHERRY_PICK_HEAD', 'a cherry-pick'],
     ['REVERT_HEAD', 'a revert'],
     ['BISECT_LOG', 'a bisect'],
+    // A cherry-pick or revert of several, stopped: it's still going after
+    // a hand commit takes CHERRY_PICK_HEAD away.
+    ['sequencer', 'a cherry-pick or revert'],
   ];
   const found = busy.find(([f]) => fs.existsSync(path.join(gitDir, f)));
   if (found) {

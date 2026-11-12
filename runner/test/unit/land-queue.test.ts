@@ -258,16 +258,43 @@ test('a landing whose tb is killed during the group check still lands, if its br
   const common = path.join(main, '.git');
   // c's tb, waiting: an entry, and its lock held by a stand-in that goes
   // once the check has started.
-  const e = joinQueue(common, { branch: c.branch, path: c.path, base: sh(main, 'git rev-parse main'), commit: sh(c.path, 'git rev-parse HEAD'), check: 'CHECK', checkFrom: '' });
-  const holder = spawn('/usr/bin/lockf', ['-k', path.join(queueDir(common), `${e.id}.lock`), '/bin/sh', '-c', `touch '${root}/held'; while ! test -f '${root}/drop'; do sleep 0.05; done`], { stdio: 'ignore' });
+  const e = joinQueue(common, { branch: c.branch, path: c.path, base: sh(main, 'git rev-parse main'), commit: 'later', check: 'CHECK', checkFrom: '' });
+  // An empty commit on purpose too: once landed for it, its branch has to
+  // be moved, or its next tb land would land that one again.
+  sh(c.path, 'git commit -q --allow-empty -m "Empty on c"');
+  const cmd = `touch '${root}/held'; while ! test -f '${root}/drop'; do sleep 0.05; done`;
+  const lockFile = path.join(queueDir(common), `${e.id}.lock`);
+  // Says it's gone once the lock is let go, which the check waits for.
+  const wrapper = process.platform === 'darwin'
+    ? `/usr/bin/lockf -k '${lockFile}' /bin/sh -c "${cmd}"; touch '${root}/released'`
+    : `flock -x '${lockFile}' /bin/sh -c "${cmd}"; touch '${root}/released'`;
+  const holder = spawn('/bin/sh', ['-c', wrapper], { stdio: 'ignore' });
+  holder.on('error', () => {});
   const gone = new Promise((r) => holder.once('close', r));
   await until(() => fs.existsSync(path.join(root, 'held')), "c's stand-in holding its lock");
-  const check = `if test -f c.txt; then touch '${root}/drop'; while pgrep -f "${root}/drop" >/dev/null; do sleep 0.05; done; fi`;
-  // The entry asks for the same check as b's.
-  fs.writeFileSync(path.join(queueDir(common), `${e.id}.json`), JSON.stringify({ ...e, check }));
+  const check = `if test -f c.txt; then touch '${root}/drop'; while ! test -f '${root}/released'; do sleep 0.05; done; fi`;
+  // The entry asks for the same check as b's, for c's commits as they are.
+  fs.writeFileSync(path.join(queueDir(common), `${e.id}.json`), JSON.stringify({ ...e, commit: sh(c.path, 'git rev-parse HEAD'), check }));
   const out = capture();
   assert.equal(await land({ ...b, check }, out.opts), 0, out.err.join('\n'));
   await gone;
   assert.ok(fs.existsSync(path.join(main, 'b.txt')) && fs.existsSync(path.join(main, 'c.txt')), out.out.join('\n'));
   assert.ok(out.out.some((l) => /In the same check, and landed with it: thread\/c0000000/.test(l)));
+  // c's branch is on what landed, so its next tb land has nothing to land.
+  const again = capture();
+  assert.equal(await land({ ...c, check: 'true' }, again.opts), 0);
+  assert.deepEqual(again.out, [`Nothing to land: ${c.branch} has no commits that aren't on main.`]);
+  assert.equal(sh(main, 'git log --format=%s main | grep -c "Empty on c"'), '1');
+});
+
+test('a cherry-pick of several, stopped and then committed by hand, still holds a landing', async () => {
+  const { main } = makeRepo();
+  const [a] = branches(main, ['a']);
+  sh(main, 'git checkout -q -b side HEAD && echo one > README.md && git commit -qam one && echo two > README.md && git commit -qam two && git checkout -q main && echo mine > README.md && git commit -qam mine');
+  assert.throws(() => sh(main, 'git cherry-pick side~1 side'));
+  sh(main, 'echo fixed > README.md && git add README.md && git -c core.editor=true commit -q --no-edit');
+  const c = capture();
+  assert.equal(await land({ ...a, check: 'true' }, c.opts), 1);
+  assert.match(c.err.join('\n'), /in the middle of a cherry-pick or revert .*sequencer/);
+  sh(main, 'git cherry-pick --quit');
 });

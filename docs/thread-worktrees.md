@@ -105,7 +105,7 @@ stays. Separate repos do not block one another.
    `tb land` says so and which files, and leaves everything as it was.
    Before it, and at the start, the main checkout has to be on
    `refs/heads/main` itself with nothing half done there (no rebase,
-   merge, cherry-pick, revert or bisect in progress): a merge there would
+   merge, cherry-pick or revert sequence, or bisect in progress): a merge there would
    move a detached HEAD, and the rebase's end would set main without it.
    Afterwards it checks main and main's reflog are at the checked commit.
 5. Prints what landed (`git log --oneline main@{1}..main`).
@@ -378,25 +378,24 @@ rebase cannot validate the new combination, even when files don't overlap.
 ### Syncing main with GitHub
 
 Main on this Mac moves by `tb land`; GitHub's moves by pushes and merged
-PRs. When they've parted (a PR merged on GitHub), bring GitHub's in with
-the landing lock held for the whole of it, in one shell, from the main
-checkout:
+PRs. To bring them together, run `scripts/sync-main.sh` (from any
+checkout). It takes the landing lock for the whole of it, so no landing
+can move main meanwhile, then:
 
-```sh
-cd ~/dev/me/threadbear
-/usr/bin/lockf -k "$(git rev-parse --git-common-dir)/threadbear-land.lock" \
-  /bin/sh -c 'git fetch origin && git rebase origin/main && git push origin main:main'
-```
+- only GitHub's has moved: fast-forwards main to it;
+- only this Mac's has: pushes main;
+- both have: rebases this Mac's commits onto GitHub's in a borrowed
+  worktree, runs `./check.sh --quick` on that (a combination nobody has
+  checked), and only if it passes moves main to it (`git reset --keep`)
+  and pushes. A conflict or a failed check leaves main as it was, and
+  says which files or what failed.
 
-The `sh -c '...'` matters: `lockf ... git fetch; git rebase ...` holds the
-lock only for the fetch, and the rebase then races any landing. If the
-rebase stops on a conflict, the lock goes with the command but the rebase
-is still in progress: landings refuse while it is (step 4), so sort it
-out (or `git rebase --abort`) promptly, then push. Never rebase or reset
-main there without the lock: a landing waiting in the line has checked
-a stack built on the main it found, and moves main only by
-fast-forward, so it refuses rather than lands if main was rewritten
-under it ("main moved while this ran"), and has to queue again.
+Don't rebase main in its own checkout. A rebase there leaves HEAD
+detached until it ends: a landing would then move that rather than main,
+so `tb land` refuses while a rebase, merge, cherry-pick, revert or bisect
+is in progress there (step 4) and the landings queue behind you. And a
+hand-run `lockf ... git fetch; git rebase ...` holds the lock only for
+the fetch: everything has to be inside the one locked command.
 
 ## Not in v1
 
