@@ -539,27 +539,15 @@ impl Threadbear {
     }
 
     /// `SubagentHeader`: back to the thread, the sub-agent's title, and what
-    /// it is: "Explore · Running in the background · 4 tool calls · from Fix
-    /// the build".
+    /// it is: "Explore · Opus 5.5 · High · Running in the background · 4 tool
+    /// calls · from Fix the build".
     pub(crate) fn render_subagent_header(&mut self, cx: &mut Context<Self>) -> AnyElement {
         use threadbear_core::sidebar as side;
         let Some((thread_id, sub_id)) = self.subagent.clone() else { return div().into_any_element() };
         let thread = self.threads.get(&thread_id);
         let sub = thread.and_then(|t| side::subagents(t).into_iter().find(|s| s.id == sub_id));
         let title = sub.as_ref().map_or_else(|| "Sub-agent".to_owned(), side::subagent_title);
-        let mut parts: Vec<String> = Vec::new();
-        if let Some(s) = &sub {
-            if let Some(kind) = s.agent_type.as_deref().filter(|k| !k.is_empty()) {
-                parts.push(kind.to_owned());
-            }
-            parts.push(side::subagent_status_text(s).to_owned());
-            if let Some(n) = s.tool_uses.filter(|n| *n > 0) {
-                parts.push(if n == 1 { "1 tool call".to_owned() } else { format!("{n} tool calls") });
-            }
-        }
-        if let Some(t) = thread {
-            parts.push(format!("from {}", if t.title.is_empty() { "Untitled" } else { t.title.as_str() }));
-        }
+        let meta = side::subagent_header_meta(sub.as_ref(), thread.map(|t| t.title.as_str()));
         let (secondary, hover, fg) = (style::secondary_text(cx), style::primary_opacity(cx, 0.08), cx.theme().foreground);
         h_flex()
             .flex_none()
@@ -579,7 +567,7 @@ impl Threadbear {
                     .min_w_0()
                     .gap(px(2.))
                     .child(div().text_size(px(style::size::SIDEBAR_TITLE)).line_height(px(style::natural_line(style::size::SIDEBAR_TITLE))).font_weight(FontWeight::SEMIBOLD).text_color(fg).truncate().child(title))
-                    .child(div().text_size(px(style::size::SIDEBAR_META + 1.)).line_height(px(style::natural_line(style::size::SIDEBAR_META + 1.))).text_color(secondary).truncate().child(parts.join(" · "))),
+                    .child(div().text_size(px(style::size::SIDEBAR_META + 1.)).line_height(px(style::natural_line(style::size::SIDEBAR_META + 1.))).text_color(secondary).truncate().child(meta)),
             )
             .into_any_element()
     }

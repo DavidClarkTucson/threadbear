@@ -502,6 +502,8 @@ export type Subagent = {
   parentId?: string; // the sub-agent that started this one
   description: string;
   agentType?: string;
+  model?: string; // the model it runs on, from its own messages: "claude-opus-5-5"
+  effort?: string; // its effort level, once its transcript has been read
   status: SubagentStatus;
   background: boolean;
   activity?: string; // while running: what it's doing now

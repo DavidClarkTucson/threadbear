@@ -608,6 +608,11 @@ type Subagent = {
                         // started by a sub-agent rather than the thread's agent
   description: string   // its brief's title: "Review the runner changes"
   agentType?: string    // "general-purpose", "Explore", "fork"
+  model?: string        // the model it runs on, from its own replies
+                        // ("claude-opus-5-5"); absent before its first one.
+                        // The latest reply's, as a fallback can take over
+  effort?: string       // its effort level ("high"), filled in once
+                        // threads.subagent has read its transcript
   status: "running" | "completed" | "failed" | "stopped"
                         // clients treat a status they don't know as stopped
   background: boolean   // the agent carried on while it ran

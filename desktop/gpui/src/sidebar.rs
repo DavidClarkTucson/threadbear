@@ -1899,6 +1899,9 @@ fn render_subagent_row(t: &ThreadSummary, row: &rows::SubagentRow, first: bool, 
     };
     let tip = {
         let mut parts = vec![rows::subagent_status_text(sub).to_string()];
+        if let Some(model) = rows::subagent_model_text(sub) {
+            parts.insert(0, model);
+        }
         if let Some(kind) = sub.agent_type.as_deref().filter(|k| !k.is_empty()) {
             parts.insert(0, kind.to_string());
         }

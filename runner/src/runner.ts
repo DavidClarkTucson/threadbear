@@ -1367,7 +1367,8 @@ export class Runner {
 
   // What a sub-agent has done so far, from the CLI's transcript of it.
   subagent(threadId: string, subagentId: string): { subagent?: Subagent; events: PersistedEvent[] } {
-    const { rec } = this.mustGet(threadId);
+    const st = this.mustGet(threadId);
+    const { rec } = st;
     const known = rec.subagents?.find((a) => a.id === subagentId);
     const cwd = known?.cwd ?? rec.cwd;
     const account = this.accounts.get(known?.accountId ?? rec.accountId);
@@ -1382,7 +1383,14 @@ export class Runner {
       throw new RpcError(ErrorCode.subagentNotFound, `Couldn't read sub-agent ${subagentId}'s transcript: ${String(e)}`);
     }
     const now = this.isoNow();
-    const events = read.map((e, i) => ({ seq: i + 1, ts: e.ts ?? now, threadId, ...e.body }) as PersistedEvent);
+    const events = read.events.map((e, i) => ({ seq: i + 1, ts: e.ts ?? now, threadId, ...e.body }) as PersistedEvent);
+    // The transcript is the one place that has its effort, and has its model
+    // for a sub-agent the live stream didn't report one for (a resumed CLI).
+    if (known && ((read.model && known.model !== read.model) || (read.effort && known.effort !== read.effort))) {
+      if (read.model) known.model = read.model;
+      if (read.effort) known.effort = read.effort;
+      this.markDirty(st);
+    }
     return known ? { subagent: publicSubagent(known), events } : { events };
   }
 
@@ -3292,6 +3300,7 @@ export class Runner {
     if (u.parentId) a.parentId = u.parentId;
     if (u.description) a.description = u.description;
     if (u.agentType) a.agentType = u.agentType;
+    if (u.model) a.model = u.model;
     if (u.background) a.background = true;
     if (u.toolUses !== undefined) a.toolUses = u.toolUses;
     if (u.summary) a.summary = u.summary;

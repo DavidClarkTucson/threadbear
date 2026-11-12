@@ -3264,9 +3264,9 @@ function addDemoSubagents() {
   const now = Date.now();
   const at = (secondsAgo) => new Date(now - secondsAgo * 1000).toISOString();
   t.summary.subagents = [
-    { id: 'a_cache', itemId: 'agent_cache', description: 'Compare the cache keys', agentType: 'Explore', status: 'completed', background: false,
+    { id: 'a_cache', itemId: 'agent_cache', description: 'Compare the cache keys', agentType: 'Explore', model: 'claude-haiku-5-5', effort: 'medium', status: 'completed', background: false,
       summary: 'The lockfile hash changed on 21 Oct, so every run since misses the cache.', toolUses: 4, startedAt: at(200), endedAt: at(150) },
-    { id: 'a_bisect', itemId: 'agent_bisect', description: 'Find the commit that slowed the build', agentType: 'general-purpose', status: 'running', background: true,
+    { id: 'a_bisect', itemId: 'agent_bisect', description: 'Find the commit that slowed the build', agentType: 'general-purpose', model: 'claude-opus-5-5', effort: 'high', status: 'running', background: true,
       activity: 'Running git bisect on the last 40 commits', toolUses: 2, startedAt: at(95) },
     { id: 'a_bisect_tests', parentId: 'a_bisect', description: 'Time the test step on each commit', agentType: 'fork', status: 'running', background: false,
       activity: 'Reading run-845.log', toolUses: 1, startedAt: at(40) },
