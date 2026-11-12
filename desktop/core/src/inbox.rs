@@ -80,6 +80,11 @@ pub struct ThreadSummary {
     pub on_old_runner: Option<bool>,
     /// Sharing (protocol "Sharing"): `{ access, slug }`.
     pub share: Option<Value>,
+    /// When it was made (the About window's numbers, den.rs).
+    pub created_at: Option<String>,
+    /// One of the tour's made-up threads (`threads.samples`): left out of
+    /// the About window's numbers.
+    pub sample: Option<bool>,
     /// Which other runner it lives on; none for this Mac's own threads.
     /// Never on the wire: a runner's summaries are all its own (Swift
     /// `ThreadSummary.runnerId`), and `remote::summary` sets it.

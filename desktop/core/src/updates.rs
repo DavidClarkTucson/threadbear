@@ -455,6 +455,20 @@ pub fn app_line(a: &AppSide) -> String {
     a.running.as_ref().map_or_else(|| "The app is up to date.".to_owned(), |r| format!("The app is up to date ({r})."))
 }
 
+/// The Updates icon's right-click popover, in a line (`popoverLine`).
+pub fn popover_line(a: &AppSide) -> String {
+    if a.staged.is_some() {
+        return "A new version of the app is ready.".to_owned();
+    }
+    if a.building {
+        return "Building the app's next version.".to_owned();
+    }
+    if a.failed {
+        return "The app's last build failed.".to_owned();
+    }
+    app_line(a)
+}
+
 /// The runner's own build: building, built and starting, or failed.
 pub fn build_line(u: &RunnerUpdates) -> Option<String> {
     let at = u.commit.as_ref().map_or_else(String::new, |c| format!(" at {c}"));
@@ -766,6 +780,15 @@ mod tests {
         assert_eq!(status_line(&current), "Claude Code 2.1.311, up to date");
         assert!(!cli_pending(&current));
         assert_eq!(managed_line(&CliStatus { managed_by: "none".into(), ..current }), Some("Set by hand in runner.json, so Threadbear leaves it alone"));
+    }
+
+    #[test]
+    fn the_popover_says_the_app_update_in_a_line() {
+        let side = |staged: Option<&str>, building: bool, failed: bool| AppSide { running: Some("abc1234".into()), staged: staged.map(str::to_owned), building, failed, ..Default::default() };
+        assert_eq!(popover_line(&side(Some("def5678"), true, false)), "A new version of the app is ready.");
+        assert_eq!(popover_line(&side(None, true, false)), "Building the app's next version.");
+        assert_eq!(popover_line(&side(None, false, true)), "The app's last build failed.");
+        assert_eq!(popover_line(&side(None, false, false)), "The app is up to date (abc1234).");
     }
 
     #[test]

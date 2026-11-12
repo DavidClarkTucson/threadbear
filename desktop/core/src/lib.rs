@@ -7,6 +7,7 @@ pub mod archive_flight;
 pub mod app_update;
 pub mod chips;
 pub mod completion_sound;
+pub mod den;
 pub mod card_run;
 pub mod composer;
 pub mod connectors;
