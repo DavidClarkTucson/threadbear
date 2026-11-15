@@ -44,6 +44,11 @@ import type { Logger } from './log.ts';
 import { applyKeyChanges, KeysBusy, keysIn, revokedPath, REVOKED_FILE, signerKey, SIGNERS_FILE } from './release-keys.ts';
 
 export const FETCH_INTERVAL_MS = 6 * 60 * 60_000;
+// After a look that failed (no network yet after waking, GitHub down), the
+// next is this soon: waiting the full six hours, a Mac that sleeps a lot
+// missed releases for days, and the Updates panel listed their commits as
+// this copy's own (swift-changes.ts compares with the releases kept here).
+export const RETRY_AFTER_FAILURE_MS = 15 * 60_000;
 export const PUBLISH_INTERVAL_MS = 60 * 60_000;
 // The first look, a while after the runner starts: never in the way of a
 // start that's about to be rolled back.
@@ -457,9 +462,11 @@ export class Upstream {
 
   private tick(): void {
     this.timer = undefined;
-    void this.check().finally(() => {
-      if (!this.stopped) this.timer = this.deps.clock.setTimeout(() => this.tick(), FETCH_INTERVAL_MS);
-    });
+    void this.check()
+      .catch(() => undefined)
+      .then((s) => {
+        if (!this.stopped) this.timer = this.deps.clock.setTimeout(() => this.tick(), s?.state === 'failed' ? RETRY_AFTER_FAILURE_MS : FETCH_INTERVAL_MS);
+      });
   }
 
   private publishTick(): void {

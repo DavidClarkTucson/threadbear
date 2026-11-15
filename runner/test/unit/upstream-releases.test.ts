@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FakeClock } from '../../src/clock.ts';
-import { type CiRun, bareRepoArgs, ciVerdict, FETCH_INTERVAL_MS, FIRST_LOOK_MS, SETTLE_MS, cleanNotes, parseImportant, parseNotes, repoKey, signersPath, splitSignedTag, tagFor } from '../../src/upstream.ts';
+import { type CiRun, bareRepoArgs, ciVerdict, FETCH_INTERVAL_MS, FIRST_LOOK_MS, RETRY_AFTER_FAILURE_MS, SETTLE_MS, cleanNotes, parseImportant, parseNotes, repoKey, signersPath, splitSignedTag, tagFor } from '../../src/upstream.ts';
 import { LATER, asGitHub, commit, fakeGpg, git, kept, key, release, signedTag, upstreamFor, waitFor, withVictimGpg, world } from '../helpers/upstream-harness.ts';
 
 test('repoKey: the same repo however its URL is written', () => {
@@ -149,6 +149,25 @@ test('the timer looks a while after start, then every six hours', async () => {
   up.stop();
   assert.equal(clock.pending(), 0);
   void FETCH_INTERVAL_MS;
+});
+
+// A Mac waking from sleep often has no DNS for the first look, and six hours
+// later it was asleep or offline again: David's runner failed nearly every
+// check from 8 to 15 Nov, so Mike's 14 and 15 Nov releases were never kept
+// and the Updates panel took their Swift commits for his own.
+test('a failed look tries again within the hour, not six hours later', async () => {
+  const w = world();
+  const clock = new FakeClock();
+  git(w.theirs, 'remote', 'set-url', 'upstream', path.join(w.root, 'gone.git'));
+  const up = upstreamFor(w.theirs, w.home, clock);
+  up.start();
+  clock.advance(FIRST_LOOK_MS);
+  await waitFor(() => up.status().state === 'failed');
+  git(w.theirs, 'remote', 'set-url', 'upstream', path.join(w.root, 'mike.git'));
+  clock.advance(RETRY_AFTER_FAILURE_MS);
+  await waitFor(() => up.status().state === 'idle');
+  assert.ok(RETRY_AFTER_FAILURE_MS <= 60 * 60_000);
+  up.stop();
 });
 
 test("Mike's runner tags main once a day, signed, once it has settled", async () => {
