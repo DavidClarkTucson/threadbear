@@ -32,6 +32,12 @@ final class LinkGate {
         }
     }
 
+    /// A link from a thread tapped outside a Markdown text (a picture's web
+    /// address): a web page opens, anything else goes the way `decide` says.
+    func open(_ url: URL) {
+        if case .web(let web) = LinkPolicy.kind(of: url) { systemOpen(web) } else { _ = decide(url) }
+    }
+
     /// One of the app's own links, fixed in the code (Settings, its docs).
     /// Never a link from a thread, a Mac or a page.
     func openOwn(_ url: URL) {
