@@ -24,6 +24,8 @@ pub struct Prefs {
     /// The message box's spelling and substitution switches, from its
     /// right-click menu (composer_spelling.rs).
     pub text_checks: crate::text_services::Checks,
+    /// Not now on the long thread card, by thread (long_thread.rs).
+    pub long_thread_dismissals: threadbear_core::long_thread::Dismissals,
 }
 
 fn path() -> PathBuf {

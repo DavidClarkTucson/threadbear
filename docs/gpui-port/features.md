@@ -269,6 +269,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `card.returnflow` | Return flow | Next unanswered, ⌘Return sends, beep when stuck | Key handling, with the beep sharing the ding's audio in `settings.general`. | build | S | `TranscriptController` |
 | `card.answers` | Answer and follow-up state | Picks persisted until sent, ticked items sent with words | Port the logic. | build | M | `AppModel+ThreadActions`, `Decisions` |
 | `card.opencomparison` | Open comparison from card | Button opens the review | Drawn. | build | S | `TranscriptController` |
+| `card.longthread` | Long thread card | Past the runner's contextNudge levels: Compact, Continue in a new thread, Not now; then Writing a handoff and Carried on with Open | Drawn above the box (`long_thread.rs`), the rules in core `long_thread.rs`, Not now kept in the app's prefs. | build | S | `LongThreadOffer`, `LongThread` |
 
 ## 9. Highlights
 

@@ -55,6 +55,7 @@ mod hang_watch;
 mod handover;
 mod input_probe;
 mod header;
+mod long_thread;
 mod highlights;
 mod highlights_board;
 mod highlights_project;

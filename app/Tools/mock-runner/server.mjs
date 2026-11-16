@@ -822,6 +822,19 @@ async function dispatch(client, method, p) {
       setTimeout(() => fakeTurn(t.summary.id, p.text ?? '', p.images ?? [], turnId, p.origin === 'phone' ? 'phone' : undefined, extra), 10 + slow.queueMs);
       return { turnId };
     }
+    // Continue in a new thread (protocol "Long threads"): a handoff turn,
+    // and the next thread once it's written (fakeTurn).
+    case 'threads.continueFresh': {
+      const t = need(p.threadId);
+      if (['running', 'starting', 'waiting'].includes(t.summary.status)) throw rpcError(-32020, 'The thread is working. Continue in a new thread once its turn is over.');
+      if (t.handoff) throw rpcError(-32020, 'The handoff is already being written.');
+      const turnId = 'turn_' + crypto.randomBytes(4).toString('hex');
+      t.handoff = turnId;
+      t.summary.continuing = true;
+      broadcastSummary(t.summary.id);
+      setTimeout(() => fakeTurn(t.summary.id, 'Write a short handoff for a new thread: what is done, decisions, open items and key files.', [], turnId), 600 + slow.queueMs);
+      return { turnId };
+    }
     case 'threads.edit': {
       // Editing a message (docs/protocol.md, "Editing a message"): stop
       // the turn, cut back to the message with a thread.rewound, then the
@@ -2045,6 +2058,29 @@ async function fakeTurn(threadId, text, images, turnId = 'turn_' + crypto.random
     persist(threadId, { type: 'turn.completed', turnId, outcome: 'failed', durationMs: 851, error }, turnId);
     t.interrupt = undefined;
     setStatus(threadId, 'error');
+    return;
+  }
+  // Long threads (protocol "Long threads"): "mock long thread" grows the
+  // context past the firm level ("mock gentle thread", the gentle one), a
+  // /compact drops the count as the runner does, and Continue in a new
+  // thread's handoff turn starts the next thread (threads.continueFresh).
+  const long = /mock (long|gentle) thread/i.exec(text);
+  const compact = text.trim() === '/compact';
+  if (long || compact || t.handoff === turnId) {
+    const reply = long ? 'Read every file in the repo, twice.' : compact ? 'Compacted the conversation.' : 'Done: the long thread card. Open: its spec. Files: desktop/gpui/src/long_thread.rs.';
+    persist(threadId, { type: 'assistant.text', itemId: 'lt_' + crypto.randomBytes(4).toString('hex'), text: reply }, turnId);
+    persist(threadId, { type: 'turn.completed', turnId, outcome: 'completed', durationMs: 900 }, turnId);
+    t.interrupt = undefined;
+    if (long) Object.assign(t.summary, long[1] === 'gentle' ? { contextTokens: 162_000, contextLong: 'gentle' } : { contextTokens: 262_000, contextLong: 'firm' });
+    if (compact) { delete t.summary.contextTokens; delete t.summary.contextLong; }
+    if (t.handoff === turnId) {
+      delete t.handoff;
+      delete t.summary.continuing;
+      const made = await dispatch({ as: t.runnerId }, 'threads.create', { text: `Carrying on from "${t.summary.title}".\n\n${reply}`, title: `${t.summary.title} (continued)`, cwd: t.summary.cwd, accountId: t.summary.accountId });
+      t.summary.continuedIn = { threadId: made.thread.id, title: made.thread.title };
+      persist(threadId, { type: 'system.note', text: `Continued in a new thread, "${made.thread.title}".` }, turnId);
+    }
+    setStatus(threadId, 'idle');
     return;
   }
   // Say "signed out" for a turn refused by the login, as Claude Code's

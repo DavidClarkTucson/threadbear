@@ -152,6 +152,9 @@ pub struct Threadbear {
     /// (`BusyKey.moving`, `BusyKey.movingFolder`).
     pub(crate) chip_busy: std::collections::HashSet<String>,
     pub(crate) continuing_refusal: Option<String>,
+    /// The long thread card's button waiting on the runner, by thread
+    /// (long_thread.rs).
+    pub(crate) long_busy: std::collections::HashMap<String, crate::long_thread::LongBusy>,
     /// The runner's website, from `runner.status` (`websiteURL`).
     pub(crate) website_url: Option<String>,
     pub(crate) schedules_supported: bool,
@@ -536,6 +539,7 @@ impl Threadbear {
             share_busy: false,
             chip_busy: Default::default(),
             continuing_refusal: None,
+            long_busy: Default::default(),
             website_url: None,
             schedules_supported: false,
             scheduled,
@@ -1683,6 +1687,8 @@ impl Threadbear {
             // button reads.
             let refused = composer.thread_id.is_some() && self.open_thread().and_then(|t| self.refusal_target(t, cx)).is_some();
             out["offerAbove"] = json!(refused.then_some(if self.continuing_refusal.is_some() { "Continuing…" } else { "Continue with Codex Sol" }));
+            // The long thread card's words, when it shows (long_thread.rs).
+            out["longThread"] = json!(composer.thread_id.as_deref().and_then(|id| self.long_thread_line(id)));
             // Whether the chips and the send button fit inside the box.
             let (row, send) = composer.controls_fit.get();
             out["chipsFit"] = json!(send <= row + 0.5);

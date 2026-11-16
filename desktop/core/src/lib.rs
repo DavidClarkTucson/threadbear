@@ -36,6 +36,7 @@ pub mod html_tags;
 pub mod local_preview;
 pub mod login_picker;
 pub mod logins;
+pub mod long_thread;
 pub mod navigation;
 pub mod navigation_swipe;
 pub mod nested;
