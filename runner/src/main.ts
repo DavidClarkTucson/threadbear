@@ -571,7 +571,10 @@ async function main(): Promise<void> {
       onNotification: (fn) =>
         runner.onNotification((n) => {
           const id = (n.params as { threadId?: unknown } | undefined)?.threadId;
-          if (typeof id === 'string' && movesRef?.gone(id)) return;
+          if (typeof id === 'string' && movesRef?.gone(id)) {
+            if (n.method === 'thread.deleted') sync.forgetMoved(id);
+            return;
+          }
           fn(n);
         }),
       list: (include) => runner.list(include).filter((t) => !movesRef?.gone(t.id)),
@@ -624,6 +627,7 @@ async function main(): Promise<void> {
     scrubber,
     elsewhere: (id) => peers.owns(id) || peers.isArriving(id),
     elsewhereIds: () => [...peers.summaries(['inbox', 'snoozed', 'archived']).map((t) => t.id), ...peers.arrivingIds()],
+    movedAway: (id) => movesRef?.gone(id) ?? false,
     version: RUNNER_VERSION,
     release: RELEASE.release,
     startedAt,

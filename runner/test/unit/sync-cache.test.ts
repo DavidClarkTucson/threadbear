@@ -29,6 +29,8 @@ function setup(opts: { apiVersion?: number; firstSeen?: () => boolean; heads?: {
   // still finishing on the release before (a handover).
   const shared = { value: [] as string[] };
   const elsewhere = new Set<string>();
+  // Threads moved from here to another runner (moves.ts gone).
+  const moved = new Set<string>();
   const make = () =>
     new ConvexSync({
       config: { enabled: true, url: 'https://x.convex.cloud', name: 'TestMac', runnerId: 'r1', ...(icon.value ? { icon: icon.value } : {}) },
@@ -44,6 +46,7 @@ function setup(opts: { apiVersion?: number; firstSeen?: () => boolean; heads?: {
       subscriber: { subscribe: () => () => {}, close: async () => {} },
       elsewhere: (id) => elsewhere.has(id),
       elsewhereIds: () => [...elsewhere],
+      movedAway: (id) => moved.has(id),
       post: async (kind, fn, args) => {
         calls.push({ kind, fn, args });
         if (fn === failing.value) throw new Error('down');
@@ -61,7 +64,7 @@ function setup(opts: { apiVersion?: number; firstSeen?: () => boolean; heads?: {
     });
   const named = (fn: string) => calls.filter((c) => c.fn === fn);
   const docs = () => named('sync:upsertThreads').flatMap((c) => c.args.threads as ThreadDoc[]);
-  return { h, make, calls, named, docs, cachePath, firstSeen, failing, holdRemove, holdUpsert, failUpsert, icon, rejectIcon, apiVersion, shared, elsewhere };
+  return { h, make, calls, named, docs, cachePath, firstSeen, failing, holdRemove, holdUpsert, failUpsert, icon, rejectIcon, apiVersion, shared, elsewhere, moved };
 }
 
 const settle = async () => {
@@ -720,6 +723,49 @@ test('a thread deleted while sync was off is taken out of the mirror by a start 
   await again.stop();
   const c = loadSyncCache(s.cachePath, { url: 'https://x.convex.cloud', runnerId: 'r1', now: s.h.clock.now() })!;
   assert.equal(c.threads[t.id], undefined, 'and the file no longer says the mirror has it');
+});
+
+// 16 Nov 2026: two threads moved from the main Mac to raven stayed in the Mac's
+// file as sent (a moved thread's thread.deleted never reaches sync, main.ts).
+// Its next start found them neither here nor on a peer, and removeThreads with
+// the owner key deleted raven's rows, so sending to them said "no such thread".
+test("a thread moved to another runner isn't taken out of the mirror by a start from the file", async () => {
+  const s = setup();
+  const t = s.h.runner.create({ text: 'moving', cwd: s.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  await firstStart(s);
+  s.h.runner.delete(t.id);
+  s.moved.add(t.id);
+  s.calls.length = 0;
+  const again = s.make();
+  again.start();
+  await settle();
+  s.h.clock.advance(SETTLE_MS);
+  await settle();
+  await again.flushNow();
+  s.h.clock.advance(MISSING_GRACE_MS);
+  await settle();
+  await again.flushNow();
+  assert.deepEqual(s.named('sync:removeThreads'), []);
+  await again.stop();
+  const c = loadSyncCache(s.cachePath, { url: 'https://x.convex.cloud', runnerId: 'r1', now: s.h.clock.now() })!;
+  assert.equal(c.threads[t.id], undefined, "the file stops saying the mirror has it from here");
+  assert.ok(!(c.removed ?? []).includes(t.id));
+});
+
+test('a thread moved away is forgotten as sent at once, not removed', async () => {
+  const s = setup();
+  const t = s.h.runner.create({ text: 'moving', cwd: s.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  const sync = s.make();
+  sync.start();
+  await settle();
+  await sync.flushNow();
+  s.moved.add(t.id);
+  sync.forgetMoved(t.id);
+  await sync.flushNow();
+  assert.deepEqual(s.named('sync:removeThreads'), []);
+  await sync.stop();
+  const c = loadSyncCache(s.cachePath, { url: 'https://x.convex.cloud', runnerId: 'r1', now: s.h.clock.now() })!;
+  assert.equal(c.threads[t.id], undefined, 'a week on, when the move row has gone, a start has nothing to remove');
 });
 
 test("a thread finishing on the release before isn't taken out for not being here yet", async () => {

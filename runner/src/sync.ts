@@ -682,6 +682,9 @@ export type SyncDeps = {
   // full write's prune. Absent in small tests.
   elsewhere?: (threadId: string) => boolean;
   elsewhereIds?: () => string[];
+  // A thread moved from here to another runner (moves.ts gone): its row is
+  // that runner's now, so it's never removed from here, only forgotten.
+  movedAway?: (threadId: string) => boolean;
 };
 
 // How long a row whose thread isn't here (and that wasn't deleted here) waits
@@ -2477,6 +2480,24 @@ export class ConvexSync {
     else this.cardsBehind.delete(threadId);
   }
 
+  /**
+   * A thread moved to another runner: no longer this runner's to write or
+   * remove. Forgotten as sent, so no later start takes it for one deleted
+   * here and removes the row, which the owner key would do whichever
+   * runner has it (16 Nov 2026, two moved threads' rows gone from raven).
+   */
+  forgetMoved(threadId: string): void {
+    this.sent.delete(threadId);
+    this.heads.delete(threadId);
+    this.lastWrite.delete(threadId);
+    this.dirty.delete(threadId);
+    this.held.delete(threadId);
+    this.missing.delete(threadId);
+    this.removed.delete(threadId);
+    this.removedFromFile.delete(threadId);
+    this.noteSent();
+  }
+
   private forgetCards(threadId: string): void {
     this.pending.delete(threadId);
     this.cardsBehind.delete(threadId);
@@ -2546,7 +2567,11 @@ export class ConvexSync {
     // prune a full write does, so it goes now (Daybreak, 6 Nov: a shared
     // thread deleted with sync off stayed public).
     const here = new Set(this.deps.runner.list(ALL).map((t) => t.id));
-    for (const id of [...this.sent.keys()]) if (!here.has(id) && !this.deps.elsewhere?.(id)) this.dropRow(id);
+    for (const id of [...this.sent.keys()]) {
+      if (here.has(id)) continue;
+      if (this.deps.movedAway?.(id)) this.forgetMoved(id);
+      else if (!this.deps.elsewhere?.(id)) this.dropRow(id);
+    }
     for (const t of this.deps.runner.list(ALL)) this.mark(t);
     this.scheduleFlush();
   }
@@ -2576,6 +2601,10 @@ export class ConvexSync {
     for (const [id, since] of [...this.missing]) {
       if (here.has(id) || this.deps.elsewhere?.(id)) {
         this.missing.delete(id);
+        continue;
+      }
+      if (this.deps.movedAway?.(id)) {
+        this.forgetMoved(id);
         continue;
       }
       if (now - since < MISSING_GRACE_MS) continue;
@@ -3105,6 +3134,7 @@ export class ConvexSync {
     this.closedIds.clear();
     const docs = [...this.dirty.values()];
     // Not while settling: a thread the file says went may yet come across.
+    for (const id of this.removed) if (this.deps.movedAway?.(id)) this.forgetMoved(id);
     this.removing = new Set(this.settling ? [] : this.removed);
     let messages = this.messages.splice(0);
     const lists = [...this.dirtyLists];
