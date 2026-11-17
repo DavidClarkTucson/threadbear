@@ -458,7 +458,13 @@ pub fn looks_like_text(sample: &[u8]) -> bool {
 
 /// The kinds of file Mike reviews rather than edits: a transcript link to one
 /// of these opens in the pane, not in its app (⌘-click still does that).
-const REVIEW_EXTENSIONS: &[&str] = &["md", "html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp4", "mov", "csv", "txt"];
+/// Data and logs are read more than edited, and their app is often a big
+/// IDE (Xcode claims `.json`), so they open in the pane's text view too.
+const REVIEW_EXTENSIONS: &[&str] = &[
+    "md", "html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp4", "mov", "txt", "text",
+    // data and logs
+    "json", "jsonc", "jsonl", "ndjson", "yaml", "yml", "toml", "csv", "tsv", "log",
+];
 
 pub fn previews_in_pane(path: &str) -> bool {
     REVIEW_EXTENSIONS.contains(&extension(path).as_str())
@@ -1470,6 +1476,14 @@ mod tests {
         for path in ["/tmp/a.md", "/tmp/b.HTML", "/tmp/c.pdf", "/tmp/d.png", "/tmp/e.mov", "/tmp/f.csv", "/tmp/g.svg"] {
             assert!(previews_in_pane(path), "{path}");
         }
+        // Data and logs too, each drawn by the pane's text view, not left to
+        // whichever IDE claims them.
+        for path in ["/tmp/put-1.json", "/tmp/a.JSONC", "/tmp/b.jsonl", "/tmp/c.ndjson", "/tmp/d.yaml", "/tmp/e.yml", "/tmp/f.toml", "/tmp/g.tsv", "/tmp/h.log"] {
+            assert!(previews_in_pane(path), "{path}");
+            assert_eq!(viewer_for_path(path), Viewer::Text, "{path}");
+        }
+        assert_eq!(code_language("/tmp/put-1.json"), Some("json"));
+        assert_eq!(code_language("/tmp/d.yaml"), Some("yaml"));
         for path in ["/tmp/a.swift", "/tmp/b.ts", "/tmp/folder", "/tmp/c.zip"] {
             assert!(!previews_in_pane(path), "{path}");
         }

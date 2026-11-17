@@ -252,7 +252,10 @@ Needs you card's buttons, to see where it goes: a picture of the file, or
 the page's address. On a Mac a local PDF shows its first page and a video
 its first frame. A PDF over 16 MB or a file that can't be previewed keeps
 its file symbol. Click it to open it (the middle mouse button works
-too). If an agent already has that page
+too). A file you'd read rather than edit (Markdown, text, a page, a
+picture, a PDF, or data and logs such as JSON, YAML, TOML, CSV and `.log`)
+opens in the side pane, JSON and YAML coloured; code opens in its own app,
+and ⌘-click opens any file there. If an agent already has that page
 open in Chrome through [BrowserBear](https://github.com/mikecann/browserbear)
 (say, a sign-in page it wants you to use), the click brings the agent's tab
 into your Chrome window rather than opening a second one. A link to a file

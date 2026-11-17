@@ -44,6 +44,15 @@ Feature: Links in a reply
     Then the pane is showing that file
     And nothing was opened in another app
 
+  @rich.filerefs
+  Scenario: A click on a data file's link opens it in the pane, not in its app
+    Given a file "put-1.json" saying "[1, 2, 3]" in a folder of its own
+    When I open the thread "Morning brief"
+    And a reply linking "the request" to that file streams in
+    And I click the link "the request"
+    Then the pane is showing that file
+    And nothing was opened in another app
+
   @rich.cmdclick
   Scenario: A ⌘-click on a document opens it in its app, not the pane
     Given a file "notes.md" saying "# Notes" in a folder of its own
