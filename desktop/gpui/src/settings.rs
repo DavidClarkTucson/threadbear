@@ -33,7 +33,7 @@ pub enum CloseShortcut {
 }
 
 impl CloseShortcut {
-    pub const ALL: [CloseShortcut; 4] = [CloseShortcut::Allow, CloseShortcut::Warn, CloseShortcut::Block, CloseShortcut::DeleteThread];
+    pub const ALL: [CloseShortcut; 4] = [CloseShortcut::Allow, CloseShortcut::Warn, CloseShortcut::DeleteThread, CloseShortcut::Block];
 
     /// An unknown or missing name is Allow, as before the setting existed.
     pub fn from_name(name: Option<&str>) -> Self {
@@ -56,9 +56,9 @@ impl CloseShortcut {
 
     pub fn title(self) -> &'static str {
         match self {
-            Self::Allow => "Allow",
+            Self::Allow => "Quit Application",
             Self::Warn => "Warn first",
-            Self::Block => "Block",
+            Self::Block => "No Action",
             Self::DeleteThread => "Delete the open thread",
         }
     }

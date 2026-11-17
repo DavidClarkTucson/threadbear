@@ -521,7 +521,7 @@ impl SettingsWindow {
 
     fn render_general(&mut self, settings: Option<&RunnerSettings>, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         // This Mac's own, so they're here while the runner's away too.
-        let mut sections = vec![self.appearance_section(cx), self.panels_section(cx), self.quitting_section(cx), self.closing_section(cx), self.notifications_section(cx)];
+        let mut sections = vec![self.appearance_section(cx), self.panels_section(cx), self.quitting_section(cx), self.notifications_section(cx)];
         // The web runtime is this Mac's too (web_runtime.rs), last, so it
         // moves nothing the Swift app's General has.
         let web_runtime = section("settings-web-runtime", "Web runtime", crate::web_runtime::SETTINGS_ABOUT, "check whether it's installed and working, or why a diagram or panel isn't showing.", vec![row("Web runtime", crate::web_runtime::settings_control(cx), cx)], cx);
@@ -695,6 +695,7 @@ impl SettingsWindow {
     /// turns it back on.
     fn quitting_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let on = self.app.upgrade().is_none_or(|a| a.read(cx).settings.asks_before_quitting());
+        let close_row = self.close_shortcut_row(cx);
         let switch = self.switch("settings-ask-before-quitting", on, "Ask to confirm when you quit Threadbear", cx, |this, on, cx| {
             this.app
                 .update(cx, |app, cx| {
@@ -706,16 +707,16 @@ impl SettingsWindow {
         section(
             "settings-quitting",
             "Quitting",
-            "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.",
+            "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.\n\n⌘W in the main window closes it, which quits Threadbear. Quit Application does that. Warn first asks before it does. Delete the open thread closes and deletes the thread you're on instead (after asking), and leaves the window open. No Action does nothing. The red button, ⌘Q and Quit aren't affected, and ⌘W still closes Settings and the other windows.",
             "change it for you.",
-            vec![row("Ask before quitting", switch, cx)],
+            vec![row("Ask before quitting", switch, cx), close_row],
             cx,
         )
     }
 
     /// What ⌘W does in the main window, which would quit the app
-    /// (`closeShortcut`, Allow to begin with).
-    fn closing_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// (`closeShortcut`, Allow to begin with): a row of the Quitting section.
+    fn close_shortcut_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
         use crate::settings::CloseShortcut;
         let current = self.app.upgrade().map_or(CloseShortcut::Allow, |a| a.read(cx).settings.close_shortcut());
         let app = self.app.clone();
@@ -736,14 +737,7 @@ impl SettingsWindow {
             }
             menu
         });
-        section(
-            "settings-closing",
-            "Closing",
-            "⌘W in the main window closes it, which quits Threadbear. Allow does that. Warn first asks before it does. Block does nothing. Delete the open thread closes and deletes the thread you're on instead (after asking), and leaves the window open. The red button, ⌘Q and the Threadbear menu's Quit aren't affected, and ⌘W still closes Settings and the other windows. Your threads keep running on the runner while the app is closed.",
-            "change it for you.",
-            vec![row("⌘W in the main window", div().id("settings-close-shortcut-holder").test_support().a11y_role(Role::GenericContainer).aria_label(tip).child(menu), cx)],
-            cx,
-        )
+        row("⌘W in the main window", div().id("settings-close-shortcut-holder").test_support().a11y_role(Role::GenericContainer).aria_label(tip).child(menu), cx)
     }
 
     /// The ding when a thread finishes (ding.rs): on or off, which, how loud.
