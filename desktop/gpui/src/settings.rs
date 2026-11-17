@@ -21,6 +21,49 @@ use threadbear_core::completion_sound::{self, Ding};
 use threadbear_core::inbox::InboxOrder;
 use threadbear_core::zoom;
 
+/// What ⌘W does in the main window (Settings > General > Closing).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum CloseShortcut {
+    #[default]
+    Allow,
+    Warn,
+    Block,
+    /// Closes and deletes the open thread instead (asks first).
+    DeleteThread,
+}
+
+impl CloseShortcut {
+    pub const ALL: [CloseShortcut; 4] = [CloseShortcut::Allow, CloseShortcut::Warn, CloseShortcut::Block, CloseShortcut::DeleteThread];
+
+    /// An unknown or missing name is Allow, as before the setting existed.
+    pub fn from_name(name: Option<&str>) -> Self {
+        match name {
+            Some("warn") => Self::Warn,
+            Some("block") => Self::Block,
+            Some("deleteThread") => Self::DeleteThread,
+            _ => Self::Allow,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Warn => "warn",
+            Self::Block => "block",
+            Self::DeleteThread => "deleteThread",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Allow => "Allow",
+            Self::Warn => "Warn first",
+            Self::Block => "Block",
+            Self::DeleteThread => "Delete the open thread",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WindowFrame {
@@ -62,6 +105,9 @@ pub struct Saved {
     pub completion_sound_volume: Option<f64>,
     /// `askBeforeQuitting` (QuitPrompt): None is yes.
     pub ask_before_quitting: Option<bool>,
+    /// `closeShortcut`: what ⌘W does in the main window, which quits
+    /// the app: "allow", "warn" (ask first), "block" (nothing) or "deleteThread". None is allow.
+    pub close_shortcut: Option<String>,
     /// `activityLog` (ActivityRecorder): Settings > General's Keep an
     /// activity log (activity.rs). Off until it's turned on.
     pub activity_log: Option<bool>,
@@ -205,11 +251,24 @@ impl Settings {
     pub fn asks_before_quitting(&self) -> bool {
         self.saved.ask_before_quitting.unwrap_or(true)
     }
+
+    pub fn close_shortcut(&self) -> CloseShortcut {
+        CloseShortcut::from_name(self.saved.close_shortcut.as_deref())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn close_shortcut_names_round_trip_and_default_to_allow() {
+        for c in CloseShortcut::ALL {
+            assert_eq!(CloseShortcut::from_name(Some(c.name())), c);
+        }
+        assert_eq!(CloseShortcut::from_name(None), CloseShortcut::Allow);
+        assert_eq!(CloseShortcut::from_name(Some("nonsense")), CloseShortcut::Allow);
+    }
 
     fn temp_file(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("tb-settings-{}-{name}", std::process::id()));

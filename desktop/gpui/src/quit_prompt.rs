@@ -40,6 +40,52 @@ pub(crate) fn quit(asks: bool, app: WeakEntity<Threadbear>, cx: &mut App) {
     .detach();
 }
 
+/// ⌘W in the main window, which closes the app: let through, asked
+/// about first, or ignored, as Settings > General > Closing says. ⌘Q and
+/// the menu's Quit are not this; they have their own setting above.
+pub(crate) fn close(mode: crate::settings::CloseShortcut, window: &mut Window, cx: &mut App) {
+    use crate::settings::CloseShortcut;
+    match mode {
+        // DeleteThread is the shell's (it has the open thread).
+        CloseShortcut::Block | CloseShortcut::DeleteThread => {}
+        // A scripted app never asks: no one is there to answer.
+        CloseShortcut::Allow => crate::window_menu::close_window(window, cx),
+        CloseShortcut::Warn if cfg!(feature = "automation") => crate::window_menu::close_window(window, cx),
+        CloseShortcut::Warn => {
+            let handle = window.window_handle();
+            cx.spawn(async move |cx| {
+                cx.update(|cx| cx.activate(true));
+                if !ask_close() {
+                    return;
+                }
+                cx.update(|cx| {
+                    handle.update(cx, |_, window, cx| crate::window_menu::close_window(window, cx)).ok();
+                });
+            })
+            .detach();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ask_close() -> bool {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSAlertFirstButtonReturn};
+    use objc2_foundation::NSString;
+    let Some(mtm) = MainThreadMarker::new() else { return true };
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str("Close Threadbear?"));
+    alert.setInformativeText(&NSString::from_str("Closing the window quits the app. Your threads keep running on the runner while Threadbear is closed."));
+    alert.addButtonWithTitle(&NSString::from_str("Close"));
+    alert.addButtonWithTitle(&NSString::from_str("Cancel"));
+    alert.runModal() == NSAlertFirstButtonReturn
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ask_close() -> bool {
+    true
+}
+
 #[cfg(target_os = "macos")]
 fn ask() -> Answer {
     use objc2::MainThreadMarker;

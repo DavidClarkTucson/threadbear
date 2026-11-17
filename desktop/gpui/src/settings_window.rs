@@ -521,7 +521,7 @@ impl SettingsWindow {
 
     fn render_general(&mut self, settings: Option<&RunnerSettings>, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         // This Mac's own, so they're here while the runner's away too.
-        let mut sections = vec![self.appearance_section(cx), self.panels_section(cx), self.quitting_section(cx), self.notifications_section(cx)];
+        let mut sections = vec![self.appearance_section(cx), self.panels_section(cx), self.quitting_section(cx), self.closing_section(cx), self.notifications_section(cx)];
         // The web runtime is this Mac's too (web_runtime.rs), last, so it
         // moves nothing the Swift app's General has.
         let web_runtime = section("settings-web-runtime", "Web runtime", crate::web_runtime::SETTINGS_ABOUT, "check whether it's installed and working, or why a diagram or panel isn't showing.", vec![row("Web runtime", crate::web_runtime::settings_control(cx), cx)], cx);
@@ -709,6 +709,39 @@ impl SettingsWindow {
             "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.",
             "change it for you.",
             vec![row("Ask before quitting", switch, cx)],
+            cx,
+        )
+    }
+
+    /// What ⌘W does in the main window, which would quit the app
+    /// (`closeShortcut`, Allow to begin with).
+    fn closing_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::settings::CloseShortcut;
+        let current = self.app.upgrade().map_or(CloseShortcut::Allow, |a| a.read(cx).settings.close_shortcut());
+        let app = self.app.clone();
+        let tip = "What ⌘W does in Threadbear's main window";
+        let menu = Button::new("settings-close-shortcut").label(current.title()).small().secondary().dropdown_caret(true).tooltip(tip).dropdown_menu(move |menu: PopupMenu, _, _| {
+            let mut menu = menu;
+            for choice in CloseShortcut::ALL {
+                let app = app.clone();
+                menu = menu.item(PopupMenuItem::new(choice.title()).checked(choice == current).on_click(move |_, _, cx| {
+                    if let Some(app) = app.upgrade() {
+                        app.update(cx, |app, cx| {
+                            app.settings.saved.close_shortcut = (choice != CloseShortcut::Allow).then(|| choice.name().to_owned());
+                            app.save_settings_soon(cx);
+                            cx.notify();
+                        });
+                    }
+                }));
+            }
+            menu
+        });
+        section(
+            "settings-closing",
+            "Closing",
+            "⌘W in the main window closes it, which quits Threadbear. Allow does that. Warn first asks before it does. Block does nothing. Delete the open thread closes and deletes the thread you're on instead (after asking), and leaves the window open. The red button, ⌘Q and the Threadbear menu's Quit aren't affected, and ⌘W still closes Settings and the other windows. Your threads keep running on the runner while the app is closed.",
+            "change it for you.",
+            vec![row("⌘W in the main window", div().id("settings-close-shortcut-holder").test_support().a11y_role(Role::GenericContainer).aria_label(tip).child(menu), cx)],
             cx,
         )
     }

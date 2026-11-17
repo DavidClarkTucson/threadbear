@@ -867,6 +867,18 @@ impl Threadbear {
         if !thread.is_archived() {
             return;
         }
+        self.ask_delete_thread(id, window, cx);
+    }
+
+    /// The asking and the deleting of `delete_row`, for any thread: the
+    /// sidebar's trash only offers it on an archived one, ⌘W (Settings >
+    /// General > Closing) on the open one.
+    pub(crate) fn ask_delete_thread(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let busy_key = format!("delete:{id}");
+        if self.sidebar.busy.contains(&busy_key) {
+            return;
+        }
+        let Some(thread) = self.threads.get(&id) else { return };
         let title = format!("Delete \u{201C}{}\u{201D}?", thread.title);
         let entity = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
@@ -897,6 +909,9 @@ impl Threadbear {
                                     match res {
                                         Ok(_) => {
                                             this.threads.remove(&id);
+                                            if this.selected.as_deref() == Some(id.as_str()) {
+                                                this.selected = None;
+                                            }
                                         }
                                         Err(e) => this.show_error(e.message, cx),
                                     }
