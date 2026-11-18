@@ -554,12 +554,20 @@ export function usageLine(u: AccountUsage | undefined, now: number = Date.now())
 // Nov 2026: it was 10%, and that 10% was going to waste on each login.
 export const MIN_ROOM_PERCENT = 1;
 
-// The tighter of the 5-hour and weekly windows, or the only one there is.
-// undefined when neither is known.
+// What a login may still use of a window: its room, less what its
+// usageCap holds back. With a cap of 50, a window 70% left has 20 left.
+export function windowRoom(account: Pick<Account, 'usageCap'>, w: Pick<UsageWindow, 'remainingPercent'>): number {
+  const held = account.usageCap ? 100 - account.usageCap : 0;
+  return Math.max(0, w.remainingPercent - held);
+}
+
+// The tighter of the 5-hour and weekly windows, or the only one there is,
+// less what the login's usageCap holds back. undefined when neither is
+// known.
 export function accountRoom(account: Account): number | undefined {
   const main = account.usage ? mainWindows(account.usage) : [];
   if (!main.length) return undefined;
-  return Math.min(...main.map((w) => w.remainingPercent));
+  return Math.min(...main.map((w) => windowRoom(account, w)));
 }
 
 // Which account a new thread starts on when none is named: the one with the

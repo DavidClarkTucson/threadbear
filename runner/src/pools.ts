@@ -8,7 +8,7 @@ import type { Account, Pool, Provider, UsageWindow } from './protocol.ts';
 import { PROVIDERS } from './protocol.ts';
 import { providerName } from './providers.ts';
 import { ACP_AGENTS, ACP_PROVIDERS } from './adapters/acp/agents.ts';
-import { accountRoom, MIN_ROOM_PERCENT, resetTime } from './usage.ts';
+import { accountRoom, MIN_ROOM_PERCENT, resetTime, windowRoom } from './usage.ts';
 
 // How long a wait lasts when no login in the pool says when it's back, and
 // how long a login that hit its limit counts as blocked with no reset time.
@@ -216,9 +216,9 @@ function mainWindows(a: Account): UsageWindow[] {
 // The window that stops a login: one at its limit, else the tightest.
 function limitWindow(a: Account): UsageWindow | undefined {
   const main = mainWindows(a);
-  const out = main.filter((w) => w.remainingPercent < 1);
+  const out = main.filter((w) => windowRoom(a, w) < 1);
   if (out.length) return out.sort((x, y) => Date.parse(y.resetsAt ?? '') - Date.parse(x.resetsAt ?? ''))[0];
-  return [...main].sort((x, y) => x.remainingPercent - y.remainingPercent)[0];
+  return [...main].sort((x, y) => windowRoom(a, x) - windowRoom(a, y))[0];
 }
 
 // When a login that isn't OK has room again: when the windows holding it
@@ -226,7 +226,7 @@ function limitWindow(a: Account): UsageWindow | undefined {
 // window's reset. undefined when no reset time is known.
 export function backAt(a: Account, now: number): number | undefined {
   const main = mainWindows(a);
-  let holding = main.filter((w) => w.remainingPercent < MIN_ROOM_PERCENT);
+  let holding = main.filter((w) => windowRoom(a, w) < MIN_ROOM_PERCENT);
   if (!holding.length && a.usage?.blocked) holding = [limitWindow(a)].filter((w): w is UsageWindow => !!w);
   const times = holding.map((w) => Date.parse(w.resetsAt ?? '')).filter((t) => Number.isFinite(t) && t > now);
   return times.length && times.length === holding.length ? Math.max(...times) : undefined;
@@ -247,8 +247,9 @@ export function limitWhy(a: Account, now: number, hit = false): string {
   const w = limitWindow(a);
   const name = w ? (w.kind === 'five_hour' ? '5-hour' : 'weekly') : 'usage';
   const at = w?.resetsAt && Date.parse(w.resetsAt) > now ? resetTime(w.resetsAt, now) : undefined;
-  if (hit || a.usage?.blocked || !w || w.remainingPercent < 1) return `hit its ${name} limit${at ? `, back at ${at}` : ''}`;
-  return `is down to ${Math.round(w.remainingPercent)}% of its ${name} limit${at ? `, which resets ${at}` : ''}`;
+  const capped = a.usageCap && w && w.remainingPercent >= 1 ? ` (capped at ${a.usageCap}%)` : '';
+  if (hit || a.usage?.blocked || !w || windowRoom(a, w) < 1) return `hit its ${name} limit${capped}${at ? `, back at ${at}` : ''}`;
+  return `is down to ${Math.round(windowRoom(a, w))}% of its ${name} limit${capped}${at ? `, which resets ${at}` : ''}`;
 }
 
 // One login's room in a word, for list_accounts and tb pools: "61%",

@@ -199,6 +199,7 @@ type Account = {
   email?: string        // the bare address, when known
   plan?: string         // "Max", "Team", "Pro Lite"
   note?: string         // Mike's own note for the account ("Convex work only")
+  usageCap?: number     // runner.json accountCaps: most of each 5-hour/weekly window it may use, percent
   usage?: AccountUsage  // absent when nothing is known (and from older runners)
 }
 

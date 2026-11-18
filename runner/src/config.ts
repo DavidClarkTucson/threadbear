@@ -29,6 +29,10 @@ export const DEFAULT_MAX_LIVE = 6;
 // default: they're one person's.
 export const DEFAULT_ACCOUNT_NOTES: Record<string, string> = {};
 
+// The most of each window a login may use, in percent (runner.json
+// accountCaps, e.g. { "claude-1": 50 } stops claude-1 at half its weekly
+// and 5-hour limits). None by default.
+
 // Folders whose new threads start on a built-in pool, by the login that
 // pool is made from (pools.ts, defaultPools), from runner.json poolFolders
 // (e.g. { "claude-2": ["~/dev/work"] }). None by default, as one
@@ -110,6 +114,7 @@ export type Config = {
   // would read every login's last 14 days (gigabytes) for nothing.
   tokenTally?: boolean;
   accountNotes: Record<string, string>;
+  accountCaps?: Record<string, number>;
   poolFolders?: Record<string, string[]>;
   // Folders whose threads run their CLI in a container (sandbox.ts).
   sandbox?: SandboxConfig;
@@ -197,6 +202,7 @@ export type RunnerJson = {
   codexArgs?: string[];
   cliUpdates?: Partial<CliUpdatesConfig>;
   accountNotes?: Record<string, string>;
+  accountCaps?: Record<string, unknown>;
   poolFolders?: Record<string, string[]>;
   sandbox?: unknown;
   pools?: unknown[];
@@ -485,6 +491,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     cliUpdates: cliUpdatesConfig(json.cliUpdates, env.THREADBEAR_CLI_UPDATES),
     tokenTally: env.THREADBEAR_TOKEN_TALLY !== 'off',
     accountNotes: stringMap(json.accountNotes) ?? { ...DEFAULT_ACCOUNT_NOTES },
+    ...((caps) => (caps ? { accountCaps: caps } : {}))(capMap(json.accountCaps)),
     poolFolders: folderMap(json.poolFolders) ?? { ...DEFAULT_POOL_FOLDERS },
     ...((sb) => (sb ? { sandbox: sb } : {}))(readSandbox(json.sandbox, expand)),
     ...(Array.isArray(json.pools) && json.pools.length ? { pools: json.pools } : {}),
@@ -566,6 +573,13 @@ function folderMap(v: unknown): Record<string, string[]> | undefined {
   const out: Record<string, string[]> = {};
   for (const [k, list] of Object.entries(v)) if (Array.isArray(list)) out[k] = list.filter((x): x is string => typeof x === 'string');
   return out;
+}
+
+// Caps between 1 and 99; anything else is no cap.
+export function capMap(raw: unknown): Record<string, number> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out = Object.fromEntries(Object.entries(raw).filter((e): e is [string, number] => typeof e[1] === 'number' && Number.isFinite(e[1]) && e[1] >= 1 && e[1] < 100));
+  return Object.keys(out).length ? out : undefined;
 }
 
 function stringMap(raw: unknown): Record<string, string> | undefined {

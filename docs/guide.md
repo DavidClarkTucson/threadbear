@@ -1292,6 +1292,14 @@ model takes over from your next message, as nothing runs until then.
 The first time a pool has a second login, a card by the composer says
 what pools do.
 
+To keep a login from using all of its plan, give it a cap: ask an agent
+to set `accountCaps` in runner.json, such as `{ "claude-1": 50 }` to stop
+claude-1 at half of its weekly and 5-hour limits, then restart the runner.
+Past the cap the login counts as out, the same as one at its real limit:
+threads move to another login in the pool, or wait for the window to
+reset. The cap is checked between turns, so a long turn can go a little
+past it. Usage still shows the login's real limits.
+
 With more than one machine, they all share the same pools, so you set them
 up once from Settings > Pools on any of them. A pool knows its logins by
 email, and each machine uses the ones it's signed in to: a pool of three

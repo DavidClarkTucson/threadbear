@@ -119,6 +119,10 @@ export type Account = {
   email?: string;
   plan?: string;
   note?: string; // from runner.json's accountNotes ("Convex work only")
+  // From runner.json's accountCaps: the most of each 5-hour and weekly
+  // window this login may use, in percent (50: stop at half). Room counts
+  // down to the cap, not to the real limit.
+  usageCap?: number;
   usage?: AccountUsage;
 };
 
