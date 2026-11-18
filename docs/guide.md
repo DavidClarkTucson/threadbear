@@ -1196,8 +1196,8 @@ or `false` for no card).
 
 To add another login, such as a second Claude subscription, give it a
 folder of its own under `accounts` in Threadbear's data folder, named
-`claude-1` (then `claude-2` and so on, or `codex-1` for Codex), and sign in
-there in Terminal:
+`claude-1` (then `claude-2` and so on, or a name such as `claude-work`;
+`codex-1` for Codex), and sign in there in Terminal:
 
 ```
 CLAUDE_CONFIG_DIR=~/Library/Application\ Support/Threadbear/accounts/claude-1 claude

@@ -103,3 +103,13 @@ test('discoverAccounts marks spare logins', () => {
   const found = discoverAccounts({ claudeMainDir: path.join(home, 'none'), claudeMainJson: path.join(home, 'none.json'), tokenStatsAccountsDir: path.join(home, 'nope'), accountsDir, userHome: home, pathEnv: '', spareAccounts: ['claude-1'] } as never);
   assert.equal(found.find((a) => a.id === 'claude-1')?.spare, true);
 });
+
+test('discoverAccounts takes named login folders after the numbered ones', () => {
+  const home = tmpDir();
+  const accountsDir = path.join(home, 'accounts');
+  for (const n of ['claude-gaggle', 'claude-2', 'claude-main', 'claude-Bad', 'claude-1', 'codex-x']) fs.mkdirSync(path.join(accountsDir, n), { recursive: true });
+  fs.writeFileSync(path.join(accountsDir, 'codex-x', 'auth.json'), '{}');
+  const found = discoverAccounts({ claudeMainDir: path.join(home, 'none'), claudeMainJson: path.join(home, 'none.json'), tokenStatsAccountsDir: path.join(home, 'nope'), accountsDir, userHome: home, pathEnv: '' } as never);
+  assert.deepEqual(found.filter((a) => a.provider === 'claude').map((a) => a.id), ['claude-1', 'claude-2', 'claude-gaggle']);
+  assert.ok(!found.some((a) => a.id === 'codex-x'), 'Codex keeps numbers only');
+});

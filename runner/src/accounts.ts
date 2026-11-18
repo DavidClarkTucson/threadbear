@@ -109,13 +109,18 @@ export function discoverAccounts(cfg: DiscoveryConfig): Account[] {
     }
     for (const n of names) if (!dirOf.has(n)) dirOf.set(n, path.join(root, n));
   }
-  const numbered = (prefix: string) =>
-    [...dirOf.keys()]
+  // claude-1, claude-2... in number order, then for Claude named ones
+  // (claude-work) by name. A name starts with a letter; "main" is taken.
+  const numbered = (prefix: string, withNames = false) => {
+    const nums = [...dirOf.keys()]
       .map((n) => new RegExp(`^${prefix}-(\\d+)$`).exec(n))
       .filter((m): m is RegExpExecArray => m !== null)
       .sort((a, b) => Number(a[1]) - Number(b[1]))
-      .map((m) => ({ id: m[0], dir: dirOf.get(m[0])! }));
-  for (const { id, dir } of numbered('claude')) {
+      .map((m) => m[0]);
+    const named = !withNames ? [] : [...dirOf.keys()].filter((n) => new RegExp(`^${prefix}-[a-z][a-z0-9-]*$`).test(n) && n !== `${prefix}-main`).sort();
+    return [...nums, ...named].map((id) => ({ id, dir: dirOf.get(id)! }));
+  };
+  for (const { id, dir } of numbered('claude', true)) {
     if (isDirectory(dir)) out.push(claudeAccount(id, dir, readLoginEmail(path.join(dir, '.claude.json'))));
   }
   const codex = cfg.codexMainDir ? [{ id: 'codex-main', dir: cfg.codexMainDir }] : [];
