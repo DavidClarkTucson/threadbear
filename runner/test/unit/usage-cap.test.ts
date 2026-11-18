@@ -68,3 +68,38 @@ test('discoverAccounts puts the cap on the login', () => {
   const found = discoverAccounts({ claudeMainDir: path.join(home, 'none'), claudeMainJson: path.join(home, 'none.json'), tokenStatsAccountsDir: path.join(home, 'nope'), accountsDir, userHome: home, pathEnv: '', accountCaps: { 'claude-1': 50 } } as never);
   assert.equal(found.find((a) => a.id === 'claude-1')?.usageCap, 50);
 });
+
+// runner.json spareAccounts: the work login is only used once the personal
+// one is out, and left again once it's back.
+function spare(a: Account): Account {
+  a.spare = true;
+  return a;
+}
+
+test('a spare login is passed over while another has room, even with a sooner reset', () => {
+  const work = spare(login('claude-1', 95, 50));
+  work.usage!.windows[0].resetsAt = '2026-11-18T08:00:00.000Z';
+  const accounts = [login('claude-main', 20), work];
+  assert.equal(pickInPool(pool, accounts, { provider: 'claude' }), 'claude-main');
+  assert.equal(pickInPool(pool, accounts, { provider: 'claude', prefer: 'claude-1' }), 'claude-main');
+  assert.equal(pickAccount(accounts, 'claude-1'), 'claude-main');
+});
+
+test('the spare takes over when the others are out, and is left once they are back', () => {
+  const out = [login('claude-main', 0.5), spare(login('claude-1', 95, 50))];
+  assert.equal(pickInPool(pool, out, { provider: 'claude' }), 'claude-1');
+  assert.deepEqual(nextLogin(pool, out, { accountId: 'claude-main', provider: 'claude' }, NOW), { accountId: 'claude-1', provider: 'claude' });
+  assert.equal(pickAccount(out, 'claude-main'), 'claude-1');
+  const back = [login('claude-main', 100), spare(login('claude-1', 80, 50))];
+  assert.equal(pickInPool(pool, back, { provider: 'claude', current: 'claude-1' }), 'claude-main');
+  // Both out (the spare at its cap): wait.
+  assert.ok('waitUntil' in nextLogin(pool, [login('claude-main', 0.5), spare(login('claude-1', 49, 50))], { accountId: 'claude-main', provider: 'claude' }, NOW));
+});
+
+test('discoverAccounts marks spare logins', () => {
+  const home = tmpDir();
+  const accountsDir = path.join(home, 'accounts');
+  fs.mkdirSync(path.join(accountsDir, 'claude-1'), { recursive: true });
+  const found = discoverAccounts({ claudeMainDir: path.join(home, 'none'), claudeMainJson: path.join(home, 'none.json'), tokenStatsAccountsDir: path.join(home, 'nope'), accountsDir, userHome: home, pathEnv: '', spareAccounts: ['claude-1'] } as never);
+  assert.equal(found.find((a) => a.id === 'claude-1')?.spare, true);
+});

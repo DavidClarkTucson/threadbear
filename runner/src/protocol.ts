@@ -123,6 +123,9 @@ export type Account = {
   // window this login may use, in percent (50: stop at half). Room counts
   // down to the cap, not to the real limit.
   usageCap?: number;
+  // In runner.json's spareAccounts: used only when every other login of
+  // its provider in the pool is out, and left again once one has room.
+  spare?: boolean;
   usage?: AccountUsage;
 };
 

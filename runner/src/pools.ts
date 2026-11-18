@@ -149,8 +149,15 @@ export function poolAccounts(pool: Pool, accounts: Account[]): Account[] {
 // login) wins a tie, and is taken when its usage isn't known, as
 // pickAccount does: nothing says another has more room. undefined when
 // none has room. `exclude` leaves logins out (the one that just ran dry).
+//
+// Spare logins (runner.json spareAccounts) are only looked at when none of
+// the others can run: so a thread on a spare moves back once one has room.
 export function pickInPool(pool: Pool, accounts: Account[], o: { provider: Provider; exclude?: string[]; current?: string; prefer?: string; now?: number }): string | undefined {
   const members = poolAccounts(pool, accounts).filter((a) => a.provider === o.provider && !o.exclude?.includes(a.id));
+  return pickAmong(members.filter((a) => !a.spare), o) ?? pickAmong(members.filter((a) => a.spare), o);
+}
+
+function pickAmong(members: Account[], o: { current?: string; prefer?: string; now?: number }): string | undefined {
   const current = members.find((a) => a.id === o.current);
   if (current && loginOk(current)) return current.id;
   const preferred = members.find((a) => a.id === o.prefer && !a.usage?.blocked);

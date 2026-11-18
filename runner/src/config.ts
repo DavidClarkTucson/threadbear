@@ -31,7 +31,8 @@ export const DEFAULT_ACCOUNT_NOTES: Record<string, string> = {};
 
 // The most of each window a login may use, in percent (runner.json
 // accountCaps, e.g. { "claude-1": 50 } stops claude-1 at half its weekly
-// and 5-hour limits). None by default.
+// and 5-hour limits). None by default. runner.json spareAccounts
+// (["claude-1"]) lists logins kept for when the others are out.
 
 // Folders whose new threads start on a built-in pool, by the login that
 // pool is made from (pools.ts, defaultPools), from runner.json poolFolders
@@ -115,6 +116,7 @@ export type Config = {
   tokenTally?: boolean;
   accountNotes: Record<string, string>;
   accountCaps?: Record<string, number>;
+  spareAccounts?: string[];
   poolFolders?: Record<string, string[]>;
   // Folders whose threads run their CLI in a container (sandbox.ts).
   sandbox?: SandboxConfig;
@@ -203,6 +205,7 @@ export type RunnerJson = {
   cliUpdates?: Partial<CliUpdatesConfig>;
   accountNotes?: Record<string, string>;
   accountCaps?: Record<string, unknown>;
+  spareAccounts?: unknown;
   poolFolders?: Record<string, string[]>;
   sandbox?: unknown;
   pools?: unknown[];
@@ -492,6 +495,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     tokenTally: env.THREADBEAR_TOKEN_TALLY !== 'off',
     accountNotes: stringMap(json.accountNotes) ?? { ...DEFAULT_ACCOUNT_NOTES },
     ...((caps) => (caps ? { accountCaps: caps } : {}))(capMap(json.accountCaps)),
+    ...(Array.isArray(json.spareAccounts) ? { spareAccounts: json.spareAccounts.filter((x): x is string => typeof x === 'string') } : {}),
     poolFolders: folderMap(json.poolFolders) ?? { ...DEFAULT_POOL_FOLDERS },
     ...((sb) => (sb ? { sandbox: sb } : {}))(readSandbox(json.sandbox, expand)),
     ...(Array.isArray(json.pools) && json.pools.length ? { pools: json.pools } : {}),

@@ -85,7 +85,7 @@ export function isCodexLogin(dir: string): boolean {
 }
 
 export type DiscoveryConfig = Pick<Config, 'claudeMainDir' | 'claudeMainJson' | 'tokenStatsAccountsDir' | 'userHome' | 'pathEnv'> &
-  Partial<Pick<Config, 'codexMainDir' | 'accountNotes' | 'accountCaps' | 'accountsDir' | 'home' | 'cursorPath' | 'opencodePath' | 'grokPath'>>;
+  Partial<Pick<Config, 'codexMainDir' | 'accountNotes' | 'accountCaps' | 'spareAccounts' | 'accountsDir' | 'home' | 'cursorPath' | 'opencodePath' | 'grokPath'>>;
 
 // claude-main is ~/.claude (its .claude.json sits at ~/.claude.json);
 // codex-main is ~/.codex. Token Stats' Accounts folder holds claude-N and
@@ -128,6 +128,7 @@ export function discoverAccounts(cfg: DiscoveryConfig): Account[] {
     if (note) a.note = note;
     const cap = cfg.accountCaps?.[a.id];
     if (cap) a.usageCap = cap;
+    if (cfg.spareAccounts?.includes(a.id)) a.spare = true;
   }
   return out;
 }

@@ -578,10 +578,14 @@ export function accountRoom(account: Account): number | undefined {
 // one; so does a list where every candidate is skipped. The app's
 // AccountUsageText.swift has the same rule and the same test cases
 // (runner/test/fixtures/pick-account-cases.json).
+// Spare logins only when none of the others has room.
 export function pickAccount(accounts: Account[], lastUsedId: string | undefined): string | undefined {
   const last = accounts.find((a) => a.id === lastUsedId);
   const provider = last?.provider ?? accounts[0]?.provider;
-  const eligible = accounts.filter((a) => a.provider === provider && !a.note && !a.usage?.blocked);
+  const usable = accounts.filter((a) => a.provider === provider && !a.note && !a.usage?.blocked);
+  const main = usable.filter((a) => !a.spare);
+  const mainHasRoom = main.some((a) => { const r = accountRoom(a); return r === undefined || r >= MIN_ROOM_PERCENT; });
+  const eligible = mainHasRoom ? main : usable;
   // Nothing is known about the last-used account, so nothing says another
   // has more room.
   if (last && eligible.includes(last) && accountRoom(last) === undefined) return last.id;

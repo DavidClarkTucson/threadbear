@@ -1300,6 +1300,11 @@ threads move to another login in the pool, or wait for the window to
 reset. The cap is checked between turns, so a long turn can go a little
 past it. Usage still shows the login's real limits.
 
+To keep a login for when the others run out, list it in `spareAccounts`
+in runner.json (`["claude-1"]`). A pool then uses it only once its other
+logins of that provider are out, and a thread on it moves back before its
+next turn once one of them has room again (a cold start for that turn).
+
 With more than one machine, they all share the same pools, so you set them
 up once from Settings > Pools on any of them. A pool knows its logins by
 email, and each machine uses the ones it's signed in to: a pool of three

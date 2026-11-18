@@ -2902,7 +2902,14 @@ export class Runner {
     const accounts = this.usableAccounts();
     const current = accounts.find((a) => a.id === rec.accountId);
     const inPool = pool.accountIds.includes(rec.accountId);
-    if (current && inPool && loginOk(current)) return;
+    if (current && inPool && loginOk(current)) {
+      // A spare login is left as soon as one of the others has room.
+      if (!current.spare) return;
+      const back = pickInPool(pool, accounts, { provider: current.provider, current: current.id });
+      const to = back && back !== current.id ? accounts.find((a) => a.id === back) : undefined;
+      if (to) this.moveLogin(st, to, `${to.title} has room again, and ${current.title} is only for when it's out`);
+      return;
+    }
     const now = this.clock.now();
     const next = nextLogin(pool, accounts, rec, now);
     if ('waitUntil' in next) return;
