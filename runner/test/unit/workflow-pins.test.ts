@@ -92,9 +92,9 @@ test('the Android signing key only meets a job that runs no actions, no checkout
   const release = jobs.get('release')!;
   assert.deepEqual(usesOf(release), [], 'the signing job runs no actions at all');
   assert.doesNotMatch(release, /checkout|gradlew|sdkmanager|setup-java/, 'the signing job runs no repo code and downloads no tools');
-  // Only on Mike's repo's release tags, as the build is.
+  // Only on release tags of Mike's repo, or a fork that turned releases on, as the build is.
   for (const job of [release, jobs.get('apk')!]) {
-    assert.match(job, /^ {4}if: github\.repository == 'mikecann\/threadbear' && startsWith\(github\.ref, 'refs\/tags\/release\/'\)/m);
+    assert.match(job, /^ {4}if: \(github\.repository == 'mikecann\/threadbear' \|\| vars\.ANDROID_RELEASE == 'on'\) && startsWith\(github\.ref, 'refs\/tags\/release\/'\)/m);
   }
   // The step that signs compares the APK with the build's digest first, in
   // the same step, so nothing runs between the check and the signing.

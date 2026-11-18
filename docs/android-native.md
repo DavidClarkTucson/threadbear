@@ -138,7 +138,7 @@ standard (free) GitHub runner and attaches it to that tag's GitHub release
 as `threadbear-android.apk`, so the newest is always at
 https://github.com/mikecann/threadbear/releases/latest/download/threadbear-android.apk.
 A release from before `android-native/` existed is skipped, and in a fork
-the job doesn't run (no secrets there). The same workflow builds and tests
+the jobs don't run unless it turns them on (below). The same workflow builds and tests
 the app on every push to main and on PRs that touch it, so each commit has
 an Android verdict for the daily tag to wait on.
 
@@ -165,6 +165,16 @@ an Android verdict for the daily tag to wait on.
   M5, which a local `:app:assembleRelease` signs with. Android installs an
   update only if it's signed like the installed app, so losing the key
   means everyone uninstalling and reinstalling.
+- A fork can publish its own signed APKs: make a key (alias `threadbear`,
+  the same password for the store and the key), give the fork an
+  `android-release` environment that only allows `release/*` tags, with
+  `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` (and
+  `ANDROID_GOOGLE_SERVICES_JSON` only if it wants push), and set the repo
+  variables `ANDROID_RELEASE=on` and `ANDROID_CERT_SHA256` (the key's
+  certificate SHA-256, lowercase hex, no colons). Each `release/*` tag
+  pushed to the fork then gets its APK, and the app checks the fork's own
+  releases for updates. It's signed differently from Mike's, so moving
+  between the two means uninstalling once.
 - The app asks GitHub for the latest release at most every six hours as
   it comes forward (`Updates.kt`, `AppUpdate` in the kit), release builds
   only. A newer one puts a dot on the inbox's menu, an "Update to 12 Nov"
