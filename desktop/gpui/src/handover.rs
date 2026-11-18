@@ -486,6 +486,7 @@ impl Threadbear {
         let mut fresh = crate::settings::Settings::load();
         fresh.saved.update_restore = None;
         self.settings = fresh;
+        self.settings.apply_arrows_reach_ends(cx);
         self.reload_drafts(cx);
         #[cfg(target_os = "macos")]
         if let Some(ns) = self.main_ns_window(cx) {

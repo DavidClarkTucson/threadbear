@@ -1,5 +1,5 @@
 use crate::input::InputModeKind;
-use gpui::{Context, Pixels, Point, Window};
+use gpui::{App, Context, Global, Pixels, Point, Window};
 use sum_tree::Bias;
 
 use crate::input::{
@@ -7,6 +7,21 @@ use crate::input::{
     MoveToEnd, MoveToNextWord, MoveToPreviousWord, MoveToStart, MoveUp, RopeExt as _,
     cursor::CursorSelection,
 };
+
+/// Threadbear's change: with this global set to true, Up on a multi-line
+/// box's first row goes to the start of the text and Down on its last row to
+/// the end, as text views do on macOS. The kit leaves the caret where it is
+/// there; that stays the default, so nothing changes unless an app sets it.
+/// Shift-Up and Shift-Down already reach the ends either way
+/// (`vertical_selection_target`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ArrowsReachEnds(pub bool);
+
+impl Global for ArrowsReachEnds {}
+
+fn arrows_reach_ends(cx: &App) -> bool {
+    cx.try_global::<ArrowsReachEnds>().is_some_and(|on| on.0)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MoveDirection {
@@ -245,6 +260,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         &mut self,
         move_lines: isize,
         collapse: bool,
+        to_ends: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -281,7 +297,11 @@ impl<M: InputModeKind> InputBaseState<M> {
                 };
                 let anchor =
                     anchor.or_else(|| s.preferred_column_for_with_affinity(effective, affinity));
-                let (offset, affinity) = s.vertical_target(effective, anchor, affinity, move_lines);
+                let (offset, affinity) = if to_ends {
+                    s.vertical_selection_target(effective, anchor, affinity, move_lines)
+                } else {
+                    s.vertical_target(effective, anchor, affinity, move_lines)
+                };
                 (offset, anchor, affinity)
             },
             Some(direction),
@@ -347,7 +367,8 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         }
 
-        self.move_vertical(-1, true, window, cx);
+        let to_ends = arrows_reach_ends(cx);
+        self.move_vertical(-1, true, to_ends, window, cx);
     }
 
     pub(super) fn down(&mut self, action: &MoveDown, window: &mut Window, cx: &mut Context<Self>) {
@@ -355,7 +376,8 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         }
 
-        self.move_vertical(1, true, window, cx);
+        let to_ends = arrows_reach_ends(cx);
+        self.move_vertical(1, true, to_ends, window, cx);
     }
 
     pub(super) fn page_up(&mut self, _: &MovePageUp, window: &mut Window, cx: &mut Context<Self>) {
@@ -368,7 +390,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         };
 
         let display_lines = (self.input_bounds.size.height / last_layout.line_height) as isize;
-        self.move_vertical(-display_lines, false, window, cx);
+        self.move_vertical(-display_lines, false, false, window, cx);
     }
 
     pub(super) fn page_down(
@@ -386,7 +408,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         };
 
         let display_lines = (self.input_bounds.size.height / last_layout.line_height) as isize;
-        self.move_vertical(display_lines, false, window, cx);
+        self.move_vertical(display_lines, false, false, window, cx);
     }
 
     pub(super) fn home(&mut self, _: &MoveHome, window: &mut Window, cx: &mut Context<Self>) {

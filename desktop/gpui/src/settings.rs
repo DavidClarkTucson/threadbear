@@ -105,6 +105,10 @@ pub struct Saved {
     pub completion_sound_volume: Option<f64>,
     /// `askBeforeQuitting` (QuitPrompt): None is yes.
     pub ask_before_quitting: Option<bool>,
+    /// `arrowsReachEnds`: Up on a text box's first line goes to the start
+    /// and Down on its last line to the end. None is the platform's default
+    /// (`arrows_reach_ends_by_default`).
+    pub arrows_reach_ends: Option<bool>,
     /// `closeShortcut`: what ⌘W does in the main window, which quits
     /// the app: "allow", "warn" (ask first), "block" (nothing) or "deleteThread". None is allow.
     pub close_shortcut: Option<String>,
@@ -252,14 +256,43 @@ impl Settings {
         self.saved.ask_before_quitting.unwrap_or(true)
     }
 
+    pub fn arrows_reach_ends(&self) -> bool {
+        self.saved.arrows_reach_ends.unwrap_or(arrows_reach_ends_by_default())
+    }
+
+    /// Hands `arrows_reach_ends` to every text box (the kit reads it on
+    /// each Up and Down, so open boxes follow a change straight away).
+    pub fn apply_arrows_reach_ends(&self, cx: &mut gpui_kit::App) {
+        cx.set_global(gpui_kit::base::input::ArrowsReachEnds(self.arrows_reach_ends()));
+    }
+
     pub fn close_shortcut(&self) -> CloseShortcut {
         CloseShortcut::from_name(self.saved.close_shortcut.as_deref())
     }
 }
 
+/// On by default on macOS, where every text view does it. Off elsewhere
+/// for now, as the kit has it.
+/// TODO: check what Windows and Linux text boxes do with Up on the first
+/// line and Down on the last (Windows edit controls and GTK seem to leave
+/// the caret where it is), and set their default to match.
+pub fn arrows_reach_ends_by_default() -> bool {
+    cfg!(target_os = "macos")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arrows_reach_ends_follows_the_platform_until_set() {
+        let mut settings = Settings::load_from(temp_file("arrows"));
+        assert_eq!(settings.arrows_reach_ends(), cfg!(target_os = "macos"));
+        settings.saved.arrows_reach_ends = Some(false);
+        assert!(!settings.arrows_reach_ends());
+        settings.saved.arrows_reach_ends = Some(true);
+        assert!(settings.arrows_reach_ends());
+    }
 
     #[test]
     fn close_shortcut_names_round_trip_and_default_to_allow() {

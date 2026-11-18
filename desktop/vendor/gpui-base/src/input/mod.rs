@@ -103,6 +103,7 @@ pub use highlighting::{
     InputHighlighterFactory, SharedHighlightStyleResolver, SyntaxContext, SyntaxContextProvider,
 };
 pub use indent::TabSize;
+pub use movement::ArrowsReachEnds;
 pub use input::{Input, InputState};
 pub use kind::{
     EditorExtras, EditorMode, InputExtras, InputMode, InputModeKind, MultiLineMode, TextareaExtras, TextareaMode,

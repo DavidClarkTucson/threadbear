@@ -238,7 +238,9 @@ is the crate as published, so `git log -p desktop/vendor` is the whole fork;
 a gpui-kit bump copies the new version in and puts that back.
 
 `desktop/vendor/gpui-base` keeps the input, text and test-support fixes listed
-in `desktop/Cargo.toml`. `desktop/vendor/gpui-pre` is GPUI 0.3.11 with file
+in `desktop/Cargo.toml`, among them the opt-in Up and Down to the text's
+start and end (`ArrowsReachEnds`), which no shim could reach as the kit's
+own key bindings handle those keys. `desktop/vendor/gpui-pre` is GPUI 0.3.11 with file
 drops leaving keyboard mode before hover hit tests, so dropping after typing
 still works. GPUI exposes no input-mode setter for an app shim. The published
 crates are separate commits from our changes; retain those patches on an

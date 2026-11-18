@@ -491,7 +491,9 @@ it appear in `~/ThreadbearThreads`.
 
 Return sends and Shift-Return (or Option-Return) adds a new line. In a list, Shift-Return
 starts the next item ("2. " after "1. milk", "- " after "- milk"), and
-Shift-Return on an empty item ends the list. You can paste or drop images
+Shift-Return on an empty item ends the list. On a Mac, ↑ on the box's first
+line goes to the start of what you've typed and ↓ on its last line to the
+end, as in other Mac apps; Settings > General > Typing turns that off. You can paste or drop images
 into the composer, or add them with +. Each one goes in where the cursor
 is as a small chip, "Picture 1", "Picture 2", with
 its thumbnail, and the agent gets each picture right there in your words.

@@ -24,6 +24,11 @@ exclude = ["vendor"]
 # snapshot's `visible_bounds`, what's drawn of an element inside its clips,
 # so scripted clicks land on it rather than its whole middle, which for one
 # scrolled half out of a pane is over its neighbour (13 Nov).
+# And an opt-in `ArrowsReachEnds` global (input/base/movement.rs): Up on a
+# multi-line box's first row goes to the start and Down on its last row to
+# the end, as Mac text views do; the kit leaves the caret there. The app sets
+# it from Settings > General > Typing (David, 18 Nov: "why doesn't the up
+# arrow bring you to the start of text box ... but it does in other apps?").
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }
 gpui-base = { path = "vendor/gpui-base" }

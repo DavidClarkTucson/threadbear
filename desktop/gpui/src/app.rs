@@ -315,6 +315,7 @@ impl Threadbear {
         // Light or dark as Settings › General says, else the Mac's, followed
         // as it changes.
         crate::style::set_appearance(crate::style::Appearance::from_name(settings.saved.appearance.as_deref().unwrap_or("system")), window, cx);
+        settings.apply_arrows_reach_ends(cx);
         let appearance = window.observe_window_appearance(|window, cx| {
             crate::style::refresh_system_accent(cx);
             crate::style::refresh_system_contrast(cx);

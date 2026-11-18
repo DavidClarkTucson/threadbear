@@ -521,7 +521,7 @@ impl SettingsWindow {
 
     fn render_general(&mut self, settings: Option<&RunnerSettings>, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         // This Mac's own, so they're here while the runner's away too.
-        let mut sections = vec![self.appearance_section(cx), self.panels_section(cx), self.quitting_section(cx), self.notifications_section(cx)];
+        let mut sections = vec![self.appearance_section(cx), self.panels_section(cx), self.quitting_section(cx), self.typing_section(cx), self.notifications_section(cx)];
         // The web runtime is this Mac's too (web_runtime.rs), last, so it
         // moves nothing the Swift app's General has.
         let web_runtime = section("settings-web-runtime", "Web runtime", crate::web_runtime::SETTINGS_ABOUT, "check whether it's installed and working, or why a diagram or panel isn't showing.", vec![row("Web runtime", crate::web_runtime::settings_control(cx), cx)], cx);
@@ -710,6 +710,29 @@ impl SettingsWindow {
             "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.\n\n⌘W in the main window closes it, which quits Threadbear. Quit Application does that. Warn first asks before it does. Delete the open thread closes and deletes the thread you're on instead (after asking), and leaves the window open. No Action does nothing. The red button, ⌘Q and Quit aren't affected, and ⌘W still closes Settings and the other windows.",
             "change it for you.",
             vec![row("Ask before quitting", switch, cx), close_row],
+            cx,
+        )
+    }
+
+    /// How the arrow keys move in text boxes (`arrowsReachEnds`, on to
+    /// begin with on a Mac).
+    fn typing_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let on = self.app.upgrade().map_or(crate::settings::arrows_reach_ends_by_default(), |a| a.read(cx).settings.arrows_reach_ends());
+        let switch = self.switch("settings-arrows-reach-ends", on, "Up and Down go to the start and end of the text", cx, |this, on, cx| {
+            this.app
+                .update(cx, |app, cx| {
+                    app.settings.saved.arrows_reach_ends = Some(on);
+                    app.settings.apply_arrows_reach_ends(cx);
+                    app.save_settings_soon(cx);
+                })
+                .ok();
+        });
+        section(
+            "settings-typing",
+            "Typing",
+            "With this on, ↑ on the first line of the message box (or any text box with more than one line) goes to the start of the text, and ↓ on the last line goes to the end, as in other Mac apps. With it off, the cursor stays where it is there.",
+            "change it for you.",
+            vec![row("↑ and ↓ go to the start and end", switch, cx)],
             cx,
         )
     }
