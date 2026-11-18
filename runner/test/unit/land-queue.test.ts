@@ -361,8 +361,13 @@ test('a commit made in the holder while its group check runs is carried onto its
     await until(() => caps.every((x) => x.out.some((l) => l.startsWith('Waiting for another landing'))), 'b and c waiting');
     write(root, { release: '' });
     assert.equal(await first, 0);
-    await until(() => fs.existsSync(path.join(root, 'holder')), 'the group check');
-    const holder = fs.realpathSync(fs.readFileSync(path.join(root, 'holder'), 'utf8').trim());
+    // Not just there: `pwd >` makes the file before it writes, and an empty
+    // path would be this process's own folder, the real checkout under test
+    // (a busy Mac's check committed fix.txt into the landing, 17 Nov 2026).
+    const holderFile = path.join(root, 'holder');
+    await until(() => fs.existsSync(holderFile) && fs.readFileSync(holderFile, 'utf8').trim() !== '', 'the group check');
+    const holder = fs.realpathSync(fs.readFileSync(holderFile, 'utf8').trim());
+    assert.ok(holder.startsWith(fs.realpathSync(root)), `the holder is the test's own (${holder})`);
     commit(holder, { 'fix.txt': 'fix\n' }, 'Fix during the check');
   } finally {
     write(root, { 'group-release': '' });
