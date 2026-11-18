@@ -12,6 +12,9 @@ import assert from 'node:assert/strict';
 const SCRIPTS = path.join(import.meta.dirname, '..', '..', '..', 'desktop', 'scripts');
 const TRIM = path.join(SCRIPTS, 'trim-remote-cache.sh');
 const HOUR = 3_600_000;
+// Only a guard against a hang, never a measure: on a loaded Mac (the runner's
+// update builds there) a remote.sh run took 44 s where it takes 8 (17 Nov).
+const HANG = 120_000;
 
 // A df that answers from how many target folders are left, so deleting one
 // really does free room. Each is worth 6 GiB.
@@ -49,7 +52,7 @@ echo "fake 0 0 $f 0% /"
   fs.writeFileSync(path.join(bin, 'du'), '#!/bin/bash\nif [ -f "$2/debug/out" ]; then echo "6000000 $2"; else echo "100 $2"; fi\n', { mode: 0o755 });
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HOME: path.join(root, 'home') };
   const left = () => fs.readdirSync(base).filter((n) => /^target(-|$)/.test(n)).sort();
-  const trim = (own = 'aaa') => spawnSync('/bin/bash', [TRIM, own], { cwd: base, env, encoding: 'utf8', timeout: 20_000 });
+  const trim = (own = 'aaa') => spawnSync('/bin/bash', [TRIM, own], { cwd: base, env, encoding: 'utf8', timeout: HANG });
   return { root, bin, base, env, left, trim };
 }
 
@@ -140,7 +143,7 @@ test('remote.sh stops before copying anything when the host refuses, and marks i
   const log = path.join(h.root, 'rsync-ran');
   fs.writeFileSync(path.join(h.bin, 'ssh'), FAKE_SSH, { mode: 0o755 });
   fs.writeFileSync(path.join(h.bin, 'rsync'), `#!/bin/bash\ntouch ${JSON.stringify(log)}\n`, { mode: 0o755 });
-  const r = spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), 'somehost', '--', 'true'], { env: h.env, encoding: 'utf8', timeout: 20_000 });
+  const r = spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), 'somehost', '--', 'true'], { env: h.env, encoding: 'utf8', timeout: HANG });
   assert.equal(r.status, 3, r.stderr);
   assert.equal(fs.existsSync(log), false, 'nothing copied to a full disk');
   assert.equal(fs.readdirSync(h.base).filter((n) => n.startsWith('target-')).length, 1, 'its target folder exists, so the age limit sees it used');
@@ -166,7 +169,7 @@ touch -t 202601010000 "$dest"
 # The host was too full for the first mkdir, and the trim then made room.
 rm -rf "$HOME"/.cache/threadbear-check/gpui/target-*
 `, { mode: 0o755 });
-  const r = spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), 'somehost', '--', 'true'], { env: h.env, encoding: 'utf8', timeout: 30_000 });
+  const r = spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), 'somehost', '--', 'true'], { env: h.env, encoding: 'utf8', timeout: HANG });
   assert.equal(r.error, undefined, 'it returned rather than waiting for the marker loop');
   assert.equal(r.status, 0, r.stderr);
   const names = fs.readdirSync(h.base);
@@ -258,7 +261,7 @@ test("a trim waits for another one on the same host, so a run can't start betwee
   // the pipe waits for the holder either way.
   const holder = path.join(h.root, 'hold.pl');
   fs.writeFileSync(holder, 'use Fcntl ":flock"; open(my $f, "<", ".") or die; flock($f, LOCK_EX) or die; $| = 1; print "held\\n"; sleep 3;');
-  const r = spawnSync('/bin/bash', ['-c', `perl ${JSON.stringify(holder)} | { read -r _; SECONDS=0; bash ${JSON.stringify(TRIM)} aaa; echo "took $SECONDS"; }`], { cwd: h.base, env: h.env, encoding: 'utf8', timeout: 20_000 });
+  const r = spawnSync('/bin/bash', ['-c', `perl ${JSON.stringify(holder)} | { read -r _; SECONDS=0; bash ${JSON.stringify(TRIM)} aaa; echo "took $SECONDS"; }`], { cwd: h.base, env: h.env, encoding: 'utf8', timeout: HANG });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(Number(/took (\d+)/.exec(r.stdout)![1]) >= 2, r.stdout);
 });
@@ -287,7 +290,7 @@ done
 `, { mode: 0o755 });
   // A host each: the fake ssh runs here, so a run's in-use marker keeps the
   // last run's turn lock open, which the real ssh would have dropped.
-  const run = (where: string, ...cmd: string[]) => spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), where, '--', ...cmd], { env: h.env, encoding: 'utf8', timeout: 30_000 });
+  const run = (where: string, ...cmd: string[]) => spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), where, '--', ...cmd], { env: h.env, encoding: 'utf8', timeout: HANG });
 
   // Remote builds keep line numbers, not the full debug info that filled it.
   const fine = run('host1', 'bash', '-c', 'echo "debug=$CARGO_PROFILE_DEV_DEBUG"');
@@ -374,7 +377,7 @@ test('a shared target a build holds stays, however low the disk', (t) => {
   // A build holding the slot's lock, as shared-cargo's flock does.
   const holder = path.join(h.root, 'hold.pl');
   fs.writeFileSync(holder, `use Fcntl ":flock"; open(my $f, ">>", "shared-1.lock") or die; flock($f, LOCK_EX) or die; $| = 1; print "held\\n"; sleep 4;`);
-  const r = spawnSync('/bin/bash', ['-c', `perl ${JSON.stringify(holder)} | { read -r _; bash ${JSON.stringify(TRIM)} aaa; }`], { cwd: h.base, env: h.env, encoding: 'utf8', timeout: 20_000 });
+  const r = spawnSync('/bin/bash', ['-c', `perl ${JSON.stringify(holder)} | { read -r _; bash ${JSON.stringify(TRIM)} aaa; }`], { cwd: h.base, env: h.env, encoding: 'utf8', timeout: HANG });
   assert.match(r.stderr, /won't start/);
   assert.equal(fs.existsSync(path.join(slot, 'debug', 'out')), true);
 });
@@ -408,7 +411,7 @@ cp -R "$source/desktop/scripts/shared-cargo" "$dest/desktop/scripts/"
   // The first run makes this checkout's folders; then its target gets an old-style build in it.
   // A host each: the fake ssh runs here, so a run's in-use marker keeps the
   // last run's turn lock open.
-  const run = (where: string, ...cmd: string[]) => spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), where, '--', ...cmd], { env: h.env, encoding: 'utf8', timeout: 30_000 });
+  const run = (where: string, ...cmd: string[]) => spawnSync('/bin/bash', [path.join(SCRIPTS, 'remote.sh'), where, '--', ...cmd], { env: h.env, encoding: 'utf8', timeout: HANG });
   assert.equal(run('host1', 'true').status, 0);
   const target = path.join(h.base, fs.readdirSync(h.base).find((n) => n.startsWith('target-'))!);
   fs.mkdirSync(path.join(target, 'debug', '.fingerprint'), { recursive: true });
@@ -462,7 +465,7 @@ test("check-remote.sh's trim gives nothing back while a build or measurement hol
   fs.writeFileSync(lock, '');
   const holder = path.join(h.root, 'hold.pl');
   fs.writeFileSync(holder, `use Fcntl ":flock"; open(my $f, ">>", ${JSON.stringify(lock)}) or die; flock($f, LOCK_EX) or die; $| = 1; print "held\\n"; sleep 4;`);
-  const r = spawnSync('/bin/bash', ['-c', `perl ${JSON.stringify(holder)} | { read -r _; bash ${JSON.stringify(TRIM)} -; }`], { cwd: h.base, env: h.env, encoding: 'utf8', timeout: 20_000 });
+  const r = spawnSync('/bin/bash', ['-c', `perl ${JSON.stringify(holder)} | { read -r _; bash ${JSON.stringify(TRIM)} -; }`], { cwd: h.base, env: h.env, encoding: 'utf8', timeout: HANG });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /no build folders are given back now/);
   assert.deepEqual(h.left(), ['target-aaa', 'target-bbb', 'target-ccc', 'target-ddd']);

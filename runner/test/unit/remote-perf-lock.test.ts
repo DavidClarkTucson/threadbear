@@ -59,10 +59,12 @@ echo 'fake 0 0 41943040 0% /'
   child.stdout!.on('data', (s) => { output += s; });
   child.stderr!.on('data', (s) => { output += s; });
   const done = new Promise((r) => child.on('exit', r));
-  const timeout = setTimeout(() => child.kill('SIGTERM'), 15_000);
+  // A hang guard only: a run took 17 to 20 s on a loaded Mac, past the 15 s
+  // this was (17 Nov).
+  const timeout = setTimeout(() => child.kill('SIGTERM'), 120_000);
   t.after(() => clearTimeout(timeout));
   if (mode === 'busy-run') {
-    const end = Date.now() + 10_000;
+    const end = Date.now() + 60_000;
     while (!fs.existsSync(path.join(home, 'start-holder'))) {
       assert.ok(Date.now() < end, output);
       await new Promise((r) => setTimeout(r, 20));

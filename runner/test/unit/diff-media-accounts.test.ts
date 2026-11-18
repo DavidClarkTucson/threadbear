@@ -126,13 +126,15 @@ test('account discovery reads only the login email', () => {
   fs.mkdirSync(main);
   fs.writeFileSync(path.join(root, 'claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com', accessToken: 'SHOULD-NOT-APPEAR' } }));
   const accts = path.join(root, 'Accounts');
-  for (const n of ['claude-2', 'claude-10', 'codex-1', 'claude-x']) fs.mkdirSync(path.join(accts, n), { recursive: true });
+  for (const n of ['claude-2', 'claude-10', 'codex-1', 'claude-x', 'claude-Bad', 'claude-9z_', 'codex-work']) fs.mkdirSync(path.join(accts, n), { recursive: true });
   fs.writeFileSync(path.join(accts, 'claude-2', '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'two@example.com' } }));
   const found = discoverAccounts({ userHome: root, pathEnv: '', claudeMainDir: main, claudeMainJson: path.join(root, 'claude.json'), tokenStatsAccountsDir: accts });
   assert.deepEqual(found, [
     { id: 'claude-main', provider: 'claude', title: 'main@example.com', email: 'main@example.com', configDir: main },
     { id: 'claude-2', provider: 'claude', title: 'two@example.com', email: 'two@example.com', configDir: path.join(accts, 'claude-2') },
     { id: 'claude-10', provider: 'claude', title: 'claude-10', configDir: path.join(accts, 'claude-10') },
+    // A named login comes after the numbered ones; names must be lowercase and start with a letter, and Codex has none.
+    { id: 'claude-x', provider: 'claude', title: 'claude-x', configDir: path.join(accts, 'claude-x') },
   ]);
   assert.ok(!JSON.stringify(found).includes('SHOULD-NOT-APPEAR'));
 });
