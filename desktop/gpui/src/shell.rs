@@ -788,7 +788,18 @@ impl Threadbear {
             Command::Minimize => window.minimize_window(),
             Command::Zoom => window.zoom_window(),
             Command::BringAllToFront => crate::window_menu::bring_all_to_front(cx),
-            Command::Close => crate::window_menu::close_window(window, cx),
+            // The main window's close quits, so ⌘W there goes by the
+            // setting (Settings > General > Closing).
+            Command::Close => match self.settings.close_shortcut() {
+                // The open thread goes (after asking), not the window; with
+                // none open there's nothing to delete and nothing happens.
+                crate::settings::CloseShortcut::DeleteThread => {
+                    if let Some(id) = self.selected.clone() {
+                        self.ask_delete_thread(id, window, cx);
+                    }
+                }
+                mode => crate::quit_prompt::close(mode, window, cx),
+            },
         }
         self.sync_menus(cx);
     }

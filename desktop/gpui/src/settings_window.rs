@@ -695,6 +695,7 @@ impl SettingsWindow {
     /// turns it back on.
     fn quitting_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let on = self.app.upgrade().is_none_or(|a| a.read(cx).settings.asks_before_quitting());
+        let close_row = self.close_shortcut_row(cx);
         let switch = self.switch("settings-ask-before-quitting", on, "Ask to confirm when you quit Threadbear", cx, |this, on, cx| {
             this.app
                 .update(cx, |app, cx| {
@@ -706,11 +707,37 @@ impl SettingsWindow {
         section(
             "settings-quitting",
             "Quitting",
-            "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.",
+            "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.\n\n⌘W in the main window closes it, which quits Threadbear. Quit Application does that. Warn first asks before it does. Delete the open thread closes and deletes the thread you're on instead (after asking), and leaves the window open. No Action does nothing. The red button, ⌘Q and Quit aren't affected, and ⌘W still closes Settings and the other windows.",
             "change it for you.",
-            vec![row("Ask before quitting", switch, cx)],
+            vec![row("Ask before quitting", switch, cx), close_row],
             cx,
         )
+    }
+
+    /// What ⌘W does in the main window, which would quit the app
+    /// (`closeShortcut`, Allow to begin with): a row of the Quitting section.
+    fn close_shortcut_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::settings::CloseShortcut;
+        let current = self.app.upgrade().map_or(CloseShortcut::Allow, |a| a.read(cx).settings.close_shortcut());
+        let app = self.app.clone();
+        let tip = "What ⌘W does in Threadbear's main window";
+        let menu = Button::new("settings-close-shortcut").label(current.title()).small().secondary().dropdown_caret(true).tooltip(tip).dropdown_menu(move |menu: PopupMenu, _, _| {
+            let mut menu = menu;
+            for choice in CloseShortcut::ALL {
+                let app = app.clone();
+                menu = menu.item(PopupMenuItem::new(choice.title()).checked(choice == current).on_click(move |_, _, cx| {
+                    if let Some(app) = app.upgrade() {
+                        app.update(cx, |app, cx| {
+                            app.settings.saved.close_shortcut = (choice != CloseShortcut::Allow).then(|| choice.name().to_owned());
+                            app.save_settings_soon(cx);
+                            cx.notify();
+                        });
+                    }
+                }));
+            }
+            menu
+        });
+        row("⌘W in the main window", div().id("settings-close-shortcut-holder").test_support().a11y_role(Role::GenericContainer).aria_label(tip).child(menu), cx)
     }
 
     /// The ding when a thread finishes (ding.rs): on or off, which, how loud.
