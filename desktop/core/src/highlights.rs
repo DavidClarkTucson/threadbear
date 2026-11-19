@@ -462,19 +462,20 @@ pub fn looks_like_text(sample: &[u8]) -> bool {
 /// IDE (Xcode claims `.json`), so they open in the pane's text view too.
 /// So does TypeScript: an agent's link to a `.ts` file is mostly there to be
 /// read, and the pane colours it; ⌘-click opens it in the editor.
-/// Python and Rust the same: code linked in a reply is there to be looked over.
+/// So does every other kind of code the pane colours (`code_language`): a
+/// script or source file linked in a reply is there to be looked over.
 const REVIEW_EXTENSIONS: &[&str] = &[
     "md", "html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp4", "mov", "txt", "text",
     // data and logs
     "json", "jsonc", "jsonl", "ndjson", "yaml", "yml", "toml", "csv", "tsv", "log",
     // TypeScript
     "ts", "tsx", "mts", "cts",
-    // Python and Rust
-    "py", "rs",
 ];
 
 pub fn previews_in_pane(path: &str) -> bool {
-    REVIEW_EXTENSIONS.contains(&extension(path).as_str())
+    let ext = extension(path);
+    // A plist can be binary, which the text view can't draw.
+    REVIEW_EXTENSIONS.contains(&ext.as_str()) || (code_language(path).is_some() && ext != "plist")
 }
 
 /// A picture the viewer may show: an image by its extension. Anything
@@ -1497,19 +1498,13 @@ mod tests {
             assert_eq!(viewer_for_path(path), Viewer::Text, "{path}");
             assert_eq!(code_language(path), Some("typescript"), "{path}");
         }
-        // Python too.
-        for path in ["/tmp/export.py", "/tmp/B.PY"] {
+        // And every other kind of code the pane colours.
+        for (path, lang) in [("/tmp/export.py", "python"), ("/tmp/B.PY", "python"), ("/tmp/main.rs", "rust"), ("/tmp/run.sh", "bash"), ("/tmp/a.swift", "swift"), ("/tmp/b.js", "javascript"), ("/tmp/q.sql", "sql"), ("/tmp/Makefile", "makefile"), ("/tmp/Dockerfile", "dockerfile")] {
             assert!(previews_in_pane(path), "{path}");
             assert_eq!(viewer_for_path(path), Viewer::Text, "{path}");
-            assert_eq!(code_language(path), Some("python"), "{path}");
+            assert_eq!(code_language(path), Some(lang), "{path}");
         }
-        // And Rust.
-        for path in ["/tmp/main.rs", "/tmp/Lib.RS"] {
-            assert!(previews_in_pane(path), "{path}");
-            assert_eq!(viewer_for_path(path), Viewer::Text, "{path}");
-            assert_eq!(code_language(path), Some("rust"), "{path}");
-        }
-        for path in ["/tmp/a.swift", "/tmp/b.js", "/tmp/folder", "/tmp/c.zip"] {
+        for path in ["/tmp/Info.plist", "/tmp/folder", "/tmp/c.zip", "/tmp/d.xcodeproj"] {
             assert!(!previews_in_pane(path), "{path}");
         }
     }

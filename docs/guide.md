@@ -254,8 +254,9 @@ its first frame. A PDF over 16 MB or a file that can't be previewed keeps
 its file symbol. Click it to open it (the middle mouse button works
 too). A file you'd read rather than edit (Markdown, text, a page, a
 picture, a PDF, data and logs such as JSON, YAML, TOML, CSV and `.log`,
-or TypeScript, Python and Rust) opens in the side pane, JSON, YAML, TypeScript, Python and Rust coloured;
-other code opens in its own app, and ⌘-click opens any file there. A path
+or code: TypeScript, Python, Rust, shell scripts and the rest) opens in
+the side pane, data and code coloured; anything else opens in its own app,
+and ⌘-click opens any file there. A path
 with lines after it (`server.ts:12` or `server.ts:121-125`) opens with those
 lines tinted, marked in the gutter and scrolled to. Code and plain text in
 the pane show line numbers down the side. If an agent already has that page

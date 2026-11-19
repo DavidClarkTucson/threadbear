@@ -115,6 +115,25 @@ test("the last finished run on main is the verdict, past cancelled ones", async 
   assert.equal((await lastVerdict(root, 'x.yml', fakeGh(cancelled))).state, 'unknown');
 });
 
+test("the gate asks about origin's repo, not gh's default (a fork's own runs)", async () => {
+  const root = tmpDir();
+  sh(root, 'git init -q');
+  sh(root, 'git remote add origin git@github.com:me/fork.git');
+  sh(root, 'git remote add upstream https://github.com/them/orig.git');
+  const gh = fakeGh([run(2, 'failure', '2026-11-12T01:00:00Z')], { 2: [] });
+  assert.equal((await lastVerdict(root, 'desktop.yml', gh)).state, 'red');
+  assert.deepEqual(gh.calls.map((c) => c.slice(-2)), [['-R', 'me/fork'], ['-R', 'me/fork']]);
+  sh(root, 'git remote set-url origin https://github.com/me/fork');
+  const again = fakeGh([run(3, 'success', 'b')]);
+  await lastVerdict(root, 'desktop.yml', again);
+  assert.deepEqual(again.calls[0].slice(-2), ['-R', 'me/fork']);
+  // Not GitHub, or no origin: gh picks as it would.
+  sh(root, 'git remote set-url origin https://example.com/me/fork.git');
+  const other = fakeGh([run(3, 'success', 'b')]);
+  await lastVerdict(root, 'desktop.yml', other);
+  assert.ok(!other.calls[0].includes('-R'));
+});
+
 test('a landing touching what a red workflow checks is held, with what failed and how to go on', async () => {
   const root = workflows({ 'desktop.yml': WORKFLOW });
   const gh = fakeGh([run(7, 'failure', '2026-11-12T01:00:00Z')], { 7: [{ name: 'Linux', conclusion: 'failure', steps: [{ name: 'Behaviour specs', conclusion: 'failure' }] }] });

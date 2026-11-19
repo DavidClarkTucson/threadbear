@@ -168,9 +168,26 @@ export type Verdict =
   | { state: 'red'; run: Run; failedJobs: string[]; newer?: Run }
   | { state: 'unknown'; why: string };
 
+// The GitHub repo the gate asks about: origin's, as owner/name. A fork's
+// checkout often has gh's default (gh repo set-default) on the repo it was
+// forked from, for everything else gh is asked; the landings still go by
+// the fork's own runs, not upstream's. Undefined when origin isn't GitHub,
+// which leaves gh to pick as it would.
+export function originRepo(root: string): string | undefined {
+  try {
+    const url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(url)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+const repoArgs = (repo: string | undefined): string[] => (repo ? ['-R', repo] : []);
+
 // The workflow's last finished run on main, from pushes.
 export async function lastVerdict(root: string, file: string, run: Gh = gh): Promise<Verdict> {
-  const r = await run(['run', 'list', '--workflow', file, '--branch', 'main', '--event', 'push', '--limit', String(RUNS_LOOKED_AT), '--json', 'databaseId,status,conclusion,headSha,url,createdAt,displayTitle'], root);
+  const on = repoArgs(originRepo(root));
+  const r = await run(['run', 'list', '--workflow', file, '--branch', 'main', '--event', 'push', '--limit', String(RUNS_LOOKED_AT), '--json', 'databaseId,status,conclusion,headSha,url,createdAt,displayTitle', ...on], root);
   if (!r.ok) return { state: 'unknown', why: firstLine(r.stderr) || 'gh failed' };
   let runs: Run[];
   try {
@@ -185,7 +202,7 @@ export async function lastVerdict(root: string, file: string, run: Gh = gh): Pro
   // One still going, for a newer push: it may be the fix.
   const newer = runs.find((x) => x.status !== 'completed' && x.createdAt > finished.createdAt);
   let failedJobs: string[] = [];
-  const jobs = await run(['run', 'view', String(finished.databaseId), '--json', 'jobs'], root);
+  const jobs = await run(['run', 'view', String(finished.databaseId), '--json', 'jobs', ...on], root);
   if (jobs.ok) {
     try {
       const parsed = JSON.parse(jobs.stdout) as { jobs?: { name: string; conclusion: string; steps?: { name: string; conclusion: string }[] }[] };
@@ -231,7 +248,9 @@ export function gateCacheDir(root: string): string | undefined {
 export async function keptVerdict(root: string, file: string, run: Gh, cache: GateCache | undefined): Promise<{ verdict: Verdict; note?: string }> {
   if (!cache) return { verdict: await lastVerdict(root, file, run) };
   const now = (cache.now ?? Date.now)();
-  const at = path.join(cache.dir, `${file}.json`);
+  // Kept per repo, so a switch of origin never goes by the other's answer.
+  const repo = originRepo(root);
+  const at = path.join(cache.dir, `${repo ? `${repo.replace('/', '--')}--` : ''}${file}.json`);
   let kept: Kept | undefined;
   try {
     kept = JSON.parse(fs.readFileSync(at, 'utf8')) as Kept;
@@ -281,7 +300,7 @@ export async function landHold(root: string, files: string[], note: (line: strin
       ...(v.newer ? [`  A newer run is still going (${v.newer.url}); if it passes, this can land.`] : []),
       'The files of yours it checks:',
       ...shown,
-      `See what failed with gh run view ${v.run.databaseId} --log-failed, and fix that first.`,
+      `See what failed with gh run view ${v.run.databaseId} --log-failed${repoArgs(originRepo(root)).map((a) => ` ${a}`).join('')}, and fix that first.`,
       'If this landing is that fix, or main already has one GitHub hasn\'t run yet, run tb land --despite-red.',
     ].join('\n');
   }

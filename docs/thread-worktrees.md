@@ -145,7 +145,10 @@ After rebasing, `tb land` lists what the branch changes (`git diff
 --name-only main...<branch>`), and for each marked workflow whose `on: push:
 paths:` match any of it (any file at all, with no paths) asks GitHub, with
 `gh run list --workflow <file> --branch main --event push`, how its last
-finished run on main went, past runs cancelled for a newer push. If that
+finished run on main went, past runs cancelled for a newer push. It asks
+about `origin`'s repo (`-R owner/name`), not whichever one `gh repo
+set-default` picked, so a fork lands by its own runs while the rest of `gh`
+can still default to the repo it was forked from. If that
 failed, nothing lands, before the check runs: it names the run, which jobs
 and steps failed, any newer run still going, and the files of the branch the
 workflow checks (`runner/src/land-gate.ts`). It asks again once the check

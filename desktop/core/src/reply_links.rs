@@ -397,10 +397,11 @@ mod tests {
         assert_eq!(FileLinkAction::for_click(true, false, false, FileLinkAction::Panel), FileLinkAction::App, "⌘ always means its app");
         assert_eq!(FileLinkAction::for_click(false, false, true, FileLinkAction::Panel), FileLinkAction::App, "a project file goes to its app");
         assert_eq!(FileLinkAction::for_click(false, true, true, FileLinkAction::Panel), FileLinkAction::Panel, "another Mac's copy has none of its media");
-        // Automatic made definite: docs and pictures in the pane, code in its app.
+        // Automatic made definite: docs, code and pictures in the pane, the rest in its app.
         assert_eq!(FileLinkAction::Automatic.resolved("/w/notes.md", false), FileLinkAction::Panel);
         assert_eq!(FileLinkAction::Automatic.resolved("/w/shot.PNG", false), FileLinkAction::Panel);
-        assert_eq!(FileLinkAction::Automatic.resolved("/w/main.rs", false), FileLinkAction::App);
+        assert_eq!(FileLinkAction::Automatic.resolved("/w/main.rs", false), FileLinkAction::Panel);
+        assert_eq!(FileLinkAction::Automatic.resolved("/w/build.zip", false), FileLinkAction::App);
         assert_eq!(FileLinkAction::Automatic.resolved("/w/src", true), FileLinkAction::Panel, "a folder is browsed in the pane");
         assert_eq!(FileLinkAction::Finder.resolved("/w/notes.md", false), FileLinkAction::Finder);
         assert_eq!(WebLinkAction::for_click(true, WebLinkAction::Panel), WebLinkAction::Browser);
