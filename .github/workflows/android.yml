@@ -44,9 +44,15 @@ concurrency:
   # A newer push to main or a PR replaces its check; a release build always finishes.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+# Only in Mike's repo (or when started by hand): in a fork, a push of its
+# main ran every job here on Linux, Mac, Windows and Android, though its
+# owner only builds and checks for their own system (./check.sh does that
+# before tb land), and most of those runs went red for reasons that were
+# never theirs (Wayne, 19 Nov 2026; 9 forks had Actions on). PRs to Mike's
+# repo still run, as they run in his repo.
 jobs:
   check:
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: "!startsWith(github.ref, 'refs/tags/') && (github.repository == 'mikecann/threadbear' || github.event_name == 'workflow_dispatch')"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

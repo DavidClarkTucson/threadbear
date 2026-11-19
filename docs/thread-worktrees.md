@@ -172,6 +172,15 @@ answer from the last half hour still counts, saying how old it is; with
 none, the landing goes ahead and says it couldn't ask. Only `desktop.yml` has the mark
 so far.
 
+In someone else's copy the gate stays out of the way. Since 19 Nov every
+workflow's jobs only run in `mikecann/threadbear` (or when started by hand),
+as a fork's owner only builds and checks for their own system and their
+pushes were running every job on Linux, Mac, Windows and Android, mostly
+red. A marked workflow whose `if:` names one repo (`github.repository ==
+'owner/name'`) holds only where origin is that repo; in a fork, gh reads the
+`upstream` remote's runs first, so before this Mike's red Windows build held
+landings that only had to work on a Mac.
+
 ### Landing together
 
 A check takes 5 to 9 minutes on the check hosts, and on 12 Nov a dozen

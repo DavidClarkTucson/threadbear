@@ -55,8 +55,15 @@ concurrency:
   group: runner-tests-${{ github.ref }}
   cancel-in-progress: true
 
+# Only in Mike's repo (or when started by hand): in a fork, a push of its
+# main ran every job here on Linux, Mac, Windows and Android, though its
+# owner only builds and checks for their own system (./check.sh does that
+# before tb land), and most of those runs went red for reasons that were
+# never theirs (Wayne, 19 Nov 2026; 9 forks had Actions on). PRs to Mike's
+# repo still run, as they run in his repo.
 jobs:
   test:
+    if: github.repository == 'mikecann/threadbear' || github.event_name == 'workflow_dispatch'
     name: ${{ matrix.os }}, Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
