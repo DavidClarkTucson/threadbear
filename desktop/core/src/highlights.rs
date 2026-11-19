@@ -462,15 +462,15 @@ pub fn looks_like_text(sample: &[u8]) -> bool {
 /// IDE (Xcode claims `.json`), so they open in the pane's text view too.
 /// So does TypeScript: an agent's link to a `.ts` file is mostly there to be
 /// read, and the pane colours it; ⌘-click opens it in the editor.
-/// Python the same: scripts linked in a reply are there to be looked over.
+/// Python and Rust the same: code linked in a reply is there to be looked over.
 const REVIEW_EXTENSIONS: &[&str] = &[
     "md", "html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp4", "mov", "txt", "text",
     // data and logs
     "json", "jsonc", "jsonl", "ndjson", "yaml", "yml", "toml", "csv", "tsv", "log",
     // TypeScript
     "ts", "tsx", "mts", "cts",
-    // Python
-    "py",
+    // Python and Rust
+    "py", "rs",
 ];
 
 pub fn previews_in_pane(path: &str) -> bool {
@@ -1502,6 +1502,12 @@ mod tests {
             assert!(previews_in_pane(path), "{path}");
             assert_eq!(viewer_for_path(path), Viewer::Text, "{path}");
             assert_eq!(code_language(path), Some("python"), "{path}");
+        }
+        // And Rust.
+        for path in ["/tmp/main.rs", "/tmp/Lib.RS"] {
+            assert!(previews_in_pane(path), "{path}");
+            assert_eq!(viewer_for_path(path), Viewer::Text, "{path}");
+            assert_eq!(code_language(path), Some("rust"), "{path}");
         }
         for path in ["/tmp/a.swift", "/tmp/b.js", "/tmp/folder", "/tmp/c.zip"] {
             assert!(!previews_in_pane(path), "{path}");
