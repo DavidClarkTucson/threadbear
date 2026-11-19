@@ -8,16 +8,53 @@
 use crate::reducer::{Row, RowContent};
 use std::path::Path;
 
-/// `Foo.swift:12` or `Foo.swift:12:4` names the file, and a line in it.
+/// `Foo.swift:12`, `Foo.swift:12:4` or `Foo.swift:12-18` names the file, and
+/// a line (or lines) in it.
 pub fn strip_line(text: &str) -> &str {
     let mut path = text;
-    for _ in 0..2 {
+    for round in 0..2 {
         match path.rsplit_once(':') {
-            Some((head, tail)) if !head.is_empty() && !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) => path = head,
+            Some((head, tail)) if !head.is_empty() && (is_number(tail) || (round == 0 && is_line_span(tail))) => path = head,
             _ => break,
         }
     }
     path
+}
+
+fn is_number(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `12-18`: a first and last line.
+fn is_line_span(text: &str) -> bool {
+    text.split_once('-').is_some_and(|(a, b)| is_number(a) && is_number(b))
+}
+
+/// The lines a path names after its colon, first and last, counted from 1:
+/// `a.ts:12` is (12, 12), `a.ts:12:4` (12, 12) with its column dropped,
+/// `a.ts:12-18` (12, 18). None for a path with no line, or a line 0.
+pub fn line_range(text: &str) -> Option<(usize, usize)> {
+    let path = strip_line(text);
+    let tail = text.get(path.len()..)?.strip_prefix(':')?;
+    let line = tail.split(':').next()?;
+    let (first, last) = match line.split_once('-') {
+        Some((a, b)) => (a.parse().ok()?, b.parse().ok()?),
+        None => {
+            let n = line.parse().ok()?;
+            (n, n)
+        }
+    };
+    (first >= 1).then_some((first, last.max(first)))
+}
+
+/// The bytes of `text` from the start of line `first` to the end of line
+/// `last` (counted from 1, without the last line's newline), held inside the
+/// text: a line past the end is the end.
+pub fn line_bytes(text: &str, first: usize, last: usize) -> std::ops::Range<usize> {
+    let mut starts = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1));
+    let start = starts.nth(first.saturating_sub(1)).unwrap_or(text.len());
+    let end = text[start..].match_indices('\n').nth(last.saturating_sub(first)).map_or(text.len(), |(i, _)| start + i);
+    start..end
 }
 
 /// `grow.html?clean&s=45` or `guide.md#links`: a file, with a query or
@@ -96,14 +133,14 @@ pub fn resolve(text: &str, root: Option<&str>, known: &[String], home: &str, exi
 pub fn file_link(text: &str, root: Option<&str>, known: &[String], home: &str, exists: &dyn Fn(&str) -> bool, search: &dyn Fn(&str, &str) -> Option<String>) -> Option<FileLink> {
     let (path, query, fragment) = split_query(text);
     if (query.is_none() && fragment.is_none()) || path.is_empty() {
-        return resolve(text, root, known, home, exists, search).map(|path| FileLink { path, query: None, fragment: None });
+        return resolve(text, root, known, home, exists, search).map(|path| FileLink { path, query: None, fragment: None, lines: line_range(text) });
     }
     // The whole text as a name: no folder search for it, as the split one
     // gets that.
     if let Some(path) = resolve(text, root, known, home, exists, &|_, _| None) {
-        return Some(FileLink { path, query: None, fragment: None });
+        return Some(FileLink { path, query: None, fragment: None, lines: line_range(text) });
     }
-    resolve(path, root, known, home, exists, search).map(|path| FileLink { path, query: query.map(str::to_owned), fragment: fragment.map(str::to_owned) })
+    resolve(path, root, known, home, exists, search).map(|path| FileLink { path, query: query.map(str::to_owned), fragment: fragment.map(str::to_owned), lines: None })
 }
 
 /// A file a reply names, and what its page is opened with.
@@ -112,6 +149,9 @@ pub struct FileLink {
     pub path: String,
     pub query: Option<String>,
     pub fragment: Option<String>,
+    /// The lines it names (`a.ts:12-18`), first and last, counted from 1:
+    /// the pane picks them and scrolls to them.
+    pub lines: Option<(usize, usize)>,
 }
 
 /// Folders a search never goes into: built and fetched files, and big.
@@ -302,6 +342,19 @@ mod tests {
         assert_eq!(strip_line("Foo.swift:12"), "Foo.swift");
         assert_eq!(strip_line("/tmp/a.txt:12:4"), "/tmp/a.txt");
         assert_eq!(strip_line("a:b"), "a:b");
+        assert_eq!(strip_line("~/x/a-b.ts:121-125"), "~/x/a-b.ts");
+        assert_eq!(strip_line("a.ts:1-"), "a.ts:1-");
+        assert_eq!(line_range("a.ts:121-125"), Some((121, 125)));
+        assert_eq!(line_range("a.ts:12"), Some((12, 12)));
+        assert_eq!(line_range("a.ts:12:4"), Some((12, 12)));
+        assert_eq!(line_range("a.ts:9-3"), Some((9, 9)));
+        assert_eq!(line_range("a.ts:0"), None);
+        assert_eq!(line_range("a.ts"), None);
+        assert_eq!(line_range("a:b"), None);
+        assert_eq!(line_bytes("one\ntwo\nthree\nfour", 2, 3), 4..13);
+        assert_eq!(line_bytes("one\ntwo\n", 1, 1), 0..3);
+        assert_eq!(line_bytes("one\ntwo", 2, 9), 4..7);
+        assert_eq!(line_bytes("one", 5, 6), 3..3);
         assert_eq!(split_query("grow.html?clean&s=45#top"), ("grow.html", Some("clean&s=45"), Some("top")));
         assert_eq!(split_query("guide.md#links"), ("guide.md", None, Some("links")));
         assert_eq!(split_query("plain.md"), ("plain.md", None, None));
@@ -342,7 +395,7 @@ mod tests {
     fn a_query_or_fragment_stays_with_the_page() {
         let exists = |p: &str| p == "/w/grow.html" || p == "/w/odd#name.md";
         let link = file_link("grow.html?clean#top", Some("/w"), &[], "/h", &exists, &no_search).unwrap();
-        assert_eq!(link, FileLink { path: "/w/grow.html".into(), query: Some("clean".into()), fragment: Some("top".into()) });
+        assert_eq!(link, FileLink { path: "/w/grow.html".into(), query: Some("clean".into()), fragment: Some("top".into()), lines: None });
         // A name with a # in it is that file.
         assert_eq!(file_link("odd#name.md", Some("/w"), &[], "/h", &exists, &no_search).unwrap().path, "/w/odd#name.md");
         assert!(file_link("missing.html?x", Some("/w"), &[], "/h", &exists, &no_search).is_none());

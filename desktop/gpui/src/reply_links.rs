@@ -239,7 +239,7 @@ impl ThreadPane {
                 LinkKind::Web(web) => Some(LinkTarget::Web(web)),
                 // A link with no scheme is looked for from the thread's folder
                 // like a path in inline code; a `file:` URL is the file.
-                LinkKind::File(path) if path.starts_with('/') || threadbear_core::reducer::text::is_windows_path(&path) => Some(LinkTarget::File(Some(FileLink { path, query: None, fragment: None }))),
+                LinkKind::File(path) if path.starts_with('/') || threadbear_core::reducer::text::is_windows_path(&path) => Some(LinkTarget::File(Some(FileLink { path, query: None, fragment: None, lines: None }))),
                 LinkKind::File(path) => Some(LinkTarget::File(self.find_file(&path))),
                 _ => None,
             },
@@ -313,7 +313,7 @@ impl ThreadPane {
             if action == FileLinkAction::Finder {
                 open_gate::reveal(&path, Origin::OtherMac, cx);
             } else {
-                self.preview_in_pane(&path, cx);
+                self.preview_in_pane(&path, file.lines, cx);
             }
             return;
         }
@@ -328,7 +328,7 @@ impl ThreadPane {
             action = FileLinkAction::App;
         }
         match action {
-            FileLinkAction::Panel if self.owns_pane(cx) => self.preview_in_pane(&path, cx),
+            FileLinkAction::Panel if self.owns_pane(cx) => self.preview_in_pane(&path, file.lines, cx),
             FileLinkAction::Finder => open_gate::reveal(&path, Origin::ThisMac, cx),
             // The pane belongs to the selected thread: a sub-agent's or a
             // project page's link goes to its app.
@@ -357,12 +357,13 @@ impl ThreadPane {
 
     /// A file in the pane beside the transcript, opening the pane if it's
     /// closed (`PaneModel.show`).
-    fn preview_in_pane(&mut self, path: &str, cx: &mut Context<Self>) {
+    /// `lines` (from `a.ts:12-18`) are picked and scrolled to in its text.
+    fn preview_in_pane(&mut self, path: &str, lines: Option<(usize, usize)>, cx: &mut Context<Self>) {
         let thread = self.summary.clone();
         let Some(app) = self.composer.read(cx).app.upgrade() else { return };
         let side = app.read(cx).side.clone();
         let section = side.update(cx, |side, cx| {
-            side.preview_path(path, None, &thread, cx);
+            side.preview_path_at(path, None, lines, &thread, cx);
             side.section_for(&thread)
         });
         show_pane(&app, &section, cx);

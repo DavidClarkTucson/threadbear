@@ -84,11 +84,14 @@ pub(crate) struct OpenFile {
     /// Its folder heard it change while another thread was showing, so the
     /// read was put off: coming back reads it again (`load_file`).
     pub changed_away: bool,
+    /// The opening whose lines (`a.ts:12-18`) have been picked, so they're
+    /// picked once, not on every draw.
+    lines_shown: Option<u64>,
 }
 
 impl OpenFile {
     fn new(path: String, opened: u64, body: FileBody) -> Self {
-        OpenFile { path, opened, body, truncated: false, size: 0, find: None, edit: None, page_scroll: ScrollHandle::new(), _page_watch: None, _file_watch: None, _reread: None, changed_away: false }
+        OpenFile { path, opened, body, truncated: false, size: 0, find: None, edit: None, page_scroll: ScrollHandle::new(), _page_watch: None, _file_watch: None, _reread: None, changed_away: false, lines_shown: None }
     }
 
     /// The raw text's editor, while it's showing.
@@ -614,6 +617,7 @@ impl SidePane {
                 open.edit = previous.edit;
             }
             open._file_watch = previous._file_watch;
+            open.lines_shown = previous.lines_shown;
         }
         // Text on this machine is watched, so an agent's rewrite shows up by
         // itself; another Mac's is that Mac's to say.
@@ -836,13 +840,14 @@ impl SidePane {
     pub(crate) fn render_preview(&mut self, thread: &ThreadSummary, preview: &PanePreview, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = palette(cx);
         match &preview.target {
-            Target::File(path) => self.render_file(thread, path, preview.editing, window, cx),
+            Target::File(path) => self.render_file(thread, path, preview.editing, preview.lines.map(|l| (l, preview.opened)), window, cx),
             Target::Page(url) => pane_note(&format!("{url} opened in your browser."), p).into_any_element(),
             Target::Folder(path) => self.render_folder(thread, path, preview, window, cx),
         }
     }
 
-    fn render_file(&mut self, thread: &ThreadSummary, path: &str, editing: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// `lines` are the lines to pick and scroll to, with the opening they came with.
+    fn render_file(&mut self, thread: &ThreadSummary, path: &str, editing: bool, lines: Option<((usize, usize), u64)>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = palette(cx);
         // A file's text that's waiting for its editor gets one now.
         if let Some(open) = self.files.open.get_mut(&thread.id).filter(|f| f.path == path) {
@@ -861,6 +866,16 @@ impl SidePane {
                     });
                     made.update(cx, |state, cx| state.set_value(value, window, cx));
                     *editor = Some(made);
+                }
+            }
+            // The lines a link named (`a.ts:12-18`), picked once its text has
+            // been laid out: the editor scrolls only to what it has drawn.
+            if let (Some(((first, last), opened)), FileBody::Text { editor: Some(editor), text, .. }) = (lines, &open.body) {
+                if open.opened == opened && open.lines_shown != Some(opened) {
+                    open.lines_shown = Some(opened);
+                    let range = threadbear_core::file_refs::line_bytes(text, first, last);
+                    let editor = editor.clone();
+                    window.on_next_frame(move |_, cx| editor.update(cx, |state, cx| state.set_selected_range(range, cx)));
                 }
             }
         }

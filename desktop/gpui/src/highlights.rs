@@ -75,11 +75,14 @@ pub(crate) struct PanePreview {
     pub memory: FolderMemory,
     /// A text file with its own text up, raw (the Markdown menu's Markdown).
     pub editing: bool,
+    /// Lines to pick and scroll to once its text is up (`a.ts:12-18`),
+    /// first and last, counted from 1.
+    pub lines: Option<(usize, usize)>,
 }
 
 impl PanePreview {
     pub(crate) fn new(target: Target, title: String, from: String) -> Self {
-        PanePreview { target, title, from, opened: 0, back: vec![], memory: Default::default(), editing: false }
+        PanePreview { target, title, from, opened: 0, back: vec![], memory: Default::default(), editing: false, lines: None }
     }
 
     pub(crate) fn file_path(&self) -> Option<&str> {
@@ -699,11 +702,17 @@ impl SidePane {
     }
 
     pub(crate) fn preview_path(&mut self, path: &str, title: Option<String>, thread: &ThreadSummary, cx: &mut Context<Self>) {
+        self.preview_path_at(path, title, None, thread, cx);
+    }
+
+    /// `preview_path`, with lines of its text to pick and scroll to.
+    pub(crate) fn preview_path_at(&mut self, path: &str, title: Option<String>, lines: Option<(usize, usize)>, thread: &ThreadSummary, cx: &mut Context<Self>) {
         let section = self.section_for(thread);
         // A folder browsed in place of its picture; the runner says which it is.
         let target = if self.files.is_known_folder(path) { Target::Folder(path.to_owned()) } else { Target::File(path.to_owned()) };
         let title = title.unwrap_or_else(|| core::last_component(path).to_owned());
-        let preview = PanePreview::new(target, title, section);
+        let mut preview = PanePreview::new(target, title, section);
+        preview.lines = lines;
         self.show_preview(preview, &thread.id.clone(), cx);
     }
 
