@@ -103,6 +103,7 @@ impl SidePane {
 
     /// Something was typed: saved a moment after the typing stops (`textDidChange`).
     pub(crate) fn edit_typed(&mut self, thread_id: &str, cx: &mut Context<Self>) {
+        self.clear_line_marks(thread_id, cx);
         let Some(edit) = self.edit_mut(thread_id) else { return };
         if !edit.session.takes_typing() {
             return;

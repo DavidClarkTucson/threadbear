@@ -497,9 +497,14 @@ impl MarkdownView {
     }
 
     /// Whether a file opens with its raw text up for typing: a Markdown file
-    /// once Markdown was the last pick. Anything else opens to read.
+    /// once Markdown was the last pick, and code and plain text always (they
+    /// read the same either way, and Mike wants to type in them straight
+    /// off). Pictures, pages and the like open to look at.
     pub fn opens_raw(path: &str, last_pick: MarkdownView) -> bool {
-        is_markdown(path) && last_pick == MarkdownView::Markdown
+        if is_markdown(path) {
+            return last_pick == MarkdownView::Markdown;
+        }
+        crate::highlights::viewer_for_path(path) == crate::highlights::Viewer::Text
     }
 }
 
@@ -786,7 +791,10 @@ mod tests {
         assert!(!MarkdownView::opens_raw("/tmp/README.md", MarkdownView::Preview));
         assert!(!MarkdownView::opens_raw("/tmp/notes.MDX", MarkdownView::Preview));
         assert!(MarkdownView::opens_raw("/tmp/README.markdown", MarkdownView::Markdown), "the pick is remembered");
-        assert!(!MarkdownView::opens_raw("/tmp/hello.ts", MarkdownView::Markdown), "code still opens to read");
+        assert!(MarkdownView::opens_raw("/tmp/hello.ts", MarkdownView::Preview), "code opens to type in");
+        assert!(MarkdownView::opens_raw("/tmp/notes.txt", MarkdownView::Preview), "so does plain text");
+        assert!(!MarkdownView::opens_raw("/tmp/a.png", MarkdownView::Markdown));
+        assert!(!MarkdownView::opens_raw("/tmp/a.html", MarkdownView::Markdown));
         assert_eq!(MarkdownView::from_name("markdown"), Some(MarkdownView::Markdown));
         assert_eq!(MarkdownView::from_name("raw"), None);
     }

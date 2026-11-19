@@ -850,6 +850,57 @@ impl SidePane {
         }
     }
 
+    /// The lines a link named (`a.ts:12-18`), in whichever editor is showing
+    /// the file (its own text being typed in, or the one to read): tinted,
+    /// marked in the gutter, and scrolled to once laid out (the editor
+    /// scrolls only to what it has drawn). Opened again with no lines, or
+    /// others, the old tint goes or moves; typing clears it (`edit_typed`).
+    fn show_lines(&mut self, thread_id: &str, path: &str, lines: Option<((usize, usize), u64)>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(open) = self.files.open.get_mut(thread_id).filter(|f| f.path == path) else { return };
+        let editor = match (&open.edit, &open.body) {
+            (Some(edit), _) => edit.editor.clone(),
+            (None, FileBody::Text { editor: Some(editor), .. }) => editor.clone(),
+            _ => return,
+        };
+        let opened = open.opened;
+        let wanted = lines.filter(|(_, o)| *o == opened).map(|(l, _)| l);
+        if open.lines_shown == Some(opened) || (wanted.is_none() && open.line_marks.is_none()) {
+            return;
+        }
+        open.lines_shown = Some(opened);
+        let text = editor.read(cx).value();
+        let range = wanted.map(|(first, last)| {
+            let r = threadbear_core::file_refs::line_bytes(&text, first, last);
+            // Through the last line's newline, so its tint is the whole line
+            // wide as the others' are.
+            r.start..(r.end + 1).min(text.len())
+        });
+        let accent = style::accent(cx);
+        let fills: Vec<RangeDecoration> = range.clone().into_iter().map(|r| RangeDecoration::new(r).with_style(RangeDecorationStyle::Fill).with_color(accent.opacity(0.18))).collect();
+        let marks: Vec<GutterDecoration> = range.clone().into_iter().map(|r| GutterDecoration::new(r).with_color(accent)).collect();
+        // Marks made on the other editor (read, then typed in) are dropped
+        // with it; these are this one's.
+        if let Some((fill, mark)) = open.line_marks.take() {
+            fill.set(vec![], cx);
+            mark.set(vec![], cx);
+        }
+        if range.is_some() {
+            open.line_marks = Some(editor.update(cx, |state, cx| (state.create_range_decorations_collection(fills, cx), state.create_gutter_decorations_collection(marks, cx))));
+        }
+        if let Some(range) = range {
+            window.on_next_frame(move |_, cx| editor.update(cx, |state, cx| state.set_selected_range(range.start..range.start, cx)));
+        }
+    }
+
+    /// Typing in the file takes the tint off the lines a link named: they're
+    /// being changed, so the tint would only mislead.
+    pub(crate) fn clear_line_marks(&mut self, thread_id: &str, cx: &mut App) {
+        if let Some((fill, mark)) = self.files.open.get_mut(thread_id).and_then(|o| o.line_marks.take()) {
+            fill.set(vec![], cx);
+            mark.set(vec![], cx);
+        }
+    }
+
     /// `lines` are the lines to pick and scroll to, with the opening they came with.
     fn render_file(&mut self, thread: &ThreadSummary, path: &str, editing: bool, lines: Option<((usize, usize), u64)>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = palette(cx);
@@ -872,44 +923,11 @@ impl SidePane {
                     *editor = Some(made);
                 }
             }
-            // The lines a link named (`a.ts:12-18`): tinted, marked in the
-            // gutter, and scrolled to once its text has been laid out (the
-            // editor scrolls only to what it has drawn). Opened again with no
-            // lines, or others, the old tint goes or moves.
-            let opened = open.opened;
-            if let FileBody::Text { editor: Some(editor), text, .. } = &open.body {
-                let wanted = lines.filter(|(_, o)| *o == opened).map(|(l, _)| l);
-                if open.lines_shown != Some(opened) && (wanted.is_some() || open.line_marks.is_some()) {
-                    open.lines_shown = Some(opened);
-                    let range = wanted.map(|(first, last)| {
-                        let r = threadbear_core::file_refs::line_bytes(text, first, last);
-                        // Through the last line's newline, so its tint is the
-                        // whole line wide as the others' are.
-                        r.start..(r.end + 1).min(text.len())
-                    });
-                    let accent = style::accent(cx);
-                    let fills: Vec<RangeDecoration> = range.clone().into_iter().map(|r| RangeDecoration::new(r).with_style(RangeDecorationStyle::Fill).with_color(accent.opacity(0.18))).collect();
-                    let marks: Vec<GutterDecoration> = range.clone().into_iter().map(|r| GutterDecoration::new(r).with_color(accent)).collect();
-                    match &open.line_marks {
-                        Some((fill, mark)) => {
-                            fill.set(fills, cx);
-                            mark.set(marks, cx);
-                        }
-                        None => {
-                            let made = editor.update(cx, |state, cx| (state.create_range_decorations_collection(fills, cx), state.create_gutter_decorations_collection(marks, cx)));
-                            open.line_marks = Some(made);
-                        }
-                    }
-                    if let Some(range) = range {
-                        let editor = editor.clone();
-                        window.on_next_frame(move |_, cx| editor.update(cx, |state, cx| state.set_selected_range(range.start..range.start, cx)));
-                    }
-                }
-            }
         }
         if editing {
             self.ensure_edit(thread, window, cx);
         }
+        self.show_lines(&thread.id, path, lines, window, cx);
         self.files.window = Some(window.window_handle());
         let focus = self.files.focus.get_or_insert_with(|| cx.focus_handle()).clone();
         let Some(open) = self.files.open.get(&thread.id).filter(|f| f.path == path) else {

@@ -329,9 +329,10 @@ Documents over 256 MB can be opened in their own app instead.
 Files, the folder on a thread's right-hand rail, opens the thread's own
 folder that way, without a link to it. Click it again to close it.
 
-A text file in the side pane opens for reading. The pencil in its bar
-switches to the raw text for editing, with line numbers down the side.
-What you type is saved a moment after you stop, and ⌘S saves it straight
+Code and plain text in the side pane open ready to type in, with line
+numbers down the side; the check mark in its bar puts the file away to
+read, and the pencil brings it back. Lines a link named lose their tint
+as soon as you type. What you type is saved a moment after you stop, and ⌘S saves it straight
 away. If the file changes on disk while you have unsaved edits (an agent
 rewrote it), nothing is written over: a bar asks whether to take the
 file's version or keep yours.
