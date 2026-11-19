@@ -11,7 +11,11 @@ import { tmpDir } from '../helpers/fakes.ts';
 import { holdUntil } from '../helpers/patience.ts';
 
 const SCRIPT = path.join(import.meta.dirname, '..', '..', '..', 'scripts', 'sync-main.sh');
-const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' };
+// Without THREADBEAR_SYNC_LOCKED: when this suite runs inside sync-main.sh's
+// own check, that's set (the outer run holds the real lock), and the script
+// under test would take it that it held this repo's lock too and never wait.
+const { THREADBEAR_SYNC_LOCKED: _outer, ...parent } = process.env;
+const env = { ...parent, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' };
 const sh = (cwd: string, cmd: string) => execFileSync('/bin/sh', ['-c', cmd], { cwd, env, encoding: 'utf8' }).trim();
 
 function repos() {
