@@ -460,10 +460,14 @@ pub fn looks_like_text(sample: &[u8]) -> bool {
 /// of these opens in the pane, not in its app (⌘-click still does that).
 /// Data and logs are read more than edited, and their app is often a big
 /// IDE (Xcode claims `.json`), so they open in the pane's text view too.
+/// So does TypeScript: an agent's link to a `.ts` file is mostly there to be
+/// read, and the pane colours it; ⌘-click opens it in the editor.
 const REVIEW_EXTENSIONS: &[&str] = &[
     "md", "html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp4", "mov", "txt", "text",
     // data and logs
     "json", "jsonc", "jsonl", "ndjson", "yaml", "yml", "toml", "csv", "tsv", "log",
+    // TypeScript
+    "ts", "tsx", "mts", "cts",
 ];
 
 pub fn previews_in_pane(path: &str) -> bool {
@@ -1484,7 +1488,13 @@ mod tests {
         }
         assert_eq!(code_language("/tmp/put-1.json"), Some("json"));
         assert_eq!(code_language("/tmp/d.yaml"), Some("yaml"));
-        for path in ["/tmp/a.swift", "/tmp/b.ts", "/tmp/folder", "/tmp/c.zip"] {
+        // TypeScript too, coloured by the pane's text view.
+        for path in ["/tmp/a.ts", "/tmp/b.TSX", "/tmp/c.mts", "/tmp/d.cts"] {
+            assert!(previews_in_pane(path), "{path}");
+            assert_eq!(viewer_for_path(path), Viewer::Text, "{path}");
+            assert_eq!(code_language(path), Some("typescript"), "{path}");
+        }
+        for path in ["/tmp/a.swift", "/tmp/b.js", "/tmp/folder", "/tmp/c.zip"] {
             assert!(!previews_in_pane(path), "{path}");
         }
     }

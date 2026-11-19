@@ -53,6 +53,15 @@ Feature: Links in a reply
     Then the pane is showing that file
     And nothing was opened in another app
 
+  @rich.filerefs
+  Scenario: A click on a TypeScript file's link opens it in the pane, not in its editor
+    Given a file "server.ts" saying "export const port = 3000;" in a folder of its own
+    When I open the thread "Morning brief"
+    And a reply linking "the server" to that file streams in
+    And I click the link "the server"
+    Then the pane is showing that file
+    And nothing was opened in another app
+
   @rich.cmdclick
   Scenario: A ⌘-click on a document opens it in its app, not the pane
     Given a file "notes.md" saying "# Notes" in a folder of its own
