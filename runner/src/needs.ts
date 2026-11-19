@@ -470,7 +470,7 @@ const END_TURN_SNOOZE =
 // 2 Nov 2026). The button stays for what's left after a real try.
 export const TRY_IT_FIRST =
   'Before you give the user a step, try it yourself with the tools you have, including any that drive their browser, apps or phone, and if it works there is no ask. ' +
-  'Hand it over only when it really needs them (a payment, something physical, an approval that is theirs to give) or after a real attempt, and say in your reply what you tried and what stopped it. ' +
+  'Hand it over only when it really needs them (a payment, something physical, a change to their credentials or sign-in config such as ~/.aws, ~/.ssh, Keychain items or tokens, an approval that is theirs to give) or after a real attempt, and say in your reply what you tried and what stopped it. ' +
   'A password, key or code is no reason to stop: ask for it with ask_secret and carry on. ' +
   'If there is still something you could try, offer "Can you do it?" next to Done and say what in its answer: it lets them send the step back to you, and is no reason to skip trying. ';
 
@@ -482,10 +482,12 @@ export const TRY_IT_FIRST =
 // and signing in to nothing (~/dev/me/misc/end-turn-eval/try-first). Whether
 // a turn tried can't be read from its tool calls, as nearly all of them were
 // busy with something else (29 Oct to 1 Nov 2026), so it asks the agent, and an
-// agent that did try or can't only spends one more call.
+// agent that did try or can't only spends one more call. Credential and sign-in
+// config counts as needing the user: on 18 Nov 2026 this note, on a "Do it for
+// me / I'll do it" card about ~/.aws/config, got an agent to rewrite it unasked.
 export const TRY_FIRST_NUDGE = 'Not ended: this card offers to have you do a step yourself.';
 export function tryFirstNudge(): string {
-  return `${TRY_FIRST_NUDGE} If you could try that step and haven't, try it now, then call end_turn again with whatever is left. If you already tried, or it really needs the user (a password or code, a payment, something physical, an approval that is theirs to give), call end_turn again as you were, and say in your reply what you tried or why it needs them: this note comes once a turn.`;
+  return `${TRY_FIRST_NUDGE} If you could try that step and haven't, try it now, then call end_turn again with whatever is left. If you already tried, or it really needs the user (a password or code, a payment, something physical, a change to their credentials or sign-in config such as ~/.aws, ~/.ssh, Keychain items or tokens, an approval that is theirs to give), call end_turn again as you were, and say in your reply what you tried or why it needs them: this note comes once a turn.`;
 }
 
 // An answer that hands a step back to the agent. By its label, as the wording
