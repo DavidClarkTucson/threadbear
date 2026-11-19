@@ -257,7 +257,8 @@ picture, a PDF, data and logs such as JSON, YAML, TOML, CSV and `.log`,
 or TypeScript) opens in the side pane, JSON, YAML and TypeScript coloured;
 other code opens in its own app, and ⌘-click opens any file there. A path
 with lines after it (`server.ts:12` or `server.ts:121-125`) opens with those
-lines picked and scrolled to. If an agent already has that page
+lines tinted, marked in the gutter and scrolled to. Code and plain text in
+the pane show line numbers down the side. If an agent already has that page
 open in Chrome through [BrowserBear](https://github.com/mikecann/browserbear)
 (say, a sign-in page it wants you to use), the click brings the agent's tab
 into your Chrome window rather than opening a second one. A link to a file

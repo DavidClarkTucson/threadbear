@@ -22,7 +22,7 @@ use crate::files_store::FilePrefs;
 use crate::highlights::{palette, Palette, PanePreview, SidePane, Target, FILES};
 use crate::{call, icons, style};
 use gpui_kit::base::{TestSupportExt as _, TextViewState, TextViewStyle};
-use gpui_kit::component::input::{Editor, EditorState};
+use gpui_kit::component::input::{Editor, EditorState, GutterDecoration, GutterDecorationCollection, RangeDecoration, RangeDecorationCollection, RangeDecorationStyle};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Selectable, Sizable as _};
 use gpui_kit::prelude::*;
@@ -87,11 +87,14 @@ pub(crate) struct OpenFile {
     /// The opening whose lines (`a.ts:12-18`) have been picked, so they're
     /// picked once, not on every draw.
     lines_shown: Option<u64>,
+    /// The tint and gutter mark on those lines, kept to be moved or cleared
+    /// when the file's opened again at other lines, or none.
+    line_marks: Option<(RangeDecorationCollection, GutterDecorationCollection)>,
 }
 
 impl OpenFile {
     fn new(path: String, opened: u64, body: FileBody) -> Self {
-        OpenFile { path, opened, body, truncated: false, size: 0, find: None, edit: None, page_scroll: ScrollHandle::new(), _page_watch: None, _file_watch: None, _reread: None, changed_away: false, lines_shown: None }
+        OpenFile { path, opened, body, truncated: false, size: 0, find: None, edit: None, page_scroll: ScrollHandle::new(), _page_watch: None, _file_watch: None, _reread: None, changed_away: false, lines_shown: None, line_marks: None }
     }
 
     /// The raw text's editor, while it's showing.
@@ -618,6 +621,7 @@ impl SidePane {
             }
             open._file_watch = previous._file_watch;
             open.lines_shown = previous.lines_shown;
+            open.line_marks = previous.line_marks;
         }
         // Text on this machine is watched, so an agent's rewrite shows up by
         // itself; another Mac's is that Mac's to say.
@@ -855,10 +859,10 @@ impl SidePane {
                 if editor.is_none() {
                     let (value, language) = (text.to_string(), *language);
                     let made = cx.new(|cx| {
-                        // Reading, as the Swift app's text view is until its
-                        // pencil: no line numbers, folds or guides, and ⌘F
-                        // left to the pane's own find bar.
-                        let state = EditorState::new(window, cx).soft_wrap(true).line_number(false).folding(false).indent_guides(false).searchable(false);
+                        // Reading: line numbers, so a line an agent names can
+                        // be found, but no folds or guides, and ⌘F left to
+                        // the pane's own find bar.
+                        let state = EditorState::new(window, cx).soft_wrap(true).line_number(true).folding(false).indent_guides(false).searchable(false);
                         match language {
                             Some(language) => state.language(language),
                             None => state,
@@ -868,14 +872,38 @@ impl SidePane {
                     *editor = Some(made);
                 }
             }
-            // The lines a link named (`a.ts:12-18`), picked once its text has
-            // been laid out: the editor scrolls only to what it has drawn.
-            if let (Some(((first, last), opened)), FileBody::Text { editor: Some(editor), text, .. }) = (lines, &open.body) {
-                if open.opened == opened && open.lines_shown != Some(opened) {
+            // The lines a link named (`a.ts:12-18`): tinted, marked in the
+            // gutter, and scrolled to once its text has been laid out (the
+            // editor scrolls only to what it has drawn). Opened again with no
+            // lines, or others, the old tint goes or moves.
+            let opened = open.opened;
+            if let FileBody::Text { editor: Some(editor), text, .. } = &open.body {
+                let wanted = lines.filter(|(_, o)| *o == opened).map(|(l, _)| l);
+                if open.lines_shown != Some(opened) && (wanted.is_some() || open.line_marks.is_some()) {
                     open.lines_shown = Some(opened);
-                    let range = threadbear_core::file_refs::line_bytes(text, first, last);
-                    let editor = editor.clone();
-                    window.on_next_frame(move |_, cx| editor.update(cx, |state, cx| state.set_selected_range(range, cx)));
+                    let range = wanted.map(|(first, last)| {
+                        let r = threadbear_core::file_refs::line_bytes(text, first, last);
+                        // Through the last line's newline, so its tint is the
+                        // whole line wide as the others' are.
+                        r.start..(r.end + 1).min(text.len())
+                    });
+                    let accent = style::accent(cx);
+                    let fills: Vec<RangeDecoration> = range.clone().into_iter().map(|r| RangeDecoration::new(r).with_style(RangeDecorationStyle::Fill).with_color(accent.opacity(0.18))).collect();
+                    let marks: Vec<GutterDecoration> = range.clone().into_iter().map(|r| GutterDecoration::new(r).with_color(accent)).collect();
+                    match &open.line_marks {
+                        Some((fill, mark)) => {
+                            fill.set(fills, cx);
+                            mark.set(marks, cx);
+                        }
+                        None => {
+                            let made = editor.update(cx, |state, cx| (state.create_range_decorations_collection(fills, cx), state.create_gutter_decorations_collection(marks, cx)));
+                            open.line_marks = Some(made);
+                        }
+                    }
+                    if let Some(range) = range {
+                        let editor = editor.clone();
+                        window.on_next_frame(move |_, cx| editor.update(cx, |state, cx| state.set_selected_range(range.start..range.start, cx)));
+                    }
                 }
             }
         }
