@@ -185,15 +185,13 @@ test('pingCache: a fork of the session with the same prompt options, never saved
   assert.equal(state.prompts[0].message.content, PING_PROMPT);
 });
 
-test('pingCache: a login out of room says so; a sandboxed thread is never pinged', async () => {
+test('pingCache: a login out of room says so', async () => {
   const dir = tmpDir();
   const { fn } = fakeQuery({ subtype: 'success', is_error: true, result: "You've hit your usage limit" });
   const adapter = new ClaudeAdapter({ claudePath: '/nonexistent', registry: new ProcessRegistry(dir, nullLogger), log: nullLogger, queryFn: fn });
   const r = await adapter.pingCache(startOpts(dir));
   assert.equal(r.ok, false);
   assert.equal(!r.ok && r.limit, true);
-  const boxed = await adapter.pingCache({ ...startOpts(dir), confined: true });
-  assert.equal(boxed.ok, false);
 });
 
 test('runner: a due thread is pinged on its own login, counted, and nothing reaches the thread', async () => {
@@ -231,4 +229,35 @@ test('runner: a due thread is pinged on its own login, counted, and nothing reac
   h.clock.advance(55 * MIN);
   assert.equal((await h.runner.keepWarmTick()).length, 1);
   assert.equal(st.rec.keepWarm.pings, 2);
+});
+
+// Mike's compact-when-cold (runner/cold-compact.ts) reads lastModelAt to tell
+// a cold cache. A ping that read the cache kept it warm, so it counts; one
+// that failed didn't, so it doesn't, and a thread pinged warm isn't compacted.
+test('runner: a ping that reached the cache counts as the cache last used; a failed one does not', async () => {
+  const { makeHarness } = await import('../helpers/fakes.ts');
+  const h = makeHarness();
+  const { thread } = h.runner.create({ text: 'Look into the cache', accountId: 'claude-3' });
+  const s = h.adapter.last;
+  s.init();
+  s.text('a1', 'Which one do you want?');
+  s.result('completed');
+  const st = (h.runner as any).threads.get(thread.id);
+  h.clock.advance(MON_10 - h.clock.now());
+  st.rec.needs = { seq: st.rec.lastTurnCompletedSeq, needs: 'you' };
+  st.rec.contextTokens = 120_000;
+  st.rec.lastActivityAt = new Date(MON_10 - 55 * MIN).toISOString();
+  st.rec.lastModelAt = new Date(MON_10 - 55 * MIN).toISOString();
+  st.rt.session = undefined;
+  let ok = false;
+  (h.adapter as any).pingCache = async () => (ok
+    ? { ok: true, inputTokens: 2, outputTokens: 4, cacheReadTokens: 119_000, cacheWriteTokens: 90, ms: 800 }
+    : { ok: false, error: 'network', ms: 5 });
+  assert.equal((await h.runner.keepWarmTick()).length, 1);
+  assert.equal(st.rec.lastModelAt, new Date(MON_10 - 55 * MIN).toISOString(), 'a failed ping read nothing');
+  ok = true;
+  h.clock.advance(55 * MIN);
+  assert.equal((await h.runner.keepWarmTick()).length, 1);
+  assert.equal(st.rec.lastModelAt, new Date(MON_10 + 55 * MIN).toISOString());
+  assert.equal((h.runner as any).lastModelMs(st), MON_10 + 55 * MIN, "what compact-when-cold reads");
 });

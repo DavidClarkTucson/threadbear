@@ -14,6 +14,7 @@ pub fn strip_line(text: &str) -> &str {
     let mut path = text;
     for round in 0..2 {
         match path.rsplit_once(':') {
+            // A span only last: `a.ts:12-18`, never `a.ts:12-18:4`.
             Some((head, tail)) if !head.is_empty() && (is_number(tail) || (round == 0 && is_line_span(tail))) => path = head,
             _ => break,
         }
@@ -32,12 +33,14 @@ fn is_line_span(text: &str) -> bool {
 
 /// The lines a path names after its colon, first and last, counted from 1:
 /// `a.ts:12` is (12, 12), `a.ts:12:4` (12, 12) with its column dropped,
-/// `a.ts:12-18` (12, 18). None for a path with no line, or a line 0.
+/// `a.ts:12-18` (12, 18). A reply's text is anyone's, so a span written
+/// backwards is its first line, and a line 0 or one too big to count names
+/// none (the file still opens).
 pub fn line_range(text: &str) -> Option<(usize, usize)> {
     let path = strip_line(text);
     let tail = text.get(path.len()..)?.strip_prefix(':')?;
     let line = tail.split(':').next()?;
-    let (first, last) = match line.split_once('-') {
+    let (first, last): (usize, usize) = match line.split_once('-') {
         Some((a, b)) => (a.parse().ok()?, b.parse().ok()?),
         None => {
             let n = line.parse().ok()?;
@@ -49,11 +52,14 @@ pub fn line_range(text: &str) -> Option<(usize, usize)> {
 
 /// The bytes of `text` from the start of line `first` to the end of line
 /// `last` (counted from 1, without the last line's newline), held inside the
-/// text: a line past the end is the end.
+/// text: a line past the end is the end, and a span backwards is its first
+/// line. One pass over the text at most, whatever the numbers.
 pub fn line_bytes(text: &str, first: usize, last: usize) -> std::ops::Range<usize> {
+    let first = first.max(1);
+    let last = last.max(first);
     let mut starts = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1));
-    let start = starts.nth(first.saturating_sub(1)).unwrap_or(text.len());
-    let end = text[start..].match_indices('\n').nth(last.saturating_sub(first)).map_or(text.len(), |(i, _)| start + i);
+    let start = starts.nth(first - 1).unwrap_or(text.len());
+    let end = text[start..].match_indices('\n').nth(last - first).map_or(text.len(), |(i, _)| start + i);
     start..end
 }
 
@@ -150,7 +156,7 @@ pub struct FileLink {
     pub query: Option<String>,
     pub fragment: Option<String>,
     /// The lines it names (`a.ts:12-18`), first and last, counted from 1:
-    /// the pane picks them and scrolls to them.
+    /// the pane tints them and scrolls to them.
     pub lines: Option<(usize, usize)>,
 }
 
@@ -342,22 +348,59 @@ mod tests {
         assert_eq!(strip_line("Foo.swift:12"), "Foo.swift");
         assert_eq!(strip_line("/tmp/a.txt:12:4"), "/tmp/a.txt");
         assert_eq!(strip_line("a:b"), "a:b");
+        // A span of lines comes off too, but only last, and only whole.
         assert_eq!(strip_line("~/x/a-b.ts:121-125"), "~/x/a-b.ts");
         assert_eq!(strip_line("a.ts:1-"), "a.ts:1-");
-        assert_eq!(line_range("a.ts:121-125"), Some((121, 125)));
-        assert_eq!(line_range("a.ts:12"), Some((12, 12)));
-        assert_eq!(line_range("a.ts:12:4"), Some((12, 12)));
-        assert_eq!(line_range("a.ts:9-3"), Some((9, 9)));
-        assert_eq!(line_range("a.ts:0"), None);
-        assert_eq!(line_range("a.ts"), None);
-        assert_eq!(line_range("a:b"), None);
-        assert_eq!(line_bytes("one\ntwo\nthree\nfour", 2, 3), 4..13);
-        assert_eq!(line_bytes("one\ntwo\n", 1, 1), 0..3);
-        assert_eq!(line_bytes("one\ntwo", 2, 9), 4..7);
-        assert_eq!(line_bytes("one", 5, 6), 3..3);
+        assert_eq!(strip_line("a.ts:-3"), "a.ts:-3");
+        assert_eq!(strip_line("a.ts:1-2-3"), "a.ts:1-2-3");
         assert_eq!(split_query("grow.html?clean&s=45#top"), ("grow.html", Some("clean&s=45"), Some("top")));
         assert_eq!(split_query("guide.md#links"), ("guide.md", None, Some("links")));
         assert_eq!(split_query("plain.md"), ("plain.md", None, None));
+    }
+
+    #[test]
+    fn the_lines_a_path_names() {
+        assert_eq!(line_range("a.ts:121-125"), Some((121, 125)));
+        assert_eq!(line_range("a.ts:12"), Some((12, 12)));
+        assert_eq!(line_range("a.ts:12:4"), Some((12, 12)), "the column is dropped");
+        assert_eq!(line_range("a.ts"), None);
+        assert_eq!(line_range("a:b"), None);
+        // A reply's text is anyone's: backwards, nought, or past what a
+        // number holds is read as safely as it can be, never a panic.
+        assert_eq!(line_range("a.ts:9-3"), Some((9, 9)), "backwards is the first line");
+        assert_eq!(line_range("a.ts:0"), None);
+        assert_eq!(line_range("a.ts:0-4"), None);
+        assert_eq!(line_range("a.ts:99999999999999999999999"), None);
+        assert_eq!(line_range("a.ts:3-99999999999999999999999"), None);
+        assert_eq!(line_range(&format!("a.ts:{}", usize::MAX)), Some((usize::MAX, usize::MAX)));
+        assert_eq!(line_range("ü.ts:2"), Some((2, 2)));
+        assert_eq!(line_range(""), None);
+    }
+
+    #[test]
+    fn the_bytes_of_a_files_lines() {
+        assert_eq!(line_bytes("one\ntwo\nthree\nfour", 2, 3), 4..13);
+        assert_eq!(line_bytes("one\ntwo\n", 1, 1), 0..3);
+        assert_eq!(line_bytes("one\ntwo", 2, 9), 4..7, "a last line past the end is the end");
+        assert_eq!(line_bytes("one", 5, 6), 3..3, "a first line past the end is the end");
+        assert_eq!(line_bytes("", 1, 1), 0..0);
+        assert_eq!(line_bytes("one\ntwo", 2, 1), 4..7, "backwards is the first line");
+        assert_eq!(line_bytes("one\ntwo", 0, 0), 0..3, "nought is the first");
+        assert_eq!(line_bytes("one\ntwo", usize::MAX, usize::MAX), 7..7);
+        assert_eq!(line_bytes("one\ntwo", 1, usize::MAX), 0..7);
+        // Lines of characters wider than a byte stay whole.
+        let text = "ä\nö\nü";
+        let r = line_bytes(text, 2, 2);
+        assert_eq!(&text[r], "ö");
+    }
+
+    #[test]
+    fn a_link_carries_the_lines_it_names() {
+        let exists = |p: &str| p == "/w/a.ts" || p == "/w/grow.html";
+        assert_eq!(file_link("a.ts:121-125", Some("/w"), &[], "/h", &exists, &no_search).unwrap().lines, Some((121, 125)));
+        assert_eq!(file_link("/w/a.ts:7", None, &[], "/h", &exists, &no_search).unwrap().lines, Some((7, 7)));
+        assert_eq!(file_link("a.ts", Some("/w"), &[], "/h", &exists, &no_search).unwrap().lines, None);
+        assert_eq!(file_link("grow.html?x#top", Some("/w"), &[], "/h", &exists, &no_search).unwrap().lines, None);
     }
 
     #[test]

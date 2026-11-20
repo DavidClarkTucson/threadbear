@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeHarness, tmpDir } from '../helpers/fakes.ts';
-import { ConvexSync, BACKEND_API_VERSION, HEARTBEAT_MS, MISSING_GRACE_MS, PREVIEW_HOLD_MS, SETTLE_MS, USAGE_COPY_MS, PROJECT_ACTIVITY_MS, type ThreadDoc } from '../../src/sync.ts';
+import { ConvexSync, BACKEND_API_VERSION, REMOVE_OWN_ROWS_API_VERSION, HEARTBEAT_MS, MISSING_GRACE_MS, PREVIEW_HOLD_MS, SETTLE_MS, USAGE_COPY_MS, PROJECT_ACTIVITY_MS, type ThreadDoc } from '../../src/sync.ts';
 import { loadSyncCache, SYNC_CACHE_MAX_AGE_MS } from '../../src/sync-cache.ts';
 import { nullLogger } from '../../src/log.ts';
 
@@ -234,7 +234,24 @@ test('a removal that failed is still tried after a restart', async () => {
   await settle();
   await again.flushNow();
   assert.deepEqual(s.named('sync:removeThreads')[0]?.args.threadIds, [t.id]);
+  assert.equal(s.named('sync:removeThreads')[0]?.args.runnerId, 'r1', 'naming its runner, so a row that moved away stays');
   await again.stop();
+});
+
+test('a removal names its runner only to a backend that takes it', async () => {
+  const s = setup({ apiVersion: REMOVE_OWN_ROWS_API_VERSION - 1 });
+  const t = s.h.runner.create({ text: 'going', cwd: s.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  const sync = s.make();
+  sync.start();
+  await settle();
+  await sync.flushNow();
+  s.h.runner.delete(t.id);
+  await settle();
+  await sync.flushNow();
+  const [removal] = s.named('sync:removeThreads');
+  assert.deepEqual(removal?.args.threadIds, [t.id]);
+  assert.equal('runnerId' in removal!.args, false);
+  await sync.stop();
 });
 
 test('a removal still on its way when the file is saved is in it', async () => {
@@ -725,14 +742,17 @@ test('a thread deleted while sync was off is taken out of the mirror by a start 
   assert.equal(c.threads[t.id], undefined, 'and the file no longer says the mirror has it');
 });
 
-// 16 Nov 2026: two threads moved from the main Mac to raven stayed in the Mac's
-// file as sent (a moved thread's thread.deleted never reaches sync, main.ts).
-// Its next start found them neither here nor on a peer, and removeThreads with
-// the owner key deleted raven's rows, so sending to them said "no such thread".
+// 16 Nov 2026 (David Clark's fork): two threads moved from his main Mac to
+// raven stayed in the Mac's file as sent, as a moved thread's delete never
+// reached sync. Its next start found them neither here nor on a peer, and
+// removeThreads with the owner key deleted raven's rows, so sending to them
+// said "no such thread".
 test("a thread moved to another runner isn't taken out of the mirror by a start from the file", async () => {
   const s = setup();
   const t = s.h.runner.create({ text: 'moving', cwd: s.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
   await firstStart(s);
+  // Moved while nothing was listening, as when the file was written by a
+  // runner without this fix.
   s.h.runner.delete(t.id);
   s.moved.add(t.id);
   s.calls.length = 0;
@@ -748,24 +768,50 @@ test("a thread moved to another runner isn't taken out of the mirror by a start 
   assert.deepEqual(s.named('sync:removeThreads'), []);
   await again.stop();
   const c = loadSyncCache(s.cachePath, { url: 'https://x.convex.cloud', runnerId: 'r1', now: s.h.clock.now() })!;
-  assert.equal(c.threads[t.id], undefined, "the file stops saying the mirror has it from here");
+  assert.equal(c.threads[t.id], undefined, 'the file stops saying the mirror has it from here');
   assert.ok(!(c.removed ?? []).includes(t.id));
 });
 
-test('a thread moved away is forgotten as sent at once, not removed', async () => {
+test("a moved thread's delete forgets it as sent at once, and never removes its row", async () => {
   const s = setup();
   const t = s.h.runner.create({ text: 'moving', cwd: s.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
   const sync = s.make();
   sync.start();
   await settle();
   await sync.flushNow();
+  // The move's switch, then the thread's delete here (moves.ts).
   s.moved.add(t.id);
-  sync.forgetMoved(t.id);
+  s.h.runner.delete(t.id);
+  await settle();
   await sync.flushNow();
   assert.deepEqual(s.named('sync:removeThreads'), []);
   await sync.stop();
   const c = loadSyncCache(s.cachePath, { url: 'https://x.convex.cloud', runnerId: 'r1', now: s.h.clock.now() })!;
   assert.equal(c.threads[t.id], undefined, 'a week on, when the move row has gone, a start has nothing to remove');
+  assert.ok(!(c.removed ?? []).includes(t.id));
+});
+
+// Codex's review of the fix: what was queued for a thread before it moved
+// would go up with the owner key, onto the other runner's thread.
+test("what was queued for a thread that moved away doesn't go up", async () => {
+  const s = setup();
+  const t = s.h.runner.create({ text: 'moving', cwd: s.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  const sync = s.make();
+  sync.start();
+  await settle();
+  await sync.flushNow();
+  s.calls.length = 0;
+  s.h.runner.send(t.id, 'queued before the move');
+  await settle();
+  s.moved.add(t.id);
+  s.h.runner.delete(t.id);
+  await settle();
+  await sync.flushNow();
+  const sent = s.named('sync:appendMessages').flatMap((c) => c.args.messages as { threadId: string }[]);
+  assert.ok(!sent.some((m) => m.threadId === t.id));
+  assert.ok(!s.docs().some((d) => d.threadId === t.id));
+  assert.deepEqual(s.named('sync:removeThreads'), []);
+  await sync.stop();
 });
 
 test("a thread finishing on the release before isn't taken out for not being here yet", async () => {

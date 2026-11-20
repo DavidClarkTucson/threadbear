@@ -6,7 +6,9 @@ Feature: Working on a file in the side pane
   Background:
     Given the app is connected to a runner with the demo threads
 
-  @file.editor
+  # Code and plain text open with their own text up; the Swift app is frozen
+  # and still opens them to read until the pencil.
+  @file.editor @swift-pending
   Scenario: A text file opens ready to type in, and what's typed is saved by itself
     When I open the thread "Rebuild the three landing pages"
     And I open "logs/docs-build.txt" in the thread's folder in the pane

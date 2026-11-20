@@ -34,7 +34,7 @@ export const keepWarmPart = {
       archived: Boolean(rec.archivedAt) || Boolean(rt.deleted),
       waiting: Boolean(rec.waitingForRoom || rec.waitingForNetwork),
       hasSession: Boolean(rec.sessionUsed && rec.nativeSessionId),
-      confined: Boolean(rec.confined) || this.sandboxed(rec.cwd),
+      confined: Boolean(rec.confined),
       ...(rec.contextTokens !== undefined ? { contextTokens: rec.contextTokens } : {}),
       lastTurnCompletedSeq: rec.lastTurnCompletedSeq,
       lastActivityAt: rec.lastActivityAt,
@@ -104,6 +104,12 @@ export const keepWarmPart = {
     }
     const n = before + 1;
     if (ping.ok) {
+      // It read the cache, so the cache is warm from now: compact-when-cold
+      // (cold-compact.ts) goes by when it was last used.
+      if (rec.lastTurnCompletedSeq === seq && !st.rt.deleted) {
+        rec.lastModelAt = new Date(at).toISOString();
+        this.markDirty(st);
+      }
       const fields = { threadId: rec.id, accountId: account.id, ping: `${n} of ${max}`, context: rec.contextTokens, cacheRead: ping.cacheReadTokens, cacheWrite: ping.cacheWriteTokens, input: ping.inputTokens, output: ping.outputTokens, ms: ping.ms };
       // A write as big as the read means the prefix didn't match and the
       // cache was built again: worth knowing, as that's the costly case.
