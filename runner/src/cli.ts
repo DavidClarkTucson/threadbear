@@ -11,7 +11,8 @@ import { providerName } from './providers.ts';
 import type { Account, ImageRef, Pool, LibrarianStatus, PersistedEvent, Project, RunnerDefaults, Schedule, ThreadSummary } from './protocol.ts';
 import type { Settings } from './settings.ts';
 import { backgroundFlag } from './protocol.ts';
-import { parseWhen as parseLater, relativeFuture } from './when.ts';
+import { patchCheckCommand } from './patch-check.ts';
+import { parseIsoTime, parseWhen as parseLater, relativeFuture } from './when.ts';
 import { DEV_HELP, formatModels, logsCommand, runDev } from './tb-dev.ts';
 import { findWorktreePatch, isInside } from './patches.ts';
 import { TRUST_ALL } from './patch-trust.ts';
@@ -121,6 +122,7 @@ const HELP = `tb: talk to the Threadbear runner
   tb accounts <account> [--json]  that account's models and its default
   tb pools [--json]               the pools, their logins and room (* new threads start on it)
   tb actions <threadId> [--json]  the thread's actions, panels and patches (from its folder)
+  tb patch-check <file.ts>... [--json]  loads patch files now and prints each one's load error, or what it gives
   tb highlights <threadId> [--json]  what the thread made, shared and pinned, and the librarian's brief
   tb panel <threadId> <panelId> [--json]  draws an image panel or fills a list panel now
   tb show-panel <threadId> <panel> [--reload] [--json]  opens a panel when the user looks at that thread (--reload: its page afresh)
@@ -191,6 +193,7 @@ ${DEV_HELP}`;
 const COMMAND_FLAGS: Record<string, string[]> = {
   new: ['cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'plan', 'full', 'image', 'wait', 'json', 'from', 'why', 'icon'],
   send: ['image', 'wait', 'json'],
+  'patch-check': ['json'],
   list: ['snoozed', 'archived', 'all', 'json'],
   search: ['json'],
   tail: ['from', 'json', 'until-done'],
@@ -318,6 +321,8 @@ async function main(argv: string[]): Promise<number> {
     };
     return runnerKeysCommand(cfg, args, flags, { heads });
   }
+  // Loads patch files here, not in the runner: no runner needed.
+  if (cmd === 'patch-check') return patchCheckCommand(args, Boolean(values.json));
   const url = runnerUrl(cfg);
   let client: RunnerClient;
   try {
@@ -996,8 +1001,8 @@ function parseWhen(s: string): string {
     const ms = Number(m[1]) * { m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] as 'm' | 'h' | 'd'];
     return new Date(Date.now() + ms).toISOString();
   }
-  const t = Date.parse(s);
-  if (Number.isNaN(t)) throw new Error(`Can't read the time ${s}`);
+  const t = parseIsoTime(s);
+  if (t === undefined) throw new Error(`Can't read the time ${s}`);
   return new Date(t).toISOString();
 }
 

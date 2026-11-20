@@ -386,6 +386,11 @@ test('parseWhen and tool titles', () => {
   assert.equal(parseWhen('30m', now), '2026-10-26T12:30:00.000Z');
   assert.equal(parseWhen('1d', now), '2026-10-27T12:00:00.000Z');
   assert.throws(() => parseWhen('soonish', now));
+  // Words with a number in are words, not a year: V8's Date.parse reads
+  // "MACG-3843" as 3843 (a thread hibernated till then, 20 Nov).
+  for (const words of ['MACG-3843', 'until MACG-3843 merges', '3843', 'Nov 21']) assert.throws(() => parseWhen(words, now), words);
+  assert.equal(parseWhen('2026-10-27T09:00:00+08:00', now), '2026-10-27T01:00:00.000Z');
+  assert.equal(parseWhen('2026-10-28', now), '2026-10-28T00:00:00.000Z');
   assert.equal(toolTitle('mcp__threadbear__move_thread', { folder: '~/dev/x' }, '/'), 'Move this thread to ~/dev/x');
   assert.equal(toolTitle('mcp__threadbear__delete_thread', { threadId: 'abcdef123456' }, '/'), 'Delete thread abcdef12');
 });
