@@ -387,8 +387,9 @@ if `tb` isn't found (an older runner, or outside a thread), use
   (`worktree-setup.sh`). The folder is usually an earlier thread's,
   reused with its Swift build caches so the app builds warm. Your system prompt says where. Commit there. When
   the work is done and checked, `tb land` rebases it on main, runs
-  `./check.sh --quick` and fast-forwards main in the main checkout
-  (`--dry-run` first if you like). On Mike's Mac it then pushes main to
+  `./check.sh --quick` and fast-forwards local main, the main checkout's
+  (`--dry-run` first if you like); in your reply, call that "local main",
+  as GitHub's moves only with the push below. On Mike's Mac it then pushes main to
   GitHub, merging GitHub's in first if that has moved
   (`pushAfterLanding` in runner.json). Landings waiting
   for the lock are checked together in the next check. When a group
@@ -408,8 +409,11 @@ if `tb` isn't found (an older runner, or outside a thread), use
   features/ and its other paths) while that workflow's last run on main
   failed on GitHub, naming the run and what failed: the quick check can't
   see what only GitHub's Macs, Linux and Windows do (red for two days of
-  GPUI landings, 10 to 12 Nov). Fix that red first; `tb land
-  --despite-red` is for the landing that's the fix
+  GPUI landings, 10 to 12 Nov). Fix that red first, and in a fork, look
+  in `git log upstream/main` for Mike's fix before writing one (bring it
+  in as docs/bringing-in-updates.md says). `tb land --despite-red` is for
+  the landing that's the fix, and when the red has nothing to do with
+  your change, offer it to the user as the way to land
   (docs/thread-worktrees.md, "Red on GitHub"). To bring GitHub's main
   into this Mac's, or push it, run `scripts/sync-main.sh`: a main only
   ahead of GitHub's is pushed at once, and otherwise it holds the landing

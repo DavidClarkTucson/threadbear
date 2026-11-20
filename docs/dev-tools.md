@@ -280,6 +280,13 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
 Built on 2026-10-27. How to use it is in `app/README.md` ("Seeing and
 driving it from a script") and in AGENTS.md ("Seeing and driving the app").
 
+This section describes the frozen Swift app's `app/Tools/dev-app.sh`. To
+see and screenshot a change to the app people use now, the GPUI one in
+`desktop/`, use `desktop/scripts/dev-app.sh`: the same commands
+(`start --mock`, `do`, `dump`, `shot`, `rebuild`, `log`, `stop`), headless,
+built on a check host (its `--help`, and the commands in
+`desktop/gpui/src/automation.rs`).
+
 - `app/Tools/dev-app.sh start [--mock [--fixtures DIR]...] [--home DIR]
   [--appearance light|dark] [--size WxH] [--id NAME]`, then `do
   '<json>'...`, `shot <file>`, `dump [--json]`, `rebuild`, `log`,

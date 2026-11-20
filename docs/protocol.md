@@ -4446,7 +4446,10 @@ summary if anything differs, so a `.env.local` that `convex dev` has just
 written, or a patch file the agent has just saved, shows up within
 seconds. A patch file that appears, loads again, breaks or is waiting
 to be trusted after the first read is said in the transcript as a
-`system.note`.
+`system.note`. To check a patch file as you write it, `tb patch-check
+<file>` loads it in tb's own process and prints its load error (the
+runner's own words) or the ids it gives, at once (`src/patch-check.ts`;
+it runs the file's top-level code but no trust check).
 
 Patches are found by walking up from the thread's folder to the home
 folder (so a thread in a package of a monorepo gets the project's), plus
@@ -4513,7 +4516,22 @@ rejects on a non-zero exit, and on output over 16 MB rather than hand
 back part of it). For a project's patch trusted by its hash,
 `sh` runs from the folder holding `.threadbear/` instead, and only what
 trusting it covers (see "Trusting a folder's patches"); `cwd` is still
-where the thread is. It returns `PanelItem`s (or a promise of
+where the thread is.
+
+To read the thread itself from a patch, read the file, not the runner:
+`$THREADBEAR_HOME/threads/<threadId>/events.ndjson` (one event per line,
+as `threads.events` returns them; `sh` has `THREADBEAR_HOME` set).
+`tb` from `sh` works in a home patch (`~/.threadbear/patches`) and is
+refused in a project's patch trusted by its hash (`tb` isn't on "The
+short list of shell"). Even where it works it calls back into the
+runner that's waiting on the patch, and fails now and then
+(`ECONNRESET`, "didn't prove itself in time" on a busy runner, 19 Nov).
+`sh` rejects only on a non-zero exit, and a pipe's is its last
+command's: a `tb events ... | jq` whose `tb` failed exits 0 with jq's
+empty output (and `tb`'s error mixed in, as `sh` returns stderr with
+stdout), so the patch shows nothing rather than an error.
+
+`items` returns `PanelItem`s (or a promise of
 them). Give rows a `section` to group them under headings (rows of one
 section next to each other, in the order you want the groups), and a
 `trailing` for a date or count at the end of the line. A panel can have an `icon`, an SF Symbol name for its button on

@@ -314,7 +314,9 @@ too). A file the side pane can draw opens there: Markdown, text, a page, a
 picture, a PDF, data and logs (JSON, YAML, TOML, CSV, `.log`) and code
 (TypeScript, Python, Rust, shell scripts and the rest), data and code
 coloured. Anything else opens in its own app, and ⌘-click opens any file
-there. A path with lines after it, in a link or in a reply's code
+there. (To change which files open in the pane: `previews_in_pane` in
+`desktop/core/src/highlights.rs`, which takes `REVIEW_EXTENSIONS` plus
+every language `code_language` colours, except `.plist`.) A path with lines after it, in a link or in a reply's code
 (`server.ts:12` or `server.ts:121-125`), opens with those lines tinted,
 marked beside their numbers and scrolled to. If an agent already has that page
 open in Chrome through [BrowserBear](https://github.com/mikecann/browserbear)
