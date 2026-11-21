@@ -481,6 +481,20 @@ shown on the composer (the box you type in) and changed by clicking it.
   (switching a thread to more access, starting a thread with more, a
   schedule, moving a thread or changing its logins) always come to you, and
   so do Codex threads' own tool cards.
+  With the Ask me later experiment on (`asksLater`, [Experiments](#experiments)),
+  an Auto thread never waits on one of those cards. What the reviewer
+  would have handed you is refused straight away, the agent carries on
+  without it and says in its final reply what it couldn't do, and the
+  question goes to one Permission requests thread to answer whenever you
+  like. Always allow saves an exact rule for that folder (`Bash(npm test)`,
+  or `Bash(npm test:*)` for any `npm test …`; one file, or everything under
+  its folder), which lets the call through next time without the reviewer.
+  A prefix rule never covers a command that chains, pipes or redirects.
+  Allow once tells the thread to try again and lets that one call through.
+  Keep blocking changes nothing. A card of the kind that always comes to
+  you, or an edit to a file Threadbear runs as code, can only be allowed
+  once, and only on a Mac. The rules are kept in `asks-later.json` in the
+  data folder.
 - **Plan first**: the agent looks around and writes a plan, but changes
   nothing yet. The plan shows as a card with Go ahead and Send back. Go
   ahead (or Return in an empty message box) lets it start, back in the mode
