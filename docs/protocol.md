@@ -221,6 +221,8 @@ type Account = {
   note?: string         // Mike's own note for the account ("Convex work only")
   usageCap?: number     // runner.json accountCaps: most of each 5-hour/weekly window it may use, percent
   spare?: boolean       // runner.json spareAccounts: used only when the pool's other logins are out
+  preferred?: boolean   // runner.json preferredAccounts: a new pool thread starts on it while it has
+                        // room; a started thread is never moved onto it
   usage?: AccountUsage  // absent when nothing is known (and from older runners)
   signedOut?: boolean   // Claude: no turn can run on it until someone signs it
                         // in again (see "Signed out" under Pools). Pools skip it

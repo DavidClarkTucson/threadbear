@@ -1554,6 +1554,15 @@ in runner.json (`["claude-1"]`). A pool then uses it only once its other
 logins of that provider are out, and a thread on it moves back before its
 next turn once one of them has room again (a cold start for that turn).
 
+To have new threads start on one login whenever it has room, without
+pulling threads back onto it, list it in `preferredAccounts` in
+runner.json, by id or email (`["claude-main"]` or
+`["you@example.com"]`). A new thread in a pool starts on it while it's
+under its limits and cap, and on the pool's usual pick when it's out. A
+thread already on another login stays there while that login has room,
+so there's no cold start from moving back. If a thread's login runs out,
+it moves as usual, to the preferred login first when it has room.
+
 With more than one machine, they all share the same pools, so you set them
 up once from Settings > Pools on any of them. A pool knows its logins by
 email, and each machine uses the ones it's signed in to: a pool of three

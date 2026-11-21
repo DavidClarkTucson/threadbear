@@ -104,7 +104,7 @@ export function isCodexLogin(dir: string): boolean {
 }
 
 export type DiscoveryConfig = Pick<Config, 'claudeMainDir' | 'claudeMainJson' | 'tokenStatsAccountsDir' | 'userHome' | 'pathEnv'> &
-  Partial<Pick<Config, 'codexMainDir' | 'accountNotes' | 'accountCaps' | 'spareAccounts' | 'hiddenLogins' | 'accountsDir' | 'home' | 'cursorPath' | 'opencodePath' | 'grokPath' | 'claudeMainEmail'>>;
+  Partial<Pick<Config, 'codexMainDir' | 'accountNotes' | 'accountCaps' | 'spareAccounts' | 'preferredAccounts' | 'hiddenLogins' | 'accountsDir' | 'home' | 'cursorPath' | 'opencodePath' | 'grokPath' | 'claudeMainEmail'>>;
 
 // claude-main is ~/.claude (its .claude.json sits at ~/.claude.json);
 // codex-main is ~/.codex. Token Stats' Accounts folder holds claude-N and
@@ -155,6 +155,8 @@ export function discoverAccounts(cfg: DiscoveryConfig): Account[] {
     const cap = cfg.accountCaps?.[a.id];
     if (cap) a.usageCap = cap;
     if (cfg.spareAccounts?.includes(a.id)) a.spare = true;
+    // By id or by email, as pools know logins by email across machines.
+    if (cfg.preferredAccounts?.some((x) => x === a.id || (!!a.email && x.toLowerCase() === a.email.toLowerCase()))) a.preferred = true;
   }
   const hidden = new Set(cfg.hiddenLogins ?? []);
   return hidden.size ? out.filter((a) => !hidden.has(a.id)) : out;

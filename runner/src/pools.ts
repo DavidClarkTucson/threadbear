@@ -158,9 +158,15 @@ export function poolAccounts(pool: Pool, accounts: Account[]): Account[] {
 //
 // Spare logins (runner.json spareAccounts) are only looked at when none of
 // the others can run: so a thread on a spare moves back once one has room.
+// Preferred logins (preferredAccounts) go before the rest while they have
+// room, but only for a pick with no OK `current`: a started thread stays
+// where it is, as moving it back costs a cold start (David, 20 Nov).
 export function pickInPool(pool: Pool, accounts: Account[], o: { provider: Provider; exclude?: string[]; current?: string; prefer?: string; now?: number }): string | undefined {
   const members = poolAccounts(pool, accounts).filter((a) => a.provider === o.provider && !o.exclude?.includes(a.id));
-  return pickAmong(members.filter((a) => !a.spare), o) ?? pickAmong(members.filter((a) => a.spare), o);
+  const current = members.find((a) => a.id === o.current && !a.spare);
+  if (current && loginOk(current)) return current.id;
+  const main = members.filter((a) => !a.spare);
+  return pickAmong(main.filter((a) => a.preferred), o) ?? pickAmong(main, o) ?? pickAmong(members.filter((a) => a.spare), o);
 }
 
 function pickAmong(members: Account[], o: { current?: string; prefer?: string; now?: number }): string | undefined {

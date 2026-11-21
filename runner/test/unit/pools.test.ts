@@ -166,6 +166,23 @@ test('pickInPool: the login whose week resets soonest goes first, while it has r
   assert.equal(pickInPool(CLAUDE, mixed, { provider: 'claude', now: NOW }), 'claude-1');
 });
 
+test('pickInPool: a preferred login goes first for a new pick, but never pulls a started thread back', () => {
+  const day = 24 * 60;
+  // claude-1 resets sooner, so without the preference it would be picked.
+  const list = [{ ...acct('claude-main', { week: 60, weekResets: 5 * day }), preferred: true }, acct('claude-1', { week: 60, weekResets: day })];
+  assert.equal(pickInPool(CLAUDE, list.map((a) => ({ ...a, preferred: false })), { provider: 'claude', now: NOW }), 'claude-1', 'without it, soonest reset');
+  assert.equal(pickInPool(CLAUDE, list, { provider: 'claude', now: NOW }), 'claude-main', 'a new thread starts on the preferred one');
+  assert.equal(pickInPool(CLAUDE, list, { provider: 'claude', prefer: 'claude-1', now: NOW }), 'claude-main', 'over the last-used one too');
+  assert.equal(pickInPool(CLAUDE, list, { provider: 'claude', current: 'claude-1', now: NOW }), 'claude-1', 'a thread on the other login stays there');
+  const out = [{ ...acct('claude-main', { week: 0.5, weekResets: 5 * day }), preferred: true }, list[1]];
+  assert.equal(pickInPool(CLAUDE, out, { provider: 'claude', now: NOW }), 'claude-1', 'falls back when the preferred one is out');
+  const capped = [{ ...acct('claude-main', { week: 60, weekResets: 5 * day }), preferred: true, usageCap: 40 }, list[1]];
+  assert.equal(pickInPool(CLAUDE, capped, { provider: 'claude', now: NOW }), 'claude-1', 'or past its cap');
+  assert.equal(pickInPool(CLAUDE, list, { provider: 'claude', current: 'claude-1', exclude: ['claude-1'], now: NOW }), 'claude-main', 'a thread whose login ran out moves to it');
+  const spare = [{ ...list[0], spare: true }, list[1]];
+  assert.equal(pickInPool(CLAUDE, spare, { provider: 'claude', now: NOW }), 'claude-1', 'a spare stays a spare');
+});
+
 test('nextLogin: same provider first, then spill in pool order, then a wait', () => {
   const thread = { accountId: 'claude-main', provider: 'claude' as const };
   let list = [acct('claude-main', { five: 0, blocked: true, resets: 120 }), acct('codex-main', { five: 80 }), acct('claude-1', { five: 50 })];

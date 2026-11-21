@@ -33,7 +33,9 @@ export const DEFAULT_ACCOUNT_NOTES: Record<string, string> = {};
 // The most of each window a login may use, in percent (runner.json
 // accountCaps, e.g. { "claude-1": 50 } stops claude-1 at half its weekly
 // and 5-hour limits). None by default. runner.json spareAccounts
-// (["claude-1"]) lists logins kept for when the others are out.
+// (["claude-1"]) lists logins kept for when the others are out, and
+// preferredAccounts (["claude-main"], or an email) the ones a new pool
+// thread starts on while they have room.
 
 // Folders whose new threads start on a built-in pool, by the login that
 // pool is made from (pools.ts, defaultPools), from runner.json poolFolders
@@ -121,6 +123,7 @@ export type Config = {
   accountNotes: Record<string, string>;
   accountCaps?: Record<string, number>;
   spareAccounts?: string[];
+  preferredAccounts?: string[];
   // Logins left out of the list altogether (runner.json hiddenLogins, e.g.
   // ["claude-main"]): ~/.claude is always found as claude-main, so this is
   // the only way to drop it once its plan has lapsed, rather than have its
@@ -228,6 +231,7 @@ export type RunnerJson = {
   accountNotes?: Record<string, string>;
   accountCaps?: Record<string, unknown>;
   spareAccounts?: unknown;
+  preferredAccounts?: unknown;
   hiddenLogins?: string[];
   poolFolders?: Record<string, string[]>;
   sandbox?: unknown;
@@ -532,6 +536,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     accountNotes: stringMap(json.accountNotes) ?? { ...DEFAULT_ACCOUNT_NOTES },
     ...((caps) => (caps ? { accountCaps: caps } : {}))(capMap(json.accountCaps)),
     ...(Array.isArray(json.spareAccounts) ? { spareAccounts: json.spareAccounts.filter((x): x is string => typeof x === 'string') } : {}),
+    ...(Array.isArray(json.preferredAccounts) ? { preferredAccounts: json.preferredAccounts.filter((x): x is string => typeof x === 'string' && x !== '') } : {}),
     ...((h) => (h.length ? { hiddenLogins: h } : {}))(
       Array.isArray(json.hiddenLogins) ? json.hiddenLogins.filter((x): x is string => typeof x === 'string' && x !== '') : [],
     ),

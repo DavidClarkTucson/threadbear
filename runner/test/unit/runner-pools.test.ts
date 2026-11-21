@@ -959,6 +959,27 @@ test('noted logins get a pool of their own and are never picked for another', ()
   assert.notEqual(t.accountId, 'claude-2');
 });
 
+test('a preferred login: new threads start on it while it has room, and a thread on another login stays put', async () => {
+  const h = poolHarness();
+  h.fake.base = h.fake.base.map((a) => (a.id === 'claude-3' ? { ...a, preferred: true } : a));
+  h.setUsage('claude-main', room(95, 60));
+  h.setUsage('claude-3', room(30, 300));
+  h.runner.create({ text: 'x' });
+  assert.equal(h.adapter.last.opts.account.id, 'claude-3', 'the preferred one, though the other resets sooner');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0, 300, true));
+  const { thread } = h.runner.create({ text: 'y' });
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main', 'another once the preferred one is out');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(100));
+  h.runner.send(thread.id, 'z');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main', 'no move back');
+  assert.ok(!notes(h, thread.id).some((n) => /Moved to/.test(n)), notes(h, thread.id).join(' | '));
+});
+
 test('a spare login: new threads skip it while the main one has room, and leave it when the main one is back', async () => {
   const h = poolHarness();
   h.fake.base = h.fake.base.map((a) => (a.id === 'claude-3' ? { ...a, spare: true } : a));

@@ -132,6 +132,9 @@ export type Account = {
   // In runner.json's spareAccounts: used only when every other login of
   // its provider in the pool is out, and left again once one has room.
   spare?: boolean;
+  // In runner.json's preferredAccounts: a new pool thread starts on it
+  // while it has room. It never pulls a started thread back.
+  preferred?: boolean;
   usage?: AccountUsage;
   // Claude: the CLI says it's signed out, its sign-in has ended, or a turn
   // on it was refused since (sign-in-state.ts). Pools skip it.
