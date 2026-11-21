@@ -19,7 +19,11 @@ macro_rules! tipped {
     ($el:expr, $tip:expr $(,)?) => {{
         let tip_text: SharedString = $tip.into();
         let shown = tip_text.clone();
-        crate::tips::Tip::tip(crate::a11y::A11yRole::a11y_role($el.test_support(), gpui_kit::Role::Button).aria_label(tip_text), shown)
+        crate::tips::Tip::tip(
+            crate::a11y::A11yRole::a11y_role($el.test_support(), gpui_kit::Role::Button)
+                .aria_label(tip_text),
+            shown,
+        )
     }};
 }
 
@@ -34,8 +38,14 @@ pub(crate) enum LongBusy {
 impl Threadbear {
     /// The card the open thread shows, if any.
     pub(crate) fn long_thread_card(&self, thread_id: &str) -> Option<LongThread> {
-        let thread = self.threads.get(thread_id).filter(|_| self.selected.as_deref() == Some(thread_id))?;
-        LongThread::card(thread, self.new_thread.prefs.long_thread_dismissals.get(thread_id))
+        let thread = self
+            .threads
+            .get(thread_id)
+            .filter(|_| self.selected.as_deref() == Some(thread_id))?;
+        LongThread::card(
+            thread,
+            self.new_thread.prefs.long_thread_dismissals.get(thread_id),
+        )
     }
 
     /// The card's button as it reads now, for the automation dump.
@@ -44,28 +54,58 @@ impl Threadbear {
     }
 
     /// The card, or None when the open thread isn't long.
-    pub(crate) fn long_thread_offer(app: &Entity<Threadbear>, thread_id: &str, cx: &App) -> Option<AnyElement> {
+    pub(crate) fn long_thread_offer(
+        app: &Entity<Threadbear>,
+        thread_id: &str,
+        cx: &App,
+    ) -> Option<AnyElement> {
         let t = app.read(cx);
         let card = t.long_thread_card(thread_id)?;
         let busy = t.long_busy.get(thread_id).copied();
         let tokens = t.threads.get(thread_id).and_then(|s| s.context_tokens);
-        Some(render(app.downgrade(), thread_id.to_owned(), card, busy, tokens, cx))
+        Some(render(
+            app.downgrade(),
+            thread_id.to_owned(),
+            card,
+            busy,
+            tokens,
+            cx,
+        ))
     }
 
     /// Compact: sends `/compact`, the button spinning until the runner takes it.
     pub(crate) fn compact_long_thread(&mut self, thread: String, cx: &mut Context<Self>) {
         let runner_id = self.threads.get(&thread).and_then(|t| t.runner_id.clone());
-        self.long_call(thread.clone(), LongBusy::Compact, "threads.send", json!({ "threadId": thread, "text": "/compact", "runnerId": runner_id }), cx);
+        self.long_call(
+            thread.clone(),
+            LongBusy::Compact,
+            "threads.send",
+            json!({ "threadId": thread, "text": "/compact", "runnerId": runner_id }),
+            cx,
+        );
     }
 
     /// Continue in a new thread (`threads.continueFresh`): the runner asks
     /// the agent for a handoff and starts the next thread with it.
     pub(crate) fn continue_long_thread(&mut self, thread: String, cx: &mut Context<Self>) {
         let runner_id = self.threads.get(&thread).and_then(|t| t.runner_id.clone());
-        self.long_call(thread.clone(), LongBusy::Continue, "threads.continueFresh", json!({ "threadId": thread, "runnerId": runner_id }), cx);
+        self.long_call(
+            thread.clone(),
+            LongBusy::Continue,
+            "threads.continueFresh",
+            json!({ "threadId": thread, "runnerId": runner_id }),
+            cx,
+        );
     }
 
-    fn long_call(&mut self, thread: String, busy: LongBusy, method: &'static str, params: serde_json::Value, cx: &mut Context<Self>) {
+    fn long_call(
+        &mut self,
+        thread: String,
+        busy: LongBusy,
+        method: &'static str,
+        params: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
         if self.long_busy.contains_key(&thread) {
             return;
         }
@@ -88,19 +128,52 @@ impl Threadbear {
 
     /// Not now: hides the card for this thread until it's longer still, or
     /// a compact brings it back down and it grows again. Kept on this Mac.
-    pub(crate) fn dismiss_long_thread(&mut self, thread: String, card: &LongThread, tokens: Option<i64>, cx: &mut Context<Self>) {
-        self.new_thread.prefs.long_thread_dismissals.dismiss(&thread, card.dismissal(tokens));
+    pub(crate) fn dismiss_long_thread(
+        &mut self,
+        thread: String,
+        card: &LongThread,
+        tokens: Option<i64>,
+        cx: &mut Context<Self>,
+    ) {
+        self.new_thread
+            .prefs
+            .long_thread_dismissals
+            .dismiss(&thread, card.dismissal(tokens));
         self.new_thread.save();
         cx.notify();
     }
 }
 
-fn render(app: WeakEntity<Threadbear>, id: String, card: LongThread, busy: Option<LongBusy>, tokens: Option<i64>, cx: &App) -> AnyElement {
-    let (hairline, fill, secondary) = (style::hairline(cx), style::card_background(cx), style::secondary_text(cx));
+fn render(
+    app: WeakEntity<Threadbear>,
+    id: String,
+    card: LongThread,
+    busy: Option<LongBusy>,
+    tokens: Option<i64>,
+    cx: &App,
+) -> AnyElement {
+    let (hairline, fill, secondary) = (
+        style::hairline(cx),
+        style::card_background(cx),
+        style::secondary_text(cx),
+    );
     let button = |key: &'static str, label: &'static str, tip: &'static str, idle: bool| {
-        tipped!(div().id(key).flex_none().px(px(10.)).py(px(4.)).rounded(px(6.)).bg(style::primary_opacity(cx, 0.1)).when(!idle, |s| s.opacity(0.5)), tip).child(label)
+        tipped!(
+            div()
+                .id(key)
+                .flex_none()
+                .px(px(10.))
+                .py(px(4.))
+                .rounded(px(6.))
+                .bg(style::primary_opacity(cx, 0.1))
+                .when(!idle, |s| s.opacity(0.5)),
+            tip
+        )
+        .child(label)
     };
-    let on = |app: &WeakEntity<Threadbear>, f: fn(&mut Threadbear, String, &mut Context<Threadbear>), id: &String| {
+    let on = |app: &WeakEntity<Threadbear>,
+              f: fn(&mut Threadbear, String, &mut Context<Threadbear>),
+              id: &String| {
         let (app, id) = (app.clone(), id.clone());
         move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
             if let Some(app) = app.upgrade() {
@@ -110,9 +183,18 @@ fn render(app: WeakEntity<Threadbear>, id: String, card: LongThread, busy: Optio
     };
     let not_now = {
         let (app, id, card) = (app.clone(), id.clone(), card.clone());
-        button("long-notnow", "Not now", "Hide this for this thread until it gets longer still", true).cursor_pointer().on_click(move |_: &ClickEvent, _, cx| {
+        button(
+            "long-notnow",
+            "Not now",
+            "Hide this for this thread until it gets longer still",
+            true,
+        )
+        .cursor_pointer()
+        .on_click(move |_: &ClickEvent, _, cx| {
             if let Some(app) = app.upgrade() {
-                app.update(cx, |this, cx| this.dismiss_long_thread(id.clone(), &card, tokens, cx));
+                app.update(cx, |this, cx| {
+                    this.dismiss_long_thread(id.clone(), &card, tokens, cx)
+                });
             }
         })
     };
@@ -133,19 +215,39 @@ fn render(app: WeakEntity<Threadbear>, id: String, card: LongThread, busy: Optio
                 idle,
             );
             buttons
-                .child(compact.when(idle, |s| s.cursor_pointer().on_click(on(&app, Threadbear::compact_long_thread, &id))))
-                .child(carry.when(idle, |s| s.cursor_pointer().on_click(on(&app, Threadbear::continue_long_thread, &id))))
+                .child(compact.when(idle, |s| {
+                    s.cursor_pointer()
+                        .on_click(on(&app, Threadbear::compact_long_thread, &id))
+                }))
+                .child(carry.when(idle, |s| {
+                    s.cursor_pointer()
+                        .on_click(on(&app, Threadbear::continue_long_thread, &id))
+                }))
                 .child(not_now)
         }
-        LongThread::Writing => buttons.child(Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(secondary).with_size(px(12.))),
+        LongThread::Writing => buttons.child(
+            Spinner::new()
+                .icon(gpui_kit::assets::IconName::LoaderCircle)
+                .color(secondary)
+                .with_size(px(12.)),
+        ),
         LongThread::Continued(next) => {
             let (app, next_id) = (app.clone(), next.thread_id.clone());
             buttons
-                .child(button("long-open", "Open", "Go to the thread this one carried on in", true).cursor_pointer().on_click(move |_: &ClickEvent, window, cx| {
-                    if let Some(app) = app.upgrade() {
-                        app.update(cx, |this, cx| this.open(next_id.clone(), window, cx));
-                    }
-                }))
+                .child(
+                    button(
+                        "long-open",
+                        "Open",
+                        "Go to the thread this one carried on in",
+                        true,
+                    )
+                    .cursor_pointer()
+                    .on_click(move |_: &ClickEvent, window, cx| {
+                        if let Some(app) = app.upgrade() {
+                            app.update(cx, |this, cx| this.open(next_id.clone(), window, cx));
+                        }
+                    }),
+                )
                 .child(not_now)
         }
     };
@@ -162,7 +264,13 @@ fn render(app: WeakEntity<Threadbear>, id: String, card: LongThread, busy: Optio
         .border_1()
         .border_color(hairline)
         .text_size(px(style::size::LABEL))
-        .child(div().flex_1().min_w(px(240.)).text_color(secondary).child(card.message()))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(240.))
+                .text_color(secondary)
+                .child(card.message()),
+        )
         .child(buttons)
         .into_any_element()
 }

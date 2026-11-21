@@ -54,7 +54,9 @@ impl Dismissals {
         while self.0.len() > Self::MAX {
             let first = self.0.keys().next().cloned();
             match first {
-                Some(k) if k != thread_id => { self.0.remove(&k); }
+                Some(k) if k != thread_id => {
+                    self.0.remove(&k);
+                }
                 _ => break,
             }
         }
@@ -65,7 +67,13 @@ impl LongThread {
     /// How far along: what Not now hides, up to and including.
     fn rank(&self) -> u8 {
         match self {
-            LongThread::Suggest { firm, .. } => if *firm { 2 } else { 1 },
+            LongThread::Suggest { firm, .. } => {
+                if *firm {
+                    2
+                } else {
+                    1
+                }
+            }
             LongThread::Writing => 0,
             LongThread::Continued(_) => 3,
         }
@@ -83,11 +91,18 @@ impl LongThread {
         if thread.busy() {
             return None;
         }
-        let card = if let Some(next) = thread.continued_in.clone().filter(|n| !n.thread_id.is_empty()) {
+        let card = if let Some(next) = thread
+            .continued_in
+            .clone()
+            .filter(|n| !n.thread_id.is_empty())
+        {
             LongThread::Continued(next)
         } else {
             match (thread.context_long.as_deref(), thread.context_tokens) {
-                (Some(level @ ("gentle" | "firm")), Some(tokens)) => LongThread::Suggest { firm: level == "firm", tokens },
+                (Some(level @ ("gentle" | "firm")), Some(tokens)) => LongThread::Suggest {
+                    firm: level == "firm",
+                    tokens,
+                },
                 _ => return None,
             }
         };
@@ -101,7 +116,10 @@ impl LongThread {
 
     /// What Not now on this card records.
     pub fn dismissal(&self, tokens: Option<i64>) -> Dismissal {
-        Dismissal { rank: self.rank(), tokens: tokens.unwrap_or(0) }
+        Dismissal {
+            rank: self.rank(),
+            tokens: tokens.unwrap_or(0),
+        }
     }
 
     /// The card's words.
@@ -126,17 +144,45 @@ mod tests {
     use super::*;
 
     fn thread(long: Option<&str>, tokens: Option<i64>, status: &str) -> ThreadSummary {
-        ThreadSummary { id: "t1".into(), title: "T".into(), status: status.into(), context_tokens: tokens, context_long: long.map(str::to_owned), ..Default::default() }
+        ThreadSummary {
+            id: "t1".into(),
+            title: "T".into(),
+            status: status.into(),
+            context_tokens: tokens,
+            context_long: long.map(str::to_owned),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn shows_the_runners_level_between_turns_only() {
-        assert_eq!(LongThread::card(&thread(None, Some(100_000), "idle"), None), None);
-        assert_eq!(LongThread::card(&thread(Some("gentle"), Some(160_000), "idle"), None), Some(LongThread::Suggest { firm: false, tokens: 160_000 }));
-        assert_eq!(LongThread::card(&thread(Some("firm"), Some(260_000), "idle"), None), Some(LongThread::Suggest { firm: true, tokens: 260_000 }));
-        assert_eq!(LongThread::card(&thread(Some("firm"), Some(260_000), "running"), None), None);
+        assert_eq!(
+            LongThread::card(&thread(None, Some(100_000), "idle"), None),
+            None
+        );
+        assert_eq!(
+            LongThread::card(&thread(Some("gentle"), Some(160_000), "idle"), None),
+            Some(LongThread::Suggest {
+                firm: false,
+                tokens: 160_000
+            })
+        );
+        assert_eq!(
+            LongThread::card(&thread(Some("firm"), Some(260_000), "idle"), None),
+            Some(LongThread::Suggest {
+                firm: true,
+                tokens: 260_000
+            })
+        );
+        assert_eq!(
+            LongThread::card(&thread(Some("firm"), Some(260_000), "running"), None),
+            None
+        );
         // A level from a newer runner it doesn't know.
-        assert_eq!(LongThread::card(&thread(Some("huge"), Some(900_000), "idle"), None), None);
+        assert_eq!(
+            LongThread::card(&thread(Some("huge"), Some(900_000), "idle"), None),
+            None
+        );
         let mut sample = thread(Some("firm"), Some(260_000), "idle");
         sample.sample = Some(true);
         assert_eq!(LongThread::card(&sample, None), None);
@@ -144,19 +190,54 @@ mod tests {
 
     #[test]
     fn not_now_holds_until_the_next_level() {
-        let gentle = LongThread::card(&thread(Some("gentle"), Some(160_000), "idle"), None).unwrap();
+        let gentle =
+            LongThread::card(&thread(Some("gentle"), Some(160_000), "idle"), None).unwrap();
         let dismissed = gentle.dismissal(Some(160_000));
-        assert_eq!(LongThread::card(&thread(Some("gentle"), Some(200_000), "idle"), Some(dismissed)), None);
-        assert_eq!(LongThread::card(&thread(Some("firm"), Some(255_000), "idle"), Some(dismissed)), Some(LongThread::Suggest { firm: true, tokens: 255_000 }));
-        let firm = LongThread::Suggest { firm: true, tokens: 255_000 }.dismissal(Some(255_000));
-        assert_eq!(LongThread::card(&thread(Some("firm"), Some(400_000), "idle"), Some(firm)), None);
+        assert_eq!(
+            LongThread::card(
+                &thread(Some("gentle"), Some(200_000), "idle"),
+                Some(dismissed)
+            ),
+            None
+        );
+        assert_eq!(
+            LongThread::card(
+                &thread(Some("firm"), Some(255_000), "idle"),
+                Some(dismissed)
+            ),
+            Some(LongThread::Suggest {
+                firm: true,
+                tokens: 255_000
+            })
+        );
+        let firm = LongThread::Suggest {
+            firm: true,
+            tokens: 255_000,
+        }
+        .dismissal(Some(255_000));
+        assert_eq!(
+            LongThread::card(&thread(Some("firm"), Some(400_000), "idle"), Some(firm)),
+            None
+        );
     }
 
     #[test]
     fn a_compact_voids_not_now() {
-        let dismissed = Dismissal { rank: 2, tokens: 300_000 };
+        let dismissed = Dismissal {
+            rank: 2,
+            tokens: 300_000,
+        };
         // Compacted to 20k, then grown past the gentle level again.
-        assert_eq!(LongThread::card(&thread(Some("gentle"), Some(170_000), "idle"), Some(dismissed)), Some(LongThread::Suggest { firm: false, tokens: 170_000 }));
+        assert_eq!(
+            LongThread::card(
+                &thread(Some("gentle"), Some(170_000), "idle"),
+                Some(dismissed)
+            ),
+            Some(LongThread::Suggest {
+                firm: false,
+                tokens: 170_000
+            })
+        );
     }
 
     #[test]
@@ -166,17 +247,42 @@ mod tests {
         assert_eq!(LongThread::card(&t, None), Some(LongThread::Writing));
         t.continuing = None;
         t.status = "idle".into();
-        t.continued_in = Some(ContinuedIn { thread_id: "t2".into(), title: "T (continued)".into() });
+        t.continued_in = Some(ContinuedIn {
+            thread_id: "t2".into(),
+            title: "T (continued)".into(),
+        });
         let card = LongThread::card(&t, None).unwrap();
-        assert_eq!(card, LongThread::Continued(ContinuedIn { thread_id: "t2".into(), title: "T (continued)".into() }));
-        assert_eq!(card.message(), "Carried on in \u{201C}T (continued)\u{201D}.");
-        assert_eq!(LongThread::card(&t, Some(card.dismissal(Some(300_000)))), None);
+        assert_eq!(
+            card,
+            LongThread::Continued(ContinuedIn {
+                thread_id: "t2".into(),
+                title: "T (continued)".into()
+            })
+        );
+        assert_eq!(
+            card.message(),
+            "Carried on in \u{201C}T (continued)\u{201D}."
+        );
+        assert_eq!(
+            LongThread::card(&t, Some(card.dismissal(Some(300_000)))),
+            None
+        );
     }
 
     #[test]
     fn the_words_name_the_size() {
-        assert!(LongThread::Suggest { firm: false, tokens: 160_000 }.message().starts_with("This conversation is long (160k tokens)."));
-        assert!(LongThread::Suggest { firm: true, tokens: 262_000 }.message().starts_with("This conversation is very long (262k tokens)."));
+        assert!(LongThread::Suggest {
+            firm: false,
+            tokens: 160_000
+        }
+        .message()
+        .starts_with("This conversation is long (160k tokens)."));
+        assert!(LongThread::Suggest {
+            firm: true,
+            tokens: 262_000
+        }
+        .message()
+        .starts_with("This conversation is very long (262k tokens)."));
     }
 
     #[test]
@@ -185,20 +291,43 @@ mod tests {
         let t: ThreadSummary = serde_json::from_str(json).unwrap();
         assert_eq!(t.context_long.as_deref(), Some("gentle"));
         assert_eq!(t.continuing, Some(true));
-        assert_eq!(t.continued_in, Some(ContinuedIn { thread_id: "t2".into(), title: "Next".into() }));
+        assert_eq!(
+            t.continued_in,
+            Some(ContinuedIn {
+                thread_id: "t2".into(),
+                title: "Next".into()
+            })
+        );
         // A malformed one leaves the rest of the summary standing.
-        let bad: ThreadSummary = serde_json::from_str(r#"{"id":"t1","title":"T","continuing":"yes","continuedIn":7}"#).unwrap();
-        assert_eq!((bad.title.as_str(), bad.continuing, bad.continued_in), ("T", None, None));
+        let bad: ThreadSummary =
+            serde_json::from_str(r#"{"id":"t1","title":"T","continuing":"yes","continuedIn":7}"#)
+                .unwrap();
+        assert_eq!(
+            (bad.title.as_str(), bad.continuing, bad.continued_in),
+            ("T", None, None)
+        );
     }
 
     #[test]
     fn dismissals_round_trip_and_stay_small() {
         let mut d = Dismissals::default();
-        d.dismiss("t1", Dismissal { rank: 1, tokens: 160_000 });
+        d.dismiss(
+            "t1",
+            Dismissal {
+                rank: 1,
+                tokens: 160_000,
+            },
+        );
         let json = serde_json::to_string(&d).unwrap();
         assert_eq!(json, r#"{"t1":{"rank":1,"tokens":160000}}"#);
         let back: Dismissals = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.get("t1"), Some(Dismissal { rank: 1, tokens: 160_000 }));
+        assert_eq!(
+            back.get("t1"),
+            Some(Dismissal {
+                rank: 1,
+                tokens: 160_000
+            })
+        );
         for i in 0..600 {
             d.dismiss(&format!("x{i:04}"), Dismissal::default());
         }
