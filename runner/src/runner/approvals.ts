@@ -15,7 +15,7 @@ import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN, type SecretFiles } 
 import { START_CARD, type RequestAnswer } from '../cross-runner.ts';
 import { noAppToAllow } from '../app-seen.ts';
 import { REMOTE_ALLOW_REFUSED, remoteCardShowsAll } from '../tools.ts';
-import { reviewCard, reviewerLeftIt, reviewsCards, type CardForReview, type CardVerdict } from './card-review.ts';
+import { NEVER_REVIEWED, reviewCard, reviewerLeftIt, reviewsCards, type CardForReview, type CardVerdict } from './card-review.ts';
 
 export type SecretRequest = { label: string; reason: string; placeholder?: string; timeoutMinutes?: number; toolUseId?: string; signal?: AbortSignal };
 export type SecretAnswer = ({ status: 'saved' } & SecretFiles) | { status: 'declined' | 'expired'; message?: string };
@@ -83,6 +83,9 @@ export const approvalsPart = {
       }) as unknown as Record<string, never>;
     }
     if (pending.kind === 'question') {
+      if (params.remote && pending.macOnly && params.decision === 'answered') {
+        throw new RpcError(ErrorCode.badParams, `${REMOTE_ALLOW_REFUSED} Answer it on the Mac.`);
+      }
       if (params.decision === 'answered') {
         const answers = matchAnswers(pending.questions, params.answers ?? {});
         if (!answers) throw new RpcError(ErrorCode.badParams, 'answers must cover every question');
@@ -160,7 +163,8 @@ export const approvalsPart = {
     // comes as edit.diff), so the reviewer couldn't see what it allows.
     if (req.name !== 'ExitPlanMode' && st.rec.provider === 'claude' && reviewsCards(this, st)) {
       const title = approvalTitle(req.name, req.input, (q) => this.findThread(q)) ?? req.title;
-      return this.reviewThenCard(st, gen, { name: req.name, title, input: req.wholeInput ?? req.input }, req.signal, () => this.approvalCard(st, req), Boolean(req.toolUseId));
+      // savable: a call whose card offers Always allow can be a saved rule (asks-later.ts).
+      return this.reviewThenCard(st, gen, { name: req.name, title, input: req.wholeInput ?? req.input, savable: req.canAlwaysAllow && !NEVER_REVIEWED.has(req.name) }, req.signal, () => this.approvalCard(st, req), Boolean(req.toolUseId));
     }
     return this.approvalCard(st, req);
   },
@@ -168,8 +172,16 @@ export const approvalsPart = {
   // An Auto thread's card goes past the reviewer first (runner/card-review.ts):
   // allowed there, the call goes ahead with a note saying so; otherwise
   // `show` puts the card up for Mike, after a note with the reviewer's reason.
-  async reviewThenCard(this: Runner, st: ThreadState, gen: number, card: CardForReview, signal: AbortSignal | undefined, show: () => Promise<ToolApprovalAnswer>, main = true): Promise<ToolApprovalAnswer> {
+  async reviewThenCard(this: Runner, st: ThreadState, gen: number, card: CardForReview & { savable?: boolean }, signal: AbortSignal | undefined, show: () => Promise<ToolApprovalAnswer>, main = true): Promise<ToolApprovalAnswer> {
     const { rt } = st;
+    // Ask me later (asks-later.ts): what the user allowed earlier goes ahead
+    // without the reviewer.
+    const later = this.asksLaterOn(st);
+    const earlier = later ? this.allowedEarlier(st, card) : undefined;
+    if (earlier) {
+      this.emit(st, { type: 'system.note', text: earlier }, rt.turn?.turnId);
+      return { decision: 'allow' };
+    }
     // Settled at once by Stop, the turn ending or Mike writing (expireApprovals,
     // send), as a card would be, without waiting for the model.
     // `settled` is kept as well as raced: a verdict ready in the same tick
@@ -205,6 +217,8 @@ export const approvalsPart = {
     }
     // Switched out of Auto meanwhile, it's an ordinary card.
     const why = verdict.allow || entry.stale || !reviewsCards(this, st) ? undefined : verdict.why;
+    // Ask me later: refused now, and the question waits in Permission requests.
+    if (later && !verdict.allow && !entry.stale && this.asksLaterOn(st)) return this.blockForLater(st, card, why);
     if (!why) return show();
     this.emit(st, { type: 'system.note', text: `The reviewer left this one for you: ${why}` }, rt.turn?.turnId);
     // The agent sees only the answer, so without this it guessed why it was

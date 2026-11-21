@@ -187,6 +187,9 @@ File references are where to look.
   Convex mirror so a restart sends only what changed, and
   `shared-pools.json`, the last pools your Convex backend had, which every
   runner shares, so one starts with them while the backend can't be reached,
+  `asks-later.json`, with the Ask me later experiment on, the rules you
+  saved in Permission requests and the questions waiting there (each with
+  the thread's title and the command or file it was refused),
   `profiles/`, the last ten CPU profiles of the runner, made only when
   you run `tb profile` (code names and timings, no thread text),
   and `shortcuts.json`, the keyboard shortcuts you've changed in Settings >

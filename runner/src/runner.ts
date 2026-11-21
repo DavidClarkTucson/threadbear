@@ -149,6 +149,7 @@ import type { ThreadMoving } from './moves.ts';
 import { stoppedWorkPart, type StoppedWorkPart } from './runner/stopped-work.ts';
 import { projectsHostPart, type ProjectsHostPart } from './runner/projects-host.ts';
 import { approvalsPart, settleDeclined, type ApprovalsPart, type SecretAnswer } from './runner/approvals.ts';
+import { asksLaterPart, type AsksLaterPart } from './runner/asks-later.ts';
 import type { RequestAnswer } from './cross-runner.ts';
 import { SecretStore } from './secrets.ts';
 import { reviewsPart, type ReviewsPart } from './runner/reviews.ts';
@@ -294,7 +295,7 @@ export type PendingApproval =
   // itemId and queued: the agent's call and the calls waiting behind it
   // on the same card (docs/protocol.md, "Queued calls"), by itemId.
   | { approvalId: string; kind: 'tool'; main: boolean; title?: string; plan?: string; macOnly?: boolean; itemId?: string; queued?: Set<string>; fullAllows?: boolean; resolve: (a: ToolApprovalAnswer) => void }
-  | { approvalId: string; kind: 'question'; main: boolean; title?: string; questions: Question[]; resolve: (a: QuestionAnswer) => void }
+  | { approvalId: string; kind: 'question'; main: boolean; title?: string; questions: Question[]; macOnly?: boolean; resolve: (a: QuestionAnswer) => void }
   // An agent's ask_secret (docs/protocol.md, "Secrets"). The value never
   // passes through here: secrets.answer writes the file and hands this the
   // paths.
@@ -776,7 +777,7 @@ export const UNTIL_RESTART = '9999-12-31T00:00:00.000Z';
 export const NO_WAKE_TIME = UNTIL_RESTART;
 
 // Parts of the Runner that live in runner/ (see each file's top).
-export interface Runner extends LooseEndsPart, QuietInboxPart, InboxGuessPart, NestedPart, MailPart, ColdCompactPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, LongThreadsPart, KeepWarmPart, ContextUsagePart, MovesPart, WarmStartPart {}
+export interface Runner extends LooseEndsPart, QuietInboxPart, InboxGuessPart, NestedPart, MailPart, ColdCompactPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, LongThreadsPart, KeepWarmPart, ContextUsagePart, MovesPart, WarmStartPart, AsksLaterPart {}
 export class Runner {
   // While main.ts is still starting up: waking a thread for its waits
   // (reconcileWaits) would start a CLI whose tools aren't ready, so they
@@ -1048,6 +1049,12 @@ export class Runner {
     this.seedPatchTrust(records.map((r) => r.cwd));
     this.flush();
     void this.settleLostCleanups();
+    // Permission requests still open put their cards back up (asks-later.ts).
+    try {
+      this.repostLaterAsks();
+    } catch (e) {
+      this.log.warn('asks later: could not put the open questions back', { error: String(e) });
+    }
     // A guess the last runner was still making when it stopped or let a
     // thread go (runner/inbox-guess.ts); it catches its own errors.
     for (const st of this.threads.values()) this.catchUpInboxGuess(st, GUESS_CATCH_UP_MS);
@@ -4974,7 +4981,7 @@ export class Runner {
 
 // The Runner's other methods live in parts under runner/, one area each;
 // they go onto its prototype here, as the class's own methods would be.
-for (const part of [looseEndsPart, quietInboxPart, inboxGuessPart, nestedPart, mailPart, coldCompactPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, longThreadsPart, keepWarmPart, contextUsagePart, movesPart, warmStartPart]) {
+for (const part of [looseEndsPart, quietInboxPart, inboxGuessPart, nestedPart, mailPart, coldCompactPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, longThreadsPart, keepWarmPart, contextUsagePart, movesPart, warmStartPart, asksLaterPart]) {
   for (const [key, d] of Object.entries(Object.getOwnPropertyDescriptors(part))) {
     Object.defineProperty(Runner.prototype, key, { ...d, enumerable: false });
   }
