@@ -476,7 +476,7 @@ shown on the composer (the box you type in) and changed by clicking it.
   (switching a thread to more access, starting a thread with more, a
   schedule, moving a thread or changing its logins) always come to you, and
   so do Codex threads' own tool cards.
-  With the Ask me later experiment on (`asksLater`, [Experiments](experiments.md)),
+  With the Ask me later experiment on (`asksLater`, [Experiments](#experiments)),
   an Auto thread never waits on one of those cards. What the reviewer
   would have handed you is refused straight away, the agent carries on
   without it and says in its final reply what it couldn't do, and the
