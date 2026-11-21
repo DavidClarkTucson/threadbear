@@ -154,7 +154,7 @@ export function discoverAccounts(cfg: DiscoveryConfig): Account[] {
     if (note) a.note = note;
     const cap = cfg.accountCaps?.[a.id];
     if (cap) a.usageCap = cap;
-    if (cfg.spareAccounts?.includes(a.id)) a.spare = true;
+    if (cfg.spareAccounts?.includes(a.id)) Object.assign(a, { spare: true });
     // By id or by email, as pools know logins by email across machines.
     if (cfg.preferredAccounts?.some((x) => x === a.id || (!!a.email && x.toLowerCase() === a.email.toLowerCase()))) a.preferred = true;
   }
