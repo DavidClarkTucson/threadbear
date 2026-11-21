@@ -232,7 +232,7 @@ fn render(
                 .with_size(px(12.)),
         ),
         LongThread::Continued(next) => {
-            let (app, next_id) = (app.clone(), next.thread_id.clone());
+            let next_id = next.thread_id.clone();
             buttons
                 .child(
                     button(
