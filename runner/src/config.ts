@@ -153,7 +153,7 @@ export type Config = {
   // Long threads (context-nudge.ts): the context token counts for the
   // composer's card, or null for none. Unset (tests) means the defaults.
   contextNudge?: ContextNudge | null;
-  // One reply (docs/protocol.md, "One reply"): end_turn carries the card
+  // One reply (docs/protocol/needs-you.md, "One reply"): end_turn carries the card
   // and a headline, and the agent's message straight after it is the
   // turn's reply. Off by default while Mike tries it (1 Nov 2026).
   oneReply: boolean;

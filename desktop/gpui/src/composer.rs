@@ -571,7 +571,7 @@ impl Composer {
             if advice.stopped {
                 let on = thread.carry_on_at_reset;
                 let tip: String = if on {
-                    format!("It carries on from where it stopped {}. No to leave it until you send a message", when.clone().unwrap_or_else(|| "once its limit resets".into()))
+                    format!("It carries on from where it stopped {}. No to leave it until you send a message", when.unwrap_or_else(|| "once its limit resets".into()))
                 } else {
                     "It waits for you to send a message. Yes to carry on from where it stopped once there's room".into()
                 };
@@ -640,7 +640,7 @@ impl Composer {
         let (text, images) = self.draft(cx);
         let mut all = RestoreDraft::plain(text, images);
         if let Some(id) = &self.thread_id {
-            for held in crate::thread::held_drafts(id).into_iter().rev() {
+            for held in crate::thread::held_drafts(id, cx).into_iter().rev() {
                 all = RestoreDraft::joined(held, all);
             }
         }
@@ -706,7 +706,7 @@ impl Composer {
         if self
             .thread_id
             .as_deref()
-            .is_some_and(crate::thread::sending_now)
+            .is_some_and(|id| crate::thread::sending_now(id, cx))
         {
             return Some("the message on its way in “{t}” has gone");
         }
@@ -761,7 +761,7 @@ impl Composer {
         self.draft(cx).1.len()
     }
 
-    fn pane(&self) -> Option<Entity<ThreadPane>> {
+    pub(crate) fn pane(&self) -> Option<Entity<ThreadPane>> {
         self.pane.upgrade()
     }
 
@@ -853,6 +853,9 @@ impl Composer {
             || !self.card.next_picks.is_empty()
             || !self.card.explain.is_empty()
             || self.review_picks(cx).is_some()
+            // A changed draft's chip says it goes with the message, so it
+            // can go on its own (composer_drafts.rs).
+            || self.has_pending_drafts(cx)
     }
 
     /// The review this box answers when it's sent: one of this thread's
@@ -1904,7 +1907,7 @@ impl Composer {
         let prev_is_space = text[..selection.start]
             .chars()
             .next_back()
-            .map_or(true, char::is_whitespace);
+            .is_none_or(char::is_whitespace);
         let next_is_space = text[selection.end..]
             .chars()
             .next()
@@ -2036,7 +2039,9 @@ impl Composer {
             }
             return;
         };
-        let at = Self::chip_range(&target, id, cx).unwrap().end;
+        let Some(at) = Self::chip_range(&target, id, cx).map(|r| r.end) else {
+            return;
+        };
         let (before, selection) = Self::text_and_selection(&target, cx);
         target.update(cx, |s, cx| s.set_selected_range(at..at, cx));
         self.insert_pictures(&target, paths, false, window, cx);
@@ -2141,7 +2146,7 @@ impl Composer {
         } else if range.start > 0 && bytes[range.start - 1] == b' ' {
             range.start - 1..range.end
         } else {
-            range.clone()
+            range
         };
         let shift = |at: usize| {
             if at <= gone.start {
@@ -2375,7 +2380,7 @@ impl Composer {
                         .elements()
                         .into_iter()
                         .filter(|e| e.visible() && e.label() == Some(label))
-                        .last()
+                        .next_back()
                         .map(|e| (e.bounds(), e.visible_bounds()))
                 };
                 let (tile, drawn) = found(&label, &*window)
@@ -2783,9 +2788,9 @@ impl Composer {
             // while its thread moves to another machine.
             .when(creating, |s| s.opacity(0.5))
             .capture_action(cx.listener(|this, action: &Enter, window, cx| {
-                if action.shift && this.shift_return(window, cx) {
-                    cx.stop_propagation();
-                } else if !action.shift && this.palette_key(PaletteKey::Enter, window, cx) {
+                if (action.shift && this.shift_return(window, cx))
+                    || (!action.shift && this.palette_key(PaletteKey::Enter, window, cx))
+                {
                     cx.stop_propagation();
                 }
             }))
@@ -3027,6 +3032,9 @@ impl Render for Composer {
         let answer_chips = self.render_answer_chips(cx);
         // And the options ticked on a review's page beside the thread.
         let review_picks = self.render_review_picks(cx);
+        // Drafts he's changed in this thread's replies, which go with the
+        // message: a chip each, so it's plain they do (composer_drafts.rs).
+        let draft_chips = self.render_draft_chips(cx);
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
         let palette = self.render_palette(window, cx);
         let width = self.card_width.clone();
@@ -3063,6 +3071,7 @@ impl Render for Composer {
             .children(editing_banner)
             .children(answer_chips)
             .children(review_picks)
+            .children(draft_chips)
             .when_some(strip, |s, strip| s.child(strip))
             .child(self.render_text_field(locked, cx))
             .child(controls);
@@ -3477,6 +3486,18 @@ pub(crate) fn unstage(path: &std::path::Path) {
     }
 }
 
+/// The JSON a picture goes as (`ImageRef` in docs/protocol.md).
+pub fn image_ref_json(image: &ImageRef) -> Value {
+    let mut out = json!({ "path": image.path, "mediaType": image.media_type });
+    if let Some(w) = image.width {
+        out["width"] = json!(w);
+    }
+    if let Some(h) = image.height {
+        out["height"] = json!(h);
+    }
+    out
+}
+
 #[cfg(test)]
 mod paste_tests {
     use super::{keep_picture, stage_private, unstage, write_staged};
@@ -3587,16 +3608,4 @@ mod paste_tests {
             );
         }
     }
-}
-
-/// The JSON a picture goes as (`ImageRef` in docs/protocol.md).
-pub fn image_ref_json(image: &ImageRef) -> Value {
-    let mut out = json!({ "path": image.path, "mediaType": image.media_type });
-    if let Some(w) = image.width {
-        out["width"] = json!(w);
-    }
-    if let Some(h) = image.height {
-        out["height"] = json!(h);
-    }
-    out
 }

@@ -217,7 +217,10 @@ impl MenuItem {
     }
     /// Shown, greyed: a choice that's coming but isn't here yet. None just
     /// now (the folder's Show as icons was the last).
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "none just now; kept for the next choice that's coming"
+    )]
     pub(crate) fn disabled(title: impl Into<String>, symbol: &'static str) -> Self {
         Self {
             title: title.into(),
@@ -1321,7 +1324,7 @@ impl SidePane {
         cx: &mut Context<Self>,
     ) {
         let entity = cx.entity().downgrade();
-        let build = items.clone();
+        let build = items;
         let view = PopupMenu::build(window, cx, move |menu, window, cx| {
             fill_menu(menu, &build, entity.clone(), window, cx)
         });
@@ -1943,7 +1946,7 @@ impl PaneRow {
         });
         let mut wrapper = div().id(self.id).px(px(OUTER_INSET)).child(row);
         if let Some(tip) = self.tip {
-            wrapper = wrapper.tip(tip.clone());
+            wrapper = wrapper.tip(tip);
         }
         let mut wrapper = wrapper
             .test_support()
@@ -2046,7 +2049,7 @@ impl SidePane {
         )
         .child(h.title.clone());
         let mut label = h_flex()
-            .group(group.clone())
+            .group(group)
             .flex_1()
             .min_w_0()
             .gap(px(6.))
@@ -2138,7 +2141,7 @@ impl SidePane {
         let mut list = v_flex();
         list = list.child(self.heading(
             Heading {
-                key: key.clone(),
+                key,
                 title: row.project.title.clone(),
                 icon: Some(
                     crate::highlights_project::project_icon(&row.project, cx).into_any_element(),
@@ -2289,6 +2292,10 @@ impl SidePane {
         pr.render(p, cx).into_any_element()
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 395 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn render_highlights(
         &mut self,
         thread: &ThreadSummary,
@@ -2747,7 +2754,7 @@ impl SidePane {
             "square"
         };
         let action = crate::files::plain_markdown(&ask.action);
-        let (key, id2) = (format!("{thread_id}-{index}"), thread_id.clone());
+        let (key, id2) = (format!("{thread_id}-{index}"), thread_id);
         let button = tipped(
             div()
                 .id(SharedString::from(format!("hl-tick-{key}")))
@@ -2866,7 +2873,7 @@ impl SidePane {
                         )))
                         .indent()
                         .tip("Open in its app")
-                        .drag(Some(path.clone()).filter(|_| !thread.is_remote()))
+                        .drag((!thread.is_remote()).then(|| path.clone()))
                         .on_click(move |this, _window, cx| {
                             // Code to read in an editor, not to review. Another Mac's
                             // copy is fetched and opened by files.rs.
