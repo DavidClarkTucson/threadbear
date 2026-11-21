@@ -275,7 +275,7 @@ export const asksLaterPart = {
   postLaterAsk(this: Runner, ask: LaterAsk): void {
     const st = this.laterInbox();
     // Unarchived and woken, so the card is seen.
-    if (st.rec.archivedAt) delete st.rec.archivedAt;
+    if (st.rec.archivedAt) this.park(st, { kind: 'unarchive' });
     const approvalId = crypto.randomUUID();
     const questions = [laterQuestion(ask)];
     const body: EventBody = { type: 'question.requested', approvalId, questions };

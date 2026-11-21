@@ -190,3 +190,15 @@ test('asksLater: what the reviewer allows still goes ahead with no question', as
   assert.equal((await bash(s, 'make')).decision, 'allow');
   assert.equal(readAsksLater(h.home).asks.length, 0);
 });
+
+test('asksLater: a new ask brings an archived Permission requests thread back to the inbox', async () => {
+  const h = setup();
+  const { s } = thread(h);
+  await bash(s, 'npm test -- --ci');
+  const { id: inboxId } = inbox(h);
+  h.runner.update({ threadId: inboxId, archived: true });
+  assert.ok(h.runner.get(inboxId).archivedAt, 'archived');
+  await bash(s, 'make deploy');
+  assert.equal(h.runner.get(inboxId).archivedAt, undefined, 'out again');
+  assert.equal(inbox(h).cards.length, 2);
+});
