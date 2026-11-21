@@ -2203,7 +2203,7 @@ export class Runner {
     if (msg.beforeMessage) return `${msg.text}\n\nThis ${msg.origin === 'schedule' ? 'reminder' : 'message'} was queued before a later message in this thread. Follow the later instructions, including any request to stop.`;
     if (msg.origin !== 'phone') return msg.text;
     const atMac = this.atMac?.();
-    const where = atMac === true ? ', at the Mac' : atMac === false ? ', away from the Mac' : '';
+    const where = atMac === true ? ', at the computer' : atMac === false ? ', away from the computer' : '';
     return `[Sent from the phone app${where}]\n${msg.text}`;
   }
 

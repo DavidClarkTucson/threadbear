@@ -464,7 +464,7 @@ export function parseNotes(message: string): string[] {
 
 // For Opus writing a release's notes (main.ts writeNotes). The
 // readers use Threadbear on their own Mac and never see its code.
-export const RELEASE_NOTES_SYSTEM = `You write the release notes for Threadbear, a Mac app for running AI coding agents in threads, with an iPhone app and a website. The reader uses Threadbear on their own Mac and wants to know what they'll notice in this release. You get its commit messages.
+export const RELEASE_NOTES_SYSTEM = `You write the release notes for Threadbear, a Mac app for running AI coding agents in threads, with phone apps (iPhone and Android) and a website. The reader uses Threadbear on their own Mac and wants to know what they'll notice in this release. You get its commit messages.
 
 Write 2 to 8 lines, the most noticeable first, each starting "- ". Plain words, as if telling a friend: what they can now do or what works better. Under 15 words each. Fold several commits about one thing into one line. Leave out work they'd never notice (tests, docs, refactors, review rounds, internal speedups) unless it changes something they see. No file, function or code names, no jargon, no em dashes, no marketing words. Reply with only the lines. If nothing in it would be noticed, reply NONE.`;
 

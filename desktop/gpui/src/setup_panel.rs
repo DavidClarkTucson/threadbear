@@ -196,7 +196,7 @@ impl Threadbear {
                     }
                 })),
                 SetupItem::FirstThread => None,
-                SetupItem::Phone => Some(PushButton::new("setup-phone", "Open Phone & browser", "Settings › Phone & browser, where Show the code… gives the iPhone app a code to scan").render(cx, {
+                SetupItem::Phone => Some(PushButton::new("setup-phone", "Open Phone & browser", "Settings › Phone & browser, where Show the code… gives the phone app a code to scan").render(cx, {
                     let app = cx.entity().downgrade();
                     move |_, _, cx| {
                         app.update(cx, |this, cx| this.open_settings(Some(crate::settings_window::Tab::Devices), cx)).ok();

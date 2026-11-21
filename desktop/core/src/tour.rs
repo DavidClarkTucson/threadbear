@@ -415,7 +415,7 @@ impl SetupItem {
     pub fn title(self) -> &'static str {
         match self {
             SetupItem::FirstThread => "Start your first thread",
-            SetupItem::Phone => "Pair your iPhone",
+            SetupItem::Phone => "Pair your phone",
             SetupItem::Website => "Open your website",
         }
     }

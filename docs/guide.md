@@ -10,7 +10,7 @@ Threadbear is a Mac app for running AI agent threads. It drives the official
 Claude Code and Codex command line tools on your own logins. A small program
 called the runner keeps every agent going in the background, so quitting or
 updating the app never stops a thread. Your threads are also copied to a
-Convex deployment of your own, which is how the iPhone app and the website
+Convex deployment of your own, which is how the phone apps (iPhone and Android) and the website
 can follow along.
 
 This guide is for using it. `INSTALL.md` covers setting it up, and `docs/`
@@ -267,7 +267,7 @@ message, so a go ahead in your reply doesn't set the same job off twice. It work
 without Full access can't make a button that does more than it could
 itself, and that's checked again when you press it.
 
-On the iPhone, tap Reviews in the thread's top bar, or a review link in a
+In the iPhone app, tap Reviews in the thread's top bar, or a review link in a
 reply. The sheet shows the options, their notes and a still of each
 picture. Pick any options, None of these, or write a reply, then Send
 answer. Reference options are there to compare and can't be picked. The
@@ -455,7 +455,7 @@ shown on the composer (the box you type in) and changed by clicking it.
   never ask. When a Claude agent sends several things that ask at once
   (say four edits), they come on one card, each with a tick and a cross:
   Allow lets through the ticked ones and refuses the rest, and Deny all
-  refuses them all. The iPhone shows the first and asks about the rest one
+  refuses them all. The iPhone app shows the first and asks about the rest one
   at a time.
 - **Auto** (Claude threads only): a separate safety check approves or blocks
   each action, and a card shows only when it can't decide. The card says
@@ -844,8 +844,8 @@ Waiting on and which. If it was given more access while it slept, and
 one of them has less, it wakes for you instead, with a note, and what
 they said isn't passed on until you send a message. It can also say what it's waiting for a thread to
 do ("until it reports the I/O saving"), and then the librarian reads
-that thread after each of its turns and wakes it once it has. On the
-iPhone and the website a hibernating row starts "Until …" when it waits
+that thread after each of its turns and wakes it once it has. In the
+iPhone app and the website a hibernating row starts "Until …" when it waits
 for more than a time. A thread can also hibernate until the runner
 updates to a new release (a restart on the same one leaves it asleep).
 One that has landed a change to the app and is waiting to check it
@@ -1927,9 +1927,9 @@ the thread runs on.
 ## Your phone and a browser
 <!-- slug: phone-and-browser -->
 
-<!-- picture: /clips/phone.mp4 alt: Your threads on your iPhone, answered from anywhere -->
+<!-- picture: /clips/phone.mp4 alt: Your threads on your phone, answered from anywhere -->
 
-The Threadbear iPhone app is for when you're away from the Mac: ask a
+The Threadbear phone app (iPhone, or Android below) is for when you're away from your computer: ask a
 thread a question, steer it, answer the ones that need you, start new
 ones, and see how they're all getting on. Its inbox sorts threads the
 way the Mac's does, into Starred, Inbox, Running, Hibernating and
@@ -1957,7 +1957,7 @@ yourself: it works once, for ten minutes, and whoever scans it first can run
 your agents. To pair a phone that's paired already, Unpair it in its Settings
 first. The same tab lists each paired phone and browser with
 when it was paired and until when (90 days), and Revoke signs one out and
-stops its notifications; Settings > Unpair this phone on the iPhone forgets it from that side. The
+stops its notifications; Settings > Unpair this phone in the phone app forgets it from that side. The
 terminal command setup used to print still works too:
 
     swift ios/scripts/pair-qr.swift --prod --url <your deployment URL>
@@ -1965,14 +1965,14 @@ terminal command setup used to print still works too:
 If you have them on, notifications reach your phone only while you're away
 from the Mac by default. Threadbear counts you as at the Mac when the app is open and you've
 used the keyboard or mouse in the last two minutes, and as away when the Mac
-is asleep. On the iPhone, Settings > Notify me changes it to Always or Never.
+is asleep. In the iPhone app, Settings > Notify me changes it to Always or Never.
 
-Ask on the iPhone: press the Action button, say a question, and hear the
+Ask, in the iPhone app: press the Action button, say a question, and hear the
 answer from an archive server of your own, one that knows your past
 threads. Mike's is Agent Archive, which isn't public yet: he'll be talking
 about it soon and releasing it then. Until then, any server that speaks
 [Ask's small protocol](https://github.com/mikecann/threadbear/blob/main/docs/ask-server.md)
-works. Set it up in the iPhone's Settings > Ask: Scan the code reads a
+works. Set it up in the iPhone app's Settings > Ask: Scan the code reads a
 setup code your server shows (Agent Archive's
 `npm run phone-token -- issue --bruce --qr`), or type in the server's
 address and a token from it. The phone has to be able to reach the server,
@@ -2098,7 +2098,7 @@ over Tailscale (or your own way, below). It's the same backend and the same feat
 limits:
 
 - **No phone notifications.** The push relay only works with Convex
-  cloud. The iPhone app shows what needs you when you open it, and its
+  cloud. The phone app shows what needs you when you open it, and its
   Settings say why nothing arrives.
 - **Your phone needs Tailscale on**, as the backend is only on your
   tailnet.
@@ -2145,7 +2145,7 @@ It's the same backend in Docker, on this Mac's `127.0.0.1` only: nothing
 on your network or any tailnet can reach it, and Tailscale isn't needed
 at all. That leaves out more:
 
-- **No iPhone app.** Nothing off this Mac can reach the backend, so
+- **No phone app.** Nothing off this Mac can reach the backend, so
   Settings › Phone & browser says why rather than showing a code, and
   there are no notifications.
 - **No second Mac** joining this one.
@@ -2176,7 +2176,7 @@ The backend stays on this Mac's `127.0.0.1`, and your proxy points `--url`
 at `127.0.0.1:13210` and `--site-url` at `127.0.0.1:13211` (your website
 and share links). Setup checks both work, from this Mac and from inside
 Docker, before it carries on, and says which one didn't. Then pair your
-phone from Settings › Phone & browser as usual. That needs iPhone 1.0.5 or
+phone from Settings › Phone & browser as usual. On an iPhone, that needs the app's version 1.0.5 or
 later.
 
 The limits are the tailnet way's, except that Tailscale isn't needed:
@@ -2196,7 +2196,7 @@ A patch adds buttons and panels (beside the thread) for the threads in a
 folder. A button can run a command, like your tests, send the agent a
 message you use a lot, or open a web page in your browser (App Store
 Connect, say), without adding anything to the thread. The web page
-buttons show on the iPhone too, over the message box, and open there. A panel can show a web page, such as your app
+buttons show in the iPhone app too, over the message box, and open there. A panel can show a web page, such as your app
 running on localhost, a list, or a page the patch writes for each thread
 (an `html` panel: styled however you like, but with no scripts, and a link
 in it opens the way a link from a highlight does). A link in a panel's page to another site
@@ -2680,7 +2680,7 @@ Skip; Esc puts them all away:
   28 days.
 - **Where threads start** shows the folder new threads open in, with
   Change…, and whether GitHub's CLI (`gh`) is signed in.
-- **Check in from anywhere** shows a code to scan with the iPhone app, and
+- **Check in from anywhere** shows a code to scan with the phone app, and
   ticks itself once your phone's paired. It only comes up when your
   Threadbear has a Convex deployment for a phone to reach.
 - **A few things worth turning on**: review by another lab, keeping the
@@ -2703,7 +2703,7 @@ setup:
 
 - **Start your first thread**, which shows your Claude Code or Codex login
   works. If there's no login on the Mac yet, it says how to add one.
-- **Pair your iPhone**, so you can ask questions and steer your threads
+- **Pair your phone**, so you can ask questions and steer your threads
   while you're out (see [Your phone and a browser](#phone-and-browser)).
 - **Open your website**, to check on your threads from any browser.
 

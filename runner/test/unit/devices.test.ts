@@ -85,9 +85,9 @@ test('pair: a phone gets no token at all, only a one-use code in text no app can
   const { methods, calls } = setup();
   const phone = (await methods['devices.pair']({ kind: 'phone' })) as { device: { id: string; kind: string; name: string }; pairingLink?: string };
   assert.equal(phone.device.kind, 'phone');
-  assert.equal(phone.device.name, 'iPhone');
+  assert.equal(phone.device.name, 'Phone');
   assert.equal(calls.filter((c) => c.fn === 'sync:issueToken').length, 0, 'a phone token was issued for the QR code');
-  assert.deepEqual(calls.filter((c) => c.fn === 'sync:issuePairingCode').map((c) => c.args), [{ key: 'k', name: 'iPhone', days: 90 }]);
+  assert.deepEqual(calls.filter((c) => c.fn === 'sync:issuePairingCode').map((c) => c.args), [{ key: 'k', name: 'Phone', days: 90 }]);
   const text = phone.pairingLink!;
   assert.ok(!/^[a-z][a-z0-9+.-]*:/i.test(text), `the pairing code is a URL some app could claim: ${text}`);
   assert.ok(!text.includes('.'), 'a dot could make a link finder take it for a web address');

@@ -421,7 +421,7 @@ fn code_sheet(qr: Option<Qr>, secondary: Hsla, closed: WeakEntity<SettingsWindow
         .items_center()
         .gap(px(16.))
         .text_color(label)
-        .child(div().text_size(px(17.)).line_height(px(style::natural_line(17.))).font_semibold().child("Pair your iPhone"))
+        .child(div().text_size(px(17.)).line_height(px(style::natural_line(17.))).font_semibold().child("Pair your phone"))
         .child(code)
         .child(
             v_flex()
