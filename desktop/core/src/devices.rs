@@ -252,22 +252,22 @@ pub fn add_title(local_only: bool) -> &'static str {
 pub fn add_about(local_only: bool, site: Option<&str>) -> String {
     if local_only {
         format!(
-            "Your backend is on this Mac only, so the website opens in a browser on this Mac, at {}. Each browser keeps a key of its own.\n\nThe iPhone app needs a backend it can reach: Convex cloud, or a self-hosted one on your tailnet or at an address of your own (docs/self-hosting.md).",
+            "Your backend is on this Mac only, so the website opens in a browser on this Mac, at {}. Each browser keeps a key of its own.\n\nThe phone app needs a backend it can reach: Convex cloud, or a self-hosted one on your tailnet or at an address of your own (docs/self-hosting.md).",
             site.unwrap_or("its local address")
         )
     } else {
         format!(
-            "The Threadbear iPhone app shows your inbox, lets you reply, approve and start threads, and gets a push when a thread needs you. It reads the Convex mirror, so it works while the Mac is asleep.\n\nThe website is your threads on the web, at {}: a link you can paste anywhere. Each browser keeps a key of its own; sign another one in from here too.",
+            "The Threadbear phone app (iPhone or Android) shows your inbox, lets you reply, approve and start threads, and gets a push when a thread needs you. It reads the Convex mirror, so it works while the Mac is asleep.\n\nThe website is your threads on the web, at {}: a link you can paste anywhere. Each browser keeps a key of its own; sign another one in from here too.",
             site.unwrap_or("your deployment's .convex.site address")
         )
     }
 }
 
-pub const ADD_ASK: &str = "put the iPhone app on your phone, or change how the mirror is set up.";
+pub const ADD_ASK: &str = "put the phone app on your phone, or change how the mirror is set up.";
 pub const LOCAL_ONLY_IPHONE: &str = "Can't pair: your backend is on this Mac only";
-pub const LOCAL_ONLY_NOTE: &str = "A phone can't reach it. To use the iPhone app, run ./threadbear setup --self-hosted --tailnet (with Tailscale), or with --url and --site-url for an address of your own. Your threads stay.";
-pub const PUSH_OFF_NOTE: &str = "Your backend is self-hosted, so the iPhone app gets no notifications. It shows what needs you when you open it.";
-pub const PHONE_BUTTON_TIP: &str = "A code to scan with the Threadbear iPhone app. It pairs the phone with your threads for 90 days.";
+pub const LOCAL_ONLY_NOTE: &str = "A phone can't reach it. To use the phone app, run ./threadbear setup --self-hosted --tailnet (with Tailscale), or with --url and --site-url for an address of your own. Your threads stay.";
+pub const PUSH_OFF_NOTE: &str = "Your backend is self-hosted, so the phone app gets no notifications. It shows what needs you when you open it.";
+pub const PHONE_BUTTON_TIP: &str = "A code to scan with the Threadbear phone app. It pairs the phone with your threads for 90 days.";
 pub const PAIRED_ABOUT: &str = "Each phone and browser holds a key of its own, good for 90 days. Revoke signs that one out at its next request; pair it again for a new key.";
 pub const PAIRED_ASK: &str = "explain what a paired phone or browser can see and do.";
 

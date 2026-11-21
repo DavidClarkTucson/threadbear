@@ -840,7 +840,7 @@ export function buildThreadbearTools(
     ? [
         tool(
           'pocket',
-          "Keeps a short card in the Pocket on the user's iPhone, a deck that opens instantly and works with no signal, for when they're out. File one when they say they're heading somewhere or will need a fact away from their Mac: the address to write on a parcel and what to bring, booking codes for a trip. Write what they'd read at a counter, not an explanation. The same title replaces a card; when it's done with, remove it. With no title, lists the cards.",
+          "Keeps a short card in the Pocket in the user's Threadbear phone app, a deck that opens instantly and works with no signal, for when they're out. File one when they say they're heading somewhere or will need a fact away from their computer: the address to write on a parcel and what to bring, booking codes for a trip. Write what they'd read at a counter, not an explanation. The same title replaces a card; when it's done with, remove it. With no title, lists the cards.",
           {
             title: z.string().trim().min(1).max(60).optional().describe('Short name for the card, like "Parcel for Mum".'),
             text: z.string().trim().min(1).max(2000).optional().describe('What goes on the card, plain text, with line breaks where it should break.'),
@@ -874,9 +874,9 @@ export function buildThreadbearTools(
     ? [
         tool(
           'ask_secret',
-          `Asks the user for a secret (a password, an API key, a token, a code) in a private card in Threadbear, on their Mac or their phone, and waits for it. You never see the value, and it stays out of the chat: you get a private file holding it, readable by your commands for 24 hours. Use this whenever a task needs a secret from them, including their Mac administrator password for sudo, instead of asking for it in your reply or stopping to hand the step over. Not for one you can get yourself, like a key on a page in a signed-in browser. Read the file inside a command and never print it, echo it or put it in a file of your own.`,
+          `Asks the user for a secret (a password, an API key, a token, a code) in a private card in Threadbear, on their computer or their phone, and waits for it. You never see the value, and it stays out of the chat: you get a private file holding it, readable by your commands for 24 hours. Use this whenever a task needs a secret from them, including the computer's administrator password for sudo, instead of asking for it in your reply or stopping to hand the step over. Not for one you can get yourself, like a key on a page in a signed-in browser. Read the file inside a command and never print it, echo it or put it in a file of your own.`,
           {
-            label: z.string().trim().min(1).max(80).describe('The card\'s title, what you need: "Mac administrator password", "Cloudflare API token".'),
+            label: z.string().trim().min(1).max(80).describe('The card\'s title, what you need: "Administrator password", "Cloudflare API token".'),
             reason: z.string().trim().min(1).max(500).describe('One or two sentences: what it is for, and where to find it if that is not obvious.'),
             placeholder: z.string().trim().min(1).max(60).optional().describe('Hint in the empty field, such as "cfut_...".'),
             timeoutMinutes: z.number().int().min(1).max(SECRET_TIMEOUT_MAX_MIN).optional().describe(`How long to wait. Default ${SECRET_TIMEOUT_DEFAULT_MIN}.`),
@@ -916,7 +916,7 @@ export function buildThreadbearTools(
         if (!control.pin) throw new Error("This runner doesn't keep highlights yet.");
         const { id, scriptsOff, shown } = await control.pin(selfId, input);
         // Older runners (a handover) don't say whether it showed.
-        const where = !input.show ? '' : shown === false ? ". It opens in the side pane when the user next looks at this thread in the Mac app; they aren't right now (it waits until then, or until their next message)" : ', and open in the side pane in front of the user now';
+        const where = !input.show ? '' : shown === false ? ". It opens in the side pane when the user next looks at this thread in the desktop app; they aren't right now (it waits until then, or until their next message)" : ', and open in the side pane in front of the user now';
         const pinned = `Pinned (${id})${where}.`;
         // Older runners (a handover) don't say; then nothing's added.
         return scriptsOff
@@ -952,7 +952,7 @@ export function buildThreadbearTools(
         const { request, shown } = await control.showPanel(selfId, input);
         return shown
           ? `${request.title} is open in front of the user now.`
-          : `${request.title} will open when the user next looks at this thread in the Mac app; they aren't right now. It waits until then, or until their next message.`;
+          : `${request.title} will open when the user next looks at this thread in the desktop app; they aren't right now. It waits until then, or until their next message.`;
       }),
     ),
   ];
@@ -964,8 +964,8 @@ export function buildThreadbearTools(
       {
         text: z.string().min(1).describe('The message to send when it comes due.'),
         when: z.string().optional().describe('Once: 30m, 2h, 1d, tomorrow (9 am) or an ISO time.'),
-        cron: z.string().optional().describe('Repeating: a 5-field cron, minute hour day-of-month month day-of-week, e.g. "0 9 * * 1-5" for weekdays at 9:00, "*/30 * * * *" for every 30 minutes; or @hourly, @daily, @weekly, @monthly. Read in the Mac\'s time zone unless timezone is set.'),
-        timezone: z.string().optional().describe('IANA zone for the cron, e.g. Australia/Perth. Default: the Mac\'s.'),
+        cron: z.string().optional().describe('Repeating: a 5-field cron, minute hour day-of-month month day-of-week, e.g. "0 9 * * 1-5" for weekdays at 9:00, "*/30 * * * *" for every 30 minutes; or @hourly, @daily, @weekly, @monthly. Read in the runner\'s time zone unless timezone is set.'),
+        timezone: z.string().optional().describe('IANA zone for the cron, e.g. Australia/Perth. Default: the runner\'s.'),
         title: z.string().optional().describe('Short name for lists. Default: the first line of text.'),
         ...thisOrOther,
         new_thread: z.boolean().optional().describe('Start a new thread each time instead of sending to a thread.'),
@@ -1041,7 +1041,7 @@ export function buildThreadbearTools(
         title: z.string().optional(),
         when: z.string().optional().describe('Once: 30m, 2h, 1d, tomorrow or an ISO time.'),
         cron: z.string().optional().describe('Repeating: a 5-field cron.'),
-        timezone: z.string().nullable().optional().describe("IANA zone for the cron, or null for the Mac's."),
+        timezone: z.string().nullable().optional().describe("IANA zone for the cron, or null for the runner's."),
         paused: z.boolean().optional(),
         folder: z.string().optional(),
         account: z.string().optional(),
@@ -1638,7 +1638,7 @@ export function buildThreadbearTools(
                 .array(
                   z.object({
                     title: z.string().min(1).describe('What the button does, short: "Open login page", "See the preview".'),
-                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this Mac (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
+                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this computer (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
                   }),
                 )
                 .max(3)
@@ -1748,7 +1748,7 @@ export function buildThreadbearTools(
                 .array(
                   z.object({
                     title: z.string().min(1).describe('What the button does, short: "Open login page", "See the preview".'),
-                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this Mac (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
+                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this computer (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
                   }),
                 )
                 .max(3)
@@ -1931,7 +1931,7 @@ export function buildThreadbearTools(
       ? [
           tool(
             'wait_for_app_restart',
-            "Sends you a message in this thread when the user's Threadbear Mac app next restarts onto a new build: after you've landed an app change and asked them to Restart to Update (in the Threadbear menu), so you can check it in the running app. An end_turn ask that mentions Restart to Update does this by itself. `text` is what to send then; by default a line saying it restarted. One per thread: asking again replaces it.",
+            "Sends you a message in this thread when the user's Threadbear desktop app next restarts onto a new build: after you've landed an app change and asked them to Restart to Update (in the Threadbear menu), so you can check it in the running app. An end_turn ask that mentions Restart to Update does this by itself. `text` is what to send then; by default a line saying it restarted. One per thread: asking again replaces it.",
             {
               text: z.string().max(4000).optional().describe('What to send when it restarts, e.g. what to check.'),
               commit: z.string().max(200).optional().describe("A commit the build must have. Default: main's HEAD now."),
@@ -2404,7 +2404,7 @@ export const RICH_BLOCKS_LINE =
 // Only for a thread that has the pocket tool: the Pocket lives in the Convex
 // backend, so with phone sync off there's no tool to tell it about.
 export const POCKET_LINE =
-  "When they say they're heading out or will need a fact away from their Mac (an address, a booking code, what to take), file it on their phone with pocket.";
+  "When they say they're heading out or will need a fact away from their computer (an address, a booking code, what to take), file it on their phone with pocket.";
 
 // Also in the instructions, for the same reason. The librarian files
 // threads by itself, but it only sees a summary and can miss one; the
@@ -2464,6 +2464,7 @@ export function serverInstructions(selfId: string, o: { one: boolean; bulletRepl
   return (
     `This session is a thread in Threadbear, the app the user runs agent threads in (thread id ${selfId}). ` +
     userLine() +
+    "Don't guess which phone or computer they use (iPhone or Android, Mac or not); ask if it matters. " +
     (guide ? `${guide} ` : '') +
     (patches ? `${patches} ` : '') +
     'These tools manage Threadbear itself: list and read threads, start new ones, message them, rename, snooze, archive, move and delete them, schedule messages for later (once or on a cron), and keep the user\'s projects (groupings above folders with goals, state and notes) up to date. ' +

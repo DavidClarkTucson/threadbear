@@ -11,13 +11,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { linuxDf, GiB, setup } from '../helpers/check-remote-harness.ts';
 
-// Looks every second; MAX_SECS so a run that never leaves a 60 s line fails
-// in 20 s rather than hanging the suite.
-const ENV = { THREADBEAR_CHECK_POLL_SECS: '1', THREADBEAR_CHECK_MAX_SECS: '20' };
+// Looks every second. A run here takes 15 to 25 s on a loaded Mac (21 Nov:
+// a 20 s cap stopped two that were working), so the cap is 120 s, and the
+// lines a check should leave are 600 s, so one that never leaves still fails
+// at the cap rather than waiting its turn there.
+const MAX = '120';
+const ENV = { THREADBEAR_CHECK_POLL_SECS: '1', THREADBEAR_CHECK_MAX_SECS: MAX };
 const linux = { os: 'Linux', df: linuxDf(50 * GiB) };
 
 test('waiting in line on a busy host, it moves to another that frees up, and its first copy is withdrawn', () => {
-  const s = setup({ h1: { state: 'busy', queue: 60 }, h2: { state: 'busy', freeAfter: 1, ...linux } });
+  const s = setup({ h1: { state: 'busy', queue: 600 }, h2: { state: 'busy', freeAfter: 1, ...linux } });
   // A change outside the Swift apps, so the Linux host can take it.
   fs.writeFileSync(path.join(s.repo, 'change.ts'), '\n');
   const r = s.run('h1,h2', 3600, '', ENV);
@@ -35,7 +38,7 @@ test('waiting in line on a busy host, it moves to another that frees up, and its
 });
 
 test('a withdrawal whose answer is lost is still seen as withdrawn, and the check moves', () => {
-  const s = setup({ h1: { state: 'busy', queue: 60, loseAck: true }, h2: { state: 'busy', freeAfter: 1, ...linux } });
+  const s = setup({ h1: { state: 'busy', queue: 600, loseAck: true }, h2: { state: 'busy', freeAfter: 1, ...linux } });
   fs.writeFileSync(path.join(s.repo, 'change.ts'), '\n');
   const r = s.run('h1,h2', 3600, '', { ...ENV, THREADBEAR_CHECK_ASK_SECS: '2' });
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -89,7 +92,7 @@ test('a line that clears before the first look runs there, with nothing else to 
   // The default 30 s between looks, and a 1 s line.
   const s = setup({ h1: { state: 'busy', queue: 1 }, h2: { state: 'busy', ...linux } });
   fs.writeFileSync(path.join(s.repo, 'change.ts'), '\n');
-  const r = s.run('h1,h2', 3600, '', { THREADBEAR_CHECK_MAX_SECS: '20' });
+  const r = s.run('h1,h2', 3600, '', { THREADBEAR_CHECK_MAX_SECS: MAX });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ran on h1 after waiting/);
   assert.doesNotMatch(r.stderr, /unbound/);
