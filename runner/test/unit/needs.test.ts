@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PersistedEvent } from '../../src/protocol.ts';
 import { AGENT_MESSAGE_PREFIX } from '../../src/protocol.ts';
-import { handsOverAStep, offersToTakeItBack, PLAIN_CARD_NUDGE, plainCardNudge, wantsPlainCard, TRY_IT_FIRST, tryFirstNudge, archiveFromTool, snoozeFromTool, bylineFromTool, endedThisTurn, CODEX_END_TURN_DESCRIPTION, CODEX_ONE_REPLY_DESCRIPTION, END_TURN_DESCRIPTION, END_TURN_FULL_NAME, endTurnDescription, needsFromText, needsFromTool, ONE_REPLY_DESCRIPTION, replyAsks, replyAsksNudge, replyWithoutRepeat, splitReplySection, summaryFromTool, summaryMarkdown, turnReply, unansweredItems } from '../../src/needs.ts';
+import { handsOverAStep, offersToTakeItBack, PLAIN_CARD_NUDGE, PLAIN_CARD_EVERY, plainCardNudge, plainCardNudged, wantsPlainCard, TRY_IT_FIRST, tryFirstNudge, archiveFromTool, snoozeFromTool, bylineFromTool, endedThisTurn, CODEX_END_TURN_DESCRIPTION, CODEX_ONE_REPLY_DESCRIPTION, END_TURN_DESCRIPTION, END_TURN_FULL_NAME, endTurnDescription, needsFromText, needsFromTool, ONE_REPLY_DESCRIPTION, replyAsks, replyAsksNudge, replyWithoutRepeat, splitReplySection, summaryFromTool, summaryMarkdown, turnReply, unansweredItems } from '../../src/needs.ts';
 import { END_TURN_TOOL } from '../../src/needs.ts';
 import { SERVER_NAME } from '../../src/threadbear-mcp.ts';
 import { ClaudeNormalizer, fileContext } from '../../src/adapters/claude/normalize.ts';
@@ -477,7 +477,7 @@ test('a card with answers to pick from gets the plain-card note, unless it opens
   const note = plainCardNudge();
   assert.ok(note.startsWith(PLAIN_CARD_NUDGE));
   assert.match(note, /call end_turn again as it was/);
-  assert.match(note, /once a turn/);
+  assert.match(note, /comes once, not on every card in this thread/);
   for (const provider of ['claude', 'codex'] as const)
     for (const [bullets, oneReply] of [[true, false], [false, false], [false, true]] as const)
       assert.doesNotMatch(endTurnDescription(provider, bullets, oneReply), /read this card as the user will/, 'not standing context');
@@ -655,6 +655,30 @@ test('replyAsksNudge quotes the sentence, clipped, and says the reply stands', (
   // a thread sent ask and options as end_turn's own keys (19 Nov).
   assert.match(n, /asks: \[\{ question, options: \[\{ label \}\] \}\]/);
   assert.ok(replyAsksNudge(`Should I ${'really '.repeat(60)}do it?`).length < 800);
+});
+
+// The plain-card note comes once in a while in a thread, not every turn:
+// after the first, agents mostly sent the card back as it was (22 Nov 2026).
+test('plainCardNudged: the note stays fresh for ten cards, until a compaction or an edit takes it away', () => {
+  let seq = 0;
+  const ev = (body: Record<string, unknown>) => ({ seq: ++seq, ts: '', threadId: 't', turnId: 'x', ...body }) as unknown as PersistedEvent;
+  const started = () => ev({ type: 'turn.started' });
+  const note = () => ev({ type: 'tool.result', itemId: 'i', ok: false, text: plainCardNudge(), truncated: false, images: [] });
+  const card = () => ev({ type: 'turn.completed', outcome: 'completed', durationMs: 1, needs: 'you', asks: [{ action: 'Go?' }] });
+  const bare = () => ev({ type: 'turn.completed', outcome: 'completed', durationMs: 1 });
+  assert.equal(plainCardNudged([]), false);
+  assert.equal(plainCardNudged([started(), note()]), true, 'this turn');
+  const events = [started(), note(), card()];
+  assert.equal(plainCardNudged([...events, started()]), true, 'an earlier turn');
+  for (let i = 1; i < PLAIN_CARD_EVERY - 1; i++) events.push(started(), card(), started(), bare());
+  assert.equal(plainCardNudged([...events, started()]), true, "nine cards on; turns with no card don't count");
+  events.push(started(), card());
+  assert.equal(plainCardNudged([...events, started()]), false, 'ten cards on');
+  const compacted = [started(), note(), card(), ev({ type: 'system.note', text: 'Compacted the conversation first: it was 282k tokens' }), started()];
+  assert.equal(plainCardNudged(compacted), false, "a compaction drops it from the agent's context");
+  const cut = [started(), note(), card()];
+  cut.push(ev({ type: 'thread.rewound', fromSeq: cut[0].seq, toSeq: cut[2].seq, files: {} }), started());
+  assert.equal(plainCardNudged(cut), false, 'an edit cut it out');
 });
 
 // The Done-in-a-project note's list of earlier items (needs.ts, unansweredItems).

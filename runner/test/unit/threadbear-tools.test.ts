@@ -1332,7 +1332,7 @@ test('end_turn asks once for a try at a step a card hands over, in both forms', 
   }
 });
 
-// The plain-card note (needs.ts, plainCardNudge): on by default, once a turn.
+// The plain-card note (needs.ts, plainCardNudge): on by default, once in ten cards.
 test('end_turn asks once for a card with answers to be read as the user will, in both forms', async () => {
   const forms = [
     { oneReply: true, card: { asks: [{ question: "Which design for Let's Build It's Apple subscriptions?", options: [{ label: 'B: thin machine' }, { label: 'C: no machine' }] }] }, step: { asks: [{ question: 'Is the Hetzner box still worth keeping?' }] } },
@@ -1355,10 +1355,22 @@ test('end_turn asks once for a card with answers to be read as the user will, in
     assert.equal(refused.error, true);
     assert.ok(refused.text.startsWith(PLAIN_CARD_NUDGE), refused.text);
     s.out({ kind: 'event', event: { type: 'tool.result', itemId: 'e1', ok: false, text: refused.text, truncated: false, images: [] } });
-    // Once a turn: called again as it was, the card stands.
+    // Called again as it was, the card stands.
     toolCall(s, 'e2', END_TURN, card);
     const taken = await endTurn(card);
     assert.equal(taken.error, false, taken.text);
+    s.out({ kind: 'event', event: { type: 'tool.result', itemId: 'e2', ok: true, text: taken.text, truncated: false, images: [] } });
+    s.text('m1b', 'The three designs, compared.');
+    s.result('completed');
+    // And the next turn's card isn't held up again: the note stays in mind
+    // for ten cards (needs.ts, plainCardNudged).
+    h.runner.send(thread.id, 'Tell me more about B');
+    const s2 = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;
+    s2.init();
+    s2.text('m2', 'B keeps one machine.');
+    toolCall(s2, 'e3', END_TURN, card);
+    const later = await endTurn(card);
+    assert.equal(later.error, false, later.text);
 
     // A question with nothing to pick is never held up.
     const other = makeHarness();

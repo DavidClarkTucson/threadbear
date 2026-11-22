@@ -153,18 +153,24 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   left out. Called again, it's taken as it is. Nothing reaches the app. It
   can't tell whether the turn tried, as turns are busy with other work, so it
   asks; and it can't see a hand-over written as plain prose off the card.
-- **A card in plain words.** A card with answers to pick from is refused once
-  a turn too, with an error result that starts `Not ended: read this card as
+- **A card in plain words.** A card with answers to pick from is refused
+  once in a while, with an error result that starts `Not ended: read this card as
   the user will` (`plainCardNudge`), asking the agent to reread its question,
   labels and `does` lines as someone who hasn't seen its working or the files
   it links, and reword any name it coined. Called again, it's taken as it is.
   A card that links a show_options review (`review:`) is left alone, as
   lettered mockups are fine there. Nothing reaches the app. It's a note, not
   a line in the description: in replays of cards Mike couldn't follow, the
-  line changed nothing and the note rewrote every one.
+  line changed nothing and the note rewrote every one. It isn't refused
+  again while the note is fresh: sent in this thread within the last ten
+  turns that left a card (`PLAIN_CARD_EVERY`, `plainCardNudged`), with no
+  compaction since and not cut out by an edit. Until 22 Nov 2026 it came
+  every turn; after the first in a thread, agents mostly sent the card back
+  as it was or swapped a word.
 - **Done in a project still going.** A Done card (`needs: "nothing"`) in a
-  thread Mike started (no `startedBy`) that's in a project not archived is
-  refused once a turn, with an error result that starts `Not ended: this
+  thread Mike started (no `startedBy`) that's in a project not archived,
+  with asks or follow-ups from earlier cards nobody answered, is refused
+  once a turn, with an error result that starts `Not ended: this
   card says Done, and this thread is part of a project that isn't finished`
   (`projectStepNudge`). It quotes the project's state (first 400
   characters) and says Done means the thread can be archived, so a next
@@ -175,7 +181,9 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   ask, a message with its words, or his pick in a show_options review the
   ask links to; not the runner's, a schedule's or
   another agent's, and nothing an edit cut out), leaving it to the agent
-  which still matter. A card that archives, snoozes or waits on threads or
+  which still matter. With none of those it isn't refused, since 22 Nov
+  2026: the project's state alone changed 2 cards in 19, as a thread doing
+  one job in a big project has finished its part while the project goes on. A card that archives, snoozes or waits on threads or
   the app restarting is left alone, and so is a sub-agent's call, as it
   isn't in the thread's events (a Codex sub-agent's, which runs through the
   same handler, is capped at one note a turn in memory). Turns an edit cut

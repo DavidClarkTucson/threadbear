@@ -628,7 +628,12 @@ function givesAnInstruction(action: string): boolean {
 }
 
 // What end_turn says, once a turn, to a Done card in a thread Mike started
-// that's part of a project still going. On 20 Nov 2026 the calendar site's
+// that's part of a project still going. Only when earlier cards in the thread left
+// asks or follow-ups nobody answered: from 17 to 22 Nov 2026 in David
+// Clark's fork it came 33 times, and with none to list (the project's state
+// alone) it changed 2 cards in 19, as a thread doing one job in a big
+// project ("Homelab ops") has its own part finished while the project goes
+// on. With some to list it changed 5 in 14. On 20 Nov 2026 the calendar site's
 // thread said Done twice in a row (after building the look Mike picked, then
 // after fixing its review), with its own project's state saying "Next is
 // Peter's review of the live site", and with three follow-ups and a question
@@ -696,8 +701,27 @@ export function triedFirstNudged(events: PersistedEvent[]): boolean {
   return nudgedSince(events, TRY_FIRST_NUDGE);
 }
 
+// Whether the plain-card note is still fresh in the agent's mind: sent this
+// thread within the last PLAIN_CARD_EVERY turns that left a card, and not
+// since lost to a compaction or cut out by an edit. Until 22 Nov 2026 it came
+// every turn, and a thread with option cards paid a call for it on nearly
+// every turn: 122 of 384 turns in David Clark's fork from 17 to 22 Nov. The
+// first note in a thread got the card rewritten 28 times in 29; from the
+// third on, 25 in 73, mostly a word swapped ("cycle" for "load"), and 48
+// came back as they were. Replayed with this rule it came 35 times and kept
+// 32 of the 62 rewrites, the first-time ones.
+export const PLAIN_CARD_EVERY = 10;
 export function plainCardNudged(events: PersistedEvent[]): boolean {
-  return nudgedSince(events, PLAIN_CARD_NUDGE);
+  const cuts = events.flatMap((e) => (e.type === 'thread.rewound' ? [{ from: e.fromSeq, to: e.toSeq }] : []));
+  let cards = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (cuts.some((c) => e.seq >= c.from && e.seq <= c.to)) continue;
+    if (e.type === 'system.note' && typeof e.text === 'string' && e.text.startsWith('Compacted the conversation')) return false;
+    if (e.type === 'turn.completed' && e.needs && ++cards >= PLAIN_CARD_EVERY) return false;
+    if (e.type === 'tool.result' && typeof e.text === 'string' && e.text.startsWith(PLAIN_CARD_NUDGE)) return true;
+  }
+  return false;
 }
 
 // Whether a note starting `note` has been sent since this turn began.
@@ -729,7 +753,7 @@ function nudgedSince(events: PersistedEvent[], note: string): boolean {
 // checked against. A card that opens a review is left alone.
 export const PLAIN_CARD_NUDGE = 'Not ended: read this card as the user will.';
 export function plainCardNudge(): string {
-  return `${PLAIN_CARD_NUDGE} They read it first, often on their phone, before your reply or any file it links, with this thread forgotten. Would they know what each question and button means? If a label or does uses a name you or a file coined ("plan B", "thin machine"), or a term they wouldn't use, reword it to say what that choice does in their words, then call end_turn again. If it already reads plainly, call end_turn again as it was. This note comes once a turn.`;
+  return `${PLAIN_CARD_NUDGE} They read it first, often on their phone, before your reply or any file it links, with this thread forgotten. Would they know what each question and button means? If a label or does uses a name you or a file coined ("plan B", "thin machine"), or a term they wouldn't use, reword it to say what that choice does in their words, then call end_turn again. If it already reads plainly, call end_turn again as it was. This note comes once, not on every card in this thread, so keep to it on later cards.`;
 }
 export function wantsPlainCard(asks: Ask[]): boolean {
   if (asks.some((a) => a.links?.some((l) => l.url.startsWith('review:')))) return false;

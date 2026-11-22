@@ -819,7 +819,7 @@ test('update_project editNotes: changes one line in place, refuses what doesn\'t
 
 // 20 Nov 2026: the calendar site's thread said Done with its project's state
 // naming a next step for Mike and earlier follow-ups never answered.
-test("end_turn: a Done card in a project still going is told once of the project's state and earlier items nobody answered", async () => {
+test("end_turn: a Done card in a project still going, with earlier items nobody answered, is told once of them and the project's state", async () => {
   const { h, repo, projects, create } = setup();
   const app = repo('dev/cal');
   const { thread } = create();
@@ -839,12 +839,11 @@ test("end_turn: a Done card in a project still going is told once of the project
     s.out({ kind: 'event', event: { type: 'tool.result', itemId, ok: !r.isError, text, truncated: false, images: [] } });
     return { text, error: Boolean(r.isError) };
   };
-  // An earlier turn's card: three follow-ups, then a question, each refused once first.
+  // An earlier turn's card: three follow-ups, then a question. With nothing
+  // left open from before, the project going on alone holds up no Done: a
+  // thread doing one job in a big project has finished its part (22 Nov).
   s.text('m1', 'Google sign-in works.');
   let r = await endTurn({ needs: 'nothing', next: ['Draft an email telling Peter the site is ready', 'Load the rest of Peter\'s photos once he sends them', 'Make Google\'s sign-in screen name the calendar site'] });
-  assert.ok(r.text.startsWith(PROJECT_STEP_NUDGE), r.text);
-  assert.match(r.text, /"Calendar" \(its state: "Live\. Next is Peter's review of the live site\."\)/);
-  r = await endTurn({ needs: 'nothing', next: ['Draft an email telling Peter the site is ready', 'Load the rest of Peter\'s photos once he sends them', 'Make Google\'s sign-in screen name the calendar site'] });
   assert.equal(r.error, false, r.text);
   s.text('m2', 'Done.');
   s.result('completed');
@@ -865,6 +864,7 @@ test("end_turn: a Done card in a project still going is told once of the project
   // Snoozing, archiving or waiting on threads isn't Done: no note. A blank snooze is no snooze.
   r = await endTurn({ needs: 'nothing', snooze: ' ' });
   assert.ok(r.text.startsWith(PROJECT_STEP_NUDGE), r.text);
+  assert.match(r.text, /"Calendar" \(its state: "Live\. Next is Peter's review of the live site\."\)/);
   s.result('completed');
   h.runner.send(thread.id, 'keep going');
   s = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;

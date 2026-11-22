@@ -27,7 +27,7 @@ import { SAID_MAX } from './wake-when.ts';
 
 export { parseWhen, relativeFuture, relativeTime };
 import { RUNNER_VERSION, expandHome } from './config.ts';
-import { droppedOpenLines, OPEN_GONE, ALREADY_ENDED, ARCHIVE_ADDED, MAX_UNTIL, MAX_WAIT_FOR, SNOOZE_ADDED, snoozeFromTool, endTurnDescription, endTurnForm, endTurnMisfit, endTurnTaken, strayAskFields, strayAskProblem, openCardsNote, END_TURN_TOOL, BULLETS_ONLY, ENDED, takenEndTurn, MAX_BYLINE, NARRATION_ONLY, NO_REPLY, needsFromTool, oneReplyAccepted, handsOverAStep, oneReplyAlreadyWritten, summaryFromTool, triedFirstNudged, tryFirstNudge, projectStepNudge, projectStepNudged, unansweredItems, deadEndNudge, deadEndNudged, hasDeadEnd, plainCardNudge, plainCardNudged, wantsPlainCard, turnReply, unreadMessageRefusal, type TurnReply } from './needs.ts';
+import { droppedOpenLines, OPEN_GONE, ALREADY_ENDED, ARCHIVE_ADDED, MAX_UNTIL, MAX_WAIT_FOR, SNOOZE_ADDED, snoozeFromTool, endTurnDescription, endTurnForm, endTurnMisfit, endTurnTaken, strayAskFields, strayAskProblem, openCardsNote, END_TURN_TOOL, BULLETS_ONLY, ENDED, takenEndTurn, MAX_BYLINE, NARRATION_ONLY, NO_REPLY, needsFromTool, oneReplyAccepted, handsOverAStep, oneReplyAlreadyWritten, summaryFromTool, triedFirstNudged, tryFirstNudge, projectStepNudge, projectStepNudged, unansweredItems, deadEndNudge, deadEndNudged, hasDeadEnd, plainCardNudge, plainCardNudged, PLAIN_CARD_EVERY, wantsPlainCard, turnReply, unreadMessageRefusal, type TurnReply } from './needs.ts';
 
 // end_turn's needs, both forms: "done" meant this turn's step until 11 Nov
 // 2026, when thread 0222c475 said nothing with three draft PRs unmerged in
@@ -277,7 +277,7 @@ export function buildThreadbearTools(
     // Experiment loadEndTurn: Claude gets end_turn's schema in every
     // request instead of finding it with ToolSearch first (experiments/loadEndTurn.md).
     loadEndTurn?: () => boolean;
-    // The once-a-turn note asking for a card in plain words (needs.ts,
+    // The note asking for a card in plain words, once in ten cards (needs.ts,
     // plainCardNudge). Off only in tests about the rest of end_turn, which
     // would otherwise each have to answer it first.
     plainCardNote?: boolean;
@@ -357,8 +357,9 @@ export function buildThreadbearTools(
   };
 
   // The once-a-turn note to a Done card (needs.ts, projectStepNudge): only
-  // in a thread Mike started (a helper's Done is about its own brief), in a
-  // project that isn't archived, and not when the card archives it, sleeps
+  // when earlier cards left asks or follow-ups nobody answered, in a thread
+  // Mike started (a helper's Done is about its own brief), in a project
+  // that isn't archived, and not when the card archives it, sleeps
   // or waits on other threads or the app restarting, as those say it isn't
   // over or he asked. Not a sub-agent's call either: it isn't in the
   // thread's events, so the once-a-turn mark would never be seen and it
@@ -379,6 +380,10 @@ export function buildThreadbearTools(
     if (!codex && !(await replied()).landed) return undefined;
     const me = await inTime((async () => control.get(selfId))(), ID_LIST_TIMEOUT_MS, "couldn't read the thread").catch(() => undefined);
     if (!me || me.startedBy || !me.projects?.length) return undefined;
+    // Only with something of this thread's own left open: the project going
+    // on alone doesn't make this thread's part unfinished.
+    const open = unansweredItems(await recentEvents(), next ?? []);
+    if (!open.length) return undefined;
     const live: { title: string; state: string }[] = [];
     for (const p of me.projects) {
       const got = await inTime((async () => projects.get(p.id))(), ID_LIST_TIMEOUT_MS, "couldn't read the project").catch(() => undefined);
@@ -386,7 +391,7 @@ export function buildThreadbearTools(
     }
     if (!live.length) return undefined;
     projectNotedTurn = turn;
-    return projectStepNudge(live, unansweredItems(await recentEvents(), next ?? []));
+    return projectStepNudge(live, open);
   };
 
   // Whether the turn has replied to Mike (needs.ts, turnReply). The SDK
@@ -1689,7 +1694,8 @@ export function buildThreadbearTools(
         if (opts.tryFirstNote !== false && needs === 'you' && handsOverAStep(notSignIns(asks, signIns).filter((a) => !asksForAppRestart([a]))) && !triedFirstNudged(events)) throw new Error(tryFirstNudge());
         if (needs === 'you') await checkThreadLinks(asks);
         if (needs === 'you' && hasDeadEnd(asks) && !deadEndNudged(events)) throw new Error(deadEndNudge(asks));
-        if (opts.plainCardNote !== false && needs === 'you' && wantsPlainCard(asks) && !plainCardNudged(events)) throw new Error(plainCardNudge());
+        // Once in a while, not every turn: the thread's events back ten cards.
+        if (opts.plainCardNote !== false && needs === 'you' && wantsPlainCard(asks) && !plainCardNudged(await recentEvents(PLAIN_CARD_EVERY))) throw new Error(plainCardNudge());
         const projectNote = await projectStepNote(input, needs, parsed?.next, events);
         if (projectNote) throw new Error(projectNote);
         let restart = '';
@@ -1823,7 +1829,7 @@ export function buildThreadbearTools(
         if (opts.tryFirstNote !== false && needs === 'you' && handsOverAStep(notSignIns(asks ?? [], signIns).filter((a) => !asksForAppRestart([a]))) && !triedFirstNudged(events)) throw new Error(tryFirstNudge());
         if (needs === 'you') await checkThreadLinks(asks ?? []);
         if (needs === 'you' && hasDeadEnd(asks ?? []) && !deadEndNudged(events)) throw new Error(deadEndNudge(asks ?? []));
-        if (opts.plainCardNote !== false && needs === 'you' && wantsPlainCard(asks ?? []) && !plainCardNudged(events)) throw new Error(plainCardNudge());
+        if (opts.plainCardNote !== false && needs === 'you' && wantsPlainCard(asks ?? []) && !plainCardNudged(await recentEvents(PLAIN_CARD_EVERY))) throw new Error(plainCardNudge());
         const projectNote = await projectStepNote(args, needs, parsed?.next, events);
         if (projectNote) throw new Error(projectNote);
         // Asking Mike to Restart to Update means wanting to know when he
