@@ -1,4 +1,4 @@
-// Pools (docs/protocol.md, "Pools"): a named, ordered list of logins of any
+// Pools (docs/protocol/settings.md, "Pools"): a named, ordered list of logins of any
 // provider. A thread in a pool runs each turn on whichever of its logins
 // has room, and moves when the one it's on runs dry. Everything here is
 // pure, so the rules can be tested without a runner; runner.ts calls it.
@@ -158,9 +158,15 @@ export function poolAccounts(pool: Pool, accounts: Account[]): Account[] {
 //
 // Spare logins (runner.json spareAccounts) are only looked at when none of
 // the others can run: so a thread on a spare moves back once one has room.
+// Preferred logins (preferredAccounts) go before the rest while they have
+// room, but only for a pick with no OK `current`: a started thread stays
+// where it is, as moving it back costs a cold start (David, 20 Nov).
 export function pickInPool(pool: Pool, accounts: Account[], o: { provider: Provider; exclude?: string[]; current?: string; prefer?: string; now?: number }): string | undefined {
   const members = poolAccounts(pool, accounts).filter((a) => a.provider === o.provider && !o.exclude?.includes(a.id));
-  return pickAmong(members.filter((a) => !a.spare), o) ?? pickAmong(members.filter((a) => a.spare), o);
+  const current = members.find((a) => a.id === o.current && !a.spare);
+  if (current && loginOk(current)) return current.id;
+  const main = members.filter((a) => !a.spare);
+  return pickAmong(main.filter((a) => a.preferred), o) ?? pickAmong(main, o) ?? pickAmong(members.filter((a) => a.spare), o);
 }
 
 function pickAmong(members: Account[], o: { current?: string; prefer?: string; now?: number }): string | undefined {
@@ -321,7 +327,7 @@ export function findPool(pools: Pool[], q: string): Pool | undefined {
 
 // ---------------------------------------------------------- shared pools
 
-// Pools shared between runners through the backend (docs/protocol.md,
+// Pools shared between runners through the backend (docs/protocol/settings.md,
 // "Pools", "Shared between runners"). Login ids are each runner's own
 // (claude-main is a different login on each machine), so a shared pool
 // names its logins by provider and email; one with no email known is

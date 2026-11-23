@@ -8,6 +8,7 @@ import { atomicWriteFileSync } from './fsutil.ts';
 import { RELEASE } from './release.ts';
 import { gatewayBase, gatewayUrlFrom } from './connectors.ts';
 import type { MailWatchSettings } from './mail-watch.ts';
+import type { ArchiveSettings } from './agent-archive.ts';
 import { credentialUrlProblem } from './secure-url.ts';
 import { reviewerLists, type LabReviewer } from './lab-reviewers.ts';
 import { findGatewayClient } from './notion-tasks.ts';
@@ -33,7 +34,9 @@ export const DEFAULT_ACCOUNT_NOTES: Record<string, string> = {};
 // The most of each window a login may use, in percent (runner.json
 // accountCaps, e.g. { "claude-1": 50 } stops claude-1 at half its weekly
 // and 5-hour limits). None by default. runner.json spareAccounts
-// (["claude-1"]) lists logins kept for when the others are out.
+// (["claude-1"]) lists logins kept for when the others are out, and
+// preferredAccounts (["claude-main"], or an email) the ones a new pool
+// thread starts on while they have room.
 
 // Folders whose new threads start on a built-in pool, by the login that
 // pool is made from (pools.ts, defaultPools), from runner.json poolFolders
@@ -48,6 +51,7 @@ export type CliUpdatesConfig = {
   cursor?: CliPolicy;
   opencode?: CliPolicy;
   grok?: CliPolicy;
+  antigravity?: CliPolicy;
   checkMinutes: number;
   keepCodexVersions: number; // Codex copies kept under <home>/tools/codex
   // Other CLIs' update commands, run daily (updates/extra.ts). None by default.
@@ -110,6 +114,8 @@ export type Config = {
   cursorPath?: string;
   opencodePath?: string;
   grokPath?: string;
+  // agy_acp_server.par, with localharness_external beside it.
+  antigravityPath?: string;
   codexArgs: string[]; // extra `codex app-server` arguments
   codexMainDir: string; // codex-main's CODEX_HOME
   tokenStatsLimitsFile: string; // Token Stats' limits.json, read only
@@ -121,6 +127,7 @@ export type Config = {
   accountNotes: Record<string, string>;
   accountCaps?: Record<string, number>;
   spareAccounts?: string[];
+  preferredAccounts?: string[];
   // Logins left out of the list altogether (runner.json hiddenLogins, e.g.
   // ["claude-main"]): ~/.claude is always found as claude-main, so this is
   // the only way to drop it once its plan has lapsed, rather than have its
@@ -146,7 +153,7 @@ export type Config = {
   // Long threads (context-nudge.ts): the context token counts for the
   // composer's card, or null for none. Unset (tests) means the defaults.
   contextNudge?: ContextNudge | null;
-  // One reply (docs/protocol.md, "One reply"): end_turn carries the card
+  // One reply (docs/protocol/needs-you.md, "One reply"): end_turn carries the card
   // and a headline, and the agent's message straight after it is the
   // turn's reply. Off by default while Mike tries it (1 Nov 2026).
   oneReply: boolean;
@@ -223,11 +230,13 @@ export type RunnerJson = {
   cursorPath?: string;
   opencodePath?: string;
   grokPath?: string;
+  antigravityPath?: string;
   codexArgs?: string[];
   cliUpdates?: Partial<CliUpdatesConfig>;
   accountNotes?: Record<string, string>;
   accountCaps?: Record<string, unknown>;
   spareAccounts?: unknown;
+  preferredAccounts?: unknown;
   hiddenLogins?: string[];
   poolFolders?: Record<string, string[]>;
   sandbox?: unknown;
@@ -275,7 +284,7 @@ export type RunnerJson = {
   // icon: an SF Symbol for this runner in lists (machine.ts works one out).
   // An rpcUrl left from the direct link between Macs (gone 13 Nov 2026) is ignored.
   // full: true sends tool output to your Convex deployment as well, scrubbed first
-  // (docs/full-convex.md). Off unless set. fullAsked, fullAskedThread and
+  // (docs/convex-backend.md, "Full sync"). Off unless set. fullAsked, fullAskedThread and
   // fullAskedQuestion are left from the once-only offer (taken out 16 Nov 2026).
   // usageWarning: false hides tb status's warning near Convex's Free limits.
   // pastedPictures: false keeps pictures you paste off your Convex deployment
@@ -296,6 +305,11 @@ export type RunnerJson = {
   // that prints new emails, how often, when the pile comes, and the
   // decisions it may act on.
   mailWatch?: MailWatchSettings;
+  // Agent Archive through Threadbear (agent-archive.ts): its repo and the machines its sync is pushed to.
+  archive?: ArchiveSettings;
+  // Recipes (experiment recipes, recipes.ts): where the user's own recipes
+  // and set-up recipes' working files go. Default ~/ThreadbearThreads/recipes.
+  recipes?: { folder?: string };
 };
 
 // What defaults.permissionMode may be. Not Plan first: that waits for Mike
@@ -522,6 +536,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     ...(nonEmpty(json.cursorPath) ? { cursorPath: expand(nonEmpty(json.cursorPath)!) } : {}),
     ...(nonEmpty(json.opencodePath) ? { opencodePath: expand(nonEmpty(json.opencodePath)!) } : {}),
     ...(nonEmpty(json.grokPath) ? { grokPath: expand(nonEmpty(json.grokPath)!) } : {}),
+    ...(nonEmpty(json.antigravityPath) ? { antigravityPath: expand(nonEmpty(json.antigravityPath)!) } : {}),
     codexArgs: Array.isArray(json.codexArgs) ? json.codexArgs.filter((a): a is string => typeof a === 'string') : [],
     codexMainDir: expand(env.THREADBEAR_CODEX_MAIN_DIR || '~/.codex'),
     tokenStatsLimitsFile: expand(
@@ -532,6 +547,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     accountNotes: stringMap(json.accountNotes) ?? { ...DEFAULT_ACCOUNT_NOTES },
     ...((caps) => (caps ? { accountCaps: caps } : {}))(capMap(json.accountCaps)),
     ...(Array.isArray(json.spareAccounts) ? { spareAccounts: json.spareAccounts.filter((x): x is string => typeof x === 'string') } : {}),
+    ...(Array.isArray(json.preferredAccounts) ? { preferredAccounts: json.preferredAccounts.filter((x): x is string => typeof x === 'string' && x !== '') } : {}),
     ...((h) => (h.length ? { hiddenLogins: h } : {}))(
       Array.isArray(json.hiddenLogins) ? json.hiddenLogins.filter((x): x is string => typeof x === 'string' && x !== '') : [],
     ),

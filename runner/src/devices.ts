@@ -1,4 +1,4 @@
-// devices.list, devices.pair and devices.revoke (docs/protocol.md,
+// devices.list, devices.pair and devices.revoke (docs/protocol/moves.md,
 // "Devices"): the Settings window's Phone & browser tab. Each is a call to
 // the backend through the mirror's client (sync.ts), so pairing a phone or
 // signing a browser in needs no Convex CLI. A browser's token goes back in
@@ -137,10 +137,10 @@ export function devicesMethods(sync: ConvexSync, onPaired?: (kind: DeviceKind) =
   };
 }
 
-export const LOCAL_ONLY_PHONE = "Your backend is on this Mac only (setup --self-hosted --local), so a phone can't reach it. To use the iPhone app, run ./threadbear setup --self-hosted --tailnet (with Tailscale), or --self-hosted --url and --site-url if you reach this Mac your own way (docs/self-hosting.md).";
+export const LOCAL_ONLY_PHONE = "Your backend is on this Mac only (setup --self-hosted --local), so a phone can't reach it. To use the phone app, run ./threadbear setup --self-hosted --tailnet (with Tailscale), or --self-hosted --url and --site-url if you reach this Mac your own way (docs/self-hosting.md).";
 
 function defaultName(kind: DeviceKind): string {
-  return kind === 'phone' ? 'iPhone' : 'Browser';
+  return kind === 'phone' ? 'Phone' : 'Browser';
 }
 
 function offMessage(sync: ConvexSync): string {

@@ -50,7 +50,9 @@ pub(crate) fn close(mode: crate::settings::CloseShortcut, window: &mut Window, c
         CloseShortcut::Block | CloseShortcut::DeleteThread => {}
         // A scripted app never asks: no one is there to answer.
         CloseShortcut::Allow => crate::window_menu::close_window(window, cx),
-        CloseShortcut::Warn if cfg!(feature = "automation") => crate::window_menu::close_window(window, cx),
+        CloseShortcut::Warn if cfg!(feature = "automation") => {
+            crate::window_menu::close_window(window, cx)
+        }
         CloseShortcut::Warn => {
             let handle = window.window_handle();
             cx.spawn(async move |cx| {
@@ -59,7 +61,11 @@ pub(crate) fn close(mode: crate::settings::CloseShortcut, window: &mut Window, c
                     return;
                 }
                 cx.update(|cx| {
-                    handle.update(cx, |_, window, cx| crate::window_menu::close_window(window, cx)).ok();
+                    handle
+                        .update(cx, |_, window, cx| {
+                            crate::window_menu::close_window(window, cx)
+                        })
+                        .ok();
                 });
             })
             .detach();
@@ -72,7 +78,9 @@ fn ask_close() -> bool {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSAlert, NSAlertFirstButtonReturn};
     use objc2_foundation::NSString;
-    let Some(mtm) = MainThreadMarker::new() else { return true };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return true;
+    };
     let alert = NSAlert::new(mtm);
     alert.setMessageText(&NSString::from_str("Close Threadbear?"));
     alert.setInformativeText(&NSString::from_str("Closing the window quits the app. Your threads keep running on the runner while Threadbear is closed."));
@@ -91,10 +99,17 @@ fn ask() -> Answer {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSAlert, NSAlertFirstButtonReturn, NSControlStateValueOn};
     use objc2_foundation::NSString;
-    let Some(mtm) = MainThreadMarker::new() else { return Answer { quit: true, dont_ask_again: false } };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return Answer {
+            quit: true,
+            dont_ask_again: false,
+        };
+    };
     let alert = NSAlert::new(mtm);
     alert.setMessageText(&NSString::from_str("Quit Threadbear?"));
-    alert.setInformativeText(&NSString::from_str("Your threads keep running on the runner while Threadbear is closed."));
+    alert.setInformativeText(&NSString::from_str(
+        "Your threads keep running on the runner while Threadbear is closed.",
+    ));
     alert.addButtonWithTitle(&NSString::from_str("Quit"));
     alert.addButtonWithTitle(&NSString::from_str("Cancel"));
     alert.setShowsSuppressionButton(true);
@@ -104,11 +119,17 @@ fn ask() -> Answer {
     }
     let quit = alert.runModal() == NSAlertFirstButtonReturn;
     let dont_ask_again = suppression.is_some_and(|b| b.state() == NSControlStateValueOn);
-    Answer { quit, dont_ask_again }
+    Answer {
+        quit,
+        dont_ask_again,
+    }
 }
 
 // Elsewhere it quits as asked, until there's a dialog of the app's own here.
 #[cfg(not(target_os = "macos"))]
 fn ask() -> Answer {
-    Answer { quit: true, dont_ask_again: false }
+    Answer {
+        quit: true,
+        dont_ask_again: false,
+    }
 }

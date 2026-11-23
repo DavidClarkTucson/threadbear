@@ -5,9 +5,8 @@
 import type { Runner } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import { SAMPLE_THREADS, WELCOME_PATCH } from '../samples.ts';
-import type { Account, EffortLevel, ImageRef, MessageOrigin, PermissionMode, ThreadStartedBy, ThreadSummary } from '../protocol.ts';
+import type { Account, EffortLevel, ImageRef, MessageOrigin, PermissionMode, Provider, ThreadStartedBy, ThreadSummary } from '../protocol.ts';
 import { ErrorCode, LIMITS, RpcError } from '../protocol.ts';
-import type { Schedule } from '../protocol.ts';
 import type { ThreadRecord } from '../store.ts';
 import { expandHome, peekRunnerJson } from '../config.ts';
 import { isDirectory } from '../fsutil.ts';
@@ -28,6 +27,7 @@ export const newThreadsPart = {
     cwd?: string;
     accountId?: string;
     poolId?: string;
+    provider?: Provider;
     model?: string;
     effort?: EffortLevel;
     permissionMode?: PermissionMode;
@@ -39,7 +39,7 @@ export const newThreadsPart = {
     worktree?: boolean;
     startedBy?: ThreadStartedBy;
     // Not to sit under the thread in startedBy in the sidebar
-    // (docs/protocol.md, "Nested threads").
+    // (docs/protocol/threads.md, "Nested threads").
     detached?: boolean;
     // Projects it starts in (New Thread on a project's page), joined
     // before its first turn, so that turn already has the project's brief.
@@ -68,7 +68,7 @@ export const newThreadsPart = {
       throw e;
     }
     const { st, notes, loginNote } = made;
-    if (spare) st.rt.spare = spare;
+    if (spare) this.cli(st, { kind: 'claim', spare });
     if (projectIds.length) this.projects!.changeMembership(st.rec.id, { add: projectIds, by: 'mike' });
     const turnId = this.sendTo(st, params.text ?? '', params.images ?? [], { origin: params.origin, scheduleId: params.scheduleId });
     // Under the first turn, so they read as part of starting it.
@@ -79,7 +79,7 @@ export const newThreadsPart = {
     return { thread: this.summary(st), turnId };
   },
 
-  // A quick ask the phone already answered out loud (docs/protocol.md, Sync,
+  // A quick ask the phone already answered out loud (docs/protocol/moves.md, Sync,
   // "quickAsk"), kept as a thread so Mike can carry on in it. It's made as a
   // create with no folder would be, but no turn runs: the exchange is
   // written as a finished turn, seen, and the first message sent to it
@@ -177,6 +177,7 @@ export const newThreadsPart = {
     cwd?: string;
     accountId?: string;
     poolId?: string;
+    provider?: Provider;
     model?: string;
     effort?: EffortLevel;
     permissionMode?: PermissionMode;
@@ -210,6 +211,7 @@ export const newThreadsPart = {
     cwd?: string;
     accountId?: string;
     poolId?: string;
+    provider?: Provider;
     model?: string;
     effort?: EffortLevel;
     permissionMode?: PermissionMode;
@@ -232,12 +234,12 @@ export const newThreadsPart = {
     // A blank folder means the default, not the runner's own folder.
     const cwd = path.resolve(expandHome(params.cwd?.trim() ? params.cwd.trim() : this.cfg.defaults.cwd));
     // An accountId pins the thread to that login. Otherwise a pool picks
-    // the login (docs/protocol.md, "Pools"), except on a dev runner whose
+    // the login (docs/protocol/settings.md, "Pools"), except on a dev runner whose
     // keepAccount pins new threads to its own account.
     let poolId: string | undefined;
     let accountId = params.accountId;
     if (accountId === undefined && (params.poolId !== undefined || !peekRunnerJson(this.cfg.home).defaults?.keepAccount)) {
-      const picked = this.pickForNew({ poolId: params.poolId, cwd, model: params.model });
+      const picked = this.pickForNew({ poolId: params.poolId, cwd, model: params.model, provider: params.provider });
       if (picked) ({ poolId, accountId } = picked);
     }
     // A schedule pinned to a signed-out login runs this time on a pool

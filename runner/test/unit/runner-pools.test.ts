@@ -1,4 +1,4 @@
-// Pools in the runner (docs/protocol.md, "Pools"), with fake adapters and
+// Pools in the runner (docs/protocol/settings.md, "Pools"), with fake adapters and
 // the fake clock: picking a pool and login on create (the named model's
 // provider decides), the move before a turn, the move after a usageLimit
 // failure and its carry-on, the wait and its timer (across a restart),
@@ -108,6 +108,16 @@ test('naming a model picks its provider: claude-opus-5-5 with no account never l
   const luna = h.runner.create({ text: 'z', model: 'gpt-6-luna' }).thread;
   assert.equal(luna.provider, 'codex');
   assert.equal(luna.model, 'gpt-6-luna');
+});
+
+test("a mixed pool's new thread goes on the provider the picker's pick was under", () => {
+  const h = poolHarness({ pools: [{ id: 'mix', title: 'Mix', accountIds: ['claude-main', 'codex-main'] }] });
+  assert.equal(h.runner.create({ text: 'x', poolId: 'mix' }).thread.provider, 'claude', 'none named: the pool\'s first');
+  const codex = h.runner.create({ text: 'y', poolId: 'mix', provider: 'codex' }).thread;
+  assert.equal(codex.provider, 'codex');
+  assert.equal(codex.accountId, 'codex-main');
+  // Only with a pool: a provider alone doesn't pick one.
+  assert.equal(h.runner.create({ text: 'z', provider: 'codex' }).thread.provider, 'claude');
 });
 
 test("a folder named in a pool's folders starts its threads there; a named pool is remembered", () => {
@@ -957,6 +967,27 @@ test('noted logins get a pool of their own and are never picked for another', ()
   assert.deepEqual(pools.find((p) => p.id === 'work')?.accountIds, ['claude-2']);
   const t = h.runner.create({ text: 'x', poolId: 'claude' }).thread;
   assert.notEqual(t.accountId, 'claude-2');
+});
+
+test('a preferred login: new threads start on it while it has room, and a thread on another login stays put', async () => {
+  const h = poolHarness();
+  h.fake.base = h.fake.base.map((a) => (a.id === 'claude-3' ? { ...a, preferred: true } : a));
+  h.setUsage('claude-main', room(95, 60));
+  h.setUsage('claude-3', room(30, 300));
+  h.runner.create({ text: 'x' });
+  assert.equal(h.adapter.last.opts.account.id, 'claude-3', 'the preferred one, though the other resets sooner');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0, 300, true));
+  const { thread } = h.runner.create({ text: 'y' });
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main', 'another once the preferred one is out');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(100));
+  h.runner.send(thread.id, 'z');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main', 'no move back');
+  assert.ok(!notes(h, thread.id).some((n) => /Moved to/.test(n)), notes(h, thread.id).join(' | '));
 });
 
 test('a spare login: new threads skip it while the main one has room, and leave it when the main one is back', async () => {

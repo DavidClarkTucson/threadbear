@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { makeHarness, tick } from '../helpers/fakes.ts';
 import { contextLong, contextNudgeConfig, DEFAULT_CONTEXT_NUDGE, HANDOFF_PROMPT, handoffMessage } from '../../src/context-nudge.ts';
 
-const notes = (h: { events(id: string): any[] }, id: string): string[] => h.events(id).filter((e) => e.type === 'system.note').map((e) => e.text);
+const notes = (h: { events(id: string): { type: string; text?: string }[] }, id: string): string[] => h.events(id).filter((e) => e.type === 'system.note').map((e) => e.text ?? '');
 
 test('contextLong: gentle from 150K, firm from 250K, nothing under or unknown', () => {
   assert.equal(contextLong(undefined, undefined), undefined);

@@ -43,7 +43,7 @@ Feature: The tour, the pages' intros and Finish setting up
   Scenario: Help > Finish Setting Up opens the list, ticked off from what the app knows
     When I choose "Finish Setting Up" from the menu bar
     # The mock's threads have run and it has a phone and a browser paired.
-    Then Finish setting up is open with "Start your first thread", "Pair your iPhone" and "Open your website" all done
+    Then Finish setting up is open with "Start your first thread", "Pair your phone" and "Open your website" all done
 
   # How a launch decides on the tour by itself. The Swift app keeps whether
   # it's been seen in its own defaults, and a scripted Swift app never starts

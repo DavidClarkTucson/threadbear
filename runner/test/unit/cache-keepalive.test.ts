@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CACHE_TTL_MS, DEFAULT_KEEP_ALIVE, inHours, keepAliveConfig, pingPlan, warmState, type KeepWarmThread } from '../../src/cache-keepalive.ts';
 import { ClaudeAdapter, PING_PROMPT } from '../../src/adapters/claude/adapter.ts';
+import type { CachePing, StartSessionOptions } from '../../src/adapters/types.ts';
 import { ProcessRegistry } from '../../src/proc.ts';
 import { nullLogger } from '../../src/log.ts';
 import { tmpDir } from '../helpers/fakes.ts';
@@ -136,15 +137,21 @@ test('keep-alive: a real turn (your message) starts the count again', () => {
 
 // A stand-in for the SDK's query() that records the options and answers
 // with one result.
+// What these tests read of the options the SDK's query() was handed.
+type QueryOptions = Record<string, unknown> & {
+  allowedTools: string[];
+  hooks: { PreToolUse: { hooks: ((input: { tool_name: string }) => Promise<{ hookSpecificOutput: { permissionDecision: string } }>)[] }[]; Stop?: unknown };
+  canUseTool: (tool: string, input: object, opts: object) => Promise<{ behavior: string }>;
+};
 function fakeQuery(result: Record<string, unknown>) {
-  const state: { options?: any; prompts: any[] } = { prompts: [] };
-  const fn = ((args: { prompt: AsyncIterable<any>; options: any }) => {
+  const state: { options?: QueryOptions; prompts: { message: { content: unknown } }[] } = { prompts: [] };
+  const fn = ((args: { prompt: AsyncIterable<{ message: { content: unknown } }>; options: QueryOptions }) => {
     state.options = args.options;
     return (async function* () {
       for await (const m of args.prompt) state.prompts.push(m);
       yield { type: 'result', ...result };
     })();
-  }) as any;
+  }) as never;
   return { fn, state };
 }
 
@@ -161,7 +168,7 @@ test('pingCache: a fork of the session with the same prompt options, never saved
   const r = await adapter.pingCache(startOpts(dir));
   assert.equal(r.ok, true);
   assert.deepEqual({ ...r, ms: 0 }, { ok: true, inputTokens: 2, outputTokens: 4, cacheReadTokens: 66_384, cacheWriteTokens: 125, ms: 0 });
-  const o = state.options;
+  const o = state.options!;
   assert.equal(o.resume, '00000000-0000-0000-0000-000000000009');
   assert.equal(o.forkSession, true);
   assert.equal(o.persistSession, false, 'nothing written, so no thread or archive sees it');
@@ -202,7 +209,7 @@ test('runner: a due thread is pinged on its own login, counted, and nothing reac
   s.init();
   s.text('a1', 'Which one do you want?');
   s.result('completed');
-  const st = (h.runner as any).threads.get(thread.id);
+  const st = h.runner.threads.get(thread.id)!;
   // Waiting on you, with a big context, its turn ended 55 minutes ago at
   // 10:00 on a Monday in Phoenix.
   h.clock.advance(MON_10 - h.clock.now());
@@ -210,8 +217,8 @@ test('runner: a due thread is pinged on its own login, counted, and nothing reac
   st.rec.contextTokens = 120_000;
   st.rec.lastActivityAt = new Date(MON_10 - 55 * MIN).toISOString();
   st.rt.session = undefined;
-  const asked: any[] = [];
-  (h.adapter as any).pingCache = async (opts: any) => {
+  const asked: StartSessionOptions[] = [];
+  (h.adapter as { pingCache?: (opts: StartSessionOptions) => Promise<CachePing> }).pingCache = async (opts) => {
     asked.push(opts);
     return { ok: true, inputTokens: 2, outputTokens: 4, cacheReadTokens: 119_000, cacheWriteTokens: 90, ms: 800 };
   };
@@ -242,7 +249,7 @@ test('runner: a ping that reached the cache counts as the cache last used; a fai
   s.init();
   s.text('a1', 'Which one do you want?');
   s.result('completed');
-  const st = (h.runner as any).threads.get(thread.id);
+  const st = h.runner.threads.get(thread.id)!;
   h.clock.advance(MON_10 - h.clock.now());
   st.rec.needs = { seq: st.rec.lastTurnCompletedSeq, needs: 'you' };
   st.rec.contextTokens = 120_000;
@@ -250,7 +257,7 @@ test('runner: a ping that reached the cache counts as the cache last used; a fai
   st.rec.lastModelAt = new Date(MON_10 - 55 * MIN).toISOString();
   st.rt.session = undefined;
   let ok = false;
-  (h.adapter as any).pingCache = async () => (ok
+  (h.adapter as { pingCache?: () => Promise<CachePing> }).pingCache = async () => (ok
     ? { ok: true, inputTokens: 2, outputTokens: 4, cacheReadTokens: 119_000, cacheWriteTokens: 90, ms: 800 }
     : { ok: false, error: 'network', ms: 5 });
   assert.equal((await h.runner.keepWarmTick()).length, 1);
@@ -259,5 +266,5 @@ test('runner: a ping that reached the cache counts as the cache last used; a fai
   h.clock.advance(55 * MIN);
   assert.equal((await h.runner.keepWarmTick()).length, 1);
   assert.equal(st.rec.lastModelAt, new Date(MON_10 + 55 * MIN).toISOString());
-  assert.equal((h.runner as any).lastModelMs(st), MON_10 + 55 * MIN, "what compact-when-cold reads");
+  assert.equal(h.runner.lastModelMs(st), MON_10 + 55 * MIN, "what compact-when-cold reads");
 });

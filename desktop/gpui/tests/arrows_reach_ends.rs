@@ -8,7 +8,9 @@ use gpui_kit::base::input::ArrowsReachEnds;
 use gpui_kit::component::input::{MoveDown, MoveUp, Textarea, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{div, AnyWindowHandle, Entity, Focusable as _, TestAppContext, Window, WindowOptions};
+use gpui_kit::{
+    div, AnyWindowHandle, Entity, Focusable as _, TestAppContext, Window, WindowOptions,
+};
 
 struct Boxed(Entity<TextareaState>);
 
@@ -20,14 +22,24 @@ impl Render for Boxed {
 
 fn text_box(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<TextareaState>) {
     cx.update(gpui_kit::init);
-    let (handle, root) = cx.update(|cx| gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| cx.new(|cx| Boxed(cx.new(|cx| TextareaState::new(window, cx))))).unwrap());
+    let (handle, root) = cx.update(|cx| {
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| Boxed(cx.new(|cx| TextareaState::new(window, cx))))
+        })
+        .unwrap()
+    });
     let input = cx.update(|cx| root.read(cx).0.clone());
     (handle, input)
 }
 
 /// Puts the caret at `at` in "first line\nsecond line", presses `key` and
 /// says where the caret went.
-fn press(cx: &mut TestAppContext, on: Option<bool>, at: usize, key: &dyn gpui_kit::Action) -> usize {
+fn press(
+    cx: &mut TestAppContext,
+    on: Option<bool>,
+    at: usize,
+    key: &dyn gpui_kit::Action,
+) -> usize {
     let (handle, input) = text_box(cx);
     if let Some(on) = on {
         cx.update(|cx| cx.set_global(ArrowsReachEnds(on)));
@@ -39,7 +51,10 @@ fn press(cx: &mut TestAppContext, on: Option<bool>, at: usize, key: &dyn gpui_ki
             s.focus(window, cx);
         });
         window.render_frame(cx);
-        input.read(cx).focus_handle(cx).dispatch_action(key, window, cx);
+        input
+            .read(cx)
+            .focus_handle(cx)
+            .dispatch_action(key, window, cx);
         input.read(cx).selected_range().start
     })
     .unwrap()

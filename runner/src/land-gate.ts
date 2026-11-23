@@ -28,7 +28,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { repoKey } from './upstream.ts';
 
 export const HOLD_MARK = /^\s*#\s*tb land:\s*hold while red\s*$/m;
 

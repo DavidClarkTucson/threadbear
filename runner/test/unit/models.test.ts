@@ -289,7 +289,7 @@ test('titles: a model title replaces the first line, unless one was set meanwhil
 
   // Named by hand before the model answered: the hand wins.
   let release!: () => void;
-  const slow = { generate: (p: any) => new Promise<any>((r) => (release = () => r({ ok: true, value: 'Model title', model: HAIKU }))) };
+  const slow = { generate: (_p: any) => new Promise<any>((r) => (release = () => r({ ok: true, value: 'Model title', model: HAIKU }))) };
   const h2 = makeHarness(undefined, {}, { models: slow });
   const t2 = h2.runner.create({ text: 'something', accountId: 'claude-3' }).thread;
   h2.runner.update({ threadId: t2.id, title: 'Mine' });
@@ -378,10 +378,10 @@ test('titles: a Jira ticket in the first message leads the title, with its summa
   fs.writeFileSync(path.join(home, 'secrets', 'jira.json'), JSON.stringify({ site: 'https://example.atlassian.net', email: 'me@example.com', token: 't' }));
   const realFetch = globalThis.fetch;
   const fetched: string[] = [];
-  globalThis.fetch = (async (url: any) => (fetched.push(String(url)), new Response(JSON.stringify({ fields: { summary: 'Force reclassification of URLs on demand' } }), { status: 200 }))) as typeof fetch;
+  globalThis.fetch = (async (url: string | URL | Request) => (fetched.push(String(url)), new Response(JSON.stringify({ fields: { summary: 'Force reclassification of URLs on demand' } }), { status: 200 }))) as typeof fetch;
   try {
-    const asked: any[] = [];
-    const models = { generate: async (p: any) => (asked.push(p), { ok: true as const, value: 'Force reclassifications tech design', model: HAIKU }), isPrivateFolder: () => false };
+    const asked: { prompt: string; system?: string }[] = [];
+    const models = { generate: async (p: { prompt: string; system?: string }) => (asked.push(p), { ok: true as const, value: 'Force reclassifications tech design', model: HAIKU }), isPrivateFolder: () => false };
     const h = makeHarness(home, {}, { models });
     const { thread } = h.runner.create({ text: 'MACG-3375 tech design', accountId: 'claude-3' });
     for (let i = 0; i < 50 && h.runner.get(thread.id)!.title === 'MACG-3375 tech design'; i++) await tick();
@@ -407,7 +407,7 @@ test('titles: naming an older thread also sends the start of its first reply', a
   const asked: any[] = [];
   const models = { generate: async (p: any) => (asked.push(p), { ok: false as const, reason: 'no-pool' as const, message: '' }) };
   const h = makeHarness(undefined, {}, { models });
-  const id = h.runner.create({ text: 'Explain thread count', accountId: 'claude-3' }).thread.id;
+  h.runner.create({ text: 'Explain thread count', accountId: 'claude-3' });
   await tick();
   const s = h.adapter.last;
   s.init();

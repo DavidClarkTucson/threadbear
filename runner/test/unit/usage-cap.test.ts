@@ -104,6 +104,15 @@ test('discoverAccounts marks spare logins', () => {
   assert.equal(found.find((a) => a.id === 'claude-1')?.spare, true);
 });
 
+test('discoverAccounts marks preferred logins, by id or by email', () => {
+  const home = tmpDir();
+  const accountsDir = path.join(home, 'accounts');
+  for (const n of ['claude-1', 'claude-2', 'claude-3']) fs.mkdirSync(path.join(accountsDir, n), { recursive: true });
+  fs.writeFileSync(path.join(accountsDir, 'claude-2', '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'two@example.com' } }));
+  const found = discoverAccounts({ claudeMainDir: path.join(home, 'none'), claudeMainJson: path.join(home, 'none.json'), tokenStatsAccountsDir: path.join(home, 'nope'), accountsDir, userHome: home, pathEnv: '', preferredAccounts: ['claude-1', 'Two@example.com'] } as never);
+  assert.deepEqual(found.filter((a) => a.preferred).map((a) => a.id), ['claude-1', 'claude-2']);
+});
+
 test('discoverAccounts takes named login folders after the numbered ones', () => {
   const home = tmpDir();
   const accountsDir = path.join(home, 'accounts');

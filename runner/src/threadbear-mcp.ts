@@ -45,7 +45,7 @@ import type { ConvexSync } from './sync.ts';
 import type { RemoteThread, RemoteThreads } from './thread-index.ts';
 import { POCKET_ICONS } from './pocket-icons.ts';
 import type { SecretAnswer, SecretRequest } from './runner/approvals.ts';
-import type { StartRequest } from './cross-runner.ts';
+import { starterIn, type StartRequest } from './cross-runner.ts';
 import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN } from './secrets.ts';
 import { cutSafely, firstLineSafely } from './safe-cut.ts';
 import { pickRunner } from './moves.ts';
@@ -59,6 +59,7 @@ type Async<T, K extends keyof T> = { [P in K]: T[P] extends (...a: infer A) => i
 export type ThreadControl = {
   hello: Runner['hello'];
   createReview?: (...args: Parameters<Runner['createReview']>) => Aw<ReturnType<Runner['createReview']>>;
+  experiment?: Runner['experiment'];
   createButton?: (...args: Parameters<Runner['createButton']>) => Aw<ReturnType<Runner['createButton']>>;
   folderPanel?: (...args: Parameters<Runner['folderPanel']>) => ReturnType<Runner['folderPanel']>;
   pin?: (...args: Parameters<Runner['pin']>) => Aw<ReturnType<Runner['pin']>>;
@@ -96,7 +97,7 @@ export type AppRestartControl = Pick<AppRestarts, 'watch' | 'isWatching'>;
 // The phone's Pocket, in the Convex backend (sync.ts).
 export type PocketControl = Pick<ConvexSync, 'savePocketCard' | 'removePocketCard' | 'pocketCards'>;
 
-// Other runners' threads, through the backend (relay.ts, docs/protocol.md
+// Other runners' threads, through the backend (relay.ts, docs/protocol/runners.md
 // "Other runners' threads through the backend"): the Mac's sidebar lists
 // them, so an agent's list_threads, read_thread and send_message reach them
 // too. `list` is the sidebar's list (empty on a runner key, which the
@@ -273,6 +274,9 @@ export function buildThreadbearTools(
     gateway?: () => string | undefined;
     gatewayHealth?: () => Promise<ConnectorService[] | undefined>;
     remote?: () => RemoteControl | undefined;
+    // Experiment loadEndTurn: Claude gets end_turn's schema in every
+    // request instead of finding it with ToolSearch first (experiments/loadEndTurn.md).
+    loadEndTurn?: () => boolean;
     // The once-a-turn note asking for a card in plain words (needs.ts,
     // plainCardNudge). Off only in tests about the rest of end_turn, which
     // would otherwise each have to answer it first.
@@ -516,7 +520,7 @@ export function buildThreadbearTools(
     throw new Error(`No account ${q}. Accounts: ${accounts.map(named).join(', ')}`);
   };
 
-  // A pool by id or title (docs/protocol.md, "Pools").
+  // A pool by id or title (docs/protocol/settings.md, "Pools").
   const pool = (q: string): string => {
     const pools = control.hello().pools ?? [];
     const hit = findPool(pools, q);
@@ -706,6 +710,13 @@ export function buildThreadbearTools(
   // once, before any card, which shows it: what goes is what was allowed.
   const from = async (): Promise<string> => `${AGENT_MESSAGE_PREFIX}"${(await control.get(selfId)).title.replace(/\s+/g, ' ').trim()}" (${selfId.slice(0, 8)})]\n\n`;
 
+  // This thread's first message, which says who started it from another Mac
+  // (cross-runner.ts startedHeader).
+  const firstMessage = async (): Promise<string> => {
+    const page = await control.events(selfId, { afterSeq: 0, limit: 20 });
+    const e = (page.events as PersistedEvent[]).find((x) => x.type === 'user.message');
+    return e?.type === 'user.message' ? e.text : '';
+  };
 
   const titleOf = async (id: string): Promise<string> => {
     try {
@@ -718,7 +729,7 @@ export function buildThreadbearTools(
   const scheduleLine = async (sc: Schedule): Promise<string> => {
     const state = sc.finishedAt ? 'done' : sc.paused ? 'paused' : sc.nextRunAt ? `next ${relativeFuture(sc.nextRunAt, now())} (${sc.nextRunAt})` : 'no more runs';
     // A new-thread one says what it runs on, so a change to it shows.
-    const on = [sc.accountId, sc.poolId && `${sc.poolId} pool`, sc.model, sc.effort, sc.permissionMode && sc.permissionMode !== 'full' ? sc.permissionMode : undefined].filter(Boolean).join(', ');
+    const on = [sc.accountId, sc.poolId && `${sc.poolId} pool${sc.provider ? ` (${sc.provider})` : ''}`, sc.model, sc.effort, sc.permissionMode && sc.permissionMode !== 'full' ? sc.permissionMode : undefined].filter(Boolean).join(', ');
     const target = sc.threadId ? (sc.threadId === selfId ? 'this thread' : `thread ${sc.threadId.slice(0, 8)} ${await titleOf(sc.threadId)}`) : `a new thread in ${sc.cwd ?? 'its default folder'}${on ? ` (${on})` : ''}`;
     const last = sc.lastRun && sc.lastRun.outcome !== 'sent' ? `; last run ${sc.lastRun.outcome}: ${sc.lastRun.note ?? ''}` : '';
     const checked = sc.check ? `; check: ${sc.check.length > 80 ? sc.check.slice(0, 80) + '…' : sc.check}${sc.checkTimeoutSecs ? ` (up to ${sc.checkTimeoutSecs} s)` : ''}` : '';
@@ -752,15 +763,15 @@ export function buildThreadbearTools(
           reference: z.boolean().optional().describe('Context to compare against, not to pick.'),
         })).min(1).max(12),
       },
-      handle(async (input, extra) => {
+      handle(async (input) => {
         if (!control.createReview) throw new Error('This runner does not support image reviews yet.');
         const { review } = await control.createReview(selfId, input);
-        return `Review ${review.id}: ${review.title} (${review.options.length} options). The user can compare them and send their picks and a reply. You can finish this turn; their reply will arrive as a later message. To open it from an end_turn ask, link to review:${review.id}.${oversizeShotsNote(review)}`;
+        return `Review ${review.id}: ${review.title} (${review.options.length} options). The user can compare them and send their picks and a reply. You can finish this turn; their reply will arrive as a later message. To open it from an end_turn ask, link to review:${review.id}.${control.experiment?.('reviewPage') ? REVIEW_PAGE_NOTE : ''}${oversizeShotsNote(review)}`;
       }),
     ),
   ];
 
-  // docs/protocol.md, "Reply buttons".
+  // docs/protocol/events.md, "Reply buttons".
   const buttonTools = control.createButton
     ? [
         tool(
@@ -788,7 +799,7 @@ export function buildThreadbearTools(
               panel: z.string().min(1).describe('Its web panel, by id or title.'),
             }).optional(),
           },
-          handle(async ({ title, start, send, panel }, extra) => {
+          handle(async ({ title, start, send, panel }) => {
             if (!control.createButton) throw new Error("This runner can't make buttons.");
             const input: Parameters<Runner['createButton']>[1] = { title };
             if (start) {
@@ -829,7 +840,7 @@ export function buildThreadbearTools(
     ? [
         tool(
           'pocket',
-          "Keeps a short card in the Pocket on the user's iPhone, a deck that opens instantly and works with no signal, for when they're out. File one when they say they're heading somewhere or will need a fact away from their Mac: the address to write on a parcel and what to bring, booking codes for a trip. Write what they'd read at a counter, not an explanation. The same title replaces a card; when it's done with, remove it. With no title, lists the cards.",
+          "Keeps a short card in the Pocket in the user's Threadbear phone app, a deck that opens instantly and works with no signal, for when they're out. File one when they say they're heading somewhere or will need a fact away from their computer: the address to write on a parcel and what to bring, booking codes for a trip. Write what they'd read at a counter, not an explanation. The same title replaces a card; when it's done with, remove it. With no title, lists the cards.",
           {
             title: z.string().trim().min(1).max(60).optional().describe('Short name for the card, like "Parcel for Mum".'),
             text: z.string().trim().min(1).max(2000).optional().describe('What goes on the card, plain text, with line breaks where it should break.'),
@@ -856,16 +867,16 @@ export function buildThreadbearTools(
       ]
     : [];
 
-  // docs/protocol.md, "Secrets". The tool waits for the card's answer and
+  // docs/protocol/threads.md, "Secrets". The tool waits for the card's answer and
   // returns paths, never the value.
   const askSecret = control.requestSecret?.bind(control);
   const secretTools = askSecret
     ? [
         tool(
           'ask_secret',
-          `Asks the user for a secret (a password, an API key, a token, a code) in a private card in Threadbear, on their Mac or their phone, and waits for it. You never see the value, and it stays out of the chat: you get a private file holding it, readable by your commands for 24 hours. Use this whenever a task needs a secret from them, including their Mac administrator password for sudo, instead of asking for it in your reply or stopping to hand the step over. Not for one you can get yourself, like a key on a page in a signed-in browser. Read the file inside a command and never print it, echo it or put it in a file of your own.`,
+          `Asks the user for a secret (a password, an API key, a token, a code) in a private card in Threadbear, on their computer or their phone, and waits for it. You never see the value, and it stays out of the chat: you get a private file holding it, readable by your commands for 24 hours. Use this whenever a task needs a secret from them, including the computer's administrator password for sudo, instead of asking for it in your reply or stopping to hand the step over. Not for one you can get yourself, like a key on a page in a signed-in browser. Read the file inside a command and never print it, echo it or put it in a file of your own.`,
           {
-            label: z.string().trim().min(1).max(80).describe('The card\'s title, what you need: "Mac administrator password", "Cloudflare API token".'),
+            label: z.string().trim().min(1).max(80).describe('The card\'s title, what you need: "Administrator password", "Cloudflare API token".'),
             reason: z.string().trim().min(1).max(500).describe('One or two sentences: what it is for, and where to find it if that is not obvious.'),
             placeholder: z.string().trim().min(1).max(60).optional().describe('Hint in the empty field, such as "cfut_...".'),
             timeoutMinutes: z.number().int().min(1).max(SECRET_TIMEOUT_MAX_MIN).optional().describe(`How long to wait. Default ${SECRET_TIMEOUT_DEFAULT_MIN}.`),
@@ -901,11 +912,11 @@ export function buildThreadbearTools(
         note: z.string().max(500).optional().describe('One line on why the user should look at it.'),
         show: z.boolean().optional().describe('Open it in the side pane now.'),
       },
-      handle(async (input, extra) => {
+      handle(async (input) => {
         if (!control.pin) throw new Error("This runner doesn't keep highlights yet.");
         const { id, scriptsOff, shown } = await control.pin(selfId, input);
         // Older runners (a handover) don't say whether it showed.
-        const where = !input.show ? '' : shown === false ? ". It opens in the side pane when the user next looks at this thread in the Mac app; they aren't right now (it waits until then, or until their next message)" : ', and open in the side pane in front of the user now';
+        const where = !input.show ? '' : shown === false ? ". It opens in the side pane when the user next looks at this thread in the desktop app; they aren't right now (it waits until then, or until their next message)" : ', and open in the side pane in front of the user now';
         const pinned = `Pinned (${id})${where}.`;
         // Older runners (a handover) don't say; then nothing's added.
         return scriptsOff
@@ -923,7 +934,7 @@ export function buildThreadbearTools(
         return removed ? 'Unpinned.' : `Nothing pinned as ${id}.`;
       }),
     ),
-    // docs/protocol.md, "Showing panels". Opens or brings forward, never
+    // docs/protocol/panels.md, "Showing panels". Opens or brings forward, never
     // moves one Mike has open: his layout is his.
     tool(
       'show_panel',
@@ -936,12 +947,12 @@ export function buildThreadbearTools(
           .describe('Where a closed panel opens: tab (beside the thread, closing when the user moves on), left, right, top or bottom (along that side of the window), or window (its own). Default: its usual place.'),
         reload: z.boolean().optional().describe("Load a web panel's page afresh, after you've changed it."),
       },
-      handle(async (input, extra) => {
+      handle(async (input) => {
         if (!control.showPanel) throw new Error("This runner can't show panels yet.");
         const { request, shown } = await control.showPanel(selfId, input);
         return shown
           ? `${request.title} is open in front of the user now.`
-          : `${request.title} will open when the user next looks at this thread in the Mac app; they aren't right now. It waits until then, or until their next message.`;
+          : `${request.title} will open when the user next looks at this thread in the desktop app; they aren't right now. It waits until then, or until their next message.`;
       }),
     ),
   ];
@@ -953,8 +964,8 @@ export function buildThreadbearTools(
       {
         text: z.string().min(1).describe('The message to send when it comes due.'),
         when: z.string().optional().describe('Once: 30m, 2h, 1d, tomorrow (9 am) or an ISO time.'),
-        cron: z.string().optional().describe('Repeating: a 5-field cron, minute hour day-of-month month day-of-week, e.g. "0 9 * * 1-5" for weekdays at 9:00, "*/30 * * * *" for every 30 minutes; or @hourly, @daily, @weekly, @monthly. Read in the Mac\'s time zone unless timezone is set.'),
-        timezone: z.string().optional().describe('IANA zone for the cron, e.g. Australia/Perth. Default: the Mac\'s.'),
+        cron: z.string().optional().describe('Repeating: a 5-field cron, minute hour day-of-month month day-of-week, e.g. "0 9 * * 1-5" for weekdays at 9:00, "*/30 * * * *" for every 30 minutes; or @hourly, @daily, @weekly, @monthly. Read in the runner\'s time zone unless timezone is set.'),
+        timezone: z.string().optional().describe('IANA zone for the cron, e.g. Australia/Perth. Default: the runner\'s.'),
         title: z.string().optional().describe('Short name for lists. Default: the first line of text.'),
         ...thisOrOther,
         new_thread: z.boolean().optional().describe('Start a new thread each time instead of sending to a thread.'),
@@ -1030,7 +1041,7 @@ export function buildThreadbearTools(
         title: z.string().optional(),
         when: z.string().optional().describe('Once: 30m, 2h, 1d, tomorrow or an ISO time.'),
         cron: z.string().optional().describe('Repeating: a 5-field cron.'),
-        timezone: z.string().nullable().optional().describe("IANA zone for the cron, or null for the Mac's."),
+        timezone: z.string().nullable().optional().describe("IANA zone for the cron, or null for the runner's."),
         paused: z.boolean().optional(),
         folder: z.string().optional(),
         account: z.string().optional(),
@@ -1218,7 +1229,7 @@ export function buildThreadbearTools(
     ...(p.tasks?.items.length ? { tasks: p.tasks.items } : {}),
   });
   // The brief a thread in `p` is told, with what it gets from a parent
-  // (its title and goals) and its parts' names (docs/protocol.md, Projects,
+  // (its title and goals) and its parts' names (docs/protocol/projects.md, Projects,
   // "Parts"), for an approval to show and hold fixed (Codex review: the
   // parent's goals came along unseen).
   const fullBriefShown = async (p: Project): Promise<Record<string, unknown>> => {
@@ -1414,7 +1425,7 @@ export function buildThreadbearTools(
         const restrictedCaller = await restricted();
         const caller = restrictedCaller?.mode === 'auto' ? undefined : restrictedCaller;
         const added = addFolders?.length ? await Promise.all(addFolders.map(folder)) : undefined;
-        // Parts (docs/protocol.md, Projects, "Parts") widen who's told: a
+        // Parts (docs/protocol/projects.md, Projects, "Parts") widen who's told: a
         // parent's title and goals go to its parts' threads, a part's name
         // to its parent's, and a new parent's goals to this one's threads.
         // So every one of those counts (Codex review), and the card shows
@@ -1597,7 +1608,7 @@ export function buildThreadbearTools(
     .optional()
     .describe('Threads the rest of this work waits on, as ids or { thread, until: "it reports the I/O saving" }: hibernates until each finishes (or has done its until), then wakes with their replies; snooze is the latest (1 day if left out). Needs "nothing".');
 
-  // end_turn with one reply (docs/protocol.md, "One reply"): the card and
+  // end_turn with one reply (docs/protocol/needs-you.md, "One reply"): the card and
   // a headline; the reply is the message the agent writes next. Nothing to
   // check for a reply, as it comes after; only a second call, a sign-in no
   // ask covers, and Restart to Update apply, as below.
@@ -1627,7 +1638,7 @@ export function buildThreadbearTools(
                 .array(
                   z.object({
                     title: z.string().min(1).describe('What the button does, short: "Open login page", "See the preview".'),
-                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this Mac (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
+                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this computer (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
                   }),
                 )
                 .max(3)
@@ -1726,7 +1737,7 @@ export function buildThreadbearTools(
         asks: z
           .array(
             z.object({
-              // No where: the paragraph says it (docs/protocol.md, "Needs
+              // No where: the paragraph says it (docs/protocol/needs-you.md, "Needs
               // you"). The runner still takes one from older sessions.
               action: z.string().min(1).describe('The ask\'s first sentence: one concrete thing for the user to do, or the question, e.g. "Add your Claude login to the Claude pool in Settings › Pools." The card shows it with why as one paragraph; Highlights and notifications show it alone, so keep it to a sentence.'),
               reply: z.string().optional().describe('The exact words to send back when it is done, e.g. "done" or "key set". Leave it out when the reply is their own answer (a decision, a choice).'),
@@ -1737,7 +1748,7 @@ export function buildThreadbearTools(
                 .array(
                   z.object({
                     title: z.string().min(1).describe('What the button does, short: "Open login page", "See the preview".'),
-                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this Mac (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
+                    url: z.string().min(1).describe('A web page (https://…), a file or folder on this computer (an absolute or ~ path), review:<id> to open one of this thread\'s show_options reviews, or thread:<id> for another thread, when the step is done there.'),
                   }),
                 )
                 .max(3)
@@ -1861,10 +1872,17 @@ export function buildThreadbearTools(
   // Claude keeps each tool's definition from when the session first loaded
   // it, through every resume, whatever the server lists by then. ToolSearch
   // shows that one too, and tools/list_changed changes nothing, even live
-  // (tried on CLI 2.1.316, 1 Nov 2026, thread 1b770c6a; docs/protocol.md,
+  // (tried on CLI 2.1.316, 1 Nov 2026, thread 1b770c6a; docs/protocol/needs-you.md,
   // "One reply").
+  // Claude Code defers MCP tools behind ToolSearch, so a turn's first
+  // step was a request that only loaded end_turn, re-sending the whole
+  // context to do it: 3 requests for a "hello" where the bare CLI makes 1
+  // (ADEMark B1 on a Scaleway M2, 21 Nov 2026, thread 0b6b183c). Every
+  // turn ends with it, so it's always listed (experiment loadEndTurn).
+  const loaded = <T extends { _meta?: Record<string, unknown> }>(t: T): T =>
+    !codex && opts.loadEndTurn?.() ? Object.assign(t, { _meta: { ...t._meta, 'anthropic/alwaysLoad': true } }) : t;
   const endTurn = () => {
-    const today = oneReply ? oneReplyEndTurn() : bulletsEndTurn();
+    const today = loaded(oneReply ? oneReplyEndTurn() : bulletsEndTurn());
     const other = oneReply ? bulletsEndTurn() : oneReplyEndTurn();
     const otherForm = (args: unknown) => {
       const form = endTurnForm(args);
@@ -1913,7 +1931,7 @@ export function buildThreadbearTools(
       ? [
           tool(
             'wait_for_app_restart',
-            "Sends you a message in this thread when the user's Threadbear Mac app next restarts onto a new build: after you've landed an app change and asked them to Restart to Update (in the Threadbear menu), so you can check it in the running app. An end_turn ask that mentions Restart to Update does this by itself. `text` is what to send then; by default a line saying it restarted. One per thread: asking again replaces it.",
+            "Sends you a message in this thread when the user's Threadbear desktop app next restarts onto a new build: after you've landed an app change and asked them to Restart to Update (in the Threadbear menu), so you can check it in the running app. An end_turn ask that mentions Restart to Update does this by itself. `text` is what to send then; by default a line saying it restarted. One per thread: asking again replaces it.",
             {
               text: z.string().max(4000).optional().describe('What to send when it restarts, e.g. what to check.'),
               commit: z.string().max(200).optional().describe("A commit the build must have. Default: main's HEAD now."),
@@ -1985,7 +2003,7 @@ export function buildThreadbearTools(
         const head = far ? describeRemote(far.t, far.runner) : describe(await control.get(id));
         const want = messages ?? 10;
         const picked: string[] = [];
-        // What edits cut out (docs/protocol.md, "Editing a message"). Each
+        // What edits cut out (docs/protocol/threads.md, "Editing a message"). Each
         // thread.rewound comes after the range it cuts, so walking back
         // meets it first.
         const cuts: { from: number; to: number }[] = [];
@@ -2101,7 +2119,7 @@ export function buildThreadbearTools(
           permissionMode,
           startedBy: { kind: 'thread', label: 'Agent', threadId: selfId, ...(why?.trim() ? { why: cutSafely(why.replace(/\s+/g, ' ').trim(), MAX_BYLINE) } : {}) },
           // Not part of this thread's work: it keeps a row of its own
-          // (docs/protocol.md, "Nested threads").
+          // (docs/protocol/threads.md, "Nested threads").
           ...(nested === false ? { detached: true as const } : {}),
         });
         const where = r.thread.poolId ? ` It's in the ${r.thread.poolId} pool, so it moves to another login if this one runs dry.` : '';
@@ -2119,7 +2137,16 @@ export function buildThreadbearTools(
       handle(async ({ threadId, id: alias, text }, extra) => {
         const asked = threadId ?? alias;
         if (!asked) throw new Error('threadId is required. list_threads shows the ids.');
-        const hit = await find(asked);
+        const hit = await find(asked).catch(async (e: unknown) => {
+          // The thread on another Mac that started this one, which this
+          // runner's key may not reach: the main Mac passes this thread's
+          // replies back to it (far-reports.ts).
+          if (!(e instanceof Error && e.message.startsWith('No thread with id')) || asked.length < 8) throw e;
+          const starter = await firstMessage().then(starterIn, () => undefined);
+          if (starter?.startsWith(asked))
+            throw new Error(`Not sent: thread ${starter} started this one from another Mac, which this runner can't message. The reply you end this turn with goes back to it, so put your report in your reply.`);
+          throw e;
+        });
         const id = hit.id;
         if (id === selfId) throw new Error("That's this thread. Just carry on here.");
         // Another runner's thread counts as full access (modeOf), so a
@@ -2135,7 +2162,7 @@ export function buildThreadbearTools(
         }
         const sent = (await control.send(id, head + text)) as { turnId: string; held?: boolean };
         // A report to the thread that started this one, kept until its
-        // other threads finish (docs/protocol.md, "Nested threads").
+        // other threads finish (docs/protocol/threads.md, "Nested threads").
         if (sent.held) return `Held for ${id.slice(0, 8)} "${(await control.get(id)).title}": it gets this with the other reports once the threads it started have finished, so there's no need to send it again.`;
         return `Sent to ${id.slice(0, 8)} "${(await control.get(id)).title}".`;
       }),
@@ -2335,6 +2362,14 @@ function clip(text: string, max = 2000): string {
 export const SHOT_MAX_SIDE = 16384;
 
 // A line for show_options' answer naming the shots over SHOT_MAX_SIDE.
+// With the reviewPage experiment on, what show_options adds to its answer:
+// the review is a page beside the thread where each option's note sits with
+// its pictures at reading size, so the reply needn't say it all again.
+// Mike, 20 Nov 2026: agents wrote every option out twice, in its note and in
+// the reply, and he read the reply because the window's notes were small.
+// In the tool's answer, not its description, so it costs nothing until used.
+export const REVIEW_PAGE_NOTE = " The user reads each option's note beside its pictures on the review's page, and picks there, so don't list or describe the options again in your reply: say they're up and anything that isn't about one option. An ask that links the review needs no answers of its own.";
+
 export function oversizeShotsNote(review: { options: { id: string; image: ImageRef; shots?: { image: ImageRef }[] }[] }): string {
   const big = review.options.flatMap(option => (option.shots ?? [{ image: option.image }]).map((shot, i) => ({ option: option.id, i, image: shot.image })))
     .filter(({ image }) => (image.width ?? 0) > SHOT_MAX_SIDE || (image.height ?? 0) > SHOT_MAX_SIDE);
@@ -2369,7 +2404,7 @@ export const RICH_BLOCKS_LINE =
 // Only for a thread that has the pocket tool: the Pocket lives in the Convex
 // backend, so with phone sync off there's no tool to tell it about.
 export const POCKET_LINE =
-  "When they say they're heading out or will need a fact away from their Mac (an address, a booking code, what to take), file it on their phone with pocket.";
+  "When they say they're heading out or will need a fact away from their computer (an address, a booking code, what to take), file it on their phone with pocket.";
 
 // Also in the instructions, for the same reason. The librarian files
 // threads by itself, but it only sees a summary and can miss one; the
@@ -2411,10 +2446,10 @@ export function guideLine(file = guidePath(), exists: (p: string) => boolean = f
 // mod, pinned the page and wrote an npm script that made an HTML file:
 // nothing told it that in Threadbear those are a patch file (2 Nov).
 export function patchesLine(guide = guidePath(), exists: (p: string) => boolean = fs.existsSync): string {
-  const protocol = path.join(path.dirname(guide), 'protocol.md');
+  const protocol = path.join(path.dirname(guide), 'protocol', 'patches.md');
   if (!exists(protocol)) return '';
   return (
-    'When the user asks for a button above the message box (one that runs a command or sends you a message) or a panel beside the thread (a web page, or a list of rows), for this folder or a project, make it a Threadbear patch: a `.threadbear/patches/<name>.ts` file in that folder, as "Patches" in ' +
+    'When the user asks for a button above the message box (one that runs a command or sends you a message) or a panel beside the thread (a web page, or a list of rows), for this folder or a project, make it a Threadbear patch: a `.threadbear/patches/<name>.ts` file in that folder, as ' +
     `${protocol} describes (actions with run, prompt or url, panels with a url or an items function). ` +
     'Write it with Edit or Write, so on Full access it is trusted as you left it, then check it loaded in Patches with show_panel. Not a Claude Code plugin, hook, mod or slash command, and not a pin.'
   );
@@ -2429,6 +2464,7 @@ export function serverInstructions(selfId: string, o: { one: boolean; bulletRepl
   return (
     `This session is a thread in Threadbear, the app the user runs agent threads in (thread id ${selfId}). ` +
     userLine() +
+    "Don't guess which phone or computer they use (iPhone or Android, Mac or not); ask if it matters. " +
     (guide ? `${guide} ` : '') +
     (patches ? `${patches} ` : '') +
     'These tools manage Threadbear itself: list and read threads, start new ones, message them, rename, snooze, archive, move and delete them, schedule messages for later (once or on a cron), and keep the user\'s projects (groupings above folders with goals, state and notes) up to date. ' +
@@ -2445,13 +2481,13 @@ export function serverInstructions(selfId: string, o: { one: boolean; bulletRepl
   );
 }
 
-export function threadbearMcpServer(control: ThreadControl, selfId: string, schedules?: ScheduleControl, projects?: ProjectControl, appRestarts?: AppRestartControl, bulletReplies: () => boolean = () => true, pocket?: () => PocketControl | undefined, oneReply: () => boolean = () => false, gateway?: () => string | undefined, gatewayHealth?: () => Promise<ConnectorService[] | undefined>, remote?: () => RemoteControl | undefined): McpSdkServerConfigWithInstance {
+export function threadbearMcpServer(control: ThreadControl, selfId: string, schedules?: ScheduleControl, projects?: ProjectControl, appRestarts?: AppRestartControl, bulletReplies: () => boolean = () => true, pocket?: () => PocketControl | undefined, oneReply: () => boolean = () => false, gateway?: () => string | undefined, gatewayHealth?: () => Promise<ConnectorService[] | undefined>, remote?: () => RemoteControl | undefined, loadEndTurn?: () => boolean): McpSdkServerConfigWithInstance {
   const one = oneReply();
   const server = createSdkMcpServer({
     name: SERVER_NAME,
     version: RUNNER_VERSION,
     instructions: serverInstructions(selfId, { one, bulletReplies: bulletReplies(), pocket: Boolean(pocket?.()), projects: Boolean(projects) }),
-    tools: buildThreadbearTools(control, selfId, Date.now, schedules, projects, appRestarts, { bulletReplies, pocket, oneReply: () => one, gateway, gatewayHealth, remote }),
+    tools: buildThreadbearTools(control, selfId, Date.now, schedules, projects, appRestarts, { bulletReplies, pocket, oneReply: () => one, gateway, gatewayHealth, remote, loadEndTurn }),
   });
   server.tools = [...ALWAYS_ASK_TOOLS].map((name) => ({ name: name.split('__').at(-1)!, permission_policy: 'always_ask' as const }));
   return server;
