@@ -2169,8 +2169,10 @@ export class Runner {
     // change settings for the next turn.
     // A schedule's or the runner's own note doesn't go past one already
     // waiting either: CI's "passed again" mustn't reach the agent before the
-    // "failed again" queued while it compacted (Codex's review, 25 Nov).
-    const overtakes = isAutomaticInput(msg) && rec.queue.some(isAutomaticInput);
+    // "failed again" queued while it compacted (Codex's review, 25 Nov). Nor
+    // past a message of Mike's a Stop left unread, as it waits for that
+    // below (Gemini's review).
+    const overtakes = isAutomaticInput(msg) && (rec.queue.some(isAutomaticInput) || Boolean(rec.interruptedMessages?.length));
     if (rt.turn && !opts.queue && !overtakes && this.canSteer(st) && !this.commandPlan(st, text)) {
       // Sent while a turn runs: it goes into that turn now, as typing into
       // the CLI would. The CLI takes it at its next step, or straight after
