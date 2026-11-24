@@ -137,8 +137,9 @@ struct PaletteView {
     /// Its command files are this Mac's to open only on this Mac's threads.
     can_open_files: bool,
     home: String,
-    /// Typed partway through a message: only the skills the agent can run
-    /// there are listed, and a pick goes into the words (Insert), never sent.
+    /// Typed partway through a message: only skills are listed, and a pick
+    /// goes into the words (Insert), never sent. A start-only one is shown
+    /// dimmed, and a pick moves it to the message's start (Move to start).
     mid_message: bool,
 }
 
@@ -241,7 +242,7 @@ impl Composer {
         }
         if let Some((command, run)) = slash::handle_key(key, &matches, &mut self.palette, &text) {
             // A skill named partway through a message isn't sent on its own.
-            self.palette_pick(command, run && !view.mid_message, window, cx);
+            self.palette_pick_in(command, run, view.mid_message, window, cx);
         }
         // Keep the pick in sight as the arrows move it (the list scrolls).
         if matches!(key, PaletteKey::Up | PaletteKey::Down) {
@@ -256,6 +257,57 @@ impl Composer {
         true
     }
 
+    /// A pick as the palette is open: partway through a message it goes into
+    /// the words, never sent, and a start-only skill moves to the start.
+    fn palette_pick_in(
+        &mut self,
+        command: SlashCommand,
+        run: bool,
+        mid_message: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if mid_message && slash::start_only(&command) {
+            self.palette_move_to_start(command, window, cx);
+        } else {
+            self.palette_pick(command, run && !mid_message, window, cx);
+        }
+    }
+
+    /// A start-only skill picked partway through a message: the whole
+    /// message becomes the skill with the words before it as its details,
+    /// the caret at the end, as one undo, and nothing is sent.
+    fn palette_move_to_start(
+        &mut self,
+        command: SlashCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.note_recent(&command.name, cx);
+        self.palette = PaletteState::default();
+        let current = self.input.read(cx).value().to_string();
+        let before = slash::typed(&current).map_or("", |t| &current[..t.start]);
+        let text = slash::move_to_start(&command, before);
+        let end = current.len();
+        self.input.update(cx, |s, cx| {
+            s.set_selected_range(0..end, cx);
+            s.replace(text, window, cx);
+            s.focus(window, cx);
+            crate::web_panels::keyboard_to_app(window);
+        });
+        cx.notify();
+    }
+
+    fn note_recent(&self, name: &str, cx: &mut Context<Self>) {
+        if let Some(app) = self.app.upgrade() {
+            app.update(cx, |app, _| {
+                app.new_thread.prefs.recent_slash =
+                    slash::used(name, &app.new_thread.prefs.recent_slash);
+                prefs::save(&app.new_thread.prefs);
+            });
+        }
+    }
+
     /// `ComposerView.pick`: puts the command in the box in place of what was
     /// typed for it, to send now, or with a space after it for its arguments
     /// (or, partway through a message, the words after it). Only the typed
@@ -267,13 +319,7 @@ impl Composer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(app) = self.app.upgrade() {
-            app.update(cx, |app, _| {
-                app.new_thread.prefs.recent_slash =
-                    slash::used(&command.name, &app.new_thread.prefs.recent_slash);
-                prefs::save(&app.new_thread.prefs);
-            });
-        }
+        self.note_recent(&command.name, cx);
         self.palette = PaletteState::default();
         let text = slash::fill(&command, !run);
         let current = self.input.read(cx).value().to_string();
@@ -305,7 +351,7 @@ impl Composer {
             });
         let mid_message = typed.mid_message();
         if mid_message {
-            all = slash::mid_message(&all);
+            all = slash::mid_message_listed(&all);
         }
         let query = typed.query.clone();
         let data = self.chip_data(cx);
@@ -613,14 +659,21 @@ impl Composer {
     ) -> impl IntoElement {
         let name = command.name.clone();
         let title = format!("/{name}");
-        let tip: SharedString = if mid_message {
+        let start_only = mid_message && slash::start_only(command);
+        let tip: SharedString = if start_only {
+            format!("/{name} only runs at the start of a message: double-click to move it there")
+        } else if mid_message {
             format!("/{name}: double-click to put it in the message")
         } else {
             format!("/{name}: double-click to run it")
         }
         .into();
         let (fg, accent, hover) = (
-            cx.theme().foreground,
+            if start_only {
+                style::tertiary_label(cx)
+            } else {
+                cx.theme().foreground
+            },
             style::accent(cx).opacity(0.75),
             style::primary_opacity(cx, 0.05),
         );
@@ -646,7 +699,7 @@ impl Composer {
                     && this.palette.selected.as_deref() == Some(picked.name.as_str())
                 {
                     // Partway through a message it goes into the words.
-                    this.palette_pick(picked.clone(), !mid_message, window, cx);
+                    this.palette_pick_in(picked.clone(), true, mid_message, window, cx);
                 } else {
                     this.palette.selected = Some(picked.name.clone());
                     this.focus(window, cx);
@@ -693,6 +746,9 @@ impl Composer {
                 .bg(style::primary_opacity(cx, 0.06))
                 .child(command.usage()),
         );
+        if view.mid_message && slash::start_only(command) {
+            words = words.child(div().text_size(px(size::LABEL + 1.)).child(START_ONLY_NOTE));
+        }
         if let Some(now) = view.current.get(&name) {
             words = words.child(
                 div()
@@ -757,7 +813,19 @@ impl Composer {
     ) -> impl IntoElement {
         let (run, fill) = (command.clone(), command.clone());
         let mut row = h_flex().flex_none().gap(px(8.)).px(px(16.)).py(px(12.));
-        if view.mid_message {
+        if view.mid_message && slash::start_only(command) {
+            row = row.child(palette_button(
+                "Move to start",
+                format!(
+                    "Move /{} to the start of the message, the words after it (Return or Tab)",
+                    command.name
+                ),
+                cx,
+                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.palette_move_to_start(fill.clone(), window, cx)
+                }),
+            ));
+        } else if view.mid_message {
             row = row.child(palette_button(
                 "Insert",
                 format!(
@@ -858,7 +926,13 @@ impl Composer {
             None
         };
         let detail = picked.as_ref().map(|c| {
-            let mut buttons = if view.mid_message { vec!["Insert"] } else { vec!["Run", "Add details"] };
+            let mut buttons = if view.mid_message && slash::start_only(c) {
+                vec!["Move to start"]
+            } else if view.mid_message {
+                vec!["Insert"]
+            } else {
+                vec!["Run", "Add details"]
+            };
             if c.path.is_some() && view.can_open_files {
                 buttons.push("Open file");
             }
@@ -871,6 +945,7 @@ impl Composer {
                 "origin": slash::origin_named(c, &view.cli_name),
                 "path": c.path.as_ref().map(|p| slash::short_path(p, &view.home)),
                 "buttons": buttons,
+                "note": (view.mid_message && slash::start_only(c)).then_some(START_ONLY_NOTE),
             })
         });
         json!({
@@ -878,7 +953,13 @@ impl Composer {
             "category": view.category_title(self.palette.category),
             "categories": categories,
             "commands": matches.iter().map(|c| format!("/{}", c.name)).collect::<Vec<_>>(),
-            "picked": picked.map(|c| format!("/{}", c.name)),
+            "picked": picked.as_ref().map(|c| format!("/{}", c.name)),
+            // Dimmed partway through a message: they run only at the start.
+            "startOnly": matches
+                .iter()
+                .filter(|c| view.mid_message && slash::start_only(c))
+                .map(|c| format!("/{}", c.name))
+                .collect::<Vec<_>>(),
             "detail": detail,
             "note": note,
             // As last drawn, in points (slash_resize.rs): its width and
@@ -894,6 +975,10 @@ impl Composer {
         })
     }
 }
+
+/// Said in a start-only skill's details partway through a message.
+const START_ONLY_NOTE: &str = "This skill only runs at the start of a message. \
+Picking it moves it there, with your words after it.";
 
 fn palette_placeholder(text: String, cx: &App) -> impl IntoElement {
     div()

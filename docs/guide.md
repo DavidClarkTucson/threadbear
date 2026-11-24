@@ -758,11 +758,13 @@ time. Right-click it for its default size or column widths, or
 double-click a line to put that column back.
 
 Type `/` partway through a message ("then use /td") and the palette
-lists the skills the agent can run when it reads one named there. Return
-or Tab puts the skill in your words, and nothing is sent until you send
-the message. Claude Code's own commands, and skills set to run only when
-you type them (`disable-model-invocation: true`), work only at the start
-of a message, so they aren't listed there.
+lists your skills. Return or Tab puts the skill in your words, for the
+agent to run when it reads it, and nothing is sent until you send the
+message. Skills set to run only when you type them
+(`disable-model-invocation: true`) work only at the start of a message, so
+they're shown dimmed: picking one moves it to the start, with the words
+you'd typed after it, still unsent. Claude Code's own commands also work
+only at the start, and aren't listed there.
 
 The iPhone app has it too: type `/` in a thread's reply box and a list of
 its commands opens above it, with the categories as buttons along the top.

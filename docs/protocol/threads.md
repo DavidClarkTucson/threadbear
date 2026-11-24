@@ -210,7 +210,8 @@ type SlashCommand = {
   path?: string;             // its file on the runner's machine, when found
   // Its frontmatter says `disable-model-invocation: true`: it runs only as
   // the start of a message. Named partway through one, the agent can't run
-  // it, so the picker leaves it out there. Absent: unknown, or it can.
+  // it, so the picker shows it dimmed there and moves it to the start when
+  // picked. Absent: unknown, or it can.
   userOnly?: boolean;
 };
 ```

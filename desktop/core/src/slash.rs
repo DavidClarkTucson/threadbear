@@ -177,6 +177,31 @@ pub fn mid_message(commands: &[SlashCommand]) -> Vec<SlashCommand> {
         .collect()
 }
 
+/// What the palette lists partway through a message: every skill, the ones
+/// the agent can run there and the start-only ones too, shown as such
+/// (`start_only`), so none seems to be missing (24 Nov 2026).
+pub fn mid_message_listed(commands: &[SlashCommand]) -> Vec<SlashCommand> {
+    commands.iter().filter(|c| c.is_skill()).cloned().collect()
+}
+
+/// A skill that runs only as the start of a message
+/// (`disable-model-invocation: true`): named partway through one, the agent
+/// can't run it, so a pick there moves it to the start (`move_to_start`).
+pub fn start_only(command: &SlashCommand) -> bool {
+    command.is_skill() && command.user_only == Some(true)
+}
+
+/// The message with a start-only skill moved to its start, the one place
+/// it runs, and the words typed before it after it, as its details.
+pub fn move_to_start(command: &SlashCommand, before: &str) -> String {
+    let words = before.trim();
+    if words.is_empty() {
+        format!("/{} ", command.name)
+    } else {
+        format!("/{} {words}", command.name)
+    }
+}
+
 /// Where a command came from, for the detail pane.
 pub fn origin(command: &SlashCommand, provider: &str) -> String {
     origin_named(command, &cli_name(provider))
@@ -608,6 +633,37 @@ mod tests {
             &json!({ "commands": [{ "name": "x", "source": "skill", "userOnly": true }] }),
         );
         assert_eq!(user_only[0].user_only, Some(true));
+    }
+
+    #[test]
+    fn a_start_only_skill_is_listed_partway_through_and_moves_to_the_start() {
+        let mut list = commands();
+        list.push(SlashCommand {
+            name: "start-only".into(),
+            source: "skill".into(),
+            user_only: Some(true),
+            ..Default::default()
+        });
+        let names: Vec<String> = mid_message_listed(&list)
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, ["code-review", "deslop", "ship", "start-only"]);
+        let picked = list.last().unwrap();
+        assert!(start_only(picked));
+        assert!(
+            !start_only(&list[0]),
+            "a CLI command isn't a start-only skill"
+        );
+        assert_eq!(
+            move_to_start(picked, "then tidy it with "),
+            "/start-only then tidy it with"
+        );
+        assert_eq!(
+            move_to_start(picked, "first line\nsecond "),
+            "/start-only first line\nsecond"
+        );
+        assert_eq!(move_to_start(picked, "  "), "/start-only ");
     }
 
     #[test]

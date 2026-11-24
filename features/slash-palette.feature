@@ -46,7 +46,10 @@ Feature: The slash command palette
     Then the palette's categories say "All 15 | Threadbear 2 | Claude Code 6 | Skills 7 | Recent 1"
 
   # Skills named partway through a message (9 Nov 2026, docs/guide.md):
-  # only the ones the agent can run there, and a pick goes into the words.
+  # only skills, and a pick goes into the words. Start-only ones
+  # (`disable-model-invocation: true`) were left out until 24 Nov 2026, which
+  # looked like they were missing: now they're shown dimmed, and a pick moves
+  # the skill to the start of the message, the one place it runs.
   @composer.slash
   Scenario: A slash partway through a message lists the skills the agent can run
     When I type "then tidy it with /de" in the composer
@@ -59,6 +62,23 @@ Feature: The slash command palette
     Then the palette's pick is "/deslop"
     When I press Return
     Then the composer says "then tidy it with /deslop "
+    And the palette is closed
+    And the transcript doesn't show my message "then tidy it with"
+
+  @composer.slash @swift-pending
+  Scenario: A start-only skill partway through a message is shown dimmed
+    When I type "then tidy it with /shi" in the composer
+    Then the palette's commands are "/ship"
+    And the palette shows "/ship" dimmed, as start-only
+    And the palette's pick is "/ship"
+    And the palette's details have the buttons "Move to start"
+    And the palette's details say "This skill only runs at the start of a message. Picking it moves it there, with your words after it."
+
+  @composer.slash @swift-pending
+  Scenario: Return on a start-only skill partway through moves it to the start, unsent
+    When I type "then tidy it with /shi" in the composer
+    And I press Return
+    Then the composer says "/ship then tidy it with"
     And the palette is closed
     And the transcript doesn't show my message "then tidy it with"
 

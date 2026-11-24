@@ -90,8 +90,10 @@ export type Dump = {
     categories: { title: string; count: number }[];
     commands: string[];
     picked?: string | null;
-    detail?: { title: string; usage: string; description?: string | null; now?: string | null; also?: string | null; origin: string; path?: string | null; buttons: string[] } | null;
+    detail?: { title: string; usage: string; description?: string | null; now?: string | null; also?: string | null; origin: string; path?: string | null; buttons: string[]; note?: string | null } | null;
     note?: string | null;
+    /** Partway through a message: the skills shown dimmed, start-only ones. */
+    startOnly?: string[];
   } | null;
   /** ⌘K's box while it's up: what's typed, each group's entries as their
    *  lines read ("Inbox | ⌘1"), and the pick's title. */
