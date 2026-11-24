@@ -34,6 +34,8 @@ export class ThreadbearWorld extends World {
   shareResult?: string;
   /** The thread whose page flew to its heading (archive-flight.steps.ts). */
   flownFrom?: string;
+  /** The panels' layout (`dock`) just before the last ⌘J, for panel-motion.steps.ts. */
+  dockBefore?: string;
   /** A stand-in BrowserBear, for @browserbear scenarios (support/browserbear.ts). */
   bear?: StandInBrowserBear;
 

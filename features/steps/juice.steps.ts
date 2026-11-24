@@ -74,7 +74,18 @@ When('I pick the first answer on the card', async function (this: ThreadbearWorl
   await this.app.do({ cmd: 'ask', action: 'pick:0:0' });
 });
 
+// With Reduce Motion on (the stress run's motion condition) none of the three
+// moves: the answer is ticked without filling (composer_card.rs, pick_answer),
+// the picture is in the box without dropping (composer.rs, add_pictures) and
+// the reply's words are there at once (the kit's stream fade). So those check
+// the end state is right and that nothing moved.
+
 Then('the answer\'s button filled', async function (this: ThreadbearWorld) {
+  if ((await this.app.dump()).reduceMotion) {
+    const d = await this.until('the first answer ticked', (d) => ((d.composer.card ?? []).some((l) => /^\[x\] 1\./.test(l)) ? d : undefined));
+    if (d.juice?.answerFilled) throw new Error(`An answer filled with Reduce Motion on: ${d.juice.answerFilled}`);
+    return;
+  }
   await this.until('the first answer filling', (d) => d.juice?.answerFilled === '0:0');
 });
 
@@ -84,10 +95,27 @@ When('I paste a picture into the box', async function (this: ThreadbearWorld) {
 });
 
 Then('the picture dropped into the box', async function (this: ThreadbearWorld) {
+  if ((await this.app.dump()).reduceMotion) {
+    const d = await this.until('a picture in the box', (d) => (d.composer.images === 1 ? d : undefined));
+    if (d.juice?.picturesDropped) throw new Error(`${d.juice.picturesDropped} picture(s) dropped in with Reduce Motion on`);
+    return;
+  }
   await this.until('a picture dropping in', (d) => d.juice?.picturesDropped === 1 && d.composer.images === 1);
 });
 
 Then('a reply\'s new words fade in as they stream', async function (this: ThreadbearWorld) {
+  if ((await this.app.dump()).reduceMotion) {
+    // The reply to what was just sent: an agent's row after the last of mine,
+    // quoting it, as the mock runner's answers do.
+    const d = await this.until('the reply on the page', (d) => {
+      const rows = d.transcript.rows;
+      const mine = rows.map((r) => r.kind).lastIndexOf('user');
+      const sent = rows[mine]?.text;
+      return sent && rows.slice(mine + 1).some((r) => r.kind === 'assistant' && r.text?.includes(sent)) ? d : undefined;
+    });
+    if (d.juice?.replyFadeMs) throw new Error(`The reply fades over ${d.juice.replyFadeMs} ms with Reduce Motion on`);
+    return;
+  }
   await this.until('the reply fade on', (d) => (d.juice?.replyFadeMs ?? 0) > 0);
 });
 
