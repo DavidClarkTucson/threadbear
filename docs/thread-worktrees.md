@@ -243,7 +243,9 @@ nothing. Instead:
   watch's, with the run, the jobs and steps that failed, and to fix it and
   land. That thread is the one for the red stretch: a newer failed run is
   sent to it, never a second thread, and so is the news when the workflow
-  passes again (a failed rerun of the same run counts as newer). A start
+  passes again (a failed rerun of the same run counts as newer), as the
+  runner's note ("Sent by the runner: main's CI failed again"), not a
+  message from Mike (until 25 Nov they were stored as his). A start
   whose answer was lost is found again by its title ("Fix <name> (<file>),
   red on main") or why in that repo, so it isn't started twice. A later red stretch starts a new thread, unless the last
   one is still open (not archived), which is told instead; one that was

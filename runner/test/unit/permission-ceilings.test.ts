@@ -506,6 +506,10 @@ test("the RPC gate puts a thread's own ceiling on its tb send, whatever it says"
   const sent = gate.check(me, 'threads.send', { threadId: other, text: 'hi', origin: 'runner', wakeReason: "Main's CI passed again" });
   assert.equal(sent.origin, undefined);
   assert.equal(sent.wakeReason, undefined);
+  const full = idle(h, 'Full helper', 'full');
+  const fromFull = gate.check(full, 'threads.send', { threadId: other, text: 'hi', origin: 'runner', wakeReason: "Main's CI passed again" });
+  assert.equal(fromFull.origin, undefined, 'at Full access too');
+  assert.equal(fromFull.wakeReason, undefined);
   assert.equal(gate.check(me, 'schedules.create', { threadId: other, text: 'x', at: '2030-01-01T00:00:00Z', ceiling: 'full' }).ceiling, 'ask');
   assert.equal(gate.check(me, 'schedules.create', { threadId: me, text: 'x', at: '2030-01-01T00:00:00Z', ceiling: 'full' }).ceiling, 'ask', 'its own too');
 });

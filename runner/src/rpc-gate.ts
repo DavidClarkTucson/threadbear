@@ -163,6 +163,12 @@ export class CallerGate {
       const { by: _b, ...rest } = p;
       p = known?.mode === 'full' ? { ...rest, by: 'full' } : rest;
     }
+    // Words a thread sends are never the runner's note or the phone's, at
+    // any access (Codex's review, 25 Nov): only the owner's tools say so.
+    if (method === 'threads.send') {
+      const { origin: _o, wakeReason: _w, ...rest } = p;
+      p = rest;
+    }
     if (known?.mode === 'full') return p;
     if (GATED_READS.has(method)) return p;
     if (!known) throw new RpcError(ErrorCode.notAllowed, "This thread isn't one the runner knows now, so it can only read. Ask the user to do it in the app.");
@@ -201,9 +207,8 @@ export class CallerGate {
           const t = this.targetAccess(id);
           if (above(t, caller)) throw needs(`sending a message to ${this.title(id)}, which has ${MODE_NAMES[t.mode]}`, 'send_message');
         }
-        // Only the app's Needs you answers and a phone command passed on
-        // say these.
-        const { answers: _a, origin: _o, wakeReason: _w, ceiling: _c, ...rest } = p;
+        // Only the app's Needs you answers say these; the ceiling is set below.
+        const { answers: _a, ceiling: _c, ...rest } = p;
         // Words starting as another thread's message would name a sender they
         // aren't from (runner/nested.ts reads it to hold a report).
         if (typeof p.text === 'string' && sentByAgent(p.text)) throw new RpcError(ErrorCode.notAllowed, "A message from a thread can't start the way another thread's message does. Use the send_message tool, which says who it's from.");
