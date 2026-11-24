@@ -31,8 +31,15 @@ export type FixThreads = {
   // end_turn replaces the why with a byline.
   findOpen(p: { why: string; title: string; cwd: string }): Promise<string | undefined>;
   start(p: { text: string; why: string; title: string; cwd: string }): Promise<string>;
-  send(threadId: string, text: string): Promise<void>;
+  // `why`: the few words the apps head the runner's note with (sendParams).
+  send(threadId: string, text: string, why: string): Promise<void>;
 };
+
+// threads.send's params for a message to a fix thread: the runner's own
+// note (origin "runner"), not words Mike typed, which is how they were
+// stored until 25 Nov and so counted as his. `why` is its wakeReason; the
+// Mac lowercases its first letter after "Sent by the runner: ".
+export const sendParams = (threadId: string, text: string, why: string) => ({ threadId, text, images: [], origin: 'runner' as const, wakeReason: why });
 
 // What the watch knows of one workflow between looks: the whole lifecycle,
 // with every move made in `step` below.
@@ -76,13 +83,13 @@ const greenText = (w: HeldWorkflow, v: Extract<Verdict, { state: 'green' }>): st
 
 // The move for one look, and what to do for it. Pure, apart from asking
 // whether the last thread is still there.
-type Act = { kind: 'start'; text: string; why: string; title: string } | { kind: 'send'; thread: string; text: string };
+type Act = { kind: 'start'; text: string; why: string; title: string } | { kind: 'send'; thread: string; text: string; why: string };
 export async function step(w: HeldWorkflow, was: Watch | undefined, v: Verdict, threads: Pick<FixThreads, 'state'>, now: string): Promise<{ next?: Watch; act?: Act }> {
   if (v.state === 'unknown' || v.state === 'none') return {};
   if (v.state === 'green') {
     if (was?.state !== 'red') return was ? {} : { next: { state: 'green', since: now } };
     const next: Watch = { state: 'green', since: now, thread: was.thread };
-    return (await threads.state(was.thread)) === 'gone' ? { next } : { next, act: { kind: 'send', thread: was.thread, text: greenText(w, v) } };
+    return (await threads.state(was.thread)) === 'gone' ? { next } : { next, act: { kind: 'send', thread: was.thread, text: greenText(w, v), why: "Main's CI passed again" } };
   }
   const red = (thread: string): Watch => redWatch(thread, v, was?.state === 'red' ? was.since : now);
   if (was?.state === 'red') {
@@ -91,9 +98,9 @@ export async function step(w: HeldWorkflow, was: Watch | undefined, v: Verdict, 
     if (v.run.createdAt <= was.told && !rerun) return {};
     // Deleted: someone didn't want it, so it isn't started again.
     if ((await threads.state(was.thread)) === 'gone') return { next: red(was.thread) };
-    return { next: red(was.thread), act: { kind: 'send', thread: was.thread, text: againText(w, v) } };
+    return { next: red(was.thread), act: { kind: 'send', thread: was.thread, text: againText(w, v), why: "Main's CI failed again" } };
   }
-  if (was?.thread && (await threads.state(was.thread)) === 'open') return { next: red(was.thread), act: { kind: 'send', thread: was.thread, text: redText(w, v, true) } };
+  if (was?.thread && (await threads.state(was.thread)) === 'open') return { next: red(was.thread), act: { kind: 'send', thread: was.thread, text: redText(w, v, true), why: "Main's CI went red again" } };
   return { act: { kind: 'start', text: redText(w, v, false), why: `${w.file} red on main`, title: `Fix ${named(w)}, red on main` } };
 }
 
@@ -197,7 +204,7 @@ export async function watchRed(root: string, deps: WatchDeps): Promise<string[]>
         continue;
       }
       if (act?.kind === 'send') {
-        await deps.threads.send(act.thread, act.text);
+        await deps.threads.send(act.thread, act.text, act.why);
         did.push(`${named(w)}: told ${act.thread} it's ${verdict.state === 'green' ? 'green again' : 'red'}.`);
       }
       if (next) writeWatch(dir, w.file, next);

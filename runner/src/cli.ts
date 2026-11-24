@@ -19,7 +19,7 @@ import { TRUST_ALL } from './patch-trust.ts';
 import { checkoutTop, land, landTargetFromGit, realpath, type LandTarget } from './worktrees.ts';
 import { landRefusal, pushAfterLanding } from './follow-origin.ts';
 import { gateCacheDir, gh } from './land-gate.ts';
-import { sayRedOnLanding, watchRed, type FixThreads } from './red-watch.ts';
+import { sayRedOnLanding, sendParams, watchRed, type FixThreads } from './red-watch.ts';
 import { WORKER_ENV, detachable, landInBackground, landWorker } from './land-detach.ts';
 import { activityCommand } from './activity.ts';
 import { runnerKeysCommand } from './runner-keys.ts';
@@ -477,7 +477,8 @@ async function threadFromRunner(cfg: ReturnType<typeof loadConfig>, threadId: st
 }
 
 // The threads tb red-watch starts and tells (red-watch.ts), as `tb new
-// --from GitHub` would start one and `tb send` tell it.
+// --from GitHub` would start one; it tells one with the runner's note
+// (origin "runner"), as `tb send` would put words in Mike's mouth.
 function fixThreads(client: RunnerClient): FixThreads {
   let all: Promise<ThreadSummary[]> | undefined;
   const list = () => (all ??= client.call<{ threads: ThreadSummary[] }>('threads.list', { include: ['inbox', 'snoozed', 'archived'] }).then((r) => r.threads));
@@ -494,8 +495,8 @@ function fixThreads(client: RunnerClient): FixThreads {
       const r = await client.call<{ thread: ThreadSummary }>('threads.create', { text, cwd, title, images: [], detached: true, ...(startedBy ? { startedBy } : {}) });
       return r.thread.id;
     },
-    send: async (threadId, text) => {
-      await client.call('threads.send', { threadId, text, images: [] });
+    send: async (threadId, text, why) => {
+      await client.call('threads.send', sendParams(threadId, text, why));
     },
   };
 }

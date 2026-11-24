@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from '../helpers/fakes.ts';
 import { FRESH_MS, type Gh } from '../../src/land-gate.ts';
-import { readWatch, watchDir, watchRed, type FixThreads, type FixThreadState } from '../../src/red-watch.ts';
+import { readWatch, sendParams, watchDir, watchRed, type FixThreads, type FixThreadState } from '../../src/red-watch.ts';
 
 const WORKFLOW = `# tb land: hold while red
 name: Desktop app
@@ -43,7 +43,7 @@ function github() {
 // The runner: threads started and messages sent.
 function runner() {
   const started: { id: string; text: string; why: string; title: string; cwd: string }[] = [];
-  const sent: { thread: string; text: string }[] = [];
+  const sent: { thread: string; text: string; why: string }[] = [];
   const states = new Map<string, FixThreadState>();
   // 'refuse': nothing started; 'lost': started, but the answer never came back.
   let fail: false | 'refuse' | 'lost' = false;
@@ -59,7 +59,7 @@ function runner() {
       if (fail === 'lost') throw new Error('connection closed');
       return id;
     },
-    send: async (thread, text) => void sent.push({ thread, text }),
+    send: async (thread, text, why) => void sent.push({ thread, text, why }),
   };
   return { threads, started, sent, states, failNext: (v: typeof fail) => (fail = v) };
 }
@@ -108,6 +108,8 @@ test('a red stretch gets one fix thread, told when it fails again and when it pa
   assert.equal(r.sent.length, 1);
   assert.equal(r.sent[0].thread, 'thread-1');
   assert.match(r.sent[0].text, /^Desktop app \(desktop\.yml\) failed on main again: https:\/\/github\.com\/o\/r\/actions\/runs\/3/);
+  // The runner's note, headed with why, not words Mike typed (thread 6d30b32e got ~15 as his, 24 Nov).
+  assert.equal(r.sent[0].why, "Main's CI failed again");
 
   // That run run again (gh run rerun) and failed again: told too, once.
   s.runs = [run(3, 'failure', '2026-11-24T02:00:00Z', '2026-11-24T02:40:00Z'), ...s.runs.slice(1)];
@@ -124,6 +126,7 @@ test('a red stretch gets one fix thread, told when it fails again and when it pa
   assert.equal(r.sent.length, 2);
   assert.equal(r.sent[1].thread, 'thread-1');
   assert.match(r.sent[1].text, /^Desktop app \(desktop\.yml\) is green on main again: https:\/\/github\.com\/o\/r\/actions\/runs\/4/);
+  assert.equal(r.sent[1].why, "Main's CI passed again");
 
   // Red again while that thread is still open: it's told, rather than a second one starting.
   s.runs = [run(5, 'failure', '2026-11-24T04:00:00Z'), ...s.runs];
@@ -131,6 +134,7 @@ test('a red stretch gets one fix thread, told when it fails again and when it pa
   assert.equal(r.started.length, 1);
   assert.equal(r.sent[2].thread, 'thread-1');
   assert.match(r.sent[2].text, /is red on main again\./);
+  assert.equal(r.sent[2].why, "Main's CI went red again");
 
   // Green, the thread archived, then red: a new stretch gets a new thread.
   s.runs = [run(6, 'success', '2026-11-24T05:00:00Z'), ...s.runs];
@@ -187,4 +191,8 @@ test("a thread that couldn't be started is tried again next look, and two looks 
   const both = await Promise.all([watchRed(root, { gh, threads: r.threads, cache, now: () => now }), watchRed(root, { gh, threads: r.threads, cache, now: () => now })]);
   assert.equal(r.started.length, 1, both.flat().join('\n'));
   assert.ok(!fs.existsSync(lock));
+});
+
+test("what's sent to a fix thread is the runner's note, with its why", () => {
+  assert.deepEqual(sendParams('t1', 'Desktop app is green on main again.', "Main's CI passed again"), { threadId: 't1', text: 'Desktop app is green on main again.', images: [], origin: 'runner', wakeReason: "Main's CI passed again" });
 });

@@ -886,7 +886,7 @@ export class RpcServer {
         return r.pressButton(reqString(p, 'threadId'), reqString(p, 'buttonId'));
       case 'threads.send':
         // `ceiling`: set by the RPC gate for a thread's own key (runner/ceiling.ts).
-        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p), ...(isPermissionMode(p.ceiling) ? { ceiling: p.ceiling } : {}) });
+        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optSendOrigin(p), ...(isPermissionMode(p.ceiling) ? { ceiling: p.ceiling } : {}) });
       case 'threads.edit':
         return r.editMessage(reqString(p, 'threadId'), reqNumber(p, 'seq'), optString(p, 'text') ?? '', optImages(p) ?? [], { stopBackground: p.stopBackground === true });
       case 'threads.interrupt':
@@ -1320,16 +1320,22 @@ function optEffort(p: Record<string, unknown>): EffortLevel | undefined {
   return v;
 }
 
-// threads.send's answers (Needs you, Answering): short, and only for the
-// app to show, so anything malformed is refused rather than half kept.
-// Only a phone command the primary passed on to a draining runner says
-// where it came from (docs/protocol.md, threads.send).
-function optPhoneOrigin(p: Record<string, unknown>): { origin?: 'phone' } {
+// Only two say where they came from (docs/protocol/connection.md,
+// threads.send): a phone command the primary passed on to a draining
+// runner, and one of the runner's own tools run by the owner (tb
+// red-watch's CI news), which is its note, with a few words of why.
+// A thread's key can say neither (rpc-gate.ts drops them).
+function optSendOrigin(p: Record<string, unknown>): { origin?: 'phone' | 'runner'; wakeReason?: string } {
+  if (p.wakeReason !== undefined && p.origin !== 'runner') throw bad('wakeReason goes only with origin "runner"');
   if (p.origin === undefined) return {};
-  if (p.origin !== 'phone') throw bad('origin can only be "phone"');
-  return { origin: 'phone' };
+  if (p.origin === 'phone') return { origin: 'phone' };
+  if (p.origin !== 'runner') throw bad('origin can only be "phone" or "runner"');
+  const why = optString(p, 'wakeReason')?.trim();
+  return { origin: 'runner', ...(why ? { wakeReason: why } : {}) };
 }
 
+// threads.send's answers (Needs you, Answering): short, and only for the
+// app to show, so anything malformed is refused rather than half kept.
 function optAnswers(p: Record<string, unknown>): { answers?: AskAnswer[] } {
   const v = p.answers;
   if (v === undefined || v === null) return {};

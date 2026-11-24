@@ -203,7 +203,7 @@ export class CallerGate {
         }
         // Only the app's Needs you answers and a phone command passed on
         // say these.
-        const { answers: _a, origin: _o, ceiling: _c, ...rest } = p;
+        const { answers: _a, origin: _o, wakeReason: _w, ceiling: _c, ...rest } = p;
         // Words starting as another thread's message would name a sender they
         // aren't from (runner/nested.ts reads it to hold a report).
         if (typeof p.text === 'string' && sentByAgent(p.text)) throw new RpcError(ErrorCode.notAllowed, "A message from a thread can't start the way another thread's message does. Use the send_message tool, which says who it's from.");
