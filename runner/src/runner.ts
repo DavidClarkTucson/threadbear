@@ -5035,7 +5035,12 @@ export class Runner {
     if (rt.waitState && rt.waitState !== state && (state === 'scheduled' || (rt.waitState === 'scheduled' && (state === 'done' || state === 'needsYou')))) {
       queueMicrotask(() => this.sayScheduled(st, state === 'scheduled'));
     }
-    rt.waitState = state;
+    // Not kept until the schedules are in (main.ts sets schedulesFor just
+    // after the threads load): a summary made before then has a scheduled
+    // thread as done, so the next one would say it moved under Hibernating,
+    // once per restart (Earshot thread, 24 Nov 2026: four lines in a row,
+    // one per self-update).
+    if (this.schedulesFor) rt.waitState = state;
     s.waitState = state;
     return s;
   }

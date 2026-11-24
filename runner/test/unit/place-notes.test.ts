@@ -101,3 +101,17 @@ test('moving under Hibernating for a schedule says so, and its going says so too
   h.runner.publish({ method: 'schedules.updated', params: { schedules } });
   await until(() => notes(h, id).some((x) => x.startsWith('Back in the inbox')), 'the line for its going');
 });
+
+test('schedules arriving after the threads load, as on every start, say nothing', async () => {
+  const h = makeHarness(tmpDir());
+  // As main.ts starts: the threads load and get summaries before the
+  // scheduler is hooked up, so a scheduled thread looks done for a moment.
+  const id = finished(h);
+  await until(() => h.runner.get(id).waitState === 'done', 'done');
+  const schedules = [{ id: 's1', title: 'Omi wear-day review', text: 'look again', whenText: 'tomorrow', threadId: id, nextRunAt: '2099-01-01T00:00:00Z' } as Schedule];
+  h.runner.schedulesFor = () => schedules;
+  h.runner.recheckWaitStates();
+  await until(() => h.runner.get(id).waitState === 'scheduled', 'scheduled');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(notes(h, id).filter((x) => x.startsWith('Moved to Hibernating')).length, 0);
+});
