@@ -981,7 +981,10 @@ impl SidePane {
                 picture
                     .id(SharedString::from(format!("browser-still-{}", tab.id())))
                     .child(
-                        img(ImageSource::Image(still.image))
+                        // Through the picture budget (fit_picture.rs): a new
+                        // still every few seconds, and GPUI's own cache would
+                        // keep every old one's pixels.
+                        img(crate::fit_picture::bytes_source(still.image))
                             .size_full()
                             .object_fit(ObjectFit::Cover),
                     ),
@@ -1166,7 +1169,7 @@ impl crate::app::Threadbear {
             return;
         }
         self.browser_handoff_seen = key.clone();
-        if key.is_some() && !self.dock.read(cx).controller.is_showing(BROWSER) {
+        if key.is_some() && !self.dock.read(cx).is_showing(BROWSER) {
             let (side, id) = (self.side.clone(), thread.id);
             side.update(cx, |side, cx| side.choose_section(&id, BROWSER, cx));
             self.show_pane(BROWSER, cx);

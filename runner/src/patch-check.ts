@@ -1,9 +1,9 @@
-// tb patch-check <file>: loads one patch file in tb's own process, as the
+// tb patch-check <file>: loads a patch file in tb's own process, as the
 // runner would, and says what's wrong with it now, rather than after the
-// runner reads the folder again (docs/protocol.md, "Patches"). It runs the
-// file's top-level code, as loading it in the runner does, but none of
-// its functions and no trust check: a project's patch still waits to be
-// trusted in the app.
+// runner reads the folder again (docs/protocol/patches.md). Loading runs
+// the file's top-level code, as the runner's import does, but none of its
+// commands or functions, and it skips the trust check: a project's patch
+// still waits to be trusted in the app.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,6 +22,7 @@ export async function checkPatchFile(file: string): Promise<PatchCheck> {
     return { file: full, error: `can't read ${full}`, ids: [] };
   }
   try {
+    // The query loads the file again after an edit, as the runner's does.
     const mod = (await import(`${pathToFileURL(full).href}?mtime=${mtimeMs}`)) as { default?: unknown };
     const loaded = readPatchModule(id, 'home', full, mod.default);
     if (loaded.info.error) return { file: full, error: loaded.info.error, ids: [] };
@@ -36,7 +37,7 @@ export async function patchCheckCommand(files: string[], json: boolean): Promise
     console.error('Which file? tb patch-check <file.ts>...');
     return 1;
   }
-  const results = [];
+  const results: PatchCheck[] = [];
   for (const f of files) results.push(await checkPatchFile(f));
   if (json) console.log(JSON.stringify(results, null, 2));
   else for (const r of results) console.log(r.error ? `${r.file}: ERROR ${r.error}` : `${r.file}: ok (${r.ids.join(', ') || 'nothing in it'})`);

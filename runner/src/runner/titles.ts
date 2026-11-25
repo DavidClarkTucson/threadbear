@@ -8,7 +8,7 @@ import { ErrorCode, RpcError } from '../protocol.ts';
 import { EXPLAIN_SYSTEM, RECENT_CHARS, RECENT_MESSAGES, explainPrompt } from '../explain.ts';
 import type { ExplainTurn } from '../explain.ts';
 import type { ThreadState } from '../runner.ts';
-import { TICKET_TITLE_PROMPT, TITLE_PROMPT, cleanTitle } from '../runner.ts';
+import { TICKET_TITLE_PROMPT, TITLE_PROMPT, cleanTitle } from './messages.ts';
 import { jiraKeys, jiraTicket, readJiraConfig, ticketWords, titleWithTicket } from '../jira.ts';
 import { cutSafely } from '../safe-cut.ts';
 import { cleanKeywords } from '../keywords.ts';

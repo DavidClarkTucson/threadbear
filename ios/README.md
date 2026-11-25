@@ -4,7 +4,7 @@ The phone side of Threadbear: the inbox, a thread's last messages, replies
 (typed, with photos taken or chosen), approvals, questions and secrets
 (sealed to the runner's key before they leave the phone, so the mirror only
 carries ciphertext: `ThreadbearKit/.../Secrets.swift`), Hibernate and the Den, new
-threads and push. It reads the Convex mirror the runner writes
+threads, sharing a thread by link (`ShareThreadSheet.swift`, `ThreadSharing`) and push. It reads the Convex mirror the runner writes
 (`docs/convex-backend.md`, `convex/phone.ts`) and never talks to the runner
 directly, so it works with the Mac asleep: whatever you send waits in
 `commands` until the runner is back.
@@ -39,7 +39,7 @@ directly, so it works with the Mac asleep: whatever you send waits in
 - `Threadbear/`: the SwiftUI app. iOS 18, so the XS Max runs it too.
 - `scripts/sim-shots.sh [dir] [--dark]`: screenshots on sample data in the
   simulator (`-ThreadbearFake`, `-ThreadbearOpen <threadId>`,
-  `-ThreadbearCompose <text>`, `-ThreadbearSearch <text>`, `-ThreadbearLong` for a very long thread, "long", `-ThreadbearSecret` for one waiting on a secret card, "secret", `-ThreadbearShortInbox` for one row in the inbox and one of each put away, `-ThreadbearEmptyInbox` for none, `-ThreadbearFinishSoon` for the running thread's turn to end after 14 s, `-ThreadbearManyThreads` for a long inbox with more starred and running too, `-ThreadbearScrollTo <threadId>` to start with the inbox scrolled to that row (with `-foldedSections "(hibernating,archived)"` for Running open: the headings sticking), `-ThreadbearSlowAnswers` for answers to cards to take 3 s to land, `-ThreadbearRefuseAnswers` for them then to be refused), on a 6.9" iPhone, so they're App Store sized.
+  `-ThreadbearCompose <text>`, `-ThreadbearSearch <text>`, `-ThreadbearLong` for a very long thread, "long", `-ThreadbearSecret` for one waiting on a secret card, "secret", `-ThreadbearCode` for replies with sql, ts, bash, diff, python, yaml and untagged code blocks, coloured by language (`CodeHighlighter`), "code", `-ThreadbearShortInbox` for one row in the inbox and one of each put away, `-ThreadbearEmptyInbox` for none, `-ThreadbearFinishSoon` for the running thread's turn to end after 14 s, `-ThreadbearNewReply <text> -ThreadbearNewTurn <seconds>` for what a new thread's first turn says and how long it works (for filming one), `-ThreadbearRunnersAwake` with `-ThreadbearRunners` for the MacBook Pro online too, `-ThreadbearClip <text>` to play starting a thread with it (New thread, the words typing in, Start), printing `CLIP <step> <time>` for each step, `-ThreadbearManyThreads` for a long inbox with more starred and running too, `-ThreadbearScrollTo <threadId>` to start with the inbox scrolled to that row (with `-foldedSections "(hibernating,archived)"` for Running open: the headings sticking), `-ThreadbearSlowAnswers` for answers to cards to take 3 s to land, `-ThreadbearRefuseAnswers` for them then to be refused, `-ThreadbearShare` with `-ThreadbearOpen` for that thread shared and its share sheet open, "share"), on a 6.9" iPhone, so they're App Store sized.
 - `scripts/sim.sh [boot|stop]`: this worktree's own simulator, for
   `sim-shots.sh` and any repro of your own. It prints the id; use that
   rather than picking a simulator from `simctl list`, which may be another
@@ -49,8 +49,10 @@ directly, so it works with the Mac asleep: whatever you send waits in
 - `appstore/` and `scripts/appstore-*`: the App Store listing and release,
   in `appstore/RELEASE.md`.
 - `scripts/install-phone.sh`: build, install over wifi, launch. After
-  landing an `ios/` change, an agent in Mike's copy installs it on his phone
-  itself, without asking, so he always has the latest to look at:
+  landing an `ios/` change, an agent in Mike's copy tries to install it on
+  his phone itself, without asking, so he always has the latest. It's the
+  only way his phone gets builds: no TestFlight (Mike, 22 Nov: a nightly
+  TestFlight build replaced an agent's install and confused things):
   `taskpolicy -b ios/scripts/install-phone.sh` from the landed commit. It
   takes ten minutes or more, so run it in the background, and don't
   `tb land` or rebase while it builds: files changing under the compile

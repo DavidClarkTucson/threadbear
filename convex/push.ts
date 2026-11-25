@@ -201,15 +201,16 @@ function providerToken(cfg: ApnsConfig, nowMs = Date.now()): string {
 
 type SendResult = { token: string; status: number; reason?: string };
 
-function sendOne(session: http2.ClientHttp2Session, cfg: ApnsConfig, jwt: string, token: string, payload: string): Promise<SendResult> {
+function sendOne(session: http2.ClientHttp2Session, cfg: ApnsConfig, jwt: string, token: string, payload: string, kind: 'alert' | 'background' = 'alert'): Promise<SendResult> {
   return new Promise((resolve) => {
     const req = session.request({
       ':method': 'POST',
       ':path': `/3/device/${token}`,
       authorization: `bearer ${jwt}`,
       'apns-topic': cfg.topic,
-      'apns-push-type': 'alert',
-      'apns-priority': '10',
+      // A background push (clear) must say so, at priority 5, or Apple refuses it.
+      'apns-push-type': kind,
+      'apns-priority': kind === 'alert' ? '10' : '5',
       'content-type': 'application/json',
     });
     let status = 0;
@@ -458,14 +459,20 @@ export const notify = internalAction({
     // back at the Mac by now (a Mac that slept with him at it, its held
     // pushes sent by sync:sendStaleHeldPushes, woke before this ran): then
     // it's held again (Codex's review).
+    // An alert some phone really got can be taken down by one clear
+    // (devices:alerted, sync:upsertThreads wantsClear, Daybreak 169).
+    const delivered = async (r: SendSummary): Promise<SendSummary> => {
+      if (r.sent > 0) await ctx.runMutation(internal.devices.alerted, { threadId });
+      return r;
+    };
     if (held) {
-      if (!t.atMac) return await sendAlert(ctx, alert, (n) => n === 'away');
+      if (!t.atMac) return await delivered(await sendAlert(ctx, alert, (n) => n === 'away'));
       await ctx.runMutation(internal.devices.holdPush, { threadId, ...(retried ? { retried } : {}) });
       return { sent: 0, failed: 0, skipped: 'atMac' };
     }
-    if (!t.atMac) return await sendAlert(ctx, alert);
+    if (!t.atMac) return await delivered(await sendAlert(ctx, alert));
     await ctx.runMutation(internal.devices.holdPush, { threadId });
-    const r = await sendAlert(ctx, alert, (n) => n === 'always');
+    const r = await delivered(await sendAlert(ctx, alert, (n) => n === 'always'));
     return r.skipped === 'noDevices' ? { ...r, skipped: 'atMac' } : r;
   },
 });
@@ -477,4 +484,77 @@ export const test = internalAction({
   args: { title: v.optional(v.string()), body: v.optional(v.string()) },
   returns: vSendResult,
   handler: async (ctx, { title, body }): Promise<SendSummary> => await sendAlert(ctx, { title: title ?? 'Threadbear', body: body ?? 'Test notification', threadId: 'test' }),
+});
+
+// The thread stopped needing Mike after a push went out for it (sync:upsertThreads):
+// a silent push to each phone that gets them, to take its notification down,
+// so the phone isn't left with ones he's already dealt with. The iPhone app
+// (AppDelegate) and the Android one (ThreadbearMessagingService) read
+// `clear`; apps from before it ignore it, as it has no alert and no
+// `threadId`. Through the relay's /clear, which a relay from before it
+// answers with a 404: then nothing happens, as before. Best effort: iOS
+// may hold a background push back, and the app tidies up when it next opens
+// too. Not counted in pushHealth, which is about notifications reaching him.
+export const clear = internalAction({
+  args: { threadId: v.string() },
+  returns: v.object({ sent: v.number(), failed: v.number() }),
+  handler: async (ctx, { threadId }): Promise<{ sent: number; failed: number }> => {
+    // Not UnifiedPush phones (the F-Droid build) yet: they'd need a clear of
+    // their own through sendWebPush, and their notifications still come down
+    // when the thread is opened there.
+    const targets = ((await ctx.runQuery(internal.devices.targets, {})) as Target[]).filter((t) => t.notify !== 'off' && t.platform !== 'webpush');
+    if (!targets.length) return { sent: 0, failed: 0 };
+    const cfg = apnsConfig();
+    const direct = cfg && process.env.PUSH_VIA !== 'relay' ? targets.filter((t) => t.platform !== 'android') : [];
+    const relayed = targets.filter((t) => !direct.includes(t));
+    let sent = 0;
+    let failed = 0;
+    if (direct.length && cfg) {
+      const payload = JSON.stringify({ aps: { 'content-available': 1 }, clear: threadId });
+      const jwt = providerToken(cfg);
+      for (const env of ['sandbox', 'production'] as const) {
+        const tokens = direct.filter((t) => t.environment === env).map((t) => t.apnsToken);
+        if (!tokens.length) continue;
+        const session = http2.connect(env === 'production' ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com');
+        session.on('error', (e) => console.error(`[apns] session error: ${e.message}`));
+        try {
+          for (const r of await Promise.all(tokens.map((t) => sendOne(session, cfg, jwt, t, payload, 'background')))) {
+            if (r.status === 200) sent++;
+            else {
+              failed++;
+              console.warn(`[apns] clear ${failureText(r.status, r.reason)} for …${r.token.slice(-6)}`);
+              // A phone Apple says is gone goes, as after a send.
+              if (r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered') await ctx.runMutation(internal.devices.drop, { apnsToken: r.token });
+            }
+          }
+        } finally {
+          session.close();
+        }
+      }
+    }
+    if (relayed.length && process.env.PUSH_RELAY !== 'off') {
+      const url = process.env.PUSH_RELAY_URL || RELAY_URL;
+      const install = await relayInstall(ctx, url);
+      if ('failure' in install) return { sent, failed: failed + relayed.length };
+      for (const t of relayed) {
+        const res = await fetch(`${url}/clear`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${install.installId}.${install.installKey}`, 'X-Threadbear-Version': `api-${API_VERSION}` },
+          body: JSON.stringify({ deviceToken: t.apnsToken, environment: t.environment, threadId, ...(t.platform ? { platform: t.platform } : {}) }),
+        }).catch(() => null);
+        // A relay from before /clear: nothing to do, and no use trying the rest.
+        if (res?.status === 404) return { sent, failed };
+        const r = ((await res?.json().catch(() => ({}))) ?? {}) as { ok?: boolean; status?: number; reason?: string; gone?: boolean };
+        if (r.ok) sent++;
+        else {
+          failed++;
+          console.warn(`[relay] clear ${failureText(typeof r.status === 'number' ? r.status : (res?.status ?? 0), r.reason)} for …${t.apnsToken.slice(-6)}`);
+          // A phone the relay says is gone goes, as after a send: each clear
+          // to it uses up the relay's bad-token allowance (Daybreak 169).
+          if (r.gone) await ctx.runMutation(internal.devices.drop, { apnsToken: t.apnsToken });
+        }
+      }
+    }
+    return { sent, failed };
+  },
 });

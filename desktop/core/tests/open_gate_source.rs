@@ -62,7 +62,8 @@ const ALLOWED: &[&str] = &[
 /// `sandbox-exec` with core's fixed profile (hang_sample.rs), and nothing else.
 /// The first launch reads the Swift app's settings with `defaults export` of
 /// its own domain, once (swift_import.rs). The self-update (app_update.rs)
-/// reads main's tree with git, runs the update script from the app's own
+/// reads main's tree and commit with git, asks git which of its builds has
+/// a waiting thread's commit (`merge-base --is-ancestor`), runs the update script from the app's own
 /// bundle under `taskpolicy -b`, and opens the installed app again once this
 /// one has quit: fixed programs, on the app's own checkout and bundle.
 /// The Objective-C beside the app (its native/ folders) is read too: the
@@ -78,6 +79,8 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     // never anything from a thread (handover.rs).
     ("gpui/src/handover.rs", "let mut command = std::process::Command::new(\"/usr/bin/open\");", 1),
     ("gpui/src/app_update.rs", "let out = Command::new(\"/usr/bin/git\").args(rules::rev_parse_arguments(checkout)).stdin(Stdio::null()).output().ok()?;", 1),
+    ("gpui/src/app_update.rs", "let out = Command::new(\"/usr/bin/git\").args([\"-C\", checkout, \"rev-parse\", \"--verify\", \"-q\", \"refs/heads/main\"]).stdin(Stdio::null()).output().ok()?;", 1),
+    ("gpui/src/app_update.rs", "let status = Command::new(\"/usr/bin/git\").args([\"-C\", checkout, \"merge-base\", \"--is-ancestor\", want, build]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().ok()?;", 1),
     ("gpui/src/app_update.rs", "let child = Command::new(program).args(arguments).current_dir(installed::home_dir()).stdin(Stdio::null()).stdout(out).stderr(err).spawn();", 1),
     // Build-time SDK/compiler discovery and the fixed Translate source compile.
     // No app runtime, link, file or runner content supplies these commands.
@@ -103,6 +106,12 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     // The setup cards ask GitHub's CLI who it's signed in as, once, from
     // fixed places with fixed arguments, and read only its words (hello.rs).
     ("gpui/src/hello.rs", "if let Ok(out) = std::process::Command::new(gh).args([\"auth\", \"status\", \"--hostname\", \"github.com\"]).output() {", 1),
+    // A picture's SVG is drawn in this same app binary started again with
+    // its fixed argument, the SVG on its stdin (svg_worker.rs, Daybreak
+    // 170): never a program a link, a file or the runner names. Its test
+    // starts that binary the same way.
+    ("gpui/src/svg_worker.rs", "let mut command = std::process::Command::new(exe);", 1),
+    ("gpui/tests/svg_worker.rs", "let mut command = Command::new(env!(\"CARGO_BIN_EXE_threadbear-gpui\"));", 1),
     ("gpui/src/swift_import.rs", "let out = Command::new(\"/usr/bin/defaults\").args([\"export\", \"com.mikerosoft.threadbear\", \"-\"]).stderr(Stdio::null()).output().map_err(|e| format!(\"couldn't run defaults: {e}\"))?;", 1),
 ];
 

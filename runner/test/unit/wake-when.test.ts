@@ -197,11 +197,12 @@ test('end_turn snooze: words are read as Hibernate in words reads them', async (
   assert.deepEqual(t.wakeWhen, { said: 'when the parts arrive', topic: 'the parts arriving', agent: true });
 });
 
-// 20 Nov 2026: "MACG-3843" in the words went to Date.parse, which read it
-// as the year 3843, and the thread showed "snoozed until 3843-01-01".
+// 20 Nov 2026: "MACG-3843" in an agent's snooze words went to Date.parse,
+// which read it as the year 3843, and the thread showed "snoozed until
+// 3843-01-01" rather than waiting for the ticket.
 test('end_turn snooze: words naming a ticket number are words, not a year', async () => {
   const { h, thread, asked } = setup(() => ok({ until: null, topic: 'MACG-3843 merged', why: 'an event' }));
-  turnWithSnooze(h, thread.id, { needs: 'nothing', snooze: 'until MACG-3843 merges' });
+  turnWithSnooze(h, thread.id, { needs: 'nothing', snooze: 'MACG-3843' });
   await tick();
   await tick();
   assert.equal(asked.length, 1);

@@ -5,7 +5,7 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { go } from './route';
 import { escapeDestinations, findStep, readLink } from './thread-links';
-import { pictureNumber, remarkPictureChips } from './picture-chips';
+import { isNotionCard, pictureNumber, remarkPictureChips } from './picture-chips';
 import { hostOf, pictureSrc } from './picture-src';
 import { OutLink } from './link-confirm';
 import * as Icon from './icons';
@@ -17,6 +17,7 @@ import type { FunctionReturnType } from 'convex/server';
 import { api } from '../../convex/_generated/api';
 import { useState, type ReactNode } from 'react';
 import { bareLinks, draftFrom, fenceClosed, draftHTML, draftLabel, draftLines, draftPlainText, editedLabel, type Draft, type Span } from './draft';
+import { planBody, planDecisionLabel, planTitle } from './plan';
 
 // A message or tool line, from phone:messages or share:view.
 export type PageMessage = TurnMessage;
@@ -252,6 +253,16 @@ export function MessageText({
                 </span>
               );
             }
+            // A Notion card in Mike's own words: a chip, as the Mac and the
+            // phones draw it (nightly parity run, 23 Nov).
+            if (pictureChips && href && isNotionCard(href)) {
+              return (
+                <OutLink className="card-chip" href={href} title="Open this card in Notion">
+                  <Icon.Card />
+                  {children}
+                </OutLink>
+              );
+            }
             const link = href ? readLink(href) : undefined;
             // A relative link (`[plan](shorts-plan/candidates.md)`) is a
             // file in the thread's folder on the Mac; as an address here
@@ -410,16 +421,46 @@ export function EditedDrafts({ drafts }: { drafts: Draft[] }) {
   return (
     <div className="edited-drafts">
       {drafts.map((draft, i) => (
-        <details key={i} className="edited-draft">
-          <summary title="Your version of the agent's draft, sent with this message for it to use">
-            <span aria-hidden="true">{draft.kind === 'email' ? '✉︎' : draft.kind === 'slack' ? '💬' : '📄'}</span> {editedLabel(draft.kind)}
-          </summary>
-          <div className="md">
-            <DraftBox draft={draft} />
-          </div>
-        </details>
+        <EditedDraft key={i} draft={draft} />
       ))}
     </div>
+  );
+}
+
+// One chip, with Show (Hide once open) as on the Mac and the iPhone; the
+// draft opens under it as text you can select and copy.
+function EditedDraft({ draft }: { draft: Draft }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="edited-draft" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary title={open ? 'Hide your version of the draft' : "Show your version of the agent's draft, sent with this message for it to use"}>
+        <span aria-hidden="true">{draft.kind === 'email' ? '✉︎' : draft.kind === 'slack' ? '💬' : '📄'}</span> {editedLabel(draft.kind)}
+        <span className="chip-show">{open ? 'Hide' : 'Show'}</span>
+      </summary>
+      <div className="md">
+        <DraftBox draft={draft} />
+      </div>
+    </details>
+  );
+}
+
+// A Plan first plan (API 72) as a card, as the iPhone's PlanCard and the
+// Mac's draw it: its title, its steps, and Approved or Sent back once its
+// card is answered (planDecision, API 76). Going ahead isn't on the web yet.
+export function PlanCard({ m, rows, pictures, threadPath, button }: { m: PageMessage; rows?: PageMessage[]; pictures?: Map<string, string>; threadPath?: (id: string) => string; button?: Parameters<typeof MessageText>[0]['button'] }) {
+  const body = planBody(m.text);
+  const decided = planDecisionLabel(m.planDecision);
+  return (
+    <section className="plan-card" aria-label={`Plan: ${planTitle(m.text)}`}>
+      <div className="plan-card-head">
+        <span className="plan-card-kind">
+          <Icon.Clipboard /> Plan
+        </span>
+        {decided ? <span className="plan-card-decided">{decided}</span> : null}
+      </div>
+      <h3 className="plan-card-title">{planTitle(m.text)}</h3>
+      {body ? <MessageText text={body} pictures={pictures} seq={m.seq} rows={rows} threadPath={threadPath} button={button} /> : null}
+    </section>
   );
 }
 

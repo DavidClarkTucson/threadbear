@@ -13,13 +13,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Runner, ThreadState, TurnHold } from '../runner.ts';
-import { CARRY_ON_TOKEN } from '../runner.ts';
+import { CARRY_ON_TOKEN } from './carry-on.ts';
 import type { ImageRef } from '../protocol.ts';
 import { normaliseRecord, type ThreadRecord } from '../store.ts';
 import type { RunnerPart } from './part.ts';
 import { providerName } from '../providers.ts';
 import { paths } from '../config.ts';
-import { isDirectory } from '../fsutil.ts';
+import { atomicWriteFileSync, isDirectory } from '../fsutil.ts';
 import { readTree, writeTree, type PackEntry } from '../move-pack.ts';
 import { changedFiles, cloneRepo, cloneableUrl, originUrl, packGit, repoKey, repoTop, unpackGit, withoutCredentials, type GitMeta } from '../move-git.ts';
 import { moveInfoFrom, movedSchedules, type MoveInfo, type MovePlan, type MovePreview, type MoveRow, type MovedSchedule, type ThreadMoving } from '../moves.ts';
@@ -30,13 +30,17 @@ import { claudeCommands } from '../claude-trust.ts';
 import { untrustedGit } from '../safe-git.ts';
 import { isPermissionMode } from '../protocol.ts';
 import { isThreadIdShape } from '../thread-id.ts';
-import { fitReview, keepPictureMarkers } from '../reviews.ts';
+import { fitReview, keepPictureMarkers, type MovedMedia } from '../reviews.ts';
 import { cleanUpWorktree, makeWorktree, MAIN, parseCheckouts, realpath, type WorktreeRecord } from '../worktrees.ts';
 import { runningSession } from '../cli-session.ts';
+import { writeSlot } from '../slot.ts';
 
 // What T placed for a move, so adopting after a restart and throwing it
 // away after a failure both know (<home>/moves/<moveId>/placed.json).
-type Placed = { cwd: string; worktree?: WorktreeRecord; patchFile?: string; patchName?: string; transcript: string[]; leftBehind: string[]; fromName: string; schedules?: unknown[]; gitTips?: string[] };
+// whole: placeMove got to the end, so all that's left is the claim
+// (movePlaced); expect: the preview binding of the row it placed, so a later
+// row can only resume the same move as it was checked.
+type Placed = { whole?: true; expect?: string; cwd: string; worktree?: WorktreeRecord; patchFile?: string; patchName?: string; transcript: string[]; leftBehind: string[]; fromName: string; schedules?: unknown[]; gitTips?: string[] };
 
 // A moved thread's old folder is kept this long on S, in case.
 const KEPT_MS = 7 * 24 * 60 * 60_000;
@@ -213,15 +217,82 @@ function dropMovedPowers(rec: Record<string, any>): boolean {
 // The moved record's reviews (show_options) cut to what show_options takes
 // here (reviews.ts fitReview): they're the other runner's word, and the
 // review window draws their notes on every render, so a note of megabytes
-// would stall it (Daybreak 93, 11 Nov 2026). One that isn't a review at
-// all goes. True if it changed.
-function fitMovedReviews(rec: Record<string, any>): boolean {
+// would stall it (Daybreak 93, 11 Nov 2026). Their files are this thread's
+// copies of the ones that came with the move, and nothing else, as the
+// review window reads them as this Mac's once the thread is here (Daybreak
+// 159, 21 Nov 2026). One that isn't a review at all goes. True if it changed.
+function fitMovedReviews(rec: Record<string, any>, media: MovedMedia): boolean {
   if (rec.reviews === undefined) return false;
   const before = JSON.stringify(rec.reviews);
-  const fitted = Array.isArray(rec.reviews) ? rec.reviews.flatMap((r: unknown) => fitReview(r) ?? []) : [];
+  const fitted = Array.isArray(rec.reviews) ? rec.reviews.flatMap((r: unknown) => fitReview(r, media) ?? []) : [];
   if (fitted.length) rec.reviews = fitted;
   else delete rec.reviews;
   return JSON.stringify(rec.reviews) !== before;
+}
+
+// The moved log's reviews (review.updated) fitted as the record's are: the
+// apps draw a review's card in the transcript from its event, pictures and
+// all, and recoverReviews reads them back (Daybreak 159, 21 Nov 2026). One
+// with no pictures that came becomes a note saying so, keeping the log's
+// seqs gapless. Only for a log nothing has opened yet (staging). Lines that
+// aren't events stay as they are.
+const LEFT_OUT_REVIEW = 'A review that came with the move was left out: none of its pictures came with it.';
+type LoggedEvent = { type?: unknown; seq?: unknown; ts?: unknown; review?: unknown };
+// A log line's event, or null for one that isn't JSON. Too long to read is thrown.
+function parsedLine(raw: Buffer): LoggedEvent | null {
+  if (!raw.length) return null;
+  const text = raw.toString('utf8');
+  try {
+    return JSON.parse(text) as LoggedEvent | null;
+  } catch {
+    return null;
+  }
+}
+
+function fitMovedLog(file: string, media: MovedMedia): void {
+  let buf: Buffer;
+  try {
+    buf = fs.readFileSync(file);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw e;
+  }
+  // Line by line from the bytes, as EventLog reads it: the whole log as one
+  // string fails past V8's string limit (half a gigabyte), which a bundle
+  // can unpack to (Gemini's second review). A line too long to read throws,
+  // and the move fails, rather than going unfitted. Only changed lines are
+  // kept as pieces, the rest copied as runs of the log, so a log of a
+  // hundred million empty lines costs no more (Codex's third review).
+  const out: Buffer[] = [];
+  let copied = 0;
+  let changed = false;
+  for (let start = 0; start < buf.length; ) {
+    let end = buf.indexOf(0x0a, start);
+    if (end < 0) end = buf.length;
+    if (end > start) {
+      // Every line parsed: a type written with JSON escapes (review\u002eupdated)
+      // reads the same to every later reader (Codex's and Gemini's reviews).
+      const raw = buf.subarray(start, end);
+      const ev = parsedLine(raw);
+      if (ev && typeof ev === 'object' && ev.type === 'review.updated') {
+        const review = fitReview(ev.review, media);
+        const next = review ? { ...ev, review } : { seq: ev.seq, ts: ev.ts, type: 'system.note', text: LEFT_OUT_REVIEW };
+        const line = Buffer.from(JSON.stringify(next), 'utf8');
+        if (!line.equals(raw)) {
+          changed = true;
+          out.push(buf.subarray(copied, start), line);
+          copied = end;
+        }
+      }
+    }
+    start = end + 1;
+  }
+  if (!changed) return;
+  // Into place whole: it may be the live log (Codex's second review).
+  const tmp = `${file}.fitting-${process.pid}`;
+  out.push(buf.subarray(copied));
+  fs.writeFileSync(tmp, Buffer.concat(out), { mode: 0o600 });
+  fs.renameSync(tmp, file);
 }
 
 // A queued answer to a review names its reply's pictures as the other
@@ -235,7 +306,9 @@ function dropMovedReplyImages(rec: Record<string, any>): boolean {
   rec.queue = rec.queue.map((q: any) => {
     if (!q || typeof q !== 'object' || q.reviewId === undefined) return q;
     const hasResponseImages = q.reviewResponse && typeof q.reviewResponse === 'object' && 'images' in q.reviewResponse;
-    if (Array.isArray(q.images) && q.images.length === 0 && !hasResponseImages) return q;
+    // A mark's cut-out (reviewCanvas) is one of the reply's pictures too.
+    const markImages = q.reviewResponse && typeof q.reviewResponse === 'object' && Array.isArray(q.reviewResponse.marks) && q.reviewResponse.marks.some((m: unknown) => Boolean(m && typeof m === 'object' && 'image' in m));
+    if (Array.isArray(q.images) && q.images.length === 0 && !hasResponseImages && !markImages) return q;
     changed = true;
     // The words say where they were (keepPictureMarkers).
     const gone = (list: unknown) => (Array.isArray(list) ? list : []).map(() => false);
@@ -243,6 +316,14 @@ function dropMovedReplyImages(rec: Record<string, any>): boolean {
     if (hasResponseImages) {
       const { images, ...rest } = q.reviewResponse;
       next.reviewResponse = typeof rest.reply === 'string' ? { ...rest, reply: keepPictureMarkers(rest.reply, gone(images)) } : rest;
+    }
+    if (markImages) {
+      const response = next.reviewResponse ?? q.reviewResponse;
+      next.reviewResponse = { ...response, marks: response.marks.map((m: unknown) => {
+        if (!m || typeof m !== 'object') return m;
+        const { image: _, ...rest } = m as Record<string, unknown>;
+        return rest;
+      }) };
     }
     return next;
   });
@@ -312,6 +393,53 @@ function capMovedMode(rec: Record<string, any>): { was?: string; changed: boolea
   return { ...(was ? { was } : {}), changed };
 }
 
+// What its queue, held reports and waits may still reach (runner/ceiling.ts)
+// is that runner's word too: at most Ask here, as its mode is, so raising
+// the thread later shows them to Mike rather than its agent. True if any
+// changed.
+export function capMovedCeilings(rec: Record<string, unknown>): boolean {
+  let changed = false;
+  const items = (k: string): Record<string, unknown>[] => (Array.isArray(rec[k]) ? (rec[k] as unknown[]) : []).filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null);
+  for (const q of items('queue')) {
+    if (q.ceiling !== 'ask') {
+      q.ceiling = 'ask';
+      changed = true;
+    }
+  }
+  // Who a held report is from is that runner's word too: a thread here it
+  // names doesn't vouch for it (mayPassOn), so it goes by Ask alone.
+  for (const h of items('heldReports')) {
+    if (h.ceiling !== 'ask' || (typeof h.from === 'string' && !h.from.startsWith('moved:'))) {
+      h.ceiling = 'ask';
+      if (typeof h.from === 'string' && !h.from.startsWith('moved:')) h.from = `moved:${h.from}`;
+      changed = true;
+    }
+  }
+  // A wait's reply is filled in here, when the thread it waits on finishes:
+  // one that came with the record is that runner's words.
+  for (const w of items('waitingOn')) {
+    if (w.by !== undefined && (w.by as { mode?: unknown } | null)?.mode !== 'ask') {
+      w.by = { mode: 'ask' };
+      changed = true;
+    }
+    if (w.done !== undefined) {
+      delete w.done;
+      changed = true;
+    }
+  }
+  // An agent's snooze in words wakes it with them later (runner/ceiling.ts).
+  const ww = rec.wakeWhen as { said?: unknown; by?: unknown } | undefined;
+  const wc = rec.wakeCeiling as { said?: unknown; ceiling?: unknown } | undefined;
+  if (ww && typeof ww === 'object' && typeof ww.said === 'string' && (wc?.said !== ww.said || wc?.ceiling !== 'ask')) {
+    rec.wakeCeiling = { said: ww.said, ceiling: 'ask' };
+    changed = true;
+  } else if (wc !== undefined && !(ww && typeof ww === 'object')) {
+    delete rec.wakeCeiling;
+    changed = true;
+  }
+  return changed;
+}
+
 const MODE_WORDS: Record<string, string> = { full: 'Full access', auto: 'Auto' };
 function cappedNote(was: string, from: string): string {
   return `It had ${MODE_WORDS[was] ?? was} on ${from}, so it asks before tools run here: give it more access again if you want.`;
@@ -320,15 +448,17 @@ function cappedNote(was: string, from: string): string {
 // What a moved record may keep here, applied to the record wherever it is
 // (staging, the live folder, or loaded already): dropMovedPowers, and on
 // the main Mac capMovedMode. The note's line about the mode goes in
-// `notes`. True if it changed.
-function sanitizeMoved(rec: Record<string, any>, atMostAsk: boolean, from: string, notes: string[]): boolean {
+// `notes`; `media` is where the thread's media folder is now and will be.
+// True if it changed.
+function sanitizeMoved(rec: Record<string, any>, atMostAsk: boolean, from: string, notes: string[], media: MovedMedia): boolean {
   // Lists and objects the runner walks at every start in the shape it
   // expects, press notes well formed and bounded (store.ts normaliseRecord).
   let changed = normaliseRecord(rec);
   changed = dropMovedPowers(rec) || changed;
-  changed = fitMovedReviews(rec) || changed;
+  changed = fitMovedReviews(rec, media) || changed;
   changed = dropMovedReplyImages(rec) || changed;
   if (atMostAsk) {
+    changed = capMovedCeilings(rec) || changed;
     const capped = capMovedMode(rec);
     if (capped.was && !notes.some((n) => n.includes('so it asks before tools run here'))) notes.push(cappedNote(capped.was, from));
     changed ||= capped.changed;
@@ -899,15 +1029,23 @@ export const movesPart = {
     if ('problem' in plan) throw new Error(plan.problem);
     if (!row.plan || !samePlan(plan, row.plan)) throw new Error(`Where the thread would go on ${this.moveRunnerName(row.to)} changed since the move was planned, so it stays where it is. Move it again.`);
     const stage = stageOf(this.cfg.home, row.moveId);
-    fs.rmSync(stage, { recursive: true, force: true });
+    // An earlier placing of this move that didn't finish (the runner
+    // stopped partway; one that did only asks for its claim again,
+    // movePlaced) is undone first, as far as it can be: its placed.json is
+    // the only record of its transcript and worktree, which emptying the
+    // staging folder alone left behind (Codex's review, 23 Nov 2026).
+    await this.discardMove(row);
     fs.mkdirSync(stage, { recursive: true, mode: 0o700 });
     const placed: Placed = { cwd: plan.cwd, transcript: [], leftBehind: [...plan.leftBehind], fromName: this.moveRunnerName(row.from) };
-    const save = () => fs.writeFileSync(path.join(stage, 'placed.json'), JSON.stringify(placed));
+    // Whole or not at all: a write cut short would lose the only record of
+    // what to undo (Codex's review, 23 Nov 2026).
+    const save = () => atomicWriteFileSync(path.join(stage, 'placed.json'), JSON.stringify(placed));
     try {
       writeTree(entries, 'thread', path.join(stage, 'thread'));
       const recFile = path.join(stage, 'thread', 'thread.json');
       const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
       if (rec.id !== row.threadId) throw new Error("The moved thread's record is for another thread.");
+      fitMovedLog(path.join(stage, 'thread', 'events.ndjson'), { threadId: row.threadId, now: path.join(stage, 'thread', 'media'), final: this.store.mediaDir(row.threadId) });
       // From an older runner, a thread it ran in the sandbox experiment.
       if (rec.confined) throw new Error("A thread that ran in a sandbox can't move here: Threadbear no longer has one to run it in.");
       const manifest = entries.find((e) => e.path === 'move.json');
@@ -940,7 +1078,7 @@ export const movesPart = {
         // and previewed, never a repo around it whose patch was found by
         // looking upward (security review, 17 Nov 2026).
         if (!(await patchMakesIn(patch.folder, plan.worktree.repo))) throw new Error(`${plan.worktree.repo} on ${this.moveRunnerName(row.to)} has no worktree patch of its own, so the thread's worktree has nowhere to go.`);
-        const made = await makeWorktree({ cwd: plan.worktree.repo, threadId: row.threadId, patch });
+        const made = await makeWorktree({ cwd: plan.worktree.repo, threadId: row.threadId, patch, inUse: this.foldersInUse(row.threadId) });
         if (!made.ok) throw new Error(`Couldn't make the thread's worktree: ${made.reason}`);
         placed.worktree = { ...made.worktree, movedIn: true };
         placed.patchFile = made.patchFile;
@@ -1009,21 +1147,45 @@ export const movesPart = {
       }
       // Nothing that runs or approves anything comes (dropMovedPowers),
       // and on the main Mac no more than Ask (capMovedMode).
-      sanitizeMoved(rec, Boolean(this.movedInAtMostAsk?.()), placed.fromName, placed.leftBehind);
+      sanitizeMoved(rec, Boolean(this.movedInAtMostAsk?.()), placed.fromName, placed.leftBehind, { threadId: row.threadId, now: path.join(stage, 'thread', 'media'), final: this.store.mediaDir(row.threadId) });
       rec.cwd = placed.cwd;
+      rec.cwdAt = this.isoNow();
       rec.accountId = account.id;
       delete rec.poolId;
       delete rec.worktreePending;
       delete rec.turnId;
       delete rec.stoppedMidTurn;
       rec.pendingApprovals = [];
-      if (placed.worktree) rec.worktree = placed.worktree;
-      else delete rec.worktree;
+      writeSlot(rec, { kind: 'arrived', ...(placed.worktree ? { worktree: placed.worktree } : {}) }, Date.now());
       fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
+      placed.whole = true;
+      if (row.expect) placed.expect = row.expect;
       save();
     } catch (e) {
       await this.discardMove(row);
       throw e;
+    }
+  },
+
+  // T: whether this move's thread is placed here whole already, by this
+  // runner before it restarted, with only the claim left to ask for again
+  // (moves.ts). Placing it again would empty its staging folder, and a
+  // worktree that came with git work (which cleanUpWorktree won't remove)
+  // would then block the new one (Grok's review, 23 Nov 2026).
+  // Only for the row it was placed from: the same preview binding (which
+  // names the thread, both runners and the plan), and the staged record the
+  // same thread, so a row the backend changed since can't claim what's
+  // staged (Codex's review, 23 Nov 2026). Otherwise it's placed afresh,
+  // with every check.
+  movePlaced(this: Runner, row: MoveRow): boolean {
+    try {
+      const stage = stageOf(this.cfg.home, row.moveId);
+      const placed = JSON.parse(fs.readFileSync(path.join(stage, 'placed.json'), 'utf8')) as Placed;
+      if (placed.whole !== true || !placed.expect || placed.expect !== row.expect || this.threads.has(row.threadId)) return false;
+      const rec = JSON.parse(fs.readFileSync(path.join(stage, 'thread', 'thread.json'), 'utf8')) as { id?: unknown };
+      return rec.id === row.threadId;
+    } catch {
+      return false;
     }
   },
 
@@ -1046,9 +1208,10 @@ export const movesPart = {
     const clean = (recFile: string) => {
       try {
         const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
-        let changed = sanitizeMoved(rec, atMostAsk, placed.fromName, placed.leftBehind);
+        const media = { threadId: row.threadId, now: path.join(path.dirname(recFile), 'media'), final: this.store.mediaDir(row.threadId) };
+        let changed = sanitizeMoved(rec, atMostAsk, placed.fromName, placed.leftBehind, media);
         // Before adopting starts its queue (Codex's review, 17 Nov).
-        changed = rebaseQueuedPictures(rec, row.threadId, path.join(path.dirname(recFile), 'media'), this.store.mediaDir(row.threadId)) || changed;
+        changed = rebaseQueuedPictures(rec, row.threadId, media.now, media.final) || changed;
         if (changed) fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
       } catch {
         // No record to read: adopt says the thread didn't load.
@@ -1068,16 +1231,26 @@ export const movesPart = {
     }
     if (!fs.existsSync(dest)) {
       clean(path.join(stage, 'thread', 'thread.json'));
+      // Again for one a runner from before placed (placeMove does it).
+      fitMovedLog(path.join(stage, 'thread', 'events.ndjson'), { threadId: row.threadId, now: path.join(stage, 'thread', 'media'), final: this.store.mediaDir(row.threadId) });
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.renameSync(path.join(stage, 'thread'), dest);
-    } else clean(path.join(dest, 'thread.json'));
+    } else {
+      clean(path.join(dest, 'thread.json'));
+      // A runner from before placed it and put it live, then stopped: its
+      // log too, and the copy of the log this runner may have opened at
+      // start is read again (Codex's and Gemini's reviews).
+      fitMovedLog(path.join(dest, 'events.ndjson'), { threadId: row.threadId, now: this.store.mediaDir(row.threadId), final: this.store.mediaDir(row.threadId) });
+      this.store.forget(row.threadId);
+    }
     this.adopt(row.threadId);
     const st = this.threads.get(row.threadId);
     if (!st) throw new Error("The moved thread didn't load.");
-    if (sanitizeMoved(st.rec as unknown as Record<string, any>, atMostAsk, placed.fromName, placed.leftBehind)) this.store.save(st.rec);
+    const final = this.store.mediaDir(row.threadId);
+    if (sanitizeMoved(st.rec as unknown as Record<string, any>, atMostAsk, placed.fromName, placed.leftBehind, { threadId: row.threadId, now: final, final })) this.store.save(st.rec);
     // Again in memory, for one loaded before this (a crash left it live),
     // for what's still queued.
-    if (rebaseQueuedPictures(st.rec as unknown as Record<string, any>, row.threadId, this.store.mediaDir(row.threadId), this.store.mediaDir(row.threadId))) this.store.save(st.rec);
+    if (rebaseQueuedPictures(st.rec as unknown as Record<string, any>, row.threadId, final, final)) this.store.save(st.rec);
     const lines = [`Moved from ${placed.fromName} to ${this.moveRunnerName(row.to)}, in ${placed.cwd}.`, ...placed.leftBehind];
     this.emit(st, { type: 'system.note', text: lines.join(' ') });
     this.markDirty(st);

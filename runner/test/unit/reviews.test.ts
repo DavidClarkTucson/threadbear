@@ -1,12 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { makeHarness, tick } from '../helpers/fakes.ts';
 import { makePng } from '../helpers/png.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import { stills, withCharset } from '../../src/review-media.ts';
-import { PASSED_OVER_TAIL, fitReview, keepPictureMarkers } from '../../src/reviews.ts';
+import { PASSED_OVER_TAIL, fitReview, keepPictureMarkers, webLinksOnly } from '../../src/reviews.ts';
+import type { ImageRef, ReviewDraft } from '../../src/protocol.ts';
 
 function fixture() {
   const h = makeHarness();
@@ -411,7 +413,74 @@ test('a shot can be a video or an HTML page: copied with a still, and the page b
   assert.ok(fs.existsSync(b.shots![1].image.path));
   const notes=path.join(h.home,'notes.txt');
   fs.writeFileSync(notes,'plain text');
-  assert.throws(()=>h.runner.createReview(thread.id,{title:'Bad',options:[{id:'X',title:'Text',path:notes}]}),/video \(MP4, MOV\) or HTML page/);
+  assert.throws(()=>h.runner.createReview(thread.id,{title:'Bad',options:[{id:'X',title:'Text',path:notes}]}),/video \(MP4, MOV\), sound \(MP3, M4A, AAC, WAV\) or HTML page/);
+});
+
+// Mike, 24 Nov: comparing music beds and sounds as options.
+function fakeSounds(): Record<string, Buffer> {
+  const wav = Buffer.alloc(44);
+  wav.write('RIFF', 0, 'ascii');
+  wav.writeUInt32LE(36, 4);
+  wav.write('WAVEfmt ', 8, 'ascii');
+  const m4a = Buffer.alloc(16);
+  m4a.writeUInt32BE(16, 0);
+  m4a.write('ftypM4A ', 4, 'ascii');
+  return {
+    'bed.mp3': Buffer.concat([Buffer.from('ID3\x04\0\0\0\0\0\0', 'latin1'), Buffer.alloc(16)]),
+    'frames.mp3': Buffer.concat([Buffer.from([0xff, 0xfb, 0x90, 0x64]), Buffer.alloc(16)]),
+    'bed.m4a': m4a,
+    'isom.m4a': fakeMp4(),
+    'raw.aac': Buffer.concat([Buffer.from([0xff, 0xf1, 0x50, 0x80]), Buffer.alloc(16)]),
+    'ding.wav': wav,
+  };
+}
+
+test('a shot can be a sound: sniffed by its bytes, copied with its waveform or a card, and over 100 MB refused', (t) => {
+  t.mock.method(stills,'quickLook',(file:string)=>{ assert.ok(file.endsWith('.mp4'),'a sound’s still is its waveform, not Quick Look’s'); return undefined; });
+  const waves=t.mock.method(stills,'ffmpegWaveform',()=>undefined);
+  const {h,thread}=fixture();
+  const sounds=fakeSounds();
+  for (const [name,bytes] of Object.entries(sounds)) fs.writeFileSync(path.join(h.home,name),bytes);
+  const {review}=h.runner.createReview(thread.id,{title:'Beds',options:Object.keys(sounds).map((name,i)=>({id:String(i),title:name,path:path.join(h.home,name)}))});
+  assert.deepEqual(review.options.map(o=>o.shots?.[0].media?.mediaType),['audio/mpeg','audio/mpeg','audio/mp4','audio/mp4','audio/aac','audio/wav']);
+  assert.deepEqual(review.options.map(o=>path.extname(o.shots![0].media!.path)),['.mp3','.mp3','.m4a','.m4a','.aac','.wav']);
+  for (const [i,o] of review.options.entries()) {
+    assert.deepEqual(fs.readFileSync(o.shots![0].media!.path),Object.values(sounds)[i]);
+    assert.ok(o.image.width&&o.image.height&&fs.existsSync(o.image.path),'the dark card when ffmpeg can’t draw it');
+  }
+  assert.equal(waves.mock.callCount(),6);
+  // An MP4 named .mp4 is still a video, and a waveform ffmpeg draws is the still.
+  t.mock.method(stills,'ffmpegFrame',()=>undefined);
+  const clip=path.join(h.home,'clip.mp4');
+  fs.writeFileSync(clip,fakeMp4());
+  waves.mock.mockImplementation((_file:string,out:string)=>{ const p=path.join(out,'wave.png'); fs.writeFileSync(p,makePng(160,90)); return p; });
+  const two=h.runner.createReview(thread.id,{title:'Mixed',options:[{id:'A',title:'Clip',path:clip},{id:'B',title:'Bed',path:path.join(h.home,'bed.mp3')}]}).review;
+  assert.equal(two.options[0].shots?.[0].media?.mediaType,'video/mp4');
+  assert.deepEqual([two.options[1].image.width,two.options[1].image.height],[160,90]);
+  const big=path.join(h.home,'long.wav');
+  fs.writeFileSync(big,sounds['ding.wav']);
+  fs.truncateSync(big,100*1024*1024+1);
+  assert.throws(()=>h.runner.createReview(thread.id,{title:'Big',options:[{id:'A',title:'Long',path:big}]}),/sound must be at most 100 MB/);
+});
+
+test('a moved review keeps a sound only by its name and bytes', () => {
+  const root=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'tb-moved-sound-'));
+  const id='0f9e8d7c-1111-4222-8333-444455556666';
+  const rid='5a4b3c2d-aaaa-4bbb-8ccc-ddddeeeeffff';
+  const now=path.join(root,'media');
+  const media={threadId:id,now,final:now};
+  fs.mkdirSync(path.join(now,'reviews',rid),{recursive:true});
+  fs.writeFileSync(path.join(now,'reviews',rid,'still.png'),makePng(12,8));
+  const sounds=fakeSounds();
+  for (const name of ['bed.mp3','bed.m4a','ding.wav']) fs.writeFileSync(path.join(now,'reviews',rid,name),sounds[name]);
+  // A sound's bytes under a page's name, and a page's under a sound's.
+  fs.writeFileSync(path.join(now,'reviews',rid,'bed.svg'),sounds['ding.wav']);
+  fs.writeFileSync(path.join(now,'reviews',rid,'page.wav'),'<script>x()</script>');
+  const theirs=(rest:string,mediaType='image/png')=>({path:`/home/someone/.threadbear/threads/${id}/media/reviews/${rid}/${rest}`,mediaType});
+  const fitted=fitReview({id:rid,title:'T',status:'pending',revision:1,createdAt:'c',updatedAt:'c',draft:{notes:{}},
+    options:[{id:'A',title:'A',image:theirs('still.png'),shots:['bed.mp3','bed.m4a','ding.wav','bed.svg','page.wav'].map(f=>({image:theirs('still.png'),media:theirs(f,'audio/mpeg')}))}]},media)!;
+  assert.deepEqual(fitted.options[0]!.shots!.map(s=>s.media?.mediaType),['audio/mpeg','audio/mp4','audio/wav',undefined,undefined]);
+  fs.rmSync(root,{recursive:true,force:true});
 });
 
 // Mike, 7 Nov: a mockup with ✓ and no charset showed "âœ“" in the review
@@ -483,7 +552,8 @@ test('a client from before reply pictures keeps them; a moved review brings none
   // images: [] takes it away.
   assert.equal(h.runner.saveReview(thread.id,review.id,older.revision,{notes:{},images:[]}).review.draft.images,undefined);
   // Another runner's pictures name its files, which could be any file here.
-  const moved=fitReview({...review,status:'answered',replyTurnId:'t',response:{notes:{},images:[{path:'/Users/someone/private.png',mediaType:'image/png'}]},draft:{notes:{},images:[{path:'/etc/hosts',mediaType:'image/png'}]}})!;
+  const own={threadId:thread.id,now:h.store.mediaDir(thread.id),final:h.store.mediaDir(thread.id)};
+  const moved=fitReview({...review,status:'answered',replyTurnId:'t',response:{notes:{},images:[{path:'/Users/someone/private.png',mediaType:'image/png'}]},draft:{notes:{},images:[{path:'/etc/hosts',mediaType:'image/png'}]}},own)!;
   assert.equal(moved.response!.images,undefined);
   assert.equal(moved.draft.images,undefined);
   // Recovered from the log, as a moved thread's own events are: only this
@@ -523,6 +593,149 @@ test('a client from before reply pictures keeps them; a moved review brings none
 // and a recovery step that throws on it left its pictures unchecked, to be
 // sent next. Whatever path a queued message took, only the thread's own
 // pictures (its media folder, a review's reply copies) reach the agent.
+// Daybreak 159 (21 Nov 2026): a moved review's files are the other runner's
+// word, and the review window reads them as this Mac's once the thread is
+// here. Only the ones that came with the move stay, as this thread's copies.
+test('a moved review keeps only the files that came with it, as this thread\'s copies', () => {
+  const root=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'tb-moved-review-'));
+  const id='0f9e8d7c-1111-4222-8333-444455556666';
+  const rid='5a4b3c2d-aaaa-4bbb-8ccc-ddddeeeeffff';
+  const now=path.join(root,'stage','thread','media');
+  const final=path.join(root,'threads',id,'media');
+  const media={threadId:id,now,final};
+  // What came with the move: a picture, a video's still and copy, a page in its folder.
+  fs.mkdirSync(path.join(now,'reviews',rid,'pagedir'),{recursive:true});
+  for (const f of ['a.png','still.png']) fs.writeFileSync(path.join(now,'reviews',rid,f),makePng(12,8));
+  fs.writeFileSync(path.join(now,'reviews',rid,'clip.mp4'),fakeMp4());
+  fs.writeFileSync(path.join(now,'reviews',rid,'pagedir/index.html'),'<p>page</p>');
+  // A page the other runner calls a video, and a file that's neither.
+  fs.writeFileSync(path.join(now,'reviews',rid,'payload.html'),'<script>x()</script>');
+  fs.writeFileSync(path.join(now,'reviews',rid,'payload.bin'),'x');
+  // A video's first bytes under names that aren't a video's, and a picture's
+  // under a page's name (Codex's and Gemini's second reviews).
+  fs.writeFileSync(path.join(now,'reviews',rid,'clip.svg'),Buffer.concat([fakeMp4(),Buffer.from('<svg onload="x()"/>')]));
+  fs.writeFileSync(path.join(now,'reviews',rid,'clip.pdf'),Buffer.concat([fakeMp4(),Buffer.from('%PDF-1.4')]));
+  fs.writeFileSync(path.join(now,'reviews',rid,'still.html'),makePng(12,8));
+  // This Mac's own files, at paths the other runner named.
+  const local=path.join(root,'mine');
+  fs.mkdirSync(local);
+  for (const f of ['secret.png','home.mp4','notes.html']) fs.writeFileSync(path.join(local,f),'x');
+  // A link that came along as if packed (an older runner placed it).
+  fs.symlinkSync(path.join(local,'secret.png'),path.join(now,'reviews',rid,'link.png'));
+  const theirs=(rest:string)=>({path:`/home/someone/.threadbear/threads/${id}/media/reviews/${rid}/${rest}`,mediaType:'image/png'});
+  const raw={id:rid,title:'T',status:'pending',revision:1,createdAt:'c',updatedAt:'c',recommended:'gone',
+    note:'See [the file](/etc/passwd) or [the site](https://example.com/x) and \\[kept](./x)',
+    options:[
+      {id:'ok',title:'Came',note:'[open](file:///Users/m/secret.png)',url:'file:///etc/passwd',image:theirs('a.png'),shots:[
+        {image:theirs('a.png')},
+        {image:theirs('still.png'),media:{...theirs('clip.mp4'),mediaType:'video/mp4'}},
+        {image:theirs('still.png'),media:{...theirs('pagedir/index.html'),mediaType:'text/html'}},
+        {image:{path:path.join(local,'secret.png'),mediaType:'image/png'}},
+        {image:theirs('still.png'),media:{path:path.join(local,'home.mp4'),mediaType:'video/mp4'}},
+        {image:theirs('link.png')},
+        {image:theirs('../../../../../mine/secret.png')},
+        {image:theirs('still.png'),media:{...theirs('payload.html'),mediaType:'video/mp4'}},
+      ]},
+      {id:'gone',title:'Local only',image:{path:path.join(local,'secret.png'),mediaType:'image/png'},shots:[{image:{path:path.join(local,'notes.html'),mediaType:'text/html'}}]},
+      {id:'other',title:'Another review\'s',image:{path:`/x/${id}/media/reviews/other-review/a.png`,mediaType:'image/png'}},
+      {id:'fallback',title:'First shot stands in',image:{path:path.join(local,'secret.png'),mediaType:'image/png'},shots:[{image:theirs('a.png')},{image:theirs('still.png'),media:{...theirs('payload.bin'),mediaType:'video/mp4'}},{image:{...theirs('payload.bin'),width:99999,height:1}},{image:theirs('still.png'),media:{...theirs('clip.svg'),mediaType:'video/mp4'}},{image:theirs('still.png'),media:{...theirs('clip.pdf'),mediaType:'video/mp4'}},{image:theirs('still.html')}]},
+    ],
+    draft:{notes:{ok:'fine',gone:'gone too'},pickedIds:['ok','gone'],pickedId:'gone'}};
+  const fitted=fitReview(raw,media)!;
+  const here=(rest:string)=>path.join(final,'reviews',rid,...rest.split('/'));
+  assert.deepEqual(fitted.options.map(o=>o.id),['ok','fallback'],'options with nothing that came go');
+  const ok=fitted.options[0]!;
+  assert.equal(ok.image.path,here('a.png'));
+  assert.deepEqual(ok.shots!.map(s=>[s.image.path,s.media?.path]),[
+    [here('a.png'),undefined],
+    [here('still.png'),here('clip.mp4')],
+    [here('still.png'),here('pagedir/index.html')],
+    // Its video wasn't one that came: the still alone.
+    [here('still.png'),undefined],
+    // A page is a page, whatever it was called.
+    [here('still.png'),here('payload.html')],
+  ]);
+  assert.deepEqual(ok.shots!.map(s=>s.media?.mediaType),[undefined,'video/mp4','text/html',undefined,'text/html']);
+  // Neither a video nor a picture: its video goes, and the shot whose picture it was.
+  assert.deepEqual(fitted.options[1]!.shots!.map(s=>[s.image.path,s.media?.path]),[[here('a.png'),undefined],[here('still.png'),undefined],[here('still.png'),undefined],[here('still.png'),undefined]]);
+  assert.deepEqual([ok.image.mediaType,ok.image.width,ok.image.height],['image/png',12,8],'its type and size are the file\'s');
+  assert.equal(ok.url,undefined,'Open live is for web pages only');
+  assert.equal(fitted.options[1]!.image.path,here('a.png'));
+  const every=JSON.stringify(fitted);
+  assert.ok(!every.includes(local),every);
+  assert.ok(!every.includes('/home/someone'),every);
+  assert.equal(fitted.recommended,undefined);
+  assert.deepEqual({...fitted.draft.notes},{ok:'fine'});
+  assert.deepEqual(fitted.draft.pickedIds,['ok']);
+  assert.equal(fitted.draft.pickedId,undefined);
+  // A note's links but web pages are only words, and doing it again changes nothing.
+  assert.equal(fitted.note,'See [the file]\\(/etc/passwd) or [the site](https://example.com/x) and \\[kept]\\(./x)');
+  assert.equal(ok.note,'[open]\\(file:///Users/m/secret.png)');
+  assert.deepEqual(fitReview(fitted,{threadId:id,now:final,final:final}) ?? 'gone','gone','the copies are where now will be, not there yet');
+  fs.mkdirSync(path.dirname(final),{recursive:true});
+  fs.renameSync(now,final);
+  assert.deepEqual(fitReview(fitted,{threadId:id,now:final,final}),fitted,'again, once adopted');
+  // The window's parser makes a link only from a ]( and takes the address
+  // to the next parenthesis: none is left but before a web address alone.
+  // The second is Codex's and Gemini's: a code span the parser ends inside a
+  // web link's address.
+  for (const note of ['[[x](https://a.b)](/etc/passwd)','`[x](https://example.test/`[open)](/Users/victim/private.md)','\\\\[x](/etc)','`a\\`[x](/etc)`','[a [b] c](/etc)','[x]( /etc )','[x](https://a.b/(y))','[x](https://a b)','[x](\nhttps://a.b)','[open](\uFEFFhttps://x/../../private.png)','[open](\u00A0https://x)','[open](https://x\u3000)','plain']) {
+    const out=webLinksOnly(note);
+    assert.equal(webLinksOnly(out),out,note);
+    // Only ASCII spaces round the address, which Rust's trim takes too.
+    for (let i=out.indexOf(']('); i>=0; i=out.indexOf('](',i+1)) assert.match(out.slice(i+1),/^\([ \t\r\n]*https?:\/\/[!-'*-~]*[ \t\r\n]*\)/i,out);
+    assert.equal(out.replaceAll(']\\(','](') ,note.replaceAll(']\\(','](') ,'the words stay');
+  }
+  // A draft and response in shapes the runner works with (Gemini's third review).
+  const here2={threadId:id,now:final,final};
+  const shaped=fitReview({...raw,draft:null,response:{reply:'ok'}},here2)!;
+  assert.deepEqual(shaped.draft,{notes:{}});
+  assert.deepEqual(shaped.response,{reply:'ok',notes:{}});
+  assert.equal(fitReview({...raw,response:'x'},here2)!.response,undefined);
+  // A review with nothing that came isn't a review here.
+  assert.equal(fitReview({...raw,options:[raw.options[1]]},media),undefined);
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
+// Daybreak 159: the moved log's review.updated events are the other runner's
+// word too, and recoverReviews takes a later revision from the log.
+test('a review recovered from the log keeps only this thread\'s own copies', () => {
+  const {h,thread,input}=fixture();
+  const {review}=h.runner.createReview(thread.id,input);
+  const secret=path.join(h.home,'secret.png');
+  fs.writeFileSync(secret,makePng(10,10));
+  const st=(h.runner as any).threads.get(thread.id);
+  const log=h.store.log(thread.id);
+  const evil={...review,revision:99,note:'[x](/etc/passwd)',options:review.options.map((o,i)=>i===0?{...o,image:{path:secret,mediaType:'image/png'},shots:undefined}:o)};
+  log.append({seq:log.lastSeq+1,ts:new Date().toISOString(),type:'review.updated',review:evil} as any);
+  const nothing={...review,id:'11111111-2222-4333-8444-555566667777',revision:5,options:[{...review.options[0],image:{path:secret,mediaType:'image/png'}}]};
+  log.append({seq:log.lastSeq+1,ts:new Date().toISOString(),type:'review.updated',review:nothing} as any);
+  h.runner.recoverReviews(st);
+  const got=st.rec.reviews.find((r:any)=>r.id===review.id);
+  assert.equal(got.revision,99,'the later revision is recovered');
+  assert.deepEqual(got.options.map((o:any)=>o.id),['B','D'],'without the option naming a file of this Mac\'s');
+  assert.ok(!JSON.stringify(st.rec.reviews).includes(secret));
+  // Its words as they were: a log of this Mac's own (a moved one is fitted as it's placed).
+  assert.equal(got.note,'[x](/etc/passwd)');
+  assert.equal(st.rec.reviews.some((r:any)=>r.id===nothing.id),false,'one with nothing of its own is not recovered');
+});
+
+// Gemini's second review: a thread whose record is rebuilt from its log
+// took each review.updated as it was.
+test('a review rebuilt from the log keeps only this thread\'s own copies', () => {
+  const {h,thread,input}=fixture();
+  const {review}=h.runner.createReview(thread.id,input);
+  const secret=path.join(h.home,'secret.png');
+  fs.writeFileSync(secret,makePng(10,10));
+  const log=h.store.log(thread.id);
+  const other={...review,id:'21111111-2222-4333-8444-555566667777',options:[{...review.options[0],image:{path:secret,mediaType:'image/png'}}]};
+  log.append({seq:log.lastSeq+1,ts:new Date().toISOString(),type:'review.updated',review:other} as any);
+  log.append({seq:log.lastSeq+1,ts:new Date().toISOString(),type:'review.updated',review:null} as any);
+  const rec=h.runner.rebuild(thread.id)!;
+  assert.deepEqual(rec.reviews!.map(r=>r.id),[review.id]);
+  assert.ok(!JSON.stringify(rec.reviews).includes(secret));
+});
+
 test('a queued message only sends the thread\'s own pictures', async () => {
   const {h,thread,source,input}=fixture();
   const {review}=h.runner.createReview(thread.id,input);
@@ -579,18 +792,165 @@ test('markers follow the pictures kept', () => {
   assert.equal(keepPictureMarkers('same [Picture 1]',[true]),'same [Picture 1]');
 });
 
-// The reviewPage experiment: the review is a page beside the thread, with
-// each option's note at reading size, so the agent is told not to write the
-// options out again in its reply (Mike, 20 Nov).
-test('with reviews as a page, show_options tells the agent not to repeat the options in its reply', async () => {
+// Each option's note is read in the review window, under its pictures at
+// reading size, so the agent is told not to write the options out again in
+// its reply (Mike, 20 and 21 Nov).
+test('show_options tells the agent not to repeat the options in its reply', async () => {
   const {h,thread,input}=fixture();
   const tool=buildThreadbearTools(h.runner,thread.id).find(t=>t.name==='show_options')!;
   // Typed as what the tool is handed, whichever tool the list's type says.
   const show=tool.handler as unknown as (options: object, extra: object)=>Promise<unknown>;
-  const none={};
-  assert.doesNotMatch(JSON.stringify(await show(input,none)),/don't list or describe the options again/);
-  fs.writeFileSync(path.join(h.home,'runner.json'),JSON.stringify({experiments:{reviewPage:true}}));
-  const said=JSON.stringify(await show({...input,title:'Second look'},none));
+  const said=JSON.stringify(await show(input,{}));
+  assert.match(said,/reads each option's note under its pictures in the review window/);
   assert.match(said,/don't list or describe the options again in your reply/);
   assert.match(said,/review:[0-9a-f-]{36}/);
+});
+
+// The reviewCanvas experiment (docs/protocol/events.md, "Marks: the canvas"):
+// the agent's marks ride on shots, Mike's on the draft.
+type Sent = { text: string; images: ImageRef[]; reviewResponse: ReviewDraft; reviewId?: string; type: string };
+type Queued = Sent & { turnId: string };
+function canvas(on = true) {
+  const f = fixture();
+  fs.writeFileSync(path.join(f.h.home, 'runner.json'), JSON.stringify({ experiments: { reviewCanvas: on } }));
+  return f;
+}
+const circle = { kind: 'circle', box: [0.1, 0.2, 0.3, 0.4], note: 'Too tight', ink: 'rose' };
+
+test('canvas: agent marks are kept on their shots, an option\'s on its path shot, with shots kept for them', () => {
+  const {h, thread, source, input} = canvas();
+  const {review} = h.runner.createReview(thread.id, {...input, options: [
+    {id: 'A', title: 'First', path: source, marks: [circle]},
+    {id: 'B', title: 'Second', path: source, shots: [{path: source, title: 'Detail', marks: [{kind: 'arrow', box: [0.5, 0.5, 0.5, 0.5]}]}]},
+    input.options[2],
+  ]} as never);
+  assert.deepEqual(review.options[0].shots, [{image: review.options[0].image, marks: [circle]}], 'one plain shot with marks still lists shots');
+  assert.equal(review.options[1].shots![0].marks, undefined);
+  assert.deepEqual(review.options[1].shots![1].marks, [{kind: 'arrow', box: [0.5, 0.5, 0.5, 0.5]}]);
+  assert.equal(review.options[2].shots, undefined);
+  // They survive a restart.
+  assert.deepEqual(h.restart().runner.getReview(thread.id, review.id).review.options[0].shots![0].marks, [circle]);
+});
+
+test('canvas: agent marks are checked, with limits of 6 a picture and 30 a review', () => {
+  const {h, thread, source, input} = canvas();
+  const make = (marks: unknown, extra: Record<string, unknown> = {}) => h.runner.createReview(thread.id, {...input, options: [{id: 'A', title: 'First', path: source, marks, ...extra}]} as never);
+  assert.throws(() => make([{...circle, box: [0.4, 0, 0.2, 1]}]), /marks\[0\] on A, picture 1: box must be \[x0, y0, x1, y1\].*x0 <= x1/);
+  assert.throws(() => make([{...circle, box: [0, 0, 1.2, 1]}]), /box must be/);
+  assert.throws(() => make([{...circle, box: [0, 0, 1]}]), /box must be/);
+  assert.throws(() => make([{...circle, kind: 'star'}]), /kind must be circle, underline, highlight or arrow/);
+  assert.throws(() => make([{...circle, ink: 'blue'}]), /ink must be yellow, green or rose/);
+  assert.throws(() => make([{...circle, note: 'x'.repeat(81)}]), /note must be text of at most 80 characters/);
+  assert.throws(() => make(Array(7).fill(circle)), /A, picture 1 has 7 marks; at most 6 a picture/);
+  assert.throws(() => make('x'), /marks on A, picture 1 must be a list/);
+  assert.throws(() => h.runner.createReview(thread.id, {...input, options: [{id: 'A', title: 'First', shots: [{path: source}], marks: [circle]}]} as never), /belong to its path picture/);
+  const six = Array(6).fill(circle);
+  const options = ['A', 'B', 'C', 'D', 'E', 'F'].map(id => ({id, title: id, path: source, marks: six}));
+  assert.throws(() => h.runner.createReview(thread.id, {...input, options} as never), /at most 30 marks in all; this has 36/);
+  assert.equal(h.runner.get(thread.id).pendingReviews, undefined, 'no card from a bad one');
+});
+
+test('canvas: with the experiment off, marks are dropped unread and show_options doesn\'t offer them', () => {
+  const {h, thread, source, input} = canvas(false);
+  const {review} = h.runner.createReview(thread.id, {...input, options: [{id: 'A', title: 'First', path: source, marks: [{kind: 'bad'}]}]} as never);
+  assert.equal(review.options[0].shots, undefined);
+  const schema = (on: boolean) => {
+    const t = buildThreadbearTools(h.runner, thread.id, Date.now, undefined, undefined, undefined, { reviewCanvas: () => on }).find(x => x.name === 'show_options')! as unknown as { inputSchema: { options: { element: { shape: Record<string, unknown> & { shots: { unwrap: () => { element: { shape: Record<string, unknown> } } } } } } } };
+    return JSON.stringify(Object.keys(t.inputSchema.options.element.shape)) + JSON.stringify(Object.keys(t.inputSchema.options.element.shape.shots.unwrap().element.shape));
+  };
+  assert.doesNotMatch(schema(false), /marks/);
+  assert.match(schema(true), /"marks".*"marks"/);
+});
+
+test('canvas: Mike\'s marks are checked against the review\'s options and shots', () => {
+  const {h, thread, input} = canvas();
+  const {review} = h.runner.createReview(thread.id, input);
+  const mark = {n: 1, kind: 'circle', optionId: 'A', shot: 0, box: [0.36, 0.83, 0.5, 0.92]};
+  const save = (marks: unknown) => h.runner.saveReview(thread.id, review.id, 0, {notes: {}, marks} as never);
+  assert.throws(() => save([{...mark, optionId: 'Z'}]), /marks\[0\]: unknown option: Z/);
+  assert.throws(() => save([{...mark, optionId: 'D'}]), /reference option/);
+  assert.throws(() => save([{...mark, shot: 1}]), /A has no picture 2; shot is 0-based, below 1/);
+  assert.throws(() => save([{...mark, kind: 'arrow'}]), /kind must be circle, highlight or pin/);
+  assert.throws(() => save([{...mark, n: 0}]), /n must be a whole number from 1/);
+  assert.throws(() => save([mark, mark]), /Two marks are numbered 1/);
+  assert.throws(() => save([{...mark, box: [0.5, 0, 0.4, 1]}]), /box must be/);
+  assert.throws(() => save([{...mark, path: Array(401).fill([0.1, 0.1])}]), /at most 400 \[x, y\] points/);
+  assert.throws(() => save(Array.from({length: 21}, (_, i) => ({...mark, n: i + 1}))), /at most 20 marks; this has 21/);
+  assert.throws(() => save([{...mark, image: {path: ''}}]), /image must be a picture with a path/);
+  // A stroke past the edge is kept on the picture.
+  const saved = save([{...mark, n: 2, path: [[-0.1, 0.5], [0.4, 1.2]]}, mark]).review;
+  assert.deepEqual(saved.draft.marks!.map(m => m.n), [1, 2], 'in number order');
+  assert.deepEqual(saved.draft.marks![1].path, [[0, 0.5], [0.4, 1]]);
+});
+
+test('canvas: Mike\'s marks are kept through save and respond, alone are an answer, and go to the agent as lines and cut-outs', async () => {
+  const {h, thread, source, input} = canvas();
+  const {review} = h.runner.createReview(thread.id, {...input, options: [input.options[0], {id: 'B', title: 'Second', path: source, shots: [{path: source, title: 'Detail'}]}, input.options[2]]});
+  const pasted = h.runner.importMedia(source).image;
+  const cut = h.runner.importMedia(path.join(h.home, 'mockup.png')).image;
+  const marks = [
+    {n: 1, kind: 'circle', optionId: 'B', shot: 1, box: [0.361, 0.83, 0.5, 0.92], path: [[0.4, 0.83], [0.5, 0.9]], image: cut},
+    {n: 2, kind: 'pin', optionId: 'A', shot: 0, box: [0.4, 0.2, 0.4, 0.2], path: [[0.4, 0.2]]},
+  ];
+  const saved = h.runner.saveReview(thread.id, review.id, 0, {notes: {}, reply: 'Look [Mark 1] [Picture 1]', images: [pasted], marks} as never).review;
+  const kept = saved.draft.marks![0].image!;
+  assert.match(kept.path, new RegExp(`reviews[\\\\/]${review.id}[\\\\/]reply[\\\\/]`), 'the cut-out is kept as reply pictures are');
+  assert.equal(saved.draft.marks![1].image, undefined);
+  // A cut-out from anywhere but inbox/ or the review is refused.
+  assert.throws(() => h.runner.saveReview(thread.id, review.id, saved.revision, {notes: {}, marks: [{...marks[0], image: {path: source, mediaType: 'image/png'}}]} as never), /media.import/);
+  // A client that doesn't draw marks keeps the saved ones; marks: [] takes them away.
+  const {marks: _marks, ...withoutMarks} = saved.draft;
+  const older = h.runner.saveReview(thread.id, review.id, saved.revision, withoutMarks).review;
+  assert.deepEqual(older.draft.marks, saved.draft.marks);
+  const plain = h.runner.saveReview(thread.id, review.id, older.revision, {notes: {}} as never).review;
+  assert.deepEqual(plain.draft.marks, saved.draft.marks);
+  assert.equal(h.runner.saveReview(thread.id, review.id, plain.revision, {notes: {}, marks: []} as never).review.draft.marks, undefined);
+  // A mark alone is an answer, and a retry naming the inbox copy is the same one.
+  const second = h.runner.createReview(thread.id, input).review;
+  const alone = {notes: {}, marks: [{n: 1, kind: 'highlight', optionId: 'A', shot: 0, box: [0, 0, 1, 0.5], image: cut}]};
+  const sent = h.runner.respondReview(thread.id, second.id, 0, alone as never);
+  assert.deepEqual(h.runner.respondReview(thread.id, second.id, 0, alone as never), sent);
+  assert.throws(() => h.runner.respondReview(thread.id, second.id, 0, {...alone, marks: [{...alone.marks[0], box: [0, 0, 1, 0.6]}]} as never), /answered/);
+  // The full answer.
+  const current = h.runner.getReview(thread.id, review.id).review;
+  const answered = h.runner.respondReview(thread.id, review.id, current.revision, {pickedId: 'A', notes: {B: 'Busy'}, reply: 'Look [Mark 1] [Picture 1]', images: [pasted], marks} as never);
+  assert.deepEqual(answered.review.response!.marks!.map(m => m.n), [1, 2]);
+  for (let i = 0; i < 3; i++) { h.adapter.last.result(); await tick(); }
+  const message = h.runner.events(thread.id, {limit: 1000}).events.find(e => e.type === 'user.message' && e.reviewId === review.id) as unknown as Sent;
+  assert.ok(message, 'the answer went to the agent');
+  assert.equal(message.text.split('\n\n').slice(1, 5).join('\n\n'), [
+    'Picked A. First.',
+    'Look [Mark 1] [Picture 1]',
+    '[Mark 1] circle on B. Second, picture 2 (Detail), across 36-50% and down 83-92% of it.\n[Mark 2] pin on A. First, picture 1, across 40% and down 20% of it.',
+    'Notes on B (Second): Busy',
+  ].join('\n\n'));
+  assert.equal(message.images.length, 2, 'the reply\'s picture, then the cut-out');
+  assert.equal(message.images[1].path, kept.path);
+  assert.deepEqual(message.reviewResponse.marks!.map(m => m.n), [1, 2]);
+  const alonely = h.runner.events(thread.id, {limit: 1000}).events.find(e => e.type === 'user.message' && e.reviewId === second.id) as unknown as Sent;
+  assert.match(alonely.text, /\n\n\[Mark 1\] highlight on A\. First, picture 1, across 0-100% and down 0-50% of it\.$/);
+  assert.equal(alonely.images.length, 1);
+});
+
+test('canvas: a moved review keeps marks that fit and none of its cut-outs; recovery keeps only its own', () => {
+  const {h, thread, source, input} = canvas();
+  const {review} = h.runner.createReview(thread.id, {...input, options: [{id: 'A', title: 'First', path: source, marks: [circle]}, input.options[1], input.options[2]]} as never);
+  const own = {threadId: thread.id, now: h.store.mediaDir(thread.id), final: h.store.mediaDir(thread.id)};
+  const outside = {path: '/etc/hosts', mediaType: 'image/png'};
+  const shots = [{...review.options[0].shots![0], marks: [{...circle, note: 'y'.repeat(200)}, {kind: 'bad', box: [0, 0, 1, 1]}, ...Array(8).fill(circle)]}];
+  const draftMarks = [{n: 1, kind: 'pin', optionId: 'A', shot: 0, box: [0, 0, 0, 0], image: outside}, {n: 2, kind: 'pin', optionId: 'D', shot: 0, box: [0, 0, 0, 0]}, {n: 3, kind: 'pin', optionId: 'A', shot: 5, box: [0, 0, 0, 0]}];
+  const moved = fitReview({...review, options: [{...review.options[0], shots}, ...review.options.slice(1)], draft: {notes: {}, marks: draftMarks}}, own)!;
+  const fitted = moved.options[0].shots![0].marks!;
+  assert.equal(fitted.length, 6);
+  assert.equal(fitted[0].note, 'y'.repeat(80));
+  assert.deepEqual(moved.draft.marks, [{n: 1, kind: 'pin', optionId: 'A', shot: 0, box: [0, 0, 0, 0]}], 'only marks on real pictures, with no cut-out');
+  // Recovered from its own log: a cut-out that isn't the review's own goes, the mark stays.
+  const st = (h.runner as unknown as { threads: Map<string, Parameters<typeof h.runner.ownReplyImages>[0]> }).threads.get(thread.id)!;
+  const ownMarks = h.runner.ownReplyImages(st, {...review, draft: {notes: {}, marks: [draftMarks[0]] as never}});
+  assert.deepEqual(ownMarks.draft.marks, [{n: 1, kind: 'pin', optionId: 'A', shot: 0, box: [0, 0, 0, 0]}]);
+  st.rec.queue.push({turnId: 't-m', text: 'x', images: [outside], reviewId: review.id, reviewResponse: {notes: {}, marks: [draftMarks[0]]}} as never);
+  h.runner.recoverReviews(st);
+  const queued = st.rec.queue.find(q => q.turnId === 't-m') as Queued;
+  assert.deepEqual(queued.images, []);
+  assert.equal(queued.reviewResponse.marks![0].image, undefined);
 });

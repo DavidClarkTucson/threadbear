@@ -32,33 +32,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { git, listCheckouts, MAIN, MAX_SPARES, readPlainFile, realpath, SPARE } from './worktrees.ts';
+import { CLAIMED, git, listCheckouts, MAIN, MAX_SPARES, readPlainFile, realpath, SPARE } from './worktrees.ts';
+import { readSlots, type SlotClaim } from './slot.ts';
+import { BORROW_FILE, BORROW_PREFIX, parseBorrower, type Borrower } from './borrow-marks.ts';
+export { BORROW_FILE, BORROW_PREFIX, parseBorrower, type Borrower };
 
-export const BORROW_FILE = 'threadbear-borrow';
-export const BORROW_PREFIX = 'thread/borrow-';
 // How long a borrow nobody's said is still theirs sits unused before it
 // goes back. A day: a thread that borrowed and is still working commits,
 // rebases or lands well inside that.
 export const BORROW_IDLE_MS = 24 * 3_600_000;
 // Git's own markers of something half done in a checkout.
 const HALF_DONE = ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'sequencer', 'BISECT_LOG'];
-
-export type Borrower = { thread?: string; home?: string; branch?: string; pid?: number; scratch?: boolean; at?: number };
-
-export function parseBorrower(text: string): Borrower {
-  const b: Borrower = {};
-  for (const line of text.split('\n')) {
-    const [k, v = ''] = line.split(/=(.*)/s, 2).map((s) => s.trim());
-    if (!v) continue;
-    if (k === 'thread') b.thread = v;
-    else if (k === 'home') b.home = v;
-    else if (k === 'branch') b.branch = v;
-    else if (k === 'pid' && /^\d+$/.test(v)) b.pid = Number(v);
-    else if (k === 'scratch') b.scratch = v === '1';
-    else if (k === 'at' && /^\d+$/.test(v)) b.at = Number(v) * 1000;
-  }
-  return b;
-}
 
 // Never a blocking read: a fifo in its place would hold the runner up.
 export function readBorrower(admin: string): Borrower | undefined {
@@ -76,6 +60,9 @@ export type SweepOptions = {
   // Folders threads use (realpaths): their worktrees and current folders.
   // A borrow with one of them in it is never touched.
   held: Set<string>;
+  // The threads' worktrees, for what each folder is (slot.ts): one a
+  // thread's record names is that thread's, never a borrow.
+  claims?: SlotClaim[];
   pidAlive?: (pid: number) => boolean;
   // Every process's current folder; undefined when that can't be read in
   // full, and then nothing is taken back.
@@ -92,15 +79,16 @@ export async function sweepBorrows(mainCheckout: string, opts: SweepOptions, hoo
   const result: SweepResult = { reclaimed: [], branches: [], skipped: [] };
   const now = opts.now ?? Date.now();
   const alive = opts.pidAlive ?? pidAlive;
-  const threads = realpath(path.join(path.dirname(mainCheckout), `${path.basename(mainCheckout)}-threads`));
   const checkouts = await listCheckouts(mainCheckout);
   if (!checkouts || !checkouts.some((c) => c.branch === MAIN)) return result;
-  const inThreads = (p: string) => path.dirname(realpath(p)) === threads;
-  let spares = checkouts.filter((c) => c.locked === SPARE && inThreads(c.path)).length;
+  const slots = (await readSlots(mainCheckout, opts.claims ?? [], checkouts))!;
+  let spares = slots.filter((s) => s.is.kind === 'spare').length;
 
-  const candidates = checkouts.filter(
-    (c) => c.locked === undefined && inThreads(c.path) && (!c.branch || c.branch.startsWith(BORROW_PREFIX)) && !holds(opts.held, realpath(c.path)),
-  );
+  // A borrow, or a loose folder (detached, unlocked, no thread's), that no
+  // thread works in.
+  const candidates = slots
+    .filter((s) => (s.is.kind === 'borrowed' || s.is.kind === 'loose') && !holds(opts.held, realpath(s.checkout.path)))
+    .map((s) => s.checkout);
   let cwds: string[] | undefined;
   if (candidates.length) {
     cwds = await (opts.cwds ?? processCwds)();
@@ -156,6 +144,8 @@ export async function sweepBorrows(mainCheckout: string, opts: SweepOptions, hoo
       // Its borrower may have come back (the thread brought back) since.
       if (who.thread && !elsewhere && who.pid === undefined && opts.thread(who.thread) === 'open') return undefined;
       if (head !== undefined && readHead(admin) !== head) return undefined;
+      // A detached one claimed meanwhile (its claimer is setting it up).
+      if (!c.branch && now - lastUsed(admin) < BORROW_IDLE_MS && !scratch) return undefined;
       return here;
     };
     const CHANGED = 'it changed while it was looked at';
@@ -309,7 +299,14 @@ function holds(folders: Iterable<string>, dir: string): boolean {
 // plain `git status` (this sweep's own) rewrites.
 function lastUsed(admin: string): number {
   let last = 0;
-  for (const f of [path.join(admin, 'logs', 'HEAD'), path.join(admin, 'HEAD'), path.join(admin, BORROW_FILE)]) {
+  // A claim being set up (worktrees.ts claimSpare, borrow-worktree.sh).
+  let claims: string[] = [];
+  try {
+    claims = fs.readdirSync(admin).filter((f) => f.startsWith(`locked${CLAIMED}`));
+  } catch {
+    // Gone.
+  }
+  for (const f of [path.join(admin, 'logs', 'HEAD'), path.join(admin, 'HEAD'), path.join(admin, BORROW_FILE), ...claims.map((c) => path.join(admin, c))]) {
     try {
       last = Math.max(last, fs.statSync(f).mtimeMs);
     } catch {

@@ -9,14 +9,17 @@
 // names the tool that can ask. Refusing by default is the point: a method
 // that's added later is closed until someone decides it's safe here.
 import type { PermissionMode } from './protocol.ts';
-import { ErrorCode, RpcError } from './protocol.ts';
+import { ErrorCode, RpcError, sentByAgent } from './protocol.ts';
 import { above, MODE_NAMES, raises, scheduleModes, type Authority } from './threadbear-mcp.ts';
+import { ceilingMode } from './runner/ceiling.ts';
 
 type Params = Record<string, unknown>;
 
 // Anyone holding a thread's key may read: these change nothing outside the
-// connection. media.import only copies a file into the runner's inbox for a
-// tb --image, which the thread's shell could already read.
+// connection. media.import is the exception: it copies a file the thread's
+// shell could already read into the runner's inbox for a tb --image, so it's
+// open to every thread but metered below Full access (Runner.importMediaForThread,
+// media-quota.ts; Daybreak finding 157).
 export const GATED_READS: ReadonlySet<string> = new Set([
   'auth',
   'auth.whoami',
@@ -63,6 +66,10 @@ export type CallerGateDeps = {
   };
   // Threads a draining runner still has (rpc.ts's RemoteThreads).
   remote?: { owns(threadId: string): boolean; summaries(include: ('inbox' | 'snoozed' | 'archived')[]): (ThreadLike & { id: string })[] };
+  // The pictures a thread below Full may send: only ones it imported, each
+  // once (media-quota.ts take), sent as the copies take makes. Without it,
+  // such a thread sends none.
+  images?: { take(threadId: string, images: unknown): { path: string }[]; releaseHeld(images: unknown): void };
   schedules?: {
     find(idOrPrefix: string): { id: string; title: string; threadId?: string; permissionMode?: PermissionMode; check?: string; paused?: boolean };
     list(threadId?: string): { threadId?: string; check?: string }[];
@@ -110,6 +117,12 @@ export class CallerGate {
     return t ? `"${t.title}"` : threadId.slice(0, 8);
   }
 
+  // After a call that took a limited thread's pictures (check), whichever
+  // way it ended: take's copies go.
+  releaseHeld(images: unknown): void {
+    this.deps.images?.releaseHeld(images);
+  }
+
   whoami(threadId: string): { threadId: string; mode: PermissionMode; limited: boolean } {
     const a = this.authority(threadId);
     return { threadId, mode: a?.mode ?? 'ask', limited: a?.mode !== 'full' };
@@ -141,6 +154,22 @@ export class CallerGate {
     // the hour, holding a year-long token), are the user's own, from the app.
     if (method.startsWith('cloudTokens.')) throw new RpcError(ErrorCode.notAllowed, "A login's cloud token is the user's to set, from the card in the app.");
     if (method === 'threads.create' && p.serviceId !== undefined) throw new RpcError(ErrorCode.notAllowed, 'Starting a thread on a virtual runner is the user\'s to do, from Runs on in the app.');
+    // A schedule's ceiling, and Run now's presser (schedules.ts, "Ceilings"),
+    // are the caller's, never what it says: Full's is none.
+    if (method === 'schedules.create' || method === 'schedules.update') {
+      const { ceiling: _c, keepCeiling: _k, ...rest } = p;
+      p = known?.mode === 'full' ? { ...rest, ceiling: 'full' } : rest;
+    }
+    if (method === 'schedules.run') {
+      const { by: _b, ...rest } = p;
+      p = known?.mode === 'full' ? { ...rest, by: 'full' } : rest;
+    }
+    // Words a thread sends are never the runner's note or the phone's, at
+    // any access (Codex's review, 25 Nov): only the owner's tools say so.
+    if (method === 'threads.send') {
+      const { origin: _o, wakeReason: _w, ...rest } = p;
+      p = rest;
+    }
     if (known?.mode === 'full') return p;
     if (GATED_READS.has(method)) return p;
     if (!known) throw new RpcError(ErrorCode.notAllowed, "This thread isn't one the runner knows now, so it can only read. Ask the user to do it in the app.");
@@ -148,6 +177,19 @@ export class CallerGate {
     const who = `This thread is on ${MODE_NAMES[caller.mode]}`;
     const needs = (what: string, tool?: string) =>
       new RpcError(ErrorCode.notAllowed, `${who}, so ${what} needs the user's OK. ${tool ? `Use the ${tool} tool, which asks them on a card.` : 'Ask them to do it in the app.'}`);
+    // A picture by path would have the runner copy any file into a thread's
+    // media, unmetered (Daybreak finding 157, Gemini's review of the fix), so
+    // only its own imports, taken once the rest of the call is allowed.
+    const takeImages = (out: Params): Params => {
+      if (p.images === undefined || p.images === null || (Array.isArray(p.images) && p.images.length === 0)) return out;
+      if (!this.deps.images) throw needs('sending pictures');
+      // Only to a thread on this runner: to one another runner has (a
+      // handover, another Mac), the copy's path would cross to a runner that
+      // can't check it, after this tick (Codex's and Gemini's third reviews).
+      const to = method === 'threads.send' ? str(p, 'threadId') : undefined;
+      if (method === 'threads.send' && (!to || !this.deps.runner.has(to))) throw needs("sending pictures to a thread that isn't on this runner");
+      return { ...out, images: this.deps.images.take(threadId, p.images) };
+    };
     switch (method) {
       case 'threads.create': {
         // Left out, a tool's new thread takes the caller's mode, not the
@@ -158,7 +200,7 @@ export class CallerGate {
         // `unconfine` is only ever the user's: an older runner across a
         // handover still reads it (the sandbox taken out 16 Nov 2026).
         const { unconfine: _u, ...rest } = p;
-        return { ...rest, permissionMode: mode, startedBy: { ...given, kind: 'thread', threadId, label: typeof given.label === 'string' && given.label ? given.label : 'Agent' } };
+        return takeImages({ ...rest, permissionMode: mode, startedBy: { ...given, kind: 'thread', threadId, label: typeof given.label === 'string' && given.label ? given.label : 'Agent' } });
       }
       case 'threads.send': {
         const id = str(p, 'threadId');
@@ -166,10 +208,17 @@ export class CallerGate {
           const t = this.targetAccess(id);
           if (above(t, caller)) throw needs(`sending a message to ${this.title(id)}, which has ${MODE_NAMES[t.mode]}`, 'send_message');
         }
-        // Only the app's Needs you answers and a phone command passed on
-        // say these.
-        const { answers: _a, origin: _o, ...rest } = p;
-        return rest;
+        // Only the app's Needs you answers say these; the ceiling is set below.
+        const { answers: _a, ceiling: _c, ...rest } = p;
+        // Words starting as another thread's message would name a sender they
+        // aren't from (runner/nested.ts reads it to hold a report).
+        if (typeof p.text === 'string' && sentByAgent(p.text)) throw new RpcError(ErrorCode.notAllowed, "A message from a thread can't start the way another thread's message does. Use the send_message tool, which says who it's from.");
+        // Raised above what this thread could reach while it waits in the
+        // queue, it's held as it leaves (runner/ceiling.ts).
+        // To itself: its own words, as far as it reaches now.
+        if (!id || id === threadId) return takeImages({ ...rest, ceiling: ceilingMode(caller.mode) });
+        const to = this.targetAccess(id).mode;
+        return takeImages({ ...rest, ceiling: ceilingMode(raises(to, caller.mode) ? to : caller.mode) });
       }
       case 'threads.interrupt': {
         const id = str(p, 'threadId');
@@ -190,7 +239,7 @@ export class CallerGate {
       case 'schedules.create':
         return this.scheduleCreate(threadId, caller, p, needs);
       case 'schedules.update':
-        return this.scheduleUpdate(caller, p, needs);
+        return this.scheduleUpdate(threadId, caller, p, needs);
       case 'schedules.run':
         return this.scheduleRun(caller, p, needs);
       case 'schedules.delete':
@@ -258,14 +307,14 @@ export class CallerGate {
     const target = str(p, 'threadId');
     if (target) {
       if (target !== threadId && above(this.targetAccess(target), caller)) throw needs(`scheduling a message to ${this.title(target)}`, 'schedule_message');
-      return { ...p, createdBy: threadId };
+      return { ...p, createdBy: threadId, ceiling: ceilingMode(caller.mode) };
     }
     const mode = (p.permissionMode ?? caller.mode) as PermissionMode;
     if (above({ mode }, caller)) throw needs(`scheduling new threads with ${MODE_NAMES[mode] ?? mode}`, 'schedule_message');
     return { ...p, permissionMode: mode, createdBy: threadId };
   }
 
-  private scheduleUpdate(caller: Authority, p: Params, needs: (what: string, tool?: string) => RpcError): Params {
+  private scheduleUpdate(_threadId: string, caller: Authority, p: Params, needs: (what: string, tool?: string) => RpcError): Params {
     const out: Params = { ...p };
     const sc = this.findSchedule(p, needs);
     const modes = scheduleModes(sc);
@@ -290,6 +339,10 @@ export class CallerGate {
     const dropsCheck = Boolean(sc.check) && (p.check === null || (typeof p.check === 'string' && !p.check.trim()));
     if (protectedSc && (lowers || dropsCheck)) throw needs(`${dropsCheck ? 'taking the shell command off' : 'changing the access of'} the schedule "${sc.title}"`, 'update_schedule');
     if (p.permissionMode !== undefined && !sc.threadId && p.permissionMode === sc.permissionMode) delete out.permissionMode;
+    // New words from it are as far as it can reach (schedules.ts, "Ceilings"),
+    // in its own thread's schedules too: they only ever lower one.
+    delete out.keepCeiling;
+    out.ceiling = ceilingMode(caller.mode);
     return out;
   }
 
@@ -297,7 +350,7 @@ export class CallerGate {
     const sc = this.findSchedule(p, needs);
     const will: Authority = sc.threadId ? this.targetAccess(sc.threadId) : { mode: scheduleModes(sc).ceiling };
     if (above(will, caller) || sc.check) throw needs(`running the schedule "${sc.title}" now`, 'update_schedule');
-    return p;
+    return { ...p, by: ceilingMode(caller.mode) };
   }
 
   // Deleting takes away what Mike set up and, with a check, the approval he

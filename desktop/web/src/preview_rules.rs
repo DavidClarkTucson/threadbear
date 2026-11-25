@@ -37,10 +37,6 @@ pub struct PreviewSite {
     /// has no DOM, clipboard or WebRTC, and its requests are the view's,
     /// held to `connect-src 'self'` and `may_request` like the page's.
     pub workers: bool,
-    /// A page the app made itself (a design review's, threadbear_core's
-    /// review_page.rs): a click on one of its own links under `ASK_PREFIX`
-    /// is handed to the app (`asked`). Never with scripts.
-    pub asks: bool,
     /// The view's own origin, `https://<token>.preview.threadbear.invalid`.
     pub origin: String,
 }
@@ -52,16 +48,7 @@ impl PreviewSite {
             site,
             scripts,
             workers: false,
-            asks: false,
             origin: format!("https://{}.{PREVIEW_DOMAIN}", token()),
-        }
-    }
-
-    /// A page the app made: scripts off, and its own links reach the app.
-    pub fn made(site: Arc<Site>) -> PreviewSite {
-        PreviewSite {
-            asks: true,
-            ..PreviewSite::new(site, false)
         }
     }
 
@@ -85,7 +72,6 @@ impl std::fmt::Debug for PreviewSite {
             .field("page", &self.site.page)
             .field("scripts", &self.scripts)
             .field("workers", &self.workers)
-            .field("asks", &self.asks)
             .field("origin", &self.origin)
             .finish()
     }
@@ -96,7 +82,6 @@ impl PartialEq for PreviewSite {
         Arc::ptr_eq(&self.site, &other.site)
             && self.scripts == other.scripts
             && self.workers == other.workers
-            && self.asks == other.asks
             && self.origin == other.origin
     }
 }
@@ -185,34 +170,6 @@ pub fn may_browse(url: &str, site: &PreviewSite, main: bool) -> bool {
     !site.scripts && (lower.starts_with("data:") || lower.starts_with("blob:"))
 }
 
-/// Where a page the app made keeps its links to the app, under its origin
-/// (threadbear_core::review_page::ASK_PREFIX, with the path's slash).
-pub const ASK_PREFIX: &str = "/_threadbear/";
-/// The longest ask: a word and a couple of small numbers.
-pub const MAX_ASK: usize = 48;
-
-/// What a navigation of the view's main frame asks of the app, if it's a
-/// link Mike clicked on a page the app made, to `ASK_PREFIX` on the page's
-/// own origin: what follows the prefix, letters, digits and slashes only.
-/// The navigation is cancelled like any other (`may_browse`); this only
-/// says what to tell the app. Nothing for a page whose scripts run (it
-/// could click its own links), a frame inside the page, a navigation with
-/// no click behind it (a refresh the markup asks for), or an address with
-/// a query, a fragment or an escape in it. What the words mean, and whether
-/// they name anything real, is the app's to check.
-pub fn asked(url: &str, site: &PreviewSite, main: bool, gesture: bool) -> Option<String> {
-    if !site.asks || site.scripts || !main || !gesture || url.contains(['?', '#', '%']) {
-        return None;
-    }
-    let rest = url
-        .strip_prefix(site.origin.as_str())?
-        .strip_prefix(ASK_PREFIX)?;
-    (!rest.is_empty()
-        && rest.len() <= MAX_ASK
-        && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'/'))
-    .then(|| rest.to_owned())
-}
-
 /// Whether a request from the view may start at all: its own origin, or
 /// what's made on the page. Everything else is cancelled.
 pub fn may_request(url: &str, site: &PreviewSite) -> bool {
@@ -235,6 +192,17 @@ pub fn own_path(url: &str, origin: &str) -> Option<String> {
     }
     let path = rest.split(['?', '#']).next().unwrap_or(rest);
     threadbear_core::local_preview::percent_decode(path)
+}
+
+/// What `url` asks for on `origin` as the browser spelled it, query and all
+/// but without a fragment (which never reaches a request): the key the
+/// preview's budget counts by (`Site::serve_asked`). None for another origin.
+pub fn asked_address(url: &str, origin: &str) -> Option<String> {
+    let rest = url.strip_prefix(origin)?;
+    if !rest.starts_with('/') {
+        return None;
+    }
+    Some(rest.split('#').next().unwrap_or(rest).to_owned())
 }
 
 /// Run in the page's own world in every frame before its scripts, while they
@@ -281,19 +249,16 @@ pub const COPY_GUARD: &str = r#"(() => {
 mod tests {
     use super::*;
 
+    // Local previews are unix only (Site::new is None elsewhere), so are
+    // the tests that need one: requests_stay_on_its_origin, without the
+    // mark, failed main's Windows run (22 Nov).
+    #[cfg(unix)]
     fn preview(scripts: bool) -> PreviewSite {
         let dir =
             std::env::temp_dir().join(format!("preview-rules-{}-{}", std::process::id(), token()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("my page.html"), "<p>hi</p>").unwrap();
-        let site = Site::new(&dir.join("my page.html"), None);
-        #[cfg(unix)]
-        let site = site.expect("a site");
-        #[cfg(not(unix))]
-        let site: Site = match site {
-            Some(s) => s,
-            None => panic!("no sites off unix"),
-        };
+        let site = Site::new(&dir.join("my page.html"), None).expect("a site");
         PreviewSite::new(Arc::new(site), scripts)
     }
 
@@ -358,6 +323,29 @@ mod tests {
     }
 
     #[cfg(unix)]
+    /// The budget's key keeps the query (Daybreak 168): `big.png?1` and
+    /// `big.png?2` are two requests for one file.
+    #[test]
+    fn the_address_asked_keeps_its_query() {
+        let p = preview(false);
+        let o = &p.origin;
+        assert_eq!(
+            asked_address(&format!("{o}/big.png?1"), o).as_deref(),
+            Some("/big.png?1")
+        );
+        assert_eq!(
+            asked_address(&format!("{o}/big.png?1#top"), o).as_deref(),
+            Some("/big.png?1")
+        );
+        assert_eq!(
+            own_path(&format!("{o}/big.png?1"), o).as_deref(),
+            Some("/big.png")
+        );
+        assert_eq!(asked_address(&format!("{o}.evil/x"), o), None);
+        assert_eq!(asked_address("https://example.com/x", o), None);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn requests_stay_on_its_origin() {
         let p = preview(false);
@@ -419,90 +407,6 @@ mod tests {
                     && both.contains("base-uri 'none'")
             );
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn only_a_click_on_a_made_pages_own_link_asks_the_app() {
-        let made = PreviewSite::made(preview(false).site);
-        assert!(made.asks && !made.scripts && !made.workers);
-        let at = |rest: &str| format!("{}{rest}", made.origin);
-        assert_eq!(
-            asked(&at("/_threadbear/pick/0"), &made, true, true).as_deref(),
-            Some("pick/0")
-        );
-        assert_eq!(
-            asked(&at("/_threadbear/open/11/7"), &made, true, true).as_deref(),
-            Some("open/11/7")
-        );
-        // The link goes nowhere either way: it isn't the page.
-        assert!(!may_browse(&at("/_threadbear/pick/0"), &made, true));
-        // Not without a click, nor from a frame inside the page.
-        assert_eq!(asked(&at("/_threadbear/pick/0"), &made, true, false), None);
-        assert_eq!(asked(&at("/_threadbear/pick/0"), &made, false, true), None);
-        // Only plain words under the prefix, on its own origin.
-        for odd in [
-            "/_threadbear/",
-            "/_threadbear/pick/0?x=1",
-            "/_threadbear/pick/0#top",
-            "/_threadbear/pick/%30",
-            "/_threadbear/a.b",
-            "/_threadbear/a b",
-            "/_threadbear/../x",
-            "/threadbear/pick/0",
-            "/x/_threadbear/pick/0",
-            "/my%20page.html",
-        ] {
-            assert_eq!(asked(&at(odd), &made, true, true), None, "{odd}");
-        }
-        assert_eq!(
-            asked(
-                &at(&format!("/_threadbear/{}", "a".repeat(MAX_ASK + 1))),
-                &made,
-                true,
-                true
-            ),
-            None
-        );
-        assert_eq!(
-            asked(
-                &format!("{}.evil/_threadbear/pick/0", made.origin),
-                &made,
-                true,
-                true
-            ),
-            None
-        );
-        assert_eq!(
-            asked(
-                "https://other.preview.threadbear.invalid/_threadbear/pick/0",
-                &made,
-                true,
-                true
-            ),
-            None
-        );
-        // A page that isn't the app's own never asks, with its scripts off
-        // or on, and one made to ask can't with scripts.
-        for other in [
-            preview(false),
-            preview(true),
-            PreviewSite {
-                scripts: true,
-                ..PreviewSite::made(preview(false).site)
-            },
-        ] {
-            let url = format!("{}/_threadbear/pick/0", other.origin);
-            assert_eq!(asked(&url, &other, true, true), None);
-        }
-    }
-
-    #[test]
-    fn the_ask_prefix_is_the_one_the_page_writes() {
-        assert_eq!(
-            ASK_PREFIX,
-            format!("/{}", threadbear_core::review_page::ASK_PREFIX)
-        );
     }
 
     #[test]

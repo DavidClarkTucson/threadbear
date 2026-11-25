@@ -102,9 +102,35 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
 - **The owner key and a runner with its own key.** Once a runner id has a
   live runner key, the owner key can't act as that runner (`lib.ts actAs`:
   its heartbeat, lists, commands, or thread rows under that id), so an old
-  copy of the owner key left on that Mac can't carry on as it. It can
-  still put a schedule on it, and revoking the runner key gives the id
-  back.
+  copy of the owner key left on that Mac can't carry on as it. The same
+  holds for the calls that name only a thread, a command, a schedule or a
+  request rather than a runner (`lib.ts ownerFenced`, Daybreak 178, 24 Nov
+  2026): that runner's threads' messages, tool output and pictures (read
+  as empty, written as dropped, as a runner key's for a thread not its own;
+  an id with no row counts as the runner's whose tombstone or sidebar row
+  it has), `removeThreads` in either form, freeing or attaching a file it
+  uploaded,
+  taking or finishing its commands (or naming its thread as the one an
+  `any` command made), recording or letting go of its schedules' runs, and
+  closing its requests. An id whose rows are going (`threadClears`, the owner taking
+  the thread over) is answered as left out, as before. Rows written as a
+  keyed runner before this don't keep its history from going up:
+  `messageHeads` gives a runner key the newest of its own rows (its
+  `runnerId` on them, by `messages.by_thread_runner_seq`; a thread with
+  none of its own, from before its key, has no head, so a start with no
+  cache sends its history once more and takes those rows as its own), a row of
+  its own thread it sends again takes the one at that seq back with its
+  own words if they differ, in one step (counted against it, making room
+  only among its rows older than that one, and when it's older than
+  everything it has, letting that row go and putting its own in as new), and the runner itself doesn't take a head past the thread's own
+  last seq, which none of its own can be: it sends the whole history
+  again. This keeps a forgotten copy of the owner key from carrying on as
+  that runner; it isn't a fence against someone holding the owner key on
+  purpose, who can still do what the main Mac does (revoke that runner's
+  key, `auditRemove`). Rotate the owner key after giving a Mac its own
+  ("After a migration", below). The owner key can still put a schedule on
+  that runner, ask it to run one, queue it commands and take a thread over
+  from it, and revoking the runner key gives the id back.
 - **Refusals.** A function a runner key may not call, or a row that isn't
   its runner's, throws `ConvexError({ kind: "forbidden", message })`, the
   message starting "This runner's key can't ...". The runner turns the
@@ -152,10 +178,16 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
   through waiting commands the old way, up to 2 MB a mutation, and keeps
   the file past that. The owner key still gets Convex's
   own upload URL.
-- **Share links.** A slug is one thread's for good. A runner key may put
-  one on its thread only if no other row has it and no other runner's
-  thread ever did: a deleted thread's slug, and the old one when Share
-  again makes a new link, are tombstoned. The owner key may, and other
+- **Share links.** A slug is one thread's for good, and a retired one stays
+  retired. A runner or box key may put one on its thread only if no other
+  row has it and no thread ever had it before, its own runner's and its own
+  thread's included: a deleted thread's slug, and the old one when Share
+  again makes a new link, are tombstoned. Keeping a slug that's still live
+  on the same row is fine. A retired slug only ever that thread's (a pruned
+  row sent again, a late write) doesn't refuse the row: it goes in without
+  it, keeping the link it has if that's still good (and stopping it if the
+  write stops sharing); any other is refused, unless the write stops sharing (then the row's own link stops). `/s/<slug>` never shows a
+  retired slug. The owner key may use any, which un-retires it, and other
   rows with it lose it. `/s/<slug>` and its card show nothing if two rows
   have one slug (from before this).
 - **Taking a thread over.** Apart from a move (Moving a thread to another runner), threads don't change runner, but if the
@@ -495,9 +527,12 @@ has to be on for it.
 - **Making one.** `boxes:setRunnerService({ key, serviceId?, name,
   provider, image?, box: { cpus, memoryMb }, region?, limits? })` makes
   one, or changes one (its provider can't change), and returns its id;
-  an image left out is as it was, or else `defaultBoxImage`
-  (`registry.fly.io/<FLY_APP>:latest`, the box image below, private to
-  the boxes' Fly app; with no `FLY_APP`, an image must be given), and limits left out are `BOX_LIMITS` (`maxBoxes` 5, `idleSleepMinutes` 10,
+  an image given must be pinned by digest (`<registry>/<name>@sha256:<64
+  hex>`; a tag is refused), and one left out is as it was, or else
+  `defaultBoxImage`, following main: the row keeps
+  `registry.fly.io/<FLY_APP>:latest`, and each new box boots the digest
+  main's box-image workflow last promoted (`convex/boxImage.ts`), never
+  the tag (with no `FLY_APP`, an image must be given), and limits left out are `BOX_LIMITS` (`maxBoxes` 5, `idleSleepMinutes` 10,
   `maxAwakeHoursPerDay` 8, `deleteAfterDays` 14) or as they were. A Fly
   box is 2048 MB at most, the most Fly can pause, and every box 1024 MB at
   least (`MIN_BOX_MB`), so a box can restore any save another took.

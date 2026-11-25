@@ -7,7 +7,9 @@ import { sentByAgent, type Ask, type AskLink, type NeedsWho, type PersistedEvent
 import { hasLineBreak, replaceLinks } from './linear-text.ts';
 import { cutSafely, safeEnd } from './safe-cut.ts';
 
-export type Needs = { needs: NeedsWho; asks?: Ask[]; next?: string[] };
+// afterJobs: the asks wait until the thread's own shell jobs end (askWhen
+// "jobsEnd"; docs/protocol/needs-you.md, "Needs you").
+export type Needs = { needs: NeedsWho; asks?: Ask[]; next?: string[]; afterJobs?: true };
 
 export const END_TURN_TOOL = 'end_turn';
 // As the CLIs name it: under threadbear-mcp.ts's SERVER_NAME, which lives
@@ -110,8 +112,49 @@ export function needsFromTool(input: unknown): Needs | undefined {
     asks.push(ask);
     if (asks.length === MAX_ASKS) break;
   }
-  if (o.needs === undefined) return asks.length ? { needs: 'you', asks } : done(o.next);
-  return asks.length ? { needs: 'you', asks } : { needs: 'you' };
+  if (o.needs === undefined && !asks.length) return done(o.next);
+  const you: Needs = asks.length ? { needs: 'you', asks } : { needs: 'you' };
+  if (askWhenFromTool(o) === 'jobsEnd') you.afterJobs = true;
+  return you;
+}
+
+// end_turn's askWhen: whether asks made while a shell job of the thread's
+// own is still running wait for it ("jobsEnd") or go to the user at once
+// ("now"). Left out, they go at once, as they did before 24 Nov 2026.
+export function askWhenFromTool(input: unknown): 'now' | 'jobsEnd' | undefined {
+  const w = input && typeof input === 'object' ? (input as Record<string, unknown>).askWhen : undefined;
+  return w === 'now' || w === 'jobsEnd' ? w : undefined;
+}
+
+// What end_turn says, once a turn, to asks made while a shell job of the
+// thread's own is still running and the call doesn't say which it is. Mike,
+// 24 Nov 2026: a thread that wrote "it's landing now, I'll confirm here once
+// it's on main" also asked him about a PR, so it sat in his Inbox with its
+// landing still going, and he'd asked for threads to stay out of it until
+// they've finished about ten times. The runner can't tell that job from one
+// he needs while he answers (a dev server) or one watching for him to do the
+// step (the SD card watcher, 1 Nov), so the agent says.
+export const JOBS_NUDGE = 'Not ended: you are asking the user something while a background job of yours is still running';
+export function jobsNudge(jobs: string[]): string {
+  const which = jobs.slice(0, 3).map((j) => `"${cutSafely(j, 80)}"`).join(', ');
+  return `${JOBS_NUDGE} (${which}). Call end_turn again with askWhen: "jobsEnd" if the job has to finish before this thread is ready for them (a landing, a build, a check you are waiting on): the thread stays under Running, out of their inbox, and you get a turn when the job ends, where you end with the asks again. Use askWhen: "now" if they should be asked while it runs (a dev server they need for it, a job watching for them to do the step). This note comes once a turn.`;
+}
+export function jobsNudged(events: PersistedEvent[]): boolean {
+  return nudgedSince(events, JOBS_NUDGE);
+}
+
+// What end_turn says, once a turn, to a turn ending with nothing for the
+// user when the turn before held asks back for a job (askWhen "jobsEnd")
+// that he never saw: the turn the job's end opens tends to report the job
+// ("Landed") and nothing else, and its card replaces the held one (Codex
+// and Gemini's review, 24 Nov 2026).
+export const HELD_NUDGE = 'Not ended: last turn you held asks back until your job ended, and the user has not seen them';
+export function heldNudge(asks: string[]): string {
+  const which = asks.slice(0, 5).map((a) => `"${cutSafely(a, 100)}"`).join(', ');
+  return `${HELD_NUDGE} (${which}). If they still stand, end with them again as asks. If they are answered or no longer apply, call end_turn again as you were: this note comes once a turn.`;
+}
+export function heldNudged(events: PersistedEvent[]): boolean {
+  return nudgedSince(events, HELD_NUDGE);
 }
 
 // Words worth matching on: lower case, three letters or more, so "a", "an"
@@ -390,18 +433,26 @@ export function needsFromText(text: string): Needs | undefined {
 // after it, with at most a line of lead-in before it, is the card's next.
 // Prose after the list ends it, and prose with no list is no follow-up.
 function nextFromList(lines: string[]): string[] {
+  return listAfter(lines).items.map(nextFrom);
+}
+
+// That list as written, whether a line of lead-in came before it, and how
+// many of the lines it and its lead-in take up (0 with no list).
+function listAfter(lines: string[]): { items: string[]; lead: boolean; end: number } {
   const items: string[] = [];
   let lead = 0;
+  let end = 0;
   let inFence = false;
-  for (const line of lines) {
+  for (const [i, line] of lines.entries()) {
     if (/^\s*```/.test(line)) inFence = !inFence;
     const m = inFence ? null : itemOf(line);
     if (m && (!items.length || m[1].length === 0)) items.push(m[3]);
     else if (m || (items.length && /^\s{2,}\S/.test(line))) items[items.length - 1] += ` ${line.trim()}`;
     else if (!line.trim()) continue;
     else if (items.length || inFence || ++lead > 1) break;
+    if (items.length) end = i + 1;
   }
-  return items.map(nextFrom);
+  return { items, lead: lead > 0 && items.length > 0, end };
 }
 
 // A follow-up as the message that would start it, for a row on the done
@@ -410,6 +461,14 @@ function nextFromList(lines: string[]): string[] {
 // Nemotron on it". Only the first sentence, as the rest says why.
 const NEXT_LINK = { titleStopsAtNewline: false, titleMin: 1, titleMax: Infinity, targetStopsAtSpace: false, targetMin: 0 };
 function nextFrom(item: string): string {
+  return nextRow(item).row;
+}
+
+// ...and whether that row is the item as written: no link's address,
+// second sentence or cut for length left out of it, no ** taken out
+// ("src/**/*.ts" as much as bold), nor its full stop, which may not be a
+// sentence's ("Run touch release.").
+function nextRow(item: string): { row: string; all: boolean } {
   // A link's text: replaceLinks is `/\[([^\]]+)\]\([^)]*\)/g` read once,
   // as that was quadratic on a long run of "[" in a model's reply.
   const t = replaceLinks(item, NEXT_LINK, (title) => title)
@@ -420,11 +479,11 @@ function nextFrom(item: string): string {
   // the whole text, so none is inside a secret (safe-cut.ts).
   const sentence = safeEnd(t, /^.+?[.!?](?=\s|$)/.exec(t)?.[0].length ?? t.length);
   const first = t.slice(0, safeEnd(t, t.slice(0, sentence).replace(/\.$/, '').length));
-  if (first.length <= MAX_NEXT_CHARS) return first;
+  if (first.length <= MAX_NEXT_CHARS) return { row: first, all: first === item.replace(/\s+/g, ' ').trim() };
   const end = safeEnd(t, MAX_NEXT_CHARS);
   const space = t.lastIndexOf(' ', end - 1);
   const cut = space > 0 ? safeEnd(t, space) : Math.max(end, 1);
-  return t.slice(0, safeEnd(t, t.slice(0, cut).replace(/[,;:]$/, '').length));
+  return { row: t.slice(0, safeEnd(t, t.slice(0, cut).replace(/[,;:]$/, '').length)), all: false };
 }
 
 // "Open X, add Y, then reply 'done'" names the words to send back.
@@ -1091,14 +1150,56 @@ export function splitReplySection(reply: string): { reply: string; needs?: Needs
     // A bare heading becomes a bold one so needsFromText reads it.
     section[0] = `**What I need from you:** ${(m?.[4] ?? '').trim()}`.trimEnd();
     const needs = needsFromText(section.join('\n'));
-    return needs ? { reply: lines.slice(0, i).join('\n').trimEnd(), needs } : { reply };
+    if (!needs) return { reply };
+    const above = lines.slice(0, i).join('\n').trimEnd();
+    // A reply that is only a section saying nothing is needed stays as
+    // written (withoutNothingLine): better those words than none.
+    return { reply: above.trim() || needs.needs === 'you' ? above : reply, needs };
   }
   for (let i = from; i < lines.length; i++) {
     if (!NOTHING_LINE.test(lines[i]) || !/^\W*nothing/i.test(lines[i].replace(/^[\s*_#>-]+/, ''))) continue;
     const needs = needsFromText(lines.slice(i).join('\n'));
-    return needs ? { reply: lines.slice(0, i).join('\n').trimEnd(), needs } : { reply };
+    return needs ? withoutNothingLine(reply, lines, i, needs) : { reply };
   }
   return { reply };
+}
+
+// A reply without its closing "Nothing needed from you" line and the
+// follow-ups listed under it, when that is all the line and what follows it
+// are. The line used to take the rest of the reply with it, whatever that
+// was: on 21 Nov 2026 (thread 649fc651) Mike asked "Anything you need from
+// me here?", the reply opened "Nothing needed from you." and went on for two
+// paragraphs, and all of it came off, so he got a blank answer. Some 60
+// replies before it that month lost words on the line that the card never
+// showed ("This will pick up again on its own on 23 Nov.", "...apart from
+// posting that in Slack when you're ready.").
+//
+// So the section comes off only when the done card shows all of it, and
+// there is a reply above it:
+// - the line says no more than that, and isn't indented as code;
+// - a list straight under it, with no lead-in, is the card's rows: every
+//   item is one line and one row (the card holds three), and the row is
+//   the item as written;
+// - and nothing but blank lines comes after.
+// Otherwise the reply stays as written, under the same card. A lead-in
+// keeps it whole however short ("Two follow-ups are worth doing:"), as no
+// rule told that from news with a list under it ("Everything is on hold
+// until Ian says what's next:", "Only after the backup finishes:"): all
+// ten replies that month with a list under the line had a lead-in or more
+// on the line, and four of the lists weren't follow-ups at all. (Codex and
+// Gemini reviewed two cuts of this that took more off, and each time
+// found words still lost.)
+const ONLY_NOTHING = /^nothing (?:else )?(?:is )?needed from you(?: (?:right now|for now|just now|yet|here|at the moment|at this point))?[.!]?$/i;
+function withoutNothingLine(reply: string, lines: string[], i: number, needs: Needs): { reply: string; needs: Needs } {
+  const line = lines[i].replace(/[*_`]+/g, '').replace(/^[\s#>-]+/, '').trimEnd();
+  const list = listAfter(lines.slice(i + 1));
+  const above = lines.slice(0, i).join('\n').trimEnd();
+  const closes = !lines.slice(i + 1 + list.end).some((l) => l.trim());
+  // A line under an item (more words, a command, an indented item) is read into it.
+  const oneLineEach = lines.slice(i + 1, i + 1 + list.end).filter((l) => l.trim()).length === list.items.length;
+  const shown = !list.lead && oneLineEach && needs.next?.length === list.items.length && list.items.every((item) => nextRow(item).all);
+  const only = ONLY_NOTHING.test(line) && !/^(?: {4}|\t)/.test(lines[i]);
+  return only && closes && (!list.items.length || shown) && above.trim() ? { reply: above, needs } : { reply, needs };
 }
 
 // A reply under a card of asks, without a closing section that writes the

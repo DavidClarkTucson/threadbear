@@ -3,8 +3,8 @@
 // runner's request for a thread (ApprovalRowCell, QuestionRowCell,
 // SecretRowCell, PlanCardCell and ReviewRowCell in Cells.swift).
 use super::metrics::*;
+use super::parts::{self, icon};
 use super::row_wrap;
-use super::work::{self, icon};
 use crate::style::{self, size};
 use crate::thread::ThreadPane;
 use gpui_kit::base::TestSupportExt as _;
@@ -137,7 +137,7 @@ fn mono(
     color: Hsla,
     cx: &App,
 ) -> Stateful<Div> {
-    work::mono_text(id, words, color, cx)
+    parts::mono_text(id, words, color, cx)
 }
 
 /// `approvalTitleText`: "Write release.sh?", its folder dimmed after it, and
@@ -231,7 +231,7 @@ pub(crate) fn approval_payload(
             col = col.child(
                 div()
                     .mt(px(4.))
-                    .child(work::fields_text(ix * 100 + n, &extra, cx)),
+                    .child(parts::fields_text(ix * 100 + n, &extra, cx)),
             );
         }
         return col.into_any_element();
@@ -278,7 +278,7 @@ pub(crate) fn approval_payload(
                 ));
                 let extra = ApprovalText::fields_beyond_diff(input);
                 if !extra.is_empty() {
-                    col = col.child(div().mt(px(4.)).child(work::fields_text(
+                    col = col.child(div().mt(px(4.)).child(parts::fields_text(
                         ix * 100 + n,
                         &extra,
                         cx,
@@ -299,7 +299,7 @@ pub(crate) fn approval_payload(
     if fields.is_empty() {
         return mono(("title", ix * 100 + n), request.title.clone(), label, cx).into_any_element();
     }
-    work::fields_text(ix * 100 + n, &fields, cx).into_any_element()
+    parts::fields_text(ix * 100 + n, &fields, cx).into_any_element()
 }
 
 /// The folder, access and model it would start with, then the whole brief:
@@ -1593,13 +1593,9 @@ impl ThreadPane {
         // The plan (its start, until it's opened), or once approved its
         // checklist with the plan under it when opened.
         let plan_markdown = if expanded { body_text } else { preview };
-        let doc = (!plan_markdown.is_empty() && (plan.entries.is_empty() || expanded)).then(|| {
-            self.markdown_state(
-                &format!("plan-{}", plan.item_id),
-                &markdown_source(&plan_markdown, &self.summary.id),
-                cx,
-            )
-        });
+        let plan_source = markdown_source(&plan_markdown, &self.summary.id);
+        let doc = (!plan_markdown.is_empty() && (plan.entries.is_empty() || expanded))
+            .then(|| self.markdown_state(&format!("plan-{}", plan.item_id), &plan_source, cx));
         let text_style = self.reading_style(cx);
         let mut content = v_flex().child(heading);
         let mut body = v_flex().mt(px(8.));
@@ -1612,12 +1608,14 @@ impl ThreadPane {
                     .when(!plan.entries.is_empty(), |d| d.mt(px(23.)))
                     .text_size(px(size::BODY))
                     .line_height(px(size::BODY_LINE))
-                    .child(
+                    .child(crate::shell_blocks::with_header(
                         self.linked_text(&doc, &row.id, cx)
                             .selectable(true)
                             .style(text_style)
-                            .shared_code_block_highlighter(super::plain_code_blocks()),
-                    ),
+                            .shared_code_block_highlighter(super::code_blocks(cx)),
+                        &plan_source,
+                        &self.summary.id,
+                    )),
             );
         }
         content = content.child(body);
@@ -1767,11 +1765,23 @@ impl ThreadPane {
                         .child(review.title.clone()),
                 ),
         );
-        // The reviewPage experiment: the options themselves on the card, each
-        // a small picture with its name, and a click on one opens the page
-        // beside the thread (review_pane.rs) in place of the window and its
-        // button. Another Mac's pictures aren't here to show.
-        let content = if crate::review_pane::is_on(cx) && self.summary.runner_id.is_none() {
+        let button = h_flex().mt(px(10.)).child(
+            pill(("open-review", ix), &open_title, false, true, None, cx)
+                .min_w(px(140.))
+                .tip(open_tip)
+                .on_click(cx.listener({
+                    let opened = opened.clone();
+                    move |this, _: &ClickEvent, window, cx| {
+                        this.open_review(opened.clone(), window, cx)
+                    }
+                }))
+                .test_support(),
+        );
+        // The options themselves on the card, each a small picture with its
+        // name, so the reply needn't list them (Mike, 20 Nov); a click on
+        // one opens the window (review_window.rs) on it. Another Mac's
+        // pictures aren't here to show.
+        let content = if self.summary.runner_id.is_none() {
             let picked_ids = review
                 .response
                 .as_ref()
@@ -1787,12 +1797,9 @@ impl ThreadPane {
                 let (opened, tip) = (
                     opened.clone(),
                     if review.is_pending() {
-                        format!(
-                            "Open {} beside the thread to read, pick and reply",
-                            option.title
-                        )
+                        format!("Open the review on {}", option.label())
                     } else {
-                        format!("Open the review at {}", option.title)
+                        format!("Look at {} and what was sent", option.label())
                     },
                 );
                 let name = h_flex()
@@ -1825,18 +1832,33 @@ impl ThreadPane {
                     v_flex()
                         .id(("review-tile", ix * 16 + index))
                         .role(Role::Button)
-                        .aria_label(SharedString::from(option.title.clone()))
+                        .aria_label(SharedString::from(tip.clone()))
                         .flex_none()
                         .cursor_pointer()
                         .tip(tip)
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.open_review(opened.clone(), window, cx)
+                            this.open_review_at(opened.clone(), Some(index), window, cx)
                         }))
                         .test_support()
                         .child(review_tile(&option.image, cx))
                         .child(name),
                 );
             }
+            // The agent's lead, which the window shows only with all of
+            // them side by side: here it's read first, as part of the thread.
+            let lead = review.note.clone().filter(|n| !n.is_empty()).map(|note| {
+                div()
+                    .mt(px(8.))
+                    .text_size(px(size::WORK))
+                    .line_height(px(size::WORK_LINE))
+                    .child(crate::review_window::inline_note(
+                        ("review-lead", ix),
+                        &note,
+                        label,
+                        &self.summary.cwd,
+                        cx,
+                    ))
+            });
             head.child(
                 div()
                     .mt(px(4.))
@@ -1845,7 +1867,9 @@ impl ThreadPane {
                     .text_color(quiet)
                     .child(state),
             )
+            .children(lead)
             .child(tiles)
+            .child(button)
         } else {
             head.child(
                 div()
@@ -1855,18 +1879,7 @@ impl ThreadPane {
                     .text_color(quiet)
                     .child(detail),
             )
-            // Its window (review_window.rs).
-            .child(
-                h_flex().mt(px(10.)).child(
-                    pill(("open-review", ix), &open_title, false, true, None, cx)
-                        .min_w(px(140.))
-                        .tip(open_tip)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.open_review(opened.clone(), window, cx)
-                        }))
-                        .test_support(),
-                ),
-            )
+            .child(button)
         };
         row_wrap(
             row,
@@ -1876,8 +1889,8 @@ impl ThreadPane {
 }
 
 /// An option's small picture on its review's card: this wide and tall, so
-/// two fit a row beside a review's page, when the transcript is at its
-/// narrowest, and four when it has its full width.
+/// two fit a row when the transcript is at its narrowest, and four when it
+/// has its full width.
 const REVIEW_TILE: (f32, f32) = (150., 90.);
 
 /// The picture cut to the tile from its top left corner, where a mockup's

@@ -362,7 +362,7 @@ impl Threadbear {
                 match res.map(|v| serde_json::from_value::<ThreadSummary>(v["thread"].clone())) {
                     Ok(Ok(thread)) if !thread.id.is_empty() => {
                         let id = thread.id.clone();
-                        t.threads.insert(id.clone(), std::sync::Arc::new(thread));
+                        t.store_reply_summary(thread);
                         t.open(id, window, cx);
                     }
                     Ok(_) => {
@@ -751,7 +751,68 @@ impl Threadbear {
                     .into_any_element(),
             );
         }
+        out.extend(self.render_waiting_fixes(&side, cx));
         out
+    }
+
+    /// The threads waiting for the app to restart onto what they landed,
+    /// each with which build has it (`FixPlace`), and opening it on a click.
+    fn render_waiting_fixes(&mut self, side: &AppSide, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use threadbear_core::updates::FixPlace;
+        let fixes = self.waiting_fixes();
+        if fixes.is_empty() {
+            return Vec::new();
+        }
+        let (secondary, green) = (style::secondary_text(cx), style::tick_green(cx));
+        let mut out = vec![small_heading("Threads waiting on this version", cx)
+            .pt(px(4.))
+            .into_any_element()];
+        for (id, title, place) in fixes {
+            let color = match place {
+                FixPlace::Ready | FixPlace::InApp => green,
+                _ => secondary,
+            };
+            let open = id.clone();
+            out.push(
+                h_flex()
+                    .w_full()
+                    .gap(px(8.))
+                    .justify_between()
+                    .child(text_button(
+                        SharedString::from(format!("updates-waiting-{id}")),
+                        title,
+                        "Open this thread",
+                        12.,
+                        true,
+                        false,
+                        cx,
+                        move |t, window, cx| t.open(open.clone(), window, cx),
+                    ))
+                    .child(
+                        h_flex()
+                            .flex_none()
+                            .gap(px(4.))
+                            .children((place == FixPlace::Building).then(|| {
+                                crate::spinner::TurningArc::new(9., secondary).outside_threads()
+                            }))
+                            .child(text_line(rules::fix_label(place, side), 11., color)),
+                    )
+                    .into_any_element(),
+            );
+        }
+        out
+    }
+
+    /// The waiting threads with their titles, by title.
+    fn waiting_fixes(&self) -> Vec<(String, String, threadbear_core::updates::FixPlace)> {
+        let mut fixes: Vec<_> = self
+            .updater
+            .fixes
+            .iter()
+            .map(|(id, place)| (id.clone(), self.thread_title(id), *place))
+            .collect();
+        fixes.sort_by(|a, b| a.1.cmp(&b.1));
+        fixes
     }
 
     /// The runner's lines: not following main, its build, the threads still
@@ -774,11 +835,13 @@ impl Threadbear {
             && launcher.is_none()
             && not_following.is_empty()
             && runner.web_runtime_problem.is_none()
+            && runner.web_runtime_note.is_none()
         {
             out.push(line("The runner is up to date.".to_owned()));
         }
         out.extend(not_following.into_iter().map(line));
         out.extend(runner.web_runtime_problem.clone().map(line));
+        out.extend(runner.web_runtime_note.clone().map(line));
         out.extend(build.map(line));
         if let Some(old) = old {
             out.push(line(old));
@@ -1209,7 +1272,7 @@ impl Threadbear {
         let mut bottom = h_flex().items_center().gap(px(8.));
         // A menu, not a segmented control: two rows of three buttons were
         // most of the popover's noise, and the choice is set once and left.
-        if !cli.can_update_now {
+        if rules::has_policy(cli) {
             bottom = bottom.child(self.render_policy_menu(cli, cx));
         }
         bottom = bottom.child(div().flex_1());
@@ -1331,6 +1394,13 @@ impl Threadbear {
         {
             lines.push(format!("  > {}", self.thread_title(id)));
         }
+        let fixes = self.waiting_fixes();
+        if !fixes.is_empty() {
+            lines.push("## Threads waiting on this version".to_owned());
+            for (_, title, place) in fixes {
+                lines.push(format!("  {title}: {}", rules::fix_label(place, &side)));
+            }
+        }
         lines.push("# Runner".to_owned());
         match &self.updates_panel.runner {
             Some(runner) => {
@@ -1345,11 +1415,13 @@ impl Threadbear {
                     && launcher.is_none()
                     && not_following.is_empty()
                     && runner.web_runtime_problem.is_none()
+                    && runner.web_runtime_note.is_none()
                 {
                     lines.push("The runner is up to date.".to_owned());
                 }
                 lines.extend(not_following);
                 lines.extend(runner.web_runtime_problem.clone());
+                lines.extend(runner.web_runtime_note.clone());
                 lines.extend(build);
                 if let Some(old) = old {
                     lines.push(old);
@@ -1440,7 +1512,11 @@ impl Threadbear {
                 checked.map_or_else(|| "[Check now]".to_owned(), |c| format!("{c} [Check now]")),
             );
         }
-        json!({ "shown": self.activity_panel_showing(shell::UPDATES, cx), "lines": lines })
+        json!({
+            "shown": self.activity_panel_showing(shell::UPDATES, cx),
+            "docked": self.dock.read(cx).layout().contains(shell::UPDATES),
+            "lines": lines
+        })
     }
 }
 
@@ -1528,6 +1604,34 @@ pub(crate) fn automation(
             );
         }
         app.update(cx, |t, cx| t.preview_update(state, cx));
+    }
+    // Made-up threads waiting on the app, with where each one's fix is:
+    // {"waiting": {"<thread id>": "in-app" | "ready" | "building" | "next" | "unknown"}}.
+    if let Some(waiting) = cmd["waiting"].as_object() {
+        use threadbear_core::updates::FixPlace;
+        let mut fixes = Vec::new();
+        for (id, place) in waiting {
+            fixes.push((
+                id.clone(),
+                match place.as_str() {
+                    Some("in-app") => FixPlace::InApp,
+                    Some("ready") => FixPlace::Ready,
+                    Some("building") => FixPlace::Building,
+                    Some("next") => FixPlace::Next,
+                    Some("unknown") => FixPlace::Unknown,
+                    _ => {
+                        return Err(
+                            "waiting's places are in-app, ready, building, next or unknown".into(),
+                        )
+                    }
+                },
+            ));
+        }
+        app.update(cx, |t, cx| {
+            t.updater.preview = true;
+            t.updater.fixes = fixes;
+            cx.notify();
+        });
     }
     // {"rightClick": true}: the icon's right-click, which opens or closes
     // the popover; {"popover": false} closes it.

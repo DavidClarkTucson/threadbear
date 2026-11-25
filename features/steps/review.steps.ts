@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const DEMO_REVIEW = 'review_account_picker';
 /** The review each scenario opened: the demo's unless it made another. */
 const opened = new WeakMap<ThreadbearWorld, string>();
-const reviewId = (world: ThreadbearWorld) => opened.get(world) ?? DEMO_REVIEW;
+export const reviewId = (world: ThreadbearWorld) => opened.get(world) ?? DEMO_REVIEW;
 
 type ReviewState = {
   id: string;
@@ -36,7 +36,9 @@ type ReviewState = {
   peeking: boolean;
   minimap: boolean;
   error: string;
-  /** What the stage draws: "picture", "player", "page", "still" (a clip or a page as its still) or "all". */
+  /** The words under the stage: the option on show's name and reasons, or the agent's lead with them all. GPUI's own. */
+  words?: string;
+  /** What the stage draws: "picture", "player", "sound" (a sound's play bar), "page", "still" (a clip, sound or page as its still) or "all". */
   stage: string;
   /** What Open live would open, for the option on show. */
   live: string;
@@ -80,6 +82,11 @@ async function untilClosed(world: ThreadbearWorld): Promise<void> {
 async function press(world: ThreadbearWorld, tip: string): Promise<void> {
   await world.app.do({ cmd: 'click', tip, review: reviewId(world) });
 }
+
+// An option's small picture on the card in the thread, by its tooltip.
+When('I press the picture of {string} on the review\'s card', async function (this: ThreadbearWorld, label: string) {
+  await this.app.do({ cmd: 'click', tip: `Open the review on ${label}` });
+});
 
 When('I open the review', async function (this: ThreadbearWorld) {
   await review(this);
@@ -239,6 +246,14 @@ Then('the review is on option {string}, shot {int}', async function (this: Threa
   await untilReview(this, `${id}'s shot ${shot} on the stage`, (s) => s.mode === 'Single' && s.focused === id && s.shot === shot - 1);
 });
 
+Then('the review\'s words start {string}', async function (this: ThreadbearWorld, start: string) {
+  await untilReview(this, `the words under the stage starting "${start}"`, (s) => (s.words ?? '').startsWith(start));
+});
+
+Then('the review\'s words say {string}', async function (this: ThreadbearWorld, words: string) {
+  await untilReview(this, `the words under the stage saying "${words}"`, (s) => (s.words ?? '').includes(words));
+});
+
 Then('the review shows them all', async function (this: ThreadbearWorld) {
   await untilReview(this, 'all of them side by side', (s) => s.mode === 'All');
 });
@@ -284,6 +299,11 @@ Then('the stage plays the clip', async function (this: ThreadbearWorld) {
   await untilReview(this, 'the clip playing on the stage', (s) => s.stage === 'player');
 });
 
+Then("the stage has the sound's play bar", async function (this: ThreadbearWorld) {
+  await untilReview(this, "the sound's play bar on the stage", (s) => s.stage === 'sound');
+});
+
 Then('the stage shows the page', async function (this: ThreadbearWorld) {
   await untilReview(this, 'the page on the stage', (s) => s.stage === 'page');
 });
+
