@@ -142,6 +142,11 @@ export const Photo = () => (
     <circle cx="5.5" cy="5.8" r=".8" />
   </svg>
 );
+export const Card = () => (
+  <svg {...base}>
+    <path d="M2.5 3.5h11v9h-11zM4.5 6h7M4.5 8.5h4.5" />
+  </svg>
+);
 export const Bubbles = () => (
   <svg {...base}>
     <path d="M2 3.5h9v6H5.5L3 11.5v-2H2zM12.5 6.5H14V12h-1v1.8L10.8 12H7" />
@@ -224,5 +229,11 @@ export const CircleUser = () => (
 export const Circle = () => (
   <svg {...base}>
     <circle cx="8" cy="8" r="6.2" />
+  </svg>
+);
+// A Plan first plan's card (SF Symbols' list.bullet.clipboard).
+export const Clipboard = () => (
+  <svg {...base}>
+    <path d="M5.5 2.5H3.5v12h9v-12h-2M6 1.5h4v2H6zM6 7h4.5M6 9.5h4.5M6 12h4.5" />
   </svg>
 );

@@ -138,6 +138,7 @@ class TurnsTest {
         is ThreadItem.Message -> "m${item.message.seq}"
         is ThreadItem.Tools -> "tools " + item.items.joinToString(" ") { it.seq.toString() }
         is ThreadItem.Gap -> "gap " + item.gap.label
+        is ThreadItem.Note -> "note ${item.message.seq}"
         is ThreadItem.Worked -> item.worked.title + ": " + item.worked.items.joinToString(", ") { shown(it) }
     }
 
@@ -154,6 +155,7 @@ class TurnsTest {
                 val role = when (m.str("role")) {
                     "user" -> USER
                     "assistant" -> ASSISTANT
+                    "note" -> Role.NOTE
                     else -> TOOL
                 }
                 PhoneMessage(
@@ -167,6 +169,7 @@ class TurnsTest {
                     wokeBy = m.arr("wokeBy")?.map { w -> (w as JsonObject).let { WokeTask(it.str("kind")!!, it.str("description")!!) } },
                     at = T0.plusMillis((m.num("at")!! * 1000).toLong()),
                     plan = m.bool("plan") ?: false,
+                    wakeReason = m.str("wakeReason"),
                 )
             }
             assertEquals(o.strings("expect"), Turns.fold(rows, input.bool("busy")!!).map { shown(it) }, o.str("name"))

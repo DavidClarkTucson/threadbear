@@ -6,11 +6,13 @@ import type { Runner } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import type { Action, EventBody } from '../protocol.ts';
 import type { ThreadRecord } from '../store.ts';
-import { BIN_DIR, threadEnv } from '../restart.ts';
-import { cleanUpWorktree, clearBuildCaches, makeWorktree, readPlainFile, realpath, sameSubfolder, stillCheckedOut, worktreeFolderNow, worktreeGone, type WorktreeRecord } from '../worktrees.ts';
+import { threadBinDir, threadEnv } from '../restart.ts';
+import { cleanUpWorktree, clearBuildCaches, mainCheckoutOf, makeWorktree, readPlainFile, realpath, sameSubfolder, stillCheckedOut, worktreeFolderNow, worktreeGone, type WorktreeRecord } from '../worktrees.ts';
 import { isDirectory } from '../fsutil.ts';
 import { CLICKS_ONLY_NOTE } from '../platform.ts';
 import { sweepBorrows } from '../borrows.ts';
+import { openThreadFolders, runnerHomes } from '../lived-in.ts';
+import { claimsOf, readSlots, writeSlot, type SlotEvent, type SlotMove } from '../slot.ts';
 import type { Logger } from '../log.ts';
 import { automaticTrust, findWorktreePatch, isInside, readWorktreePatch, runCommand, type PatchSet, type WorktreePatch, worktreePatchFiles } from '../patches.ts';
 import fs from 'node:fs';
@@ -67,9 +69,9 @@ export const worktreesPart = {
     }
     if (!patch || rt.deleted) return;
     const asked = rec.cwd;
-    const made = await makeWorktree({ cwd: asked, threadId: rec.id, patch });
+    const made = await makeWorktree({ cwd: asked, threadId: rec.id, patch, inUse: this.foldersInUse(rec.id) });
     if (rt.deleted) {
-      if (made.ok) rec.worktree = made.worktree;
+      if (made.ok) this.slot(st, { kind: 'made', worktree: made.worktree, owed: false });
       return;
     }
     if (!made.ok) {
@@ -80,19 +82,18 @@ export const worktreesPart = {
     // Made afresh from main (or a spare reset to it): what a move left
     // there is gone, so the checkout's own trust reaches it again.
     this.patchTrust.vouch?.(made.worktree.path);
-    rec.worktree = made.worktree;
+    // Archived while it was being made: the archive didn't know of it, so
+    // its cleanup is owed (archiveWhenGone runs it once this is done).
+    this.slot(st, { kind: 'made', worktree: made.worktree, owed: Boolean(rec.archivedAt) });
     rec.cwd = made.cwd;
+    rec.cwdAt = this.isoNow();
     rec.updatedAt = this.isoNow();
     this.markDirty(st);
     this.log.info('made a worktree', { threadId: rec.id, path: made.worktree.path, branch: made.worktree.branch });
     this.emit(st, { type: 'system.note', text: `Working in a worktree of its own at ${made.worktree.path}, on the branch ${made.worktree.branch}. tb land puts it on main.` }, turnId);
-    // Archived while it was being made: the archive didn't know of it, so
-    // its cleanup is owed (archiveWhenGone runs it once this is done), and
-    // there's no point setting it up.
-    if (rec.archivedAt) {
-      rec.worktree.cleanupOwed = true;
-      return;
-    }
+    // Archived while it was being made (its cleanup is owed, above): no
+    // point setting it up.
+    if (rec.archivedAt) return;
     await this.setUpWorktree(st, made, patch, turnId);
   },
 
@@ -275,7 +276,7 @@ export const worktreesPart = {
       // it leaves running can hold the pipes open past it, as for hooks.
       killGroup: true,
     });
-    w.tornDownAt = this.isoNow();
+    this.slot(st, { kind: 'tornDown' }, w);
     this.log.info('worktree teardown', { threadId: rec.id, path: w.path, ok: outcome.ok, exitCode: outcome.exitCode });
     if (deleted) {
       if (!outcome.ok) {
@@ -313,7 +314,7 @@ export const worktreesPart = {
     const { rec } = st;
     const w = rec.worktree;
     if (!w?.tornDownAt || w.removedAt || !isInside(rec.cwd, w.path)) return undefined;
-    delete w.tornDownAt;
+    this.slot(st, { kind: 'toldTornDown' }, w);
     this.markDirty(st);
     this.emit(st, { type: 'system.note', text: "This thread's worktree was torn down when it was archived (its patch's teardown ran), so anything its setup made outside the folder may be gone. It carries on in the worktree." }, turnId);
     return `[Threadbear] Your worktree's teardown ran when this thread was archived, so anything its setup made outside ${w.path} (a database, a deployment) may be gone. Run the worktree's setup again if you need it.`;
@@ -353,19 +354,155 @@ export const worktreesPart = {
   },
 
   async leaveRemovedWorktreeNow(this: Runner, st: ThreadState, turnId: string): Promise<string | undefined> {
-    const { rec, rt } = st;
+    const { rec } = st;
     const w = rec.worktree;
     if (!w || !this.leavesRemovedWorktree(rec)) return undefined;
-    const from = rec.cwd;
-    const main = sameSubfolder(from, w.path, w.mainCheckout);
     const went = w.spare ? 'was handed on to other threads' : 'was removed';
+    return this.carryOnElsewhere(st, turnId, sameSubfolder(rec.cwd, w.path, w.mainCheckout), {
+      main: (to) => `This thread's worktree ${went} when it was archived, so it carries on in the main checkout, ${to}.`,
+      fresh: (nw) => `This thread's worktree ${went} when it was archived, so it carries on in a fresh one at ${nw.path}, on the branch ${nw.branch}, made from main. tb land puts it on main.`,
+      told: `Your worktree at ${w.path} ${went} after its work landed on main.`,
+    });
+  },
+
+  // The slot a thread with no worktree of its own works in, when that slot
+  // went to someone else after the thread moved there: a spare (or one being
+  // claimed), a borrow of another's begun since, or the worktree of a thread
+  // made since. A thread gets there by borrowing a slot and moving itself in
+  // (move_thread), and stays after giving it back. On 23 Nov 2026 the Canvas
+  // thread's slot-32, given back the day before, was lent to another thread,
+  // and the Canvas thread's next turn committed on the borrower's branch
+  // (docs/thread-worktrees.md, "A folder a thread works in is never lent").
+  // undefined for anything else: its own borrow, and a thread put in
+  // another's slot on purpose after it was theirs (a Lab review's reviewers,
+  // a helper made with worktree: false, a move there).
+  async lentFolder(this: Runner, rec: ThreadRecord): Promise<LentFolder | undefined> {
+    const slot = this.slotFolderOf(rec);
+    if (!slot || !isDirectory(slot)) return undefined;
+    const main = await mainCheckoutOf(slot);
+    if (!main) return undefined;
+    const found = (await readSlots(main, claimsOf([...this.threads.values()].map((t) => t.rec))))?.find((s) => realpath(s.checkout.path) === slot);
+    if (!found) return undefined;
+    const is = found.is;
+    // When the thread came to its folder: a record from before cwdAt says
+    // only when the thread was made. To the second, as borrows are stamped:
+    // one in the same second counts as after, as the safe side.
+    const came = Math.floor(Date.parse(rec.cwdAt ?? rec.createdAt) / 1000) * 1000;
+    const since = (at: number | undefined) => at !== undefined && Number.isFinite(at) && (!Number.isFinite(came) || at >= came);
+    // When another thread came to its worktree: its own move there (cwdAt,
+    // which a fresh worktree for a thread brought back sets) or its making.
+    const madeAt = (id: string) => {
+      const other = this.threads.get(id)?.rec;
+      if (!other) return undefined;
+      const times = [other.createdAt, other.cwdAt].map((t) => (t ? Date.parse(t) : NaN)).filter(Number.isFinite);
+      return times.length ? Math.max(...times) : undefined;
+    };
+    let went: string;
+    switch (is.kind) {
+      case 'spare':
+      case 'loose':
+        went = 'went back to the spares other threads take';
+        break;
+      case 'borrowed':
+        // Borrows from before 17 Nov say nobody: left as they were.
+        if (!is.borrower || is.borrower.thread === rec.id || !since(is.borrower.at)) return undefined;
+        went = 'was lent to another borrower';
+        break;
+      case 'held':
+      case 'landing':
+      case 'taken':
+        if (is.thread === rec.id || !since(madeAt(is.thread))) return undefined;
+        went = "is another thread's worktree now";
+        break;
+      case 'twoHolders':
+        if (is.threads.includes(rec.id) || !is.threads.some((t) => since(madeAt(t)))) return undefined;
+        went = "is another thread's worktree now";
+        break;
+      default:
+        return undefined;
+    }
+    return { slot: found.checkout.path, main, went };
+  },
+
+  // The slot folder (the one just inside a <repo>-threads) a thread with no
+  // worktree of its own works in, if it's in one. Synchronous, so a turn in
+  // any other folder starts without waiting on it.
+  slotFolderOf(this: Runner, rec: ThreadRecord): string | undefined {
+    const w = rec.worktree;
+    if (w && !w.removedAt) return undefined;
+    for (let d = realpath(rec.cwd); path.dirname(d) !== d; d = path.dirname(d)) {
+      if (path.basename(path.dirname(d)).endsWith('-threads')) return d;
+    }
+    return undefined;
+  },
+
+  // A thread whose folder is a slot that isn't its own any more (lentFolder)
+  // leaves it, as one brought back to a removed worktree does.
+  async leaveLentFolder(this: Runner, st: ThreadState, turnId: string, lent: LentFolder): Promise<string | undefined> {
+    const { rec, rt } = st;
+    try {
+      if (rec.worktree && !rec.worktree.removedAt) return undefined;
+      if (!isInside(realpath(rec.cwd), realpath(lent.slot))) return undefined;
+      return await this.carryOnElsewhere(st, turnId, sameSubfolder(rec.cwd, lent.slot, lent.main), {
+        main: (to) => `This thread's folder ${lent.slot} ${lent.went}, so it carries on in the main checkout, ${to}.`,
+        fresh: (nw) => `This thread's folder ${lent.slot} ${lent.went}, so it carries on in a fresh worktree at ${nw.path}, on the branch ${nw.branch}, made from main. tb land puts it on main.`,
+        told: `Your folder ${lent.slot} ${lent.went}, so it isn't yours to work in any more.`,
+      });
+    } finally {
+      // Deleted meanwhile, as leaveRemovedWorktree.
+      if (rt.trashed && rec.worktree && !rec.worktree.removedAt) {
+        await this.cleanUpWorktree(st, true).catch((e: unknown) => this.log.error('worktree cleanup failed', { threadId: rec.id, error: String(e) }));
+      }
+    }
+  },
+
+  // Whether an open thread other than `except` works in a folder (a
+  // realpath), for makeWorktree to pass over: a spare a thread still sits in
+  // (lived-in.ts says why). Not a thread still in its own worktree that was
+  // removed or handed on: its next turn starts elsewhere anyway. Read as each
+  // folder is asked about, so a thread that moved meanwhile counts, and with
+  // the threads of other runners on this Mac (a dev runner's) from their
+  // records, as borrow-worktree.sh reads them.
+  foldersInUse(this: Runner, except?: string): (dir: string) => boolean {
+    let others: string[] | undefined;
+    return (dir) => {
+      for (const { rec } of this.threads.values()) {
+        if (rec.id === except || rec.archivedAt || this.leavesRemovedWorktree(rec)) continue;
+        if (isInside(realpath(rec.cwd), dir)) return true;
+      }
+      if (!others) {
+        const home = realpath(this.cfg.home);
+        try {
+          others = openThreadFolders(runnerHomes().filter((h) => realpath(h) !== home)).map((f) => realpath(f));
+        } catch (e) {
+          // Its own threads, in memory, still count: answering yes to every
+          // folder would leave no slot number free.
+          this.log.warn("couldn't read other runners' thread records", { error: String(e) });
+          others = [];
+        }
+      }
+      return others.some((f) => isInside(f, dir));
+    };
+  },
+
+  // Moves the thread from its folder to a fresh worktree made from `main`'s
+  // patch, or to `main` itself when none can be made, and says so in the
+  // thread and to the agent (the line returned, kept on the record too). The
+  // thread has no worktree of its own (none, removed or handed on).
+  async carryOnElsewhere(this: Runner, st: ThreadState, turnId: string, main: string, words: { main: (to: string) => string; fresh: (w: WorktreeRecord) => string; told: string }): Promise<string | undefined> {
+    const { rec, rt } = st;
+    const from = rec.cwd;
     const fresh = await this.freshWorktree(st, main, turnId);
     if (rt.deleted || rec.cwd !== from) {
       // Deleted meanwhile (the finally above removes it), or another start
       // already moved it: the fresh one is nobody's, so it goes.
       if (fresh) {
-        rec.worktree = fresh.made.worktree;
-        if (!rt.deleted) await this.cleanUpWorktree(st).catch((e: unknown) => this.log.error('worktree cleanup failed', { threadId: rec.id, error: String(e) }));
+        const failed = (e: unknown) => this.log.error('worktree cleanup failed', { threadId: rec.id, error: String(e) });
+        // Recorded as the thread's, so its cleanup has the record to write.
+        // Not if the thread has a worktree of its own again (another start
+        // made it): that one stays the record's, and this goes by itself.
+        if (!this.slot(st, { kind: 'made', worktree: fresh.made.worktree, owed: false }).ok) await cleanUpWorktree(fresh.made.worktree).catch(failed);
+        else if (!rt.deleted) await this.cleanUpWorktree(st).catch(failed);
       }
       return undefined;
     }
@@ -378,29 +515,29 @@ export const worktreesPart = {
       if (this.adapters[rec.provider]?.movesFolders) rec.moved ??= { fromCwd: from };
       else rec.handoff ??= { fromCwd: from, fromAccountId: rec.accountId };
     }
-    if (fresh) rec.worktree = fresh.made.worktree;
+    // Archived again while it was being made: that archive saw the old,
+    // removed worktree, so this one's cleanup is owed (archiveWhenGone runs
+    // it once this is done, or settleLostCleanups after a restart).
+    if (fresh) this.slot(st, { kind: 'made', worktree: fresh.made.worktree, owed: Boolean(rec.archivedAt) });
     rec.cwd = to;
-    rec.updatedAt = this.isoNow();
+    rec.cwdAt = rec.updatedAt = this.isoNow();
     this.markDirty(st);
     this.tellActivity({ kind: 'moved', threadId: rec.id, from, to });
     if (!fresh) {
-      this.emit(st, { type: 'system.note', text: `This thread's worktree ${went} when it was archived, so it carries on in the main checkout, ${to}.` }, turnId);
-      rec.agentNotice = `[Threadbear] Your worktree at ${w.path} ${went} after its work landed on main. You're now in the main checkout, ${to}, which other threads share: stage your own files by name.`;
+      this.emit(st, { type: 'system.note', text: words.main(to) }, turnId);
+      rec.agentNotice = `[Threadbear] ${words.told} You're now in the main checkout, ${to}, which other threads share: stage your own files by name.`;
       return rec.agentNotice;
     }
     const nw = fresh.made.worktree;
-    this.log.info('made a fresh worktree for a thread brought back', { threadId: rec.id, path: nw.path, branch: nw.branch });
-    this.emit(st, { type: 'system.note', text: `This thread's worktree ${went} when it was archived, so it carries on in a fresh one at ${nw.path}, on the branch ${nw.branch}, made from main. tb land puts it on main.` }, turnId);
-    // Archived again while it was being made: that archive saw the old,
-    // removed worktree, so this one's cleanup is owed (archiveWhenGone runs
-    // it once this is done, or settleLostCleanups after a restart), and
-    // there's no point setting it up. As prepareWorktreeNow does.
+    this.log.info('made a fresh worktree for a thread leaving its folder', { threadId: rec.id, path: nw.path, branch: nw.branch });
+    this.emit(st, { type: 'system.note', text: words.fresh(nw) }, turnId);
+    // Archived again while it was being made (its cleanup is owed, above):
+    // no point setting it up. As prepareWorktreeNow does.
     // Saved with the move, before setup, so a runner that stops during
     // setup still tells the agent with its next message (deliver).
-    rec.agentNotice = `[Threadbear] Your worktree at ${w.path} ${went} after its work landed on main. You're now in a fresh worktree of your own at ${nw.path}, on the branch ${nw.branch}, made from main as it is now. Commit there and run tb land when it's done, as before.`;
+    rec.agentNotice = `[Threadbear] ${words.told} You're now in a fresh worktree of your own at ${nw.path}, on the branch ${nw.branch}, made from main as it is now. Commit there and run tb land when it's done, as before.`;
     this.markDirty(st);
-    if (rec.archivedAt) nw.cleanupOwed = true;
-    else await this.setUpWorktree(st, fresh.made, fresh.patch, turnId);
+    if (!rec.archivedAt) await this.setUpWorktree(st, fresh.made, fresh.patch, turnId);
     // Moved to another folder during setup: the notice no longer says where
     // it is.
     if (rec.cwd !== to) delete rec.agentNotice;
@@ -420,7 +557,7 @@ export const worktreesPart = {
       return undefined;
     }
     if (!patch || rt.deleted) return undefined;
-    const made = await makeWorktree({ cwd: main, threadId: rec.id, patch });
+    const made = await makeWorktree({ cwd: main, threadId: rec.id, patch, inUse: this.foldersInUse(rec.id) });
     if (!made.ok) {
       this.log.warn('could not make a fresh worktree', { threadId: rec.id, reason: made.reason });
       this.emit(st, { type: 'system.note', text: `Couldn't make a fresh worktree for this thread: ${made.reason}.` }, turnId);
@@ -434,8 +571,9 @@ export const worktreesPart = {
   worktreeAction(this: Runner, rec: ThreadRecord): Action | undefined {
     const w = rec.worktree;
     if (!w || w.removedAt) return undefined;
-    // This runner's own tb, in full: a login shell's PATH may not have it.
-    const tb = path.join(BIN_DIR, 'tb');
+    // The runner's tb, in full: a login shell's PATH may not have it. The
+    // current release's, as on a thread's PATH (threadBinDir says why).
+    const tb = path.join(threadBinDir(), 'tb');
     const quoted = /^[\w./-]+$/.test(tb) ? tb : `'${tb.replace(/'/g, `'\\''`)}'`;
     return {
       id: 'worktree.land',
@@ -476,8 +614,7 @@ export const worktreesPart = {
       // uncommitted changes. The next start does it.
       const check = (retry && w.cleanupOwed ? this.cleanUpWorktree(st) : worktreeGone(w).then((gone) => {
           if (!gone || rt.deleted || w.removedAt) return;
-          w.removedAt = this.isoNow();
-          if (gone === 'taken') w.spare = true;
+          this.slot(st, { kind: 'foundGone', taken: gone === 'taken' }, w);
           this.markDirty(st);
           this.log.info("recorded a worktree's removal the record missed", { threadId: rec.id, path: w.path });
         }))
@@ -496,7 +633,8 @@ export const worktreesPart = {
   async sweepBorrows(this: Runner): Promise<void> {
     const mains = new Set<string>();
     const held = new Set<string>();
-    for (const { rec } of this.threads.values()) {
+    const records = [...this.threads.values()].map((st) => st.rec);
+    for (const rec of records) {
       const w = rec.worktree;
       if (w) mains.add(w.mainCheckout);
       if (w && !w.removedAt) held.add(realpath(w.path));
@@ -508,10 +646,20 @@ export const worktreesPart = {
     };
     for (const main of mains) {
       if (!isDirectory(main)) continue;
-      const r = await sweepBorrows(main, { thread, held, home: this.cfg.home });
+      const r = await sweepBorrows(main, { thread, held, claims: claimsOf(records), home: this.cfg.home });
       for (const b of r.reclaimed) this.log.info('took back a borrowed worktree', { ...b });
       if (r.branches.length) this.log.info('deleted borrow branches with no worktree, all on main', { repo: main, branches: r.branches });
     }
+  },
+
+  // Moves the thread's worktree on in its life (slot.ts): the only writer
+  // of rec.worktree and its removedAt, cleanupOwed, spare and tornDownAt.
+  // `w`: the worktree the caller is working on, if not the record's own
+  // now. A move the code never makes is refused there and logged here.
+  slot(this: Runner, st: ThreadState, e: SlotEvent, w?: WorktreeRecord): SlotMove {
+    const res = writeSlot(st.rec, e, this.clock.now(), w ?? st.rec.worktree);
+    if (!res.ok) this.log.warn('unexpected worktree move', { threadId: st.rec.id, event: e.kind, reason: res.reason });
+    return res;
   },
 
   // When the thread is archived or deleted: its worktree and branch go if
@@ -525,7 +673,7 @@ export const worktreesPart = {
     // cleanup would change the folder under the copy, so it's owed instead,
     // for the next start (settleLostCleanups).
     if (st.rt.holds?.has('save')) {
-      w.cleanupOwed = true;
+      this.slot(st, { kind: 'owe' }, w);
       this.markDirty(st);
       this.log.info("worktree cleanup owed: the box's save holds the thread", { threadId: rec.id });
       return;
@@ -545,12 +693,10 @@ export const worktreesPart = {
     this.log.info('worktree cleanup', { threadId: rec.id, path: w.path, ...result });
     // Deleted meanwhile: nothing to record it in, and emit would throw.
     if (st.rt.deleted && !deleted) return;
-    delete w.cleanupOwed;
+    // A folder that's another checkout's now counts as a spare: the
+    // thread, brought back, never carries on in it (leavesRemovedWorktree).
+    this.slot(st, { kind: 'cleaned', removed: result.removed, handedOn: result.removed && Boolean(result.spare || result.taken) }, w);
     if (result.removed) {
-      w.removedAt = this.isoNow();
-      // A folder that's another checkout's now counts as a spare: the
-      // thread, brought back, never carries on in it (leavesRemovedWorktree).
-      if (result.spare || result.taken) w.spare = true;
       if (deleted) return;
       const text = result.branchLeft
         ? `Removed this thread's worktree, but its branch ${w.branch} stays: ${result.branchLeft}. Everything on it is on main, so git -C ${w.mainCheckout} branch -D ${w.branch} loses nothing.`
@@ -588,6 +734,10 @@ export const worktreesPart = {
 };
 
 export type WorktreesPart = RunnerPart<typeof worktreesPart>;
+
+// A slot a thread works in that isn't its own any more (lentFolder): the
+// slot, its repo's main checkout, and what became of it, for the notes.
+export type LentFolder = { slot: string; main: string; went: string };
 
 // Takes back borrowed worktrees nobody gave back (borrows.ts), in every
 // repo a thread here has had a worktree of. Two minutes after start, then

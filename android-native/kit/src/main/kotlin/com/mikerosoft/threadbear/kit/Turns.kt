@@ -25,12 +25,38 @@ sealed class ThreadItem {
         override val id get() = -gap.seq.toLong() - 1_000_000_000L
     }
 
+    /**
+     * "Moved to alex@example.org: mike@example.net hit its 5-hour limit", or
+     * "Your stopped message and pictures are saved...": the runner's own
+     * line (role note, Turns.fold).
+     */
+    data class Note(val message: PhoneMessage) : ThreadItem() {
+        override val id get() = message.seq.toLong()
+    }
+
+    /**
+     * Where an item sits among the thread's rows, for placing a note. A
+     * turn's folded work has no place of its own: its line goes above the
+     * turn's replies whichever rows it holds, so the note goes by the
+     * messages instead. A divider goes with the row after it.
+     */
+    internal val placedSeq: Int?
+        get() = when (this) {
+            is Message -> message.seq
+            is Note -> message.seq
+            is Tools -> items.firstOrNull()?.seq
+            is Worked -> null
+            is Gap -> gap.seq
+        }
+
     companion object {
         fun group(messages: List<PhoneMessage>): List<ThreadItem> {
             val out = mutableListOf<ThreadItem>()
             for (m in messages) {
                 val last = out.lastOrNull()
-                if (m.role == Role.TOOL) {
+                if (m.role == Role.NOTE) {
+                    out += Note(m)
+                } else if (m.role == Role.TOOL) {
                     if (last is Tools) out[out.size - 1] = Tools(last.items + m) else out += Tools(listOf(m))
                 } else {
                     out += Message(m)
@@ -54,12 +80,16 @@ data class WorkedTurn(val items: List<ThreadItem>, val durationSeconds: Double?)
         }
 }
 
-/** The wait before a turn the agent started by itself (TurnGap.swift). */
-data class TurnGap(val seq: Int, val from: Instant, val to: Instant, val wokeBy: List<WokeTask> = emptyList()) {
+/**
+ * The wait before a turn the agent started by itself (TurnGap.swift).
+ * [runnerWake]: why the runner sent the message that started it (its
+ * `wakeReason`, backend API 98), said over what finished, as the Mac does.
+ */
+data class TurnGap(val seq: Int, val from: Instant, val to: Instant, val wokeBy: List<WokeTask> = emptyList(), val runnerWake: String? = null) {
     val label: String
         get() {
             val time = later(maxOf(0.0, (to.toEpochMilli() - from.toEpochMilli()) / 1000.0))
-            val cause = cause(wokeBy) ?: return time
+            val cause = runnerWake?.trim()?.ifEmpty { null } ?: cause(wokeBy) ?: return time
             return "$time · $cause"
         }
 
@@ -95,7 +125,25 @@ data class TurnGap(val seq: Int, val from: Instant, val to: Instant, val wokeBy:
 
 /** A thread as the Mac shows it once its turns are over (Turns.swift). */
 object Turns {
+    /**
+     * A thread's items, with each note (role note) where it happened: after
+     * what was on show before it and before the first reply after it. The
+     * notes are taken out first, so a turn folds and picks its reply as if
+     * they weren't there, as the Mac keeps them out of its line of work.
+     * Turns.swift and web/src/turns.ts do the same.
+     */
     fun fold(messages: List<PhoneMessage>, busy: Boolean): List<ThreadItem> {
+        val notes = messages.filter { it.role == Role.NOTE }
+        if (notes.isEmpty()) return foldTurns(messages, busy)
+        val out = foldTurns(messages.filter { it.role != Role.NOTE }, busy).toMutableList()
+        for (note in notes) {
+            val at = out.indexOfFirst { (it.placedSeq ?: Int.MIN_VALUE) > note.seq }.takeIf { it >= 0 } ?: out.size
+            out.add(at, ThreadItem.Note(note))
+        }
+        return out
+    }
+
+    internal fun foldTurns(messages: List<PhoneMessage>, busy: Boolean): List<ThreadItem> {
         val turns = mutableListOf(mutableListOf<PhoneMessage>())
         for (m in messages) {
             if (m.role == Role.USER && m.origin != "runner" && turns.last().isNotEmpty()) turns += mutableListOf<PhoneMessage>()
@@ -150,16 +198,23 @@ object Turns {
         val out = HashMap<Int, TurnGap>()
         var i = 1
         while (i < body.size) {
-            val starts = body[i].turn != null && body[i].turn != body[i - 1].turn && body[i].role != Role.USER
-            if (!starts) { i++; continue }
+            // A turn the agent started by itself, or the runner's own
+            // message did with its reason (API 98).
+            val newTurn = body[i].turn != null && body[i].turn != body[i - 1].turn
+            val why = runnerWake(body[i])
+            if (!newTurn || (body[i].role == Role.USER && why == null)) { i++; continue }
             var end = i + 1
             while (end < body.size && body[end].turn == body[i].turn && body[end].role != Role.USER) end++
             val woke = body.subList(i, end).firstNotNullOfOrNull { it.wokeBy } ?: emptyList()
-            out[i] = TurnGap(body[i].seq, body[i - 1].at, body[i].at, woke)
+            out[i] = TurnGap(body[i].seq, body[i - 1].at, body[i].at, woke, why)
             i = end
         }
         return out
     }
+
+    /** Why the runner sent this message of its own, when it says. */
+    internal fun runnerWake(m: PhoneMessage): String? =
+        if (m.role == Role.USER && m.origin == "runner") m.wakeReason?.trim()?.ifEmpty { null } else null
 
     internal fun dividers(body: List<PhoneMessage>, shown: Set<Int>): Map<Int, TurnGap> {
         val gaps = waits(body)
@@ -170,7 +225,7 @@ object Turns {
             val gap = gaps[k]
             if (gap != null && shownBefore) {
                 val earlier = waiting?.second
-                waiting = if (earlier != null) k to TurnGap(gap.seq, earlier.from, gap.to, earlier.wokeBy + gap.wokeBy) else k to gap
+                waiting = if (earlier != null) k to TurnGap(gap.seq, earlier.from, gap.to, earlier.wokeBy + gap.wokeBy, gap.runnerWake ?: earlier.runnerWake) else k to gap
             }
             if (k !in shown || body[k].role == Role.USER) continue
             waiting?.let { out[it.first] = it.second }
@@ -212,12 +267,16 @@ object Turns {
         return if (last >= 0) listOf(last) else emptyList()
     }
 
-    /** The last message the thread view shows: not one of Threadbear's own tool rows. */
-    fun lastShown(messages: List<PhoneMessage>): PhoneMessage? = messages.lastOrNull { it.role != Role.TOOL || isStep(it) }
+    /**
+     * The last thing said in the thread: not one of Threadbear's own tool
+     * rows, nor a note (the done card and the reply's buttons go by the
+     * reply before it).
+     */
+    fun lastShown(messages: List<PhoneMessage>): PhoneMessage? = messages.lastOrNull { it.role != Role.NOTE && (it.role != Role.TOOL || isStep(it)) }
 
     internal fun isStep(m: PhoneMessage): Boolean = when (m.role) {
         Role.USER -> true
-        Role.ASSISTANT -> false
+        Role.ASSISTANT, Role.NOTE -> false
         Role.TOOL -> !(m.text.startsWith("threadbear: ") || m.text.startsWith("Find tools: "))
     }
 }

@@ -25,6 +25,7 @@
 // commit in it (docs/bringing-in-updates.md). Only node's own modules, so a
 // fork that doesn't have this file yet can run the release's copy of it.
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -97,7 +98,7 @@ export function parseFormatList(text: string): FormatEntry[] {
 
 type Run = { ok: boolean; code: number; stdout: string; stderr: string };
 
-const GIT_SAFE = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
+const GIT_SAFE = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'advice.graftFileDeprecated=false'];
 
 function cleanEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -105,12 +106,38 @@ function cleanEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   // And config handed down from a `git -c` or a hook, which would beat GIT_SAFE.
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT']) delete env[k];
   for (const k of Object.keys(env)) if (/^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(k)) delete env[k];
-  return { ...env, GIT_TERMINAL_PROMPT: '0', ...extra };
+  // Replacement objects and grafts off, after the caller's: an id is that
+  // object, so a release's signed commit merges as itself, never what a
+  // refs/replace/ entry or info/grafts in this checkout puts in its place
+  // (Daybreak 180, 24 Nov 2026). --merge refuses a checkout with either.
+  return { ...env, GIT_TERMINAL_PROMPT: '0', ...extra, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: '/dev/null' };
 }
+
+// Why a release can't be merged here as its id names it, or undefined: the
+// checkout has replacement refs or grafts (scripts/merge-preview.sh says
+// the same).
+export async function substitutes(cwd: string): Promise<string | undefined> {
+  const listed = await git(cwd, ['for-each-ref', '--count=1', '--format=%(refname)', 'refs/replace/']);
+  const found = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  // A look that fails can't say there are none (git older than 2.31 has no
+  // --path-format).
+  if (!listed.ok || !found.ok) return `Couldn't tell whether this checkout has git replacement refs or grafts (${(listed.ok ? found : listed).stderr.trim().split('\n')[0]}), so the release isn't merged.`;
+  const replaced = listed.stdout.trim();
+  if (replaced) return `This checkout has git replacement refs (${replaced}), which could have git merge other objects in place of the release's: remove them (git replace -d) first.`;
+  const common = found.stdout.trim();
+  if (common && fs.existsSync(path.join(common, 'info', 'grafts'))) return `This checkout has git grafts (${path.join(common, 'info', 'grafts')}), which could have git merge other history in place of the release's: remove that file first.`;
+  return undefined;
+}
+
+// Bringing in a release (--merge): the commit-graph off too, a file in the
+// checkout's objects git reads a commit's tree and parents from in place of
+// the commit (Codex's review of Daybreak 180). Not for tb land's replays,
+// which carry the owner's own commits.
+let noCommitGraph = false;
 
 export function git(cwd: string, args: string[], extra: NodeJS.ProcessEnv = {}): Promise<Run> {
   return new Promise((resolve) => {
-    execFile('git', [...GIT_SAFE, '-C', cwd, ...args], { env: cleanEnv(extra), maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+    execFile('git', [...GIT_SAFE, ...(noCommitGraph ? ['-c', 'core.commitGraph=false'] : []), '-C', cwd, ...args], { env: cleanEnv(extra), maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
       const e = err as { code?: unknown; signal?: unknown } | null;
       const code = !e ? 0 : typeof e.code === 'number' ? e.code : e.signal ? -1 : 1;
       resolve({ ok: !err, code, stdout: String(stdout), stderr: String(stderr) });
@@ -133,10 +160,10 @@ const short = (id: string) => id.slice(0, 10);
 // --------------------------------------------------------------- finding them
 
 // The format commits in `ref`'s history, oldest first, from the list as
-// `ref` has it. One whose id isn't written down yet (or isn't in `ref`) is
-// found by its subject.
-export async function formatCommitsIn(cwd: string, ref: string): Promise<FormatCommit[]> {
-  const list = await git(cwd, ['show', `${ref}:${FORMAT_LIST}`]);
+// `listFrom` (`ref` itself by default) has it. One whose id isn't written
+// down yet (or isn't in `ref`) is found by its subject.
+export async function formatCommitsIn(cwd: string, ref: string, listFrom = ref): Promise<FormatCommit[]> {
+  const list = await git(cwd, ['show', `${listFrom}:${FORMAT_LIST}`]);
   if (!list.ok) return [];
   const entries = parseFormatList(list.stdout);
   if (!entries.length) return [];
@@ -144,12 +171,13 @@ export async function formatCommitsIn(cwd: string, ref: string): Promise<FormatC
   const found: FormatCommit[] = [];
   for (const entry of entries) {
     let commit: string | undefined;
-    if (entry.id && (await git(cwd, ['rev-parse', '--verify', '--quiet', `${entry.id}^{commit}`])).ok && (await isAncestor(cwd, entry.id, ref))) {
+    if (entry.id && (await git(cwd, ['rev-parse', '--verify', '--quiet', `${entry.id}^{commit}`])).ok && (await isAncestor(cwd, entry.id, ref)) && (listFrom === ref || (await isAncestor(cwd, entry.id, listFrom)))) {
       commit = entry.id;
     } else {
       if (!subjects) {
         subjects = new Map();
-        const log = await out(cwd, ['log', '--no-merges', '--format=%H%x00%s', ref]);
+        // Another ref's list names commits of that ref's history only.
+        const log = await out(cwd, ['log', '--no-merges', '--format=%H%x00%s', listFrom === ref ? ref : listFrom]);
         for (const line of log.split('\n')) {
           const [id, s] = line.split('\0');
           if (id && s !== undefined) subjects.set(s, [...(subjects.get(s) ?? []), id]);
@@ -161,6 +189,10 @@ export async function formatCommitsIn(cwd: string, ref: string): Promise<FormatC
       const ids = subjects.get(entry.subject) ?? [];
       if (ids.length === 1) commit = ids[0];
     }
+    // From another ref's list, a commit only that ref has: never one of the
+    // waiting branches a group check stacks on main, whose config would be
+    // theirs (Gemini's second review, 21 Nov).
+    if (commit && listFrom !== ref && !(await isAncestor(cwd, commit, listFrom))) commit = undefined;
     // And it has to be only what it formats: anything else in it would be
     // lost from a fork's merge across it (mergeAcross).
     if (commit && (await onlyWithin(cwd, commit, entry))) found.push({ entry, commit });
@@ -185,17 +217,20 @@ async function onlyWithin(cwd: string, commit: string, entry: FormatEntry): Prom
 }
 
 // The format commits `onto` has that `tip` doesn't: what carrying `tip`
-// onto `onto` crosses.
-export async function crossings(cwd: string, tip: string, onto: string): Promise<FormatCommit[]> {
+// onto `onto` crosses. Their commands come from `listFrom`'s list, `onto`'s
+// by default: tb land's group check stacks waiting branches that haven't
+// landed into `onto`, so it names main, whose list is the one trusted
+// (Gemini's review, 21 Nov).
+export async function crossings(cwd: string, tip: string, onto: string, listFrom = onto): Promise<FormatCommit[]> {
   // Most landings: every listed id is already in the branch, so nothing more to look up.
-  const list = await git(cwd, ['show', `${onto}:${FORMAT_LIST}`]);
+  const list = await git(cwd, ['show', `${listFrom}:${FORMAT_LIST}`]);
   if (!list.ok) return [];
   const entries = parseFormatList(list.stdout);
   if (!entries.length) return [];
   let known = true;
   for (const e of entries) if (!e.id || !(await isAncestor(cwd, e.id, tip)) || !(await isAncestor(cwd, e.id, onto))) known = false;
   if (known) return [];
-  const all = await formatCommitsIn(cwd, onto);
+  const all = await formatCommitsIn(cwd, onto, listFrom);
   const out: FormatCommit[] = [];
   for (const f of all) if (!(await isAncestor(cwd, f.commit, tip))) out.push(f);
   return out;
@@ -251,6 +286,19 @@ function runCommand(command: string, cwd: string, timeoutMs: number): Promise<{ 
     child.on('close', (code) => finish(code === 0));
   });
 }
+
+// Files in a tree being formatted that would pick the program its command
+// runs, or run one of their own: a toolchain file (rustup runs whatever a
+// `path` toolchain names), cargo's config (an alias for `fmt`), a version
+// manager's (mise, once rtx, runs an env script from any of its names, or
+// under .config; proto loads plugins). Where a tree has one the format
+// commit's config doesn't name, or a link (a formatter writes through it),
+// the command isn't run on it. Matched as the disk will open the name: a
+// Mac's disk ignores case (`.CARGO` is `.cargo` to cargo there; Codex's
+// review, 21 Nov) and treats Unicode forms alike.
+const STEERS = /(^|\/)(rust-toolchain(\.toml)?|\.cargo|\.?(mise|rtx)(\.[^/]*)?\.toml|\.?(mise|rtx)(?=\/)|\.config|\.tool-versions|\.prototools(\.[^/]*)?)(\/|$)/i;
+const asDiskSees = (p: string) => p.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').toLowerCase();
+const steers = (p: string, config: string[]) => STEERS.test(asDiskSees(p)) && !config.some((c) => asDiskSees(c) === asDiskSees(p));
 
 // Formats trees the way the given format commits did, each in turn, with a
 // cache: what a formatter makes depends only on the folders it formats.
@@ -339,7 +387,17 @@ export class TreeFormatter {
     try {
       const env = { GIT_INDEX_FILE: path.join(dir, 'index') };
       await out(this.cwd, ['read-tree', tree], env);
-      const files = (await out(this.cwd, ['ls-files', '-z', '--', ...f.entry.paths], env)).split('\0').filter(Boolean);
+      const staged = (await out(this.cwd, ['ls-files', '-s', '-z', '--', ...f.entry.paths], env)).split('\0').filter(Boolean);
+      const files = staged.map((l) => l.slice(l.indexOf('\t') + 1));
+      // The tree is a branch's, so what's in it is data for the command, never
+      // what decides which program runs.
+      // (A config file is swapped for the format commit's below, link or not.)
+      const ours = (l: string) => f.entry.config.includes(l.slice(l.indexOf('\t') + 1));
+      const link = staged.find((l) => l.startsWith('120000 ') && !ours(l));
+      const steer = link ? link.slice(link.indexOf('\t') + 1) : files.find((p) => steers(p, f.entry.config));
+      if (steer) {
+        return { tree, failed: `${steer} is ${link ? 'a link' : 'a file that can change what the command runs'}, and the format commit's own config doesn't name it, so ${f.entry.command} wasn't run on this tree` };
+      }
       // Attributes (eol, filters) from the tree itself both ways, so what
       // comes back differs only by what the formatter did.
       const attr = `--attr-source=${tree}`;
@@ -352,7 +410,7 @@ export class TreeFormatter {
         const target = path.join(work, c);
         // Not under a link the tree has for a folder on the way, either.
         if (!realFoldersTo(work, c)) return { tree, failed: `${c} is under a link in this tree, so it wasn't formatted` };
-        fs.rmSync(target, { force: true, recursive: true });
+        removeEntry(target, true);
         const blob = await gitBuffer(this.cwd, `${f.commit}:${c}`);
         if (blob) {
           fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -361,7 +419,7 @@ export class TreeFormatter {
       }
       const ran = await runCommand(f.entry.command, work, this.limitMs);
       // Config files go back to the tree's own, so only formatting is read.
-      for (const c of f.entry.config) fs.rmSync(path.join(work, c), { force: true });
+      for (const c of f.entry.config) removeEntry(path.join(work, c), false);
       const back = f.entry.config.filter((c) => inTree.has(c));
       if (back.length) await stdinGit(this.cwd, [attr, 'checkout-index', '-f', '-u', '-z', '--stdin', `--prefix=${work}/`], back.join('\0'), env);
       if (f.entry.adds) {
@@ -385,7 +443,7 @@ export class TreeFormatter {
 
 function stdinGit(cwd: string, args: string[], input: string, extra: NodeJS.ProcessEnv): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const child = execFile('git', [...GIT_SAFE, '-C', cwd, ...args], { env: cleanEnv(extra), maxBuffer: 16 * 1024 * 1024, timeout: 10 * 60_000, killSignal: 'SIGKILL' }, (err, _o, stderr) =>
+    const child = execFile('git', [...GIT_SAFE, ...(noCommitGraph ? ['-c', 'core.commitGraph=false'] : []), '-C', cwd, ...args], { env: cleanEnv(extra), maxBuffer: 16 * 1024 * 1024, timeout: 10 * 60_000, killSignal: 'SIGKILL' }, (err, _o, stderr) =>
       err ? reject(new Error(`git ${args.join(' ')}: ${String(stderr).trim()}`)) : resolve(),
     );
     child.stdin?.end(input);
@@ -394,7 +452,7 @@ function stdinGit(cwd: string, args: string[], input: string, extra: NodeJS.Proc
 
 function gitBuffer(cwd: string, object: string): Promise<Buffer | undefined> {
   return new Promise((resolve) => {
-    execFile('git', [...GIT_SAFE, '-C', cwd, 'cat-file', 'blob', object], { env: cleanEnv(), encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60_000, killSignal: 'SIGKILL' }, (err, stdout) =>
+    execFile('git', [...GIT_SAFE, ...(noCommitGraph ? ['-c', 'core.commitGraph=false'] : []), '-C', cwd, 'cat-file', 'blob', object], { env: cleanEnv(), encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60_000, killSignal: 'SIGKILL' }, (err, stdout) =>
       resolve(err ? undefined : stdout),
     );
   });
@@ -415,6 +473,36 @@ function realFoldersTo(root: string, rel: string): boolean {
     }
   }
   return true;
+}
+
+// Whatever is at a path gone, a link itself rather than through it, as
+// fs.rmSync with force would (recursive only where asked). On Node 24.11
+// fs.rmSync returns without error and leaves a link whose target is missing,
+// so writing the config there failed with EEXIST and a fork's runner couldn't
+// update (Crispaul Obana, 21 Nov).
+function removeEntry(file: string, recursive: boolean): void {
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(file);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return;
+    throw e;
+  }
+  if (!st.isSymbolicLink()) return fs.rmSync(file, { force: true, recursive });
+  try {
+    fs.unlinkSync(file);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return;
+    // A link to a folder on Windows refuses unlink and goes with rmdir.
+    if (process.platform !== 'win32' || code !== 'EPERM') throw e;
+    try {
+      fs.rmdirSync(file);
+    } catch (e2) {
+      if ((e2 as NodeJS.ErrnoException).code !== 'ENOENT') throw e2;
+    }
+  }
 }
 
 function rmQuietly(dir: string): void {
@@ -569,9 +657,74 @@ async function alreadyOn(cwd: string, onto: string, tip: string, base: string): 
   return same;
 }
 
+// --------------------------------------------------------------- what a branch adds
+
+// What a landing of `tip` onto `base` would change in what later landings
+// run on this Mac: recipes its list has that `base`'s doesn't, and config
+// files of any listed recipe (a format tool's own script, the toolchain
+// file) it changes. With an id that stands for exactly those, recipes and
+// file contents both, for `tb land --allow-format <id>`. Throws when the
+// list can't be read, rather than calling that no change.
+export async function formatChanges(cwd: string, base: string, tip: string): Promise<{ entries: FormatEntry[]; configs: string[]; id: string }> {
+  const read = async (ref: string) => {
+    const at = await git(cwd, ['ls-tree', '--name-only', ref, '--', FORMAT_LIST]);
+    if (!at.ok) throw new Error(`couldn't read ${ref}'s tree`);
+    if (!at.stdout.trim()) return [];
+    const r = await git(cwd, ['show', `${ref}:${FORMAT_LIST}`]);
+    if (!r.ok) throw new Error(`couldn't read ${ref}:${FORMAT_LIST}`);
+    return parseFormatList(r.stdout);
+  };
+  const before = await read(base);
+  const after = await read(tip);
+  // By recipe and subject: an entry naming another commit for a recipe main
+  // trusts (a new subject) says which tree's config that recipe later runs
+  // with, so it counts too. Only an id written in under the same subject
+  // and recipe (filled in once the commit is on main) doesn't; one changed
+  // to name another commit does.
+  const ident = (e: FormatEntry) => JSON.stringify([recipe(e), e.subject]);
+  const ids = new Map<string, Set<string | undefined>>();
+  for (const e of before) ids.set(ident(e), (ids.get(ident(e)) ?? new Set()).add(e.id));
+  const fresh = (e: FormatEntry) => {
+    const had = ids.get(ident(e));
+    return !had || (e.id !== undefined && !had.has(e.id) && !had.has(undefined));
+  };
+  const seen = new Set<string>();
+  const entries = after.filter((e) => fresh(e) && !seen.has(ident(e) + (e.id ?? '')) && seen.add(ident(e) + (e.id ?? '')));
+  const paths = [...new Set([...before, ...after].flatMap((e) => e.config))].sort();
+  const configs: string[] = [];
+  const blobs: string[] = [];
+  for (const p of paths) {
+    const blob = async (ref: string) => {
+      const r = await git(cwd, ['ls-tree', ref, '--', p]);
+      if (!r.ok) throw new Error(`couldn't read ${ref}:${p}`);
+      return r.stdout.trim();
+    };
+    const now = await blob(tip);
+    if ((await blob(base)) !== now) {
+      configs.push(p);
+      blobs.push(`${p}\0${now}`);
+    }
+  }
+  const id = createHash('sha256').update(JSON.stringify([[...seen].sort(), blobs])).digest('hex').slice(0, 12);
+  return { entries, configs, id };
+}
+
 // --------------------------------------------------------------- a branch with one
 
-export type Remade = { ok: true; tip: string; remade: string[]; notes: string[] } | { ok: false; conflict: string[]; at: string; subject: string } | { ok: false; error: string };
+export type Untrusted = { commit: string; subject: string; command: string; why: 'unlisted' | 'config' };
+
+export type Remade =
+  | { ok: true; tip: string; remade: string[]; notes: string[] }
+  | { ok: false; conflict: string[]; at: string; subject: string }
+  | { ok: false; error: string }
+  | { ok: false; untrusted: Untrusted[] };
+
+// How an entry makes its commit: what runs, whether it may add files, what
+// it formats and the config it formats with. Two entries that agree on all
+// of that run the same thing, whatever their subjects.
+function recipe(e: FormatEntry): string {
+  return JSON.stringify([e.command, Boolean(e.adds), e.paths, e.config]);
+}
 
 // A branch that is itself bringing in a format commit (the commit that ran
 // the formatter, listed in its own .git-blame-ignore-revs and not on `onto`
@@ -582,6 +735,14 @@ export type Remade = { ok: true; tip: string; remade: string[]; notes: string[] 
 // other commits are picked as a rebase picks them. Undefined when the branch
 // has no such commit. Touches no working tree; a commit made empty is
 // dropped, as rebase drops it.
+//
+// The list comes from the branch, which anyone who can commit to it writes,
+// so its command is never trusted for that (Codex Security, 21 Nov): only an
+// entry whose recipe (command, kind, paths and config) `onto`'s own list has,
+// byte for byte, is run, with config no commit of the branch changed. Any
+// other that would have to be run comes back as `untrusted`, before anything
+// has run, for a person to make again by hand. One the branch already made
+// on `onto` as it is now needs no running: it's picked as it is.
 export async function remakeOwn(cwd: string, onto: string, tip: string, opts: { toolsOnly?: boolean } = {}): Promise<Remade | undefined> {
   const list = await git(cwd, ['show', `${tip}:${FORMAT_LIST}`]);
   if (!list.ok) return undefined;
@@ -595,6 +756,12 @@ export async function remakeOwn(cwd: string, onto: string, tip: string, opts: { 
   if ((await out(cwd, ['rev-list', '--merges', `${onto}..${tip}`])) !== '') return undefined;
   const picks: { c: string; format?: FormatEntry }[] = [];
   let any = false;
+  const onMain = await git(cwd, ['show', `${onto}:${FORMAT_LIST}`]);
+  const trusted = new Set((onMain.ok ? parseFormatList(onMain.stdout) : []).map(recipe));
+  const untrusted: Untrusted[] = [];
+  // Config files the branch's commits so far change: a tool run with one of
+  // those would run the branch's version (a script, a toolchain file).
+  const touched = new Set<string>();
   // A subject that's on more than one of them can't say which ran the tool
   // (a later fix with the same words would be run away): only its id can.
   const seen = new Map<string, number>();
@@ -609,10 +776,19 @@ export async function remakeOwn(cwd: string, onto: string, tip: string, opts: { 
     if (line[0] === '=' && tree !== parent) continue;
     const subject = await out(cwd, ['log', '-1', '--format=%s', c]);
     const entry = entries.find((e) => e.subject === subject && (e.id ? e.id === c : seen.get(subject) === 1));
-    const format = entry && (await onlyWithin(cwd, c, entry)) ? entry : undefined;
+    let format = entry && (await onlyWithin(cwd, c, entry)) ? entry : undefined;
+    if (format) {
+      const why = !trusted.has(recipe(format)) ? 'unlisted' : format.config.some((p) => touched.has(p)) ? 'config' : undefined;
+      if (why) {
+        if (await isAncestor(cwd, onto, c)) format = undefined;
+        else untrusted.push({ commit: c, subject, command: format.command, why });
+      }
+    }
     if (format) any = true;
+    else for (const p of (await out(cwd, ['diff', '--name-only', '--no-renames', '-z', `${c}^`, c])).split('\0')) if (p) touched.add(p);
     picks.push({ c, format });
   }
+  if (untrusted.length) return { ok: false, untrusted };
   if (!any) return undefined;
   let cur = await out(cwd, ['rev-parse', `${onto}^{commit}`]);
   const remade: string[] = [];
@@ -808,6 +984,12 @@ async function cli(argv: string[]): Promise<number> {
     }
     const mi = argv.indexOf('-m');
     const message = mi > 0 ? argv[mi + 1] : undefined;
+    noCommitGraph = true;
+    const substituted = await substitutes(top);
+    if (substituted) {
+      say(substituted);
+      return 1;
+    }
     const r = await mergeAcross(top, target, { message, leave: true });
     for (const n of r.notes) say(n);
     if (r.ok) {

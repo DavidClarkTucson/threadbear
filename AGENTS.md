@@ -17,7 +17,8 @@ the doc that owns it ("Doing X? Read Y"). Put detail there and link it, not here
 
 This is written for Mike's copy. The machines it names (the M5, `bruce`, `cloud`,
 `tinker-desk`) and paths under `~/dev/me` are his: in anyone else's copy (`origin` isn't
-mikecann/threadbear), skip those steps and ask the user what they use. There, a release of
+mikecann/threadbear) they don't exist, so check `origin` before any ssh or path here,
+skip those steps and ask the user what they use. There, a release of
 Mike's comes in through docs/bringing-in-updates.md, never a plain `git merge
 upstream/main` (it skips the checks, and the release's new checks then fail every other
 landing); one change they ask for by name can be cherry-picked.
@@ -39,7 +40,7 @@ landing); one change they ask for by name can be cherry-picked.
   `tb activity` are private: out of git (`.fixtures/` is ignored) and out of anything
   posted or sent, and deleted when done.
 - Sentry hears only from what Mike really runs (installed apps, the runner's release on
-  the real data dir, App Store iPhone builds), never from debug, dev, test or scripted
+  the real data dir, App Store and TestFlight iPhone builds), never from debug, dev, test or scripted
   runs, and never with user text. `THREADBEAR_SENTRY=off` turns it off; convex/ has none.
 - No heavy work on Mike's Mac. Run the one test file you're on
   (`node --test test/unit/<name>.test.ts` in `runner/`); whole suites go through
@@ -67,6 +68,7 @@ thing on Tinker Desk's desktop from a throwaway copy (`ssh tinker-desk
 - Land through `tb land` in your worktree (`runner/bin/tb` if `tb` isn't found), in the
   background with the longest timeout. Never push main or merge by hand. If it refuses,
   it says what to fix (docs/thread-worktrees.md).
+  It moves this Mac's main, not GitHub's: call that "local main" in your reply.
 - On Mike's Hetzner Cloud runner git may push only `cloud/**` branches: push your work as
   `cloud/<topic>` and say so. Landing happens from the main Mac.
 - The live runner and installed apps follow main by themselves. After landing an app
@@ -76,8 +78,9 @@ thing on Tinker Desk's desktop from a throwaway copy (`ssh tinker-desk
   `runner/scripts/dev-runner.sh` with its `<dev home>/tb` (a bare `tb` is the live one),
   `--clone-real` for real data, never `--home` on a copy of it, and stop it with the
   `kill <pid>` it prints (never `pkill`) before you deploy or end your turn.
-- After landing an `ios/` change, install it on Mike's phone yourself (ios/README.md);
-  uploading to App Store Connect needs him to ask. Use only your worktree's own
+- After landing an `ios/` change, install it on Mike's phone yourself (ios/README.md). That's
+  how his phone stays current: no TestFlight builds (he dropped them on 22 Nov as confusing).
+  Uploading for App Store review needs him to ask. Use only your worktree's own
   simulator (`ios/scripts/sim.sh`), never one picked from `simctl list`.
 - A security or data fix other copies should take soon gets an `Important: <why, plainly>`
   trailer beside Co-Authored-By (`runner/src/bring-in.ts`). Rarely, or it means nothing.
@@ -96,7 +99,8 @@ thing on Tinker Desk's desktop from a throwaway copy (`ssh tinker-desk
 - A thread is reached four ways: on this runner, another runner's through Convex
   (`runner/src/relay.ts`), the iPhone and the website (`convex/phone.ts`), and features
   have gone missing on all but the first. A new thread request needs a row in
-  `runner/src/parity.ts`; a change to what a thread shows (a card's field, a message, the
+  `runner/src/parity.ts`, a new kind of thing the desktop draws one in
+  `runner/src/draw-parity.ts`; a change to what a thread shows (a card's field, a message, the
   done card) needs a scenario in `runner/test/unit/scenarios.test.ts`.
 - A change to what the desktop app does gets a spec in `features/`; one to how the
   transcript folds keeps both golden test sets happy (`desktop/core/tests/golden`).
@@ -169,4 +173,4 @@ brings one in. CONTRIBUTING.md, "How my agents take PRs and forks".
 - Shipping a runner change, deploys, rollbacks, the launcher app: docs/dev-tools.md, "The
   runner updating itself". Driving the desktop app, real-thread and cursor bugs, freezes:
   desktop/README.md. The Swift app: app/README.md, "Rules for changing it". The iPhone
-  app: ios/README.md. Real-screen tests: features/README.md. Parity: docs/parity.md.
+  app: ios/README.md. Real-screen tests: features/README.md. Parity: docs/parity.md, and the nightly screenshot run (Mike's only): docs/parity-run.md.

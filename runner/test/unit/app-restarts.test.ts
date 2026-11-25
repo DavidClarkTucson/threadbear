@@ -39,11 +39,13 @@ test('a thread waiting hears when the app comes back on another build', () => {
   assert.equal(h.events(thread.id).filter((e) => e.type === 'user.message' && e.origin === 'runner').length, 1);
 });
 
+// The text is the agent's own words for later, held to its access as it
+// asked (runner/ceiling.ts): these threads are on Full, as the tool says.
 test('the agent\'s own text is sent, and the last request wins', () => {
   const { h, watcher, thread } = setUp();
   watcher.appHello(A);
-  watcher.watch(thread.id, 'Check the dock in the real app.');
-  watcher.watch(thread.id, 'Check the panels move.');
+  watcher.watch(thread.id, 'Check the dock in the real app.', undefined, 'full');
+  watcher.watch(thread.id, 'Check the panels move.', undefined, 'full');
   watcher.appHello(B);
   assert.match(said(h, thread.id).message, /Check the panels move\.$/);
 });
@@ -442,7 +444,7 @@ test('a done turn waiting on the app restart hibernates until it comes, then wak
   const s = h.adapter.last;
   s.init();
   watcher.appHello(D1, 'desktop');
-  watcher.watch(thread.id, 'Check Edit shows beside Copy.');
+  watcher.watch(thread.id, 'Check Edit shows beside Copy.', undefined, 'full');
   s.out({ kind: 'event', event: { type: 'tool.call', itemId: 'e1', name: 'mcp__threadbear__end_turn', kind: 'mcp', title: 'end_turn', input: { needs: 'nothing' } } });
   s.text('m1', 'Landed. The app picks it up once it is idle.');
   s.result('completed');
@@ -511,4 +513,34 @@ test('a turn that needs Mike, or one not waiting on the app, stays in the inbox'
   h.adapter.last.text('m2', 'Done.');
   h.adapter.last.result('completed');
   assert.equal(h.runner.get(thread.id).snoozedUntil, undefined);
+});
+
+// The Updates panel lists the threads waiting on the app and whether each
+// one's commit is in the build that's coming (Mike's pick, review 0a7d18e2,
+// 21 Nov): each waiting thread's summary says which commit it waits for.
+test('a waiting thread says which commit it waits for, until it hears or a day passes', () => {
+  const { h, thread } = setUp();
+  const watcher = new AppRestarts({
+    runner: h.runner, home: h.home, clock: h.clock, log: nullLogger,
+    git: { resolve: () => 'c0ffee1234567', contains: () => true },
+  });
+  assert.equal(watcher.waitingFor(thread.id), undefined, 'not waiting');
+  watcher.appHello(A);
+  watcher.watch(thread.id);
+  assert.deepEqual(watcher.waitingFor(thread.id), { commit: 'c0ffee1234567', short: 'c0ffee123' });
+  watcher.appHello(B);
+  assert.equal(watcher.waitingFor(thread.id), undefined, 'told: no longer waiting');
+  watcher.watch(thread.id);
+  h.clock.advance(25 * 60 * 60_000);
+  assert.equal(watcher.waitingFor(thread.id), undefined, 'a day old: no longer listed');
+});
+
+test('a wait with no commit to look for is still listed', () => {
+  const { h, thread } = setUp();
+  const watcher = new AppRestarts({
+    runner: h.runner, home: h.home, clock: h.clock, log: nullLogger,
+    git: { resolve: () => undefined, contains: () => undefined },
+  });
+  watcher.watch(thread.id);
+  assert.deepEqual(watcher.waitingFor(thread.id), {});
 });

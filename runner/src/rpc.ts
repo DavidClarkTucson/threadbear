@@ -8,13 +8,13 @@ import { awakeTimeout, type AwakeTimer } from './awake-timer.ts';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Runner, Notification, CliControl } from './runner.ts';
 import type { Logger } from './log.ts';
-import { ARCHIVE_VERDICTS, CLI_POLICIES, EFFORT_LEVELS, ErrorCode, PROVIDERS, RpcError, isEffortLevel, isProvider } from './protocol.ts';
-import type { ArchiveVerdict, ApprovalDecision, AskAnswer, CliPolicy, EffortLevel, ImageRef, PermissionMode, Provider, ShareAccess, ThreadStartedBy, ThreadSummary } from './protocol.ts';
+import { ARCHIVE_VERDICTS, UNARCHIVE_VERDICTS, CLI_POLICIES, EFFORT_LEVELS, ErrorCode, PROVIDERS, RpcError, isEffortLevel, isPermissionMode, isProvider } from './protocol.ts';
+import type { ArchiveVerdict, UnarchiveVerdict, ApprovalDecision, AskAnswer, CliPolicy, EffortLevel, ImageRef, PermissionMode, Provider, ShareAccess, ThreadStartedBy, ThreadSummary } from './protocol.ts';
 import { MAX_BYLINE } from './needs.ts';
 import { isMoved, mergeSummaries, type Bucket } from './handover.ts';
 import { AUTH_VERSION, authProof, isNonce, isThreadId, newNonce, proofMatches, threadKey, type AuthChannel } from './rpc-auth.ts';
 import type { CallerGate } from './rpc-gate.ts';
-import type { PeerSocket } from './peer.ts';
+import { ForeignPeer, type PeerCaller, type PeerSocket } from './peer.ts';
 import { cutSafely } from './safe-cut.ts';
 import { wellFormedJson } from './well-formed-json.ts';
 import { fetchPr, fetchPrFiles, forgetStates, parsePrUrl, prAct, prStates, type PrAction, type PrRef } from './github-pr.ts';
@@ -40,10 +40,16 @@ type Conn = {
   // The thread this connection acts for (docs/protocol/connection.md, "A thread's own
   // key"): undefined for the owner. Set once the process lookup is done.
   caller?: string;
+  // Set only once the owner token's connection is known not to be any
+  // thread's: the process lookup found it under none, or this server has no
+  // lookup. Until then (and for good, if the lookup couldn't tell) an
+  // undefined caller is nobody, never the owner (Daybreak finding 175).
+  owner?: boolean;
   // While the process lookup runs, frames wait here so a request can't get
   // ahead of it (a stolen token's first request, say).
   identifying?: Promise<void>;
   queue: string[];
+  queuedBytes?: number;
 };
 
 // Until a connection has authenticated (docs/protocol/connection.md, "Auth"), it gets
@@ -55,8 +61,15 @@ const AUTH_TIMEOUT_MS = 3000;
 const PREAUTH_MAX_PAYLOAD = 64 * 1024;
 const MAX_PENDING_AUTH = 16;
 // Frames that may wait for the process lookup (a few, in practice; the client
-// has only just proved itself).
+// has only just proved itself). The frame limit stays at PREAUTH_MAX_PAYLOAD
+// until the lookup is done, and the queue has a byte budget too: a thread's
+// key alone mustn't let it park gigabytes in the runner (Daybreak finding 158).
 const MAX_QUEUED_FRAMES = 256;
+const MAX_QUEUED_BYTES = 1024 * 1024;
+// Process lookups a thread's key may have running at once, and all thread
+// keys together.
+const MAX_LOOKUPS_PER_THREAD = 4;
+const MAX_THREAD_LOOKUPS = 16;
 // What an authenticated client may send in one frame.
 const MAX_PAYLOAD = 64 * 1024 * 1024;
 // Backpressure for a client that stops reading (a hung app, a debugger):
@@ -180,9 +193,10 @@ export type RpcServerOptions = {
   // What a connection that belongs to a thread may do (rpc-gate.ts).
   gate?: CallerGate;
   // The thread whose CLI the process at the client's end of this exact
-  // connection runs under, if any (peer.ts, docs/protocol/connection.md "Who's really
-  // calling"). Rejects when it can't say which one (AmbiguousPeer).
-  callerOf?: (sock: PeerSocket) => Promise<string | undefined>;
+  // connection runs under, or none (peer.ts, docs/protocol/connection.md "Who's really
+  // calling"). Rejects when it can't say (UnresolvedPeer, AmbiguousPeer):
+  // the connection closes.
+  callerOf?: (sock: PeerSocket) => Promise<PeerCaller>;
   // Tests shorten these.
   authTimeoutMs?: number;
   maxPendingAuth?: number;
@@ -292,10 +306,34 @@ export class RpcServer {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
+  // Process lookups still running (Daybreak finding 158). Each counts until
+  // it settles, even after its client has gone, so connecting and leaving
+  // can't start them without end. The owner token's take one of the slots
+  // for clients waiting to authenticate; a thread key's have their own,
+  // a few per thread, so one thread can't fill the slots the app and tb
+  // need (the reviews of the fix).
+  private ownerLookups = 0;
+  private threadLookups = new Map<string, number>();
+
   private pendingAuth(): number {
-    let n = 0;
+    let n = this.ownerLookups;
     for (const c of this.conns) if (!c.authed) n++;
     return n;
+  }
+
+  private lookupsOf(keyThread: string | undefined): number {
+    if (keyThread === undefined) return this.ownerLookups;
+    return this.threadLookups.get(keyThread) ?? 0;
+  }
+
+  private countLookup(keyThread: string | undefined, by: 1 | -1): void {
+    if (keyThread === undefined) {
+      this.ownerLookups += by;
+      return;
+    }
+    const n = (this.threadLookups.get(keyThread) ?? 0) + by;
+    if (n > 0) this.threadLookups.set(keyThread, n);
+    else this.threadLookups.delete(keyThread);
   }
 
   private onUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): void {
@@ -320,7 +358,10 @@ export class RpcServer {
       const m = /^Bearer\s+(.+)$/i.exec(header);
       if (!m || !this.tokenOk(m[1].trim())) return refuse(401, 'Unauthorized');
       authed = true;
-    } else if (this.pendingAuth() >= (this.opts.maxPendingAuth ?? MAX_PENDING_AUTH)) {
+    }
+    // A bearer client is in, but its process lookup is still to come, so it
+    // waits its turn too (Gemini's review of the fix for finding 158).
+    if ((!authed || this.opts.callerOf) && this.pendingAuth() >= (this.opts.maxPendingAuth ?? MAX_PENDING_AUTH)) {
       return refuse(503, 'Service Unavailable');
     }
     const { remoteAddress, remotePort, localAddress, localPort } = req.socket;
@@ -339,31 +380,74 @@ export class RpcServer {
   // fooled into naming someone else's process) closes the connection
   // instead of picking either (Daybreak finding 137). So does a lookup that
   // can't say which thread (AmbiguousPeer).
+  //
+  // A lookup that can't say who it is (it failed, ran out of time or found
+  // nobody holding the socket) closes the connection too, on every system,
+  // the owner token's and a key's alike: an unplaced owner token used to be
+  // taken as the owner, which a thread with its key wiped could ride
+  // (Daybreak finding 175). The app and tb connect again. One under another
+  // runner's thread, nearer than any of this runner's (ForeignPeer), closes
+  // with 4403 (Daybreak finding 177).
   private unlock(conn: Conn, keyThread?: string): void {
     conn.caller = keyThread;
     const find = this.opts.callerOf;
+    // No lookup on this server (a test's): the credential decides.
+    if (!find) conn.owner = keyThread === undefined;
+    else if (conn.peer === undefined) {
+      this.opts.log.warn("an RPC client's socket has no address to look up; closing it", { conn: conn.id });
+      conn.authed = true;
+      conn.authTimer?.clear();
+      return this.dropConn(conn, 4503, 'could not tell which process connected');
+    }
     if (find && conn.peer !== undefined) {
+      let threads = 0;
+      for (const n of this.threadLookups.values()) threads += n;
+      if (keyThread !== undefined && (this.lookupsOf(keyThread) >= MAX_LOOKUPS_PER_THREAD || threads >= MAX_THREAD_LOOKUPS)) {
+        // Left unauthenticated, so it counts as waiting until it's gone, as
+        // a refused one does (refuseConn).
+        conn.dropped = true;
+        conn.authTimer?.clear();
+        conn.ws.close(4429, 'too many connections being looked up');
+        setTimeout(() => conn.ws.terminate(), 1000).unref();
+        return;
+      }
+      this.countLookup(keyThread, 1);
       conn.identifying = find(conn.peer)
-        .then((t) => {
+        .then((found) => {
+          const t = found?.kind === 'thread' ? found.threadId : undefined;
+          if (found?.kind !== 'thread' && found?.kind !== 'owner') throw new Error(`the lookup gave no answer: ${JSON.stringify(found)}`);
           if (keyThread !== undefined && t !== undefined && t !== keyThread) {
             this.opts.log.warn("an RPC client's key and its process name different threads; closing it", { conn: conn.id, key: keyThread, process: t });
             return this.dropConn(conn);
           }
           if (t) conn.caller = t;
+          else if (keyThread === undefined) conn.owner = true;
         })
         .catch((e) => {
+          // Under another runner's thread (Daybreak finding 177): no use
+          // trying again, so 4403, not 4503.
+          if (e instanceof ForeignPeer) return this.dropConn(conn, 4403, "under another runner's thread");
           this.opts.log.warn('could not tell which thread an RPC client is; closing it', { conn: conn.id, error: String(e) });
-          this.dropConn(conn);
+          this.dropConn(conn, 4503, 'could not tell which process connected');
         })
         .finally(() => {
+          this.countLookup(keyThread, -1);
           conn.identifying = undefined;
-          if (conn.dropped) return;
+          conn.queuedBytes = 0;
+          if (conn.dropped || conn.ws.readyState !== WebSocket.OPEN) return;
+          this.raiseFrameLimit(conn);
           for (const raw of conn.queue.splice(0)) this.onMessage(conn, raw);
         });
     }
     conn.authed = true;
     conn.authTimer?.clear();
     conn.challenge = undefined;
+    // Only once the runner knows who it's talking to does a frame get bigger
+    // than before auth (Daybreak finding 158).
+    if (!conn.identifying) this.raiseFrameLimit(conn);
+  }
+
+  private raiseFrameLimit(conn: Conn): void {
     const receiver = (conn.ws as unknown as { _receiver?: { _maxPayload?: unknown } })._receiver;
     if (receiver && typeof receiver._maxPayload === 'number') receiver._maxPayload = MAX_PAYLOAD;
     else this.opts.log.warn('could not raise the frame limit for an authenticated client', { conn: conn.id });
@@ -371,10 +455,12 @@ export class RpcServer {
 
   // Closes an authenticated connection whose caller can't be trusted, before
   // any of its requests run.
-  private dropConn(conn: Conn): void {
+  // 4403 when its process names another thread than its key, 4503 when the
+  // lookup couldn't place it (a client may try again).
+  private dropConn(conn: Conn, code = 4403, reason = 'caller does not match its process'): void {
     conn.dropped = true;
     conn.queue.length = 0;
-    conn.ws.close(4403, 'caller does not match its process');
+    conn.ws.close(code, reason);
     setTimeout(() => conn.ws.terminate(), 1000).unref();
   }
 
@@ -460,7 +546,9 @@ export class RpcServer {
     const msg = JSON.stringify({ jsonrpc: '2.0', method: n.method, params: n.params });
     const transient = n.method === 'thread.event' && n.params.event.type.endsWith('.delta');
     for (const c of [...this.conns]) {
-      if (!c.authed || c.ws.readyState !== WebSocket.OPEN) continue;
+      // Not while the process lookup runs, nor after it refused (Gemini's
+      // review of finding 175): it hasn't been placed yet.
+      if (!c.authed || c.identifying || c.dropped || c.ws.readyState !== WebSocket.OPEN) continue;
       if (n.method === 'thread.event' && !c.subs.has(n.params.threadId)) continue;
       this.write(c, msg, transient);
     }
@@ -503,10 +591,15 @@ export class RpcServer {
     if (conn.dropped) return;
     if (!conn.authed) return this.onAuthMessage(conn, raw);
     if (conn.identifying) {
-      if (conn.queue.length >= MAX_QUEUED_FRAMES) {
-        conn.ws.close(4408, 'too many frames before identification');
+      const bytes = (conn.queuedBytes ?? 0) + Buffer.byteLength(raw);
+      if (conn.queue.length >= MAX_QUEUED_FRAMES || bytes > MAX_QUEUED_BYTES) {
+        conn.dropped = true;
+        conn.queue.length = 0;
+        conn.ws.close(4408, 'too much sent before identification');
+        setTimeout(() => conn.ws.terminate(), 1000).unref();
         return;
       }
+      conn.queuedBytes = bytes;
       conn.queue.push(raw);
       return;
     }
@@ -521,9 +614,19 @@ export class RpcServer {
       return this.send(conn, { jsonrpc: '2.0', id, error: { code: ErrorCode.invalidRequest, message: 'Invalid request' } });
     }
     let result: unknown;
+    let params: Record<string, unknown> | undefined;
+    // take's copies of a limited thread's pictures (media-quota.ts) go once
+    // the call is done with them, whichever way it ends.
+    const releaseHeld = () => {
+      if (conn.caller !== undefined && params?.images !== undefined) this.opts.gate?.releaseHeld(params.images);
+    };
     try {
-      result = this.dispatch(conn, msg.method, this.gated(conn, msg.method, (msg.params ?? {}) as Record<string, unknown>));
+      params = this.gated(conn, msg.method, (msg.params ?? {}) as Record<string, unknown>);
+      result = this.dispatch(conn, msg.method, params);
+      if (result instanceof Promise) result = result.finally(releaseHeld);
+      else releaseHeld();
     } catch (e) {
+      releaseHeld();
       if (id === null) return;
       if (e instanceof RpcError) {
         return this.send(conn, { jsonrpc: '2.0', id, error: { code: e.code, message: e.message, ...(e.data ? { data: e.data } : {}) } });
@@ -584,7 +687,12 @@ export class RpcServer {
   // covered too. A server with no gate (a draining runner's own, which only
   // a primary with the token talks to) refuses a thread outright.
   private gated(conn: Conn, method: string, p: Record<string, unknown>): Record<string, unknown> {
-    if (conn.caller === undefined) return p;
+    if (conn.caller === undefined) {
+      if (conn.owner) return p;
+      // Not a thread and not known to be the owner: the lookup never said
+      // (unlock closes such a connection; this is the backstop).
+      throw new RpcError(ErrorCode.notAllowed, "The runner couldn't tell which process this connection is from.");
+    }
     if (!p || typeof p !== 'object' || Array.isArray(p)) throw bad('params must be an object');
     if (!this.opts.gate) throw new RpcError(ErrorCode.notAllowed, "This server doesn't take calls from threads.");
     return this.opts.gate.check(conn.caller, method, p);
@@ -780,7 +888,8 @@ export class RpcServer {
       case 'threads.continueFresh':
         return r.continueFresh(reqString(p, 'threadId'));
       case 'threads.send':
-        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p) });
+        // `ceiling`: set by the RPC gate for a thread's own key (runner/ceiling.ts).
+        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optSendOrigin(p), ...(isPermissionMode(p.ceiling) ? { ceiling: p.ceiling } : {}) });
       case 'threads.edit':
         return r.editMessage(reqString(p, 'threadId'), reqNumber(p, 'seq'), optString(p, 'text') ?? '', optImages(p) ?? [], { stopBackground: p.stopBackground === true });
       case 'threads.interrupt':
@@ -817,9 +926,15 @@ export class RpcServer {
           upd.archivedBy = p.archivedBy;
         }
         if (p.verdict !== undefined) {
-          if (!ARCHIVE_VERDICTS.includes(p.verdict as ArchiveVerdict)) throw bad(`verdict must be one of ${ARCHIVE_VERDICTS.join(', ')}`);
-          if (p.archived !== true) throw bad('verdict goes with archived: true');
-          upd.verdict = p.verdict as ArchiveVerdict;
+          // An unarchive takes its own: "Should have shown me" (quietInboxMine).
+          if (p.archived === false) {
+            if (!UNARCHIVE_VERDICTS.includes(p.verdict as UnarchiveVerdict)) throw bad(`with archived: false, verdict must be one of ${UNARCHIVE_VERDICTS.join(', ')}`);
+            upd.verdict = p.verdict as UnarchiveVerdict;
+          } else {
+            if (!ARCHIVE_VERDICTS.includes(p.verdict as ArchiveVerdict)) throw bad(`verdict must be one of ${ARCHIVE_VERDICTS.join(', ')}`);
+            if (p.archived !== true) throw bad('verdict goes with archived: true or false');
+            upd.verdict = p.verdict as ArchiveVerdict;
+          }
         }
         if (p.starred !== undefined) {
           if (typeof p.starred !== 'boolean') throw bad('starred must be a boolean');
@@ -962,7 +1077,17 @@ export class RpcServer {
       case 'pools.save':
         return r.savePools(p.pools);
       case 'media.import':
-        return r.importMedia(reqString(p, 'path'));
+        // A thread's key gets the background import, metered below Full
+        // (Daybreak finding 157); one whose client has gone by the time it's
+        // done is removed at once.
+        if (conn.caller === undefined) return r.importMedia(reqString(p, 'path'));
+        return r.importMediaForThread(conn.caller, reqString(p, 'path'), this.opts.gate?.whoami(conn.caller).limited ?? true).then((res) => {
+          if (conn.ws.readyState !== WebSocket.OPEN) {
+            r.importQuota.discard(res.image);
+            throw new RpcError(ErrorCode.other, 'the client went away');
+          }
+          return res;
+        });
       case 'panels.render':
         return r.renderPanel(reqString(p, 'threadId'), reqString(p, 'panelId'));
       case 'panels.toggle':
@@ -1198,16 +1323,22 @@ function optEffort(p: Record<string, unknown>): EffortLevel | undefined {
   return v;
 }
 
-// threads.send's answers (Needs you, Answering): short, and only for the
-// app to show, so anything malformed is refused rather than half kept.
-// Only a phone command the primary passed on to a draining runner says
-// where it came from (docs/protocol.md, threads.send).
-function optPhoneOrigin(p: Record<string, unknown>): { origin?: 'phone' } {
+// Only two say where they came from (docs/protocol/connection.md,
+// threads.send): a phone command the primary passed on to a draining
+// runner, and one of the runner's own tools run by the owner (tb
+// red-watch's CI news), which is its note, with a few words of why.
+// A thread's key can say neither (rpc-gate.ts drops them).
+function optSendOrigin(p: Record<string, unknown>): { origin?: 'phone' | 'runner'; wakeReason?: string } {
+  if (p.wakeReason !== undefined && p.origin !== 'runner') throw bad('wakeReason goes only with origin "runner"');
   if (p.origin === undefined) return {};
-  if (p.origin !== 'phone') throw bad('origin can only be "phone"');
-  return { origin: 'phone' };
+  if (p.origin === 'phone') return { origin: 'phone' };
+  if (p.origin !== 'runner') throw bad('origin can only be "phone" or "runner"');
+  const why = optString(p, 'wakeReason')?.trim();
+  return { origin: 'runner', ...(why ? { wakeReason: why } : {}) };
 }
 
+// threads.send's answers (Needs you, Answering): short, and only for the
+// app to show, so anything malformed is refused rather than half kept.
 function optAnswers(p: Record<string, unknown>): { answers?: AskAnswer[] } {
   const v = p.answers;
   if (v === undefined || v === null) return {};

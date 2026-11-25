@@ -2,7 +2,8 @@
 // (core's app_update.rs has the rules). Twenty seconds after launch, every
 // five minutes, and within seconds of main moving, it reads main's tree of
 // desktop/ in the checkout it was built from, and when that differs from what's
-// running it waits for ten quiet minutes before building the latest main into
+// running it waits for main to be quiet (runner.json's updateQuietMinutes, two
+// by default) before building the latest main into
 // ~/Applications/.Threadbear GPUI.app.next
 // (desktop/scripts/stage-update.sh, from the bundle). The Rust release build
 // takes every core for minutes, so the script builds on a Mac among
@@ -45,6 +46,11 @@ const LOOK_EVERY: Duration = Duration::from_secs(5 * 60);
 /// comparisons, so often, to go soon after Mike leaves the app.
 const RESTART_LOOK: Duration = Duration::from_secs(1);
 
+type FixesFrom = (
+    threadbear_core::updates::BuildCommits,
+    Vec<(String, Option<String>)>,
+);
+
 #[derive(Default)]
 pub(crate) struct AppUpdater {
     /// The running bundle's build, or none when there's nothing to follow.
@@ -57,11 +63,21 @@ pub(crate) struct AppUpdater {
     pub(crate) failed: Option<String>,
     quiet_main: rules::BuildDebounce,
     settling: bool,
+    /// runner.json's updateQuietMinutes, read at each look.
+    quiet_minutes: u32,
     /// The last build found no Mac to build on; the next look tries again.
     pub(crate) waiting_for_host: bool,
     /// Where the build is on its host (stage-update.sh's phase file), read
     /// once a second with the restart looks: busy, queued or compiling.
     pub(crate) phase: Option<threadbear_core::updates::BuildPhase>,
+    /// Main's commit when the build under way started: what a waiting
+    /// thread's commit is looked for in.
+    building_commit: Option<String>,
+    /// The threads waiting for the app to restart onto what they landed
+    /// (`awaitingApp`), with which build has it, for the Updates panel.
+    pub(crate) fixes: Vec<(String, threadbear_core::updates::FixPlace)>,
+    /// What `fixes` was worked out from: looked at again only once it changes.
+    fixes_from: Option<FixesFrom>,
     /// The last build found no Mac trusted to build it (stage-update.sh's 5:
     /// check hosts but no updateBuildHosts), so Mike has to name one; the
     /// next look tries again, so naming one is picked up without a restart.
@@ -88,7 +104,7 @@ pub(crate) struct AppUpdater {
     tasks: Vec<Task<()>>,
     /// A made-up update for a scripted app's pictures (`updates` with
     /// `preview`): Restart to Update does nothing with it.
-    preview: bool,
+    pub(crate) preview: bool,
 }
 
 fn install_dir() -> PathBuf {
@@ -114,14 +130,18 @@ fn staged_build() -> Option<BuildInfo> {
     BuildInfo::read(&next_dir())
 }
 
+fn runner_json() -> PathBuf {
+    threadbear_client::config::RunnerConfig::from_env()
+        .home
+        .join("runner.json")
+}
+
 /// A staged bundle goes in only if it was built here or on a host in
 /// runner.json's updateBuildHosts now: never one a check host built, or one
 /// staged before bundles said where they were built (Daybreak 108).
 /// False when one that isn't trusted is still there: nothing goes in then.
 fn drop_untrusted_staged() -> bool {
-    let runner_json = threadbear_client::config::RunnerConfig::from_env()
-        .home
-        .join("runner.json");
+    let runner_json = runner_json();
     match rules::drop_untrusted_staged(&next_dir(), &runner_json) {
         Ok(None) => true,
         Ok(Some(why)) => {
@@ -329,6 +349,45 @@ fn main_tree(checkout: &str) -> Option<String> {
         &out.stdout,
     )))
     .filter(|t| !t.is_empty())
+}
+
+/// Main's commit in the checkout, for which build a waiting thread's
+/// commit is in.
+fn main_commit(checkout: &str) -> Option<String> {
+    let out = Command::new("/usr/bin/git")
+        .args([
+            "-C",
+            checkout,
+            "rev-parse",
+            "--verify",
+            "-q",
+            "refs/heads/main",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    let commit = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    (out.status.success() && !commit.is_empty()).then_some(commit)
+}
+
+/// Whether `build` has `want` in its history: None when git can't tell (a
+/// commit it doesn't know).
+fn has_commit(checkout: &str, want: &str, build: &str) -> Option<bool> {
+    if want == build {
+        return Some(true);
+    }
+    let status = Command::new("/usr/bin/git")
+        .args(["-C", checkout, "merge-base", "--is-ancestor", want, build])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?;
+    match status.code() {
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    }
 }
 
 fn open_log() -> Option<std::fs::File> {
@@ -548,6 +607,7 @@ impl Threadbear {
             if this
                 .update(cx, |t, cx| {
                     t.read_build_phase(phase, cx);
+                    t.place_waiting_fixes(cx);
                     t.consider_auto_restart(windows, cx)
                 })
                 .is_err()
@@ -574,6 +634,58 @@ impl Threadbear {
             self.updater.phase = phase;
             cx.notify();
         }
+    }
+
+    /// Works out which build has each waiting thread's commit, in the
+    /// background, once the threads waiting or the app's builds change.
+    fn place_waiting_fixes(&mut self, cx: &mut Context<Self>) {
+        use threadbear_core::updates::{fix_place, BuildCommits};
+        if self.updater.preview {
+            return;
+        }
+        let Some(checkout) = self.updater.running.as_ref().map(|b| b.checkout.clone()) else {
+            return;
+        };
+        let builds = BuildCommits {
+            running: self.updater.running.as_ref().map(|b| b.commit.clone()),
+            staged: self.updater.staged.as_ref().map(|b| b.commit.clone()),
+            building: self.updater.building_commit.clone(),
+        };
+        let mut waiting: Vec<(String, Option<String>)> = self
+            .threads
+            .values()
+            .filter_map(|t| Some((t.id.clone(), t.awaiting_app.as_ref()?.commit.clone())))
+            .collect();
+        waiting.sort();
+        let from = (builds.clone(), waiting.clone());
+        if self.updater.fixes_from.as_ref() == Some(&from) {
+            return;
+        }
+        self.updater.fixes_from = Some(from);
+        cx.spawn(async move |this, cx| {
+            let fixes = cx
+                .background_executor()
+                .spawn(async move {
+                    waiting
+                        .into_iter()
+                        .map(|(id, want)| {
+                            let place = fix_place(want.as_deref(), &builds, |want, build| {
+                                has_commit(&checkout, want, build)
+                            });
+                            (id, place)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |t, cx| {
+                if t.updater.fixes != fixes {
+                    t.updater.fixes = fixes;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Main moved: a look in a few seconds. A burst of ref writes (a merge,
@@ -607,13 +719,18 @@ impl Threadbear {
         }
         let checkout = running.checkout.clone();
         cx.spawn(async move |this, cx| {
-            let tree = cx
+            let (tree, commit) = cx
                 .background_executor()
-                .spawn(async move { main_tree(&checkout) })
+                .spawn(async move { (main_tree(&checkout), main_commit(&checkout)) })
                 .await;
             this.update(cx, |t, cx| {
                 let Some(tree) = tree else { return };
-                let ready = t.updater.quiet_main.ready(&tree, std::time::Instant::now());
+                t.updater.quiet_minutes = rules::quiet_minutes(&runner_json());
+                let quiet = std::time::Duration::from_secs(u64::from(t.updater.quiet_minutes) * 60);
+                let ready = t
+                    .updater
+                    .quiet_main
+                    .ready(&tree, std::time::Instant::now(), quiet);
                 // followMain can have changed while git was being read.
                 if t.runner_settings
                     .as_ref()
@@ -642,10 +759,21 @@ impl Threadbear {
                     }
                     Action::Build(tree) => {
                         if ready {
-                            t.start_update_build(tree, running.checkout.clone(), cx);
+                            t.start_update_build(tree, commit, running.checkout.clone(), cx);
                         } else {
                             t.updater.settling = true;
                             t.updater.waiting_for_host = false;
+                            // Look again the moment the wait is up.
+                            if let Some(left) =
+                                t.updater.quiet_main.left(std::time::Instant::now(), quiet)
+                            {
+                                t.updater.soon = Some(cx.spawn(async move |this, cx| {
+                                    cx.background_executor()
+                                        .timer(left + Duration::from_secs(1))
+                                        .await;
+                                    this.update(cx, |t, cx| t.check_for_update(cx)).ok();
+                                }));
+                            }
                         }
                     }
                 }
@@ -658,15 +786,26 @@ impl Threadbear {
         .detach();
     }
 
-    fn start_update_build(&mut self, tree: String, checkout: String, cx: &mut Context<Self>) {
+    fn start_update_build(
+        &mut self,
+        tree: String,
+        commit: Option<String>,
+        checkout: String,
+        cx: &mut Context<Self>,
+    ) {
         if self.updater.building.is_some() || self.updater.restarting {
             return;
         }
         let Some(script) = script() else { return };
+        let priority = rules::job_priority(
+            &runner_json(),
+            std::env::var("THREADBEAR_JOB_PRIORITY").ok().as_deref(),
+        );
         let (program, arguments) = rules::build_command(
             &script.to_string_lossy(),
             &checkout,
             &next_dir().to_string_lossy(),
+            priority,
         );
         let log = open_log();
         let (out, err) = match log
@@ -695,6 +834,7 @@ impl Threadbear {
             &tree[..tree.len().min(12)]
         ));
         self.updater.building = Some(tree.clone());
+        self.updater.building_commit = commit;
         self.updater.build_pid = Some(child.id());
         self.updater.waiting_for_host = false;
         cx.spawn(async move |this, cx| {
@@ -711,6 +851,7 @@ impl Threadbear {
 
     fn update_build_finished(&mut self, tree: String, status: Option<i32>, cx: &mut Context<Self>) {
         self.updater.building = None;
+        self.updater.building_commit = None;
         self.updater.build_pid = None;
         let no_builder = status == Some(5);
         if no_builder && !self.updater.no_builder {
@@ -1202,6 +1343,7 @@ impl Threadbear {
                     .as_ref()
                     .and_then(|s| s["followMain"].as_bool())
                     != Some(false),
+            quiet_minutes: u.quiet_minutes,
             failed: u.failed.is_some() && u.staged.is_none(),
             waiting: u.waiting_for_host && u.staged.is_none() && u.building.is_none(),
             // Only the installed app's reasons: every other launch is meant
@@ -1248,6 +1390,7 @@ impl Threadbear {
             _ => None,
         };
         u.settling = state == "settling";
+        u.quiet_minutes = rules::DEFAULT_QUIET_MINUTES;
         u.failed = (state == "failed").then(|| "def5678".to_owned());
         u.waiting_for_host = state == "waiting";
         u.no_builder = state == "no-builder";

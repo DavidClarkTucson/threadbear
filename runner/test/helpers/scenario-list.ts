@@ -108,6 +108,16 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // 21 Nov 2026: the review link was dropped on the way to the phone, so a
+    // pick between three mocks showed there as a bare question.
+    name: 'a pick between mockups, linking their review',
+    shows: ['Which way should a waiting thread show its fix?', 'Open the three mocks'],
+    play: (p) => {
+      p.say('Three mocks are up.');
+      p.endTurn({ needs: 'you', asks: [{ question: 'Which way should a waiting thread show its fix?', links: [{ title: 'Open the three mocks', url: 'review:0a7d18e2-5c14-45d3-ae06-5e1e13aa47d5' }] }] });
+    },
+  },
+  {
     name: 'a done card with follow-ups',
     shows: ['Landed it.', 'Make the phone show Stop on a running thread', 'Check the website draws the new card'],
     play: (p) => {
@@ -165,6 +175,20 @@ export const SCENARIOS: Scenario[] = [
       p.approvePlan();
       p.say('Building it.');
       p.endTurn({ needs: 'nothing' });
+    },
+  },
+  {
+    name: 'a thread the quiet inbox archived, brought back with Should have shown me',
+    // The notes saying it was archived and brought back are the Mac's own,
+    // like every archive note: only a login's notes go to the mirror
+    // (sync.ts toMessageDoc), so the phone, the website and another Mac
+    // show the reply alone (parity run, 23 Nov 2026).
+    shows: ['Renamed the setting.'],
+    play: (p) => {
+      p.say('Renamed the setting.');
+      p.endTurn({ needs: 'nothing' });
+      p.quietlyArchived('A receipt for what was asked.');
+      p.shouldHaveShown();
     },
   },
   {

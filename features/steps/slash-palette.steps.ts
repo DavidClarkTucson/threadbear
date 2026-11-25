@@ -78,6 +78,22 @@ Then('the palette\'s pick is {string}', async function (this: ThreadbearWorld, c
   await this.until(`${command} picked`, (d) => d.palette?.picked === command);
 });
 
+Then('the palette shows {string} dimmed, as start-only', async function (this: ThreadbearWorld, command: string) {
+  await this.until(`${command} dimmed`, (d) => d.palette?.startOnly?.includes(command));
+});
+
+Then('the palette\'s details have the buttons {string}', async function (this: ThreadbearWorld, list: string) {
+  const wanted = split(list);
+  await this.until(`the buttons ${list}`, (d) => {
+    const shown = d.palette?.detail?.buttons ?? [];
+    return shown.length === wanted.length && shown.every((s, i) => s === wanted[i]);
+  });
+});
+
+Then('the palette\'s details say {string}', async function (this: ThreadbearWorld, note: string) {
+  await this.until(`the note ${note}`, (d) => d.palette?.detail?.note === note);
+});
+
 Then('the palette\'s details say the usage {string}', async function (this: ThreadbearWorld, usage: string) {
   await this.until(`the usage ${usage}`, (d) => d.palette?.detail?.usage === usage);
 });

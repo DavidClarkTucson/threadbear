@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
 import { ConvexSync, forBackend, RELAY_CARDS_API_VERSION, ASKED_API_VERSION, LINKS_API_VERSION, PROJECTS_DIFF_API_VERSION, STARS_API_VERSION, NETWORK_WAIT_API_VERSION, OPTION_NOTES_API_VERSION, BACKEND_API_VERSION, MAC_RUNNER_STATS_API_VERSION, TURNS_API_VERSION, ICONS_API_VERSION, RUNNER_ICON_API_VERSION, SCHEDULES_API_VERSION, SHARE_API_VERSION, WOKE_API_VERSION, STARTED_BY_API_VERSION, SECTIONS_API_VERSION, MODELS_API_VERSION, REPLY_IMAGES_API_VERSION, REPLY_IMAGES_LOOKBACK_MS, REPLY_IMAGES_SCANS_PER_FLUSH, toAccountDoc, PRESENCE_MS, SYNC_COALESCE_MS, HEARTBEAT_MS, SHARED_USAGE_POLL_MS, SYNC_BATCH, ensureRunnerId, toThreadDoc, convexPoster, convexUploader, pictureName, type ThreadDoc } from '../../src/sync.ts';
-import type { Project } from '../../src/protocol.ts';
+import type { Project, ThreadSummary } from '../../src/protocol.ts';
 import { Scheduler, type ScheduleBackend } from '../../src/schedules.ts';
 import { nullLogger, type Logger } from '../../src/log.ts';
 import { AT_MAC_IDLE_MS, isAtMac } from '../../src/presence.ts';
@@ -14,7 +14,7 @@ import { loadConfig, paths, readRunnerJson } from '../../src/config.ts';
 import { downgradeFetch, redirectTrap } from '../helpers/redirect-trap.ts';
 import { scrubText } from '../../src/redaction.ts';
 import { Scrubber } from '../../src/scrub.ts';
-import { SCRUB_API_VERSION, isConvexCloud, MESSAGE_PICTURES_API_VERSION, LOGIN_STATE_API_VERSION } from '../../src/sync.ts';
+import { SCRUB_API_VERSION, isConvexCloud, MESSAGE_PICTURES_API_VERSION, MESSAGE_WAKE_REASON_API_VERSION, LOGIN_STATE_API_VERSION, sendFrom } from '../../src/sync.ts';
 import { makePng } from '../helpers/png.ts';
 import { ConvexUseTally } from '../../src/convex-use.ts';
 
@@ -737,7 +737,7 @@ type Fake = { h: ReturnType<typeof makeHarness>; sync: ConvexSync; calls: Call[]
 // What the fake deployment's photos were fetched from, across setupFull calls in a test.
 const downloads: string[] = [];
 
-function setupFull(opts: { heads?: { threadId: string; lastSeq: number }[]; taken?: Set<string>; failApply?: boolean | 'async'; log?: Logger; apiVersion?: number; hold?: (fn: string, args: Record<string, unknown>) => Promise<void> | undefined; holdDownload?: (url: string) => Promise<void> | undefined; answer?: (fn: string, args: Record<string, unknown>) => unknown } = {}): Fake {
+function setupFull(opts: { elsewhereThread?: (threadId: string) => ThreadSummary | undefined; heads?: { threadId: string; lastSeq: number }[]; taken?: Set<string>; failApply?: boolean | 'async'; log?: Logger; apiVersion?: number; hold?: (fn: string, args: Record<string, unknown>) => Promise<void> | undefined; holdDownload?: (url: string) => Promise<void> | undefined; answer?: (fn: string, args: Record<string, unknown>) => unknown } = {}): Fake {
   const h = makeHarness();
   const calls: Call[] = [];
   // In the order they finish, with hold() keeping some back.
@@ -851,6 +851,7 @@ function setupFull(opts: { heads?: { threadId: string; lastSeq: number }[]; take
     startedAt: '2026-10-27T00:00:00.000Z',
     clock: h.clock,
     log: opts.log ?? nullLogger,
+    ...(opts.elsewhereThread ? { elsewhereThread: opts.elsewhereThread } : {}),
     post,
     subscriber,
     secretBox: h.runner.secrets,
@@ -953,6 +954,20 @@ test('messages: the first start against a deployment sends whole histories once,
   const second = await start([{ threadId: a.id, lastSeq: lastA }, { threadId: b.id, lastSeq: 1 }]);
   assert.ok(second.posts.some((p) => p.fn === 'sync:messageHeads'));
   assert.equal(second.sent.filter((m) => m.role !== 'tool').length, 0);
+  // A head past the thread's own log isn't one this runner sent (an old copy
+  // of the main key writing as it, Daybreak 178): taken as the head, nothing
+  // after it would ever go up. The whole history goes again instead.
+  const third = await start([{ threadId: a.id, lastSeq: 2 ** 49 }, { threadId: b.id, lastSeq: 1 }]);
+  assert.equal(third.sent.filter((m) => m.threadId === a.id && m.role !== 'tool').length, 26, 'a forged head suppresses nothing');
+  assert.equal(third.sent.filter((m) => m.threadId === b.id).length, 0, "b's real head still holds");
+});
+
+test("a start's head is believed only up to the thread's own last seq", () => {
+  assert.equal(sendFrom({ lastSeq: 40 }, undefined), 0);
+  assert.equal(sendFrom({ lastSeq: 40 }, 12), 12);
+  assert.equal(sendFrom({ lastSeq: 40 }, 40), 40);
+  assert.equal(sendFrom({ lastSeq: 40 }, 41), 0);
+  assert.equal(sendFrom({ lastSeq: 40 }, 2 ** 49), 0);
 });
 
 test('a tool call becomes one line: the description, the file, the search, else the title', () => {
@@ -983,6 +998,28 @@ test("answers: a message that answered asks says them on its row, scrubbed as it
   assert.equal(leak.answers, undefined);
   // The pictures line after them is fine.
   assert.ok(toMessageDoc('t1', { type: 'user.message', seq: 7, ts: at, text: 'Ok?\nYes', images: [{ path: '/p.png', mediaType: 'image/png' }], answers: [{ action: 'Ok?', answer: 'Yes' }] } as never)!.answers);
+});
+
+// A runner's own message says why it sent it (the Mac's quiet note, "Sent by
+// the runner: codex answered"), which never reached Convex: the phones, the
+// website and another Mac drew nothing or "Moments later" for a For everyone
+// lead's member answer (nightly parity run, 23 Nov).
+test("wakeReason: a runner's message row says why it sent it, scrubbed and short", () => {
+  const at = '2026-11-23T00:00:00.000Z';
+  const scrub = (t: string) => t.replace('sk-secret', '[key]');
+  const sent = (origin: string | undefined, wakeReason: string) => toMessageDoc('t1', { type: 'user.message', seq: 4, ts: at, text: 'For everyone: Codex answered.', images: [], ...(origin ? { origin } : {}), wakeReason } as never, scrub)!;
+  assert.equal(sent('runner', 'Codex answered').wakeReason, 'Codex answered');
+  assert.equal(sent('runner', 'Hook sk-secret passed').wakeReason, 'Hook [key] passed');
+  assert.equal(sent('runner', `  ${'x'.repeat(500)}  `).wakeReason!.length, 200);
+  assert.equal(sent('runner', '   ').wakeReason, undefined);
+  // One line, as the Mac's divider draws it (Gemini's review, 23 Nov).
+  assert.equal(sent('runner', 'Codex answered\nand more').wakeReason, 'Codex answered…');
+  assert.equal(sent('runner', 'Codex answered\rand more').wakeReason, 'Codex answered…');
+  assert.equal(sent('runner', 'Codex answered\u2028and more').wakeReason, 'Codex answered…');
+  // Only the runner's own messages have one.
+  assert.equal(sent('phone', 'Codex answered').wakeReason, undefined);
+  assert.equal(sent(undefined, 'Codex answered').wakeReason, undefined);
+  assert.equal(toMessageDoc('t1', { type: 'user.message', seq: 5, ts: at, text: 'hi', images: [], origin: 'runner' } as never)!.wakeReason, undefined);
 });
 
 test('plans: a Plan first plan goes to the phone whole, as a plan row', () => {
@@ -1078,6 +1115,39 @@ test("handover: a draining runner's open card stays on its thread's row", async 
   const behind = (f.sync as never as { cardsBehind: Map<string, { approvalId: string; title?: string }[]> }).cardsBehind.get('drain-1');
   assert.deepEqual(behind?.map((c) => [c.approvalId, c.title]), [['start-1', 'Start a thread on main? Answer it on the Mac.']]);
   await f.sync.stop();
+});
+
+test("handover: a draining runner's command card can still be allowed from the phone", async () => {
+  // 21 Nov: the Dell updated while a Codex thread waited on `git fetch
+  // origin`. The new runner put the card back up, but with the thread still
+  // on the draining runner it had no folder to check the command's own
+  // against, so the phone showed only Deny.
+  let draining: ThreadSummary | undefined;
+  const f = setupFull({ elsewhereThread: (id) => (id === draining?.id ? draining : undefined) });
+  draining = { ...f.h.runner.create({ text: 'go', cwd: f.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread, id: 'drain-cwd', status: 'waiting' as const, needsYou: true };
+  const cwd = draining.cwd;
+  const docs = () => f.calls.filter((c) => c.fn === 'sync:upsertThreads').flatMap((c) => c.args.threads as ThreadDoc[]);
+  const ts = '2026-11-21T00:00:00.000Z';
+  const card = (approvalId: string, seq: number, cwd: string) => ({ type: 'approval.requested', seq, ts, approvalId, name: 'shell', title: 'git fetch origin', input: { command: 'git fetch origin', cwd }, options: ['allow', 'deny'] });
+  f.sync.start({ hold: true });
+  f.sync.seedCards([{ thread: draining, events: [card('seeded', 10, cwd)] as never }]);
+  f.sync.release();
+  await f.sync.flushNow();
+  assert.deepEqual((docs().filter((d) => d.threadId === draining.id).at(-1)!.pendingApproval as { options?: string[] } | undefined)?.options, ['allow', 'deny']);
+  // One the draining runner puts up after the handover, live.
+  f.h.runner.publish({ method: 'thread.event', params: { threadId: draining.id, event: card('live', 11, cwd) } } as never);
+  assert.deepEqual((f.sync as never as { pending: Map<string, { options: string[] }> }).pending.get(draining.id)?.options, ['allow', 'deny']);
+  // A command for another folder still isn't the phone's to allow.
+  f.h.runner.publish({ method: 'thread.event', params: { threadId: draining.id, event: card('other', 12, '/elsewhere') } } as never);
+  assert.deepEqual((f.sync as never as { pending: Map<string, { options: string[] }> }).pending.get(draining.id)?.options, ['deny']);
+  await f.sync.stop();
+  // The folder a handover reads with the card is enough by itself.
+  const g = setupFull();
+  g.sync.start({ hold: true });
+  g.sync.seedCards([{ thread: draining, events: [card('alone', 10, cwd)] as never }]);
+  assert.deepEqual((g.sync as never as { pending: Map<string, { options: string[] }> }).pending.get(draining.id)?.options, ['allow', 'deny']);
+  g.sync.release();
+  await g.sync.stop();
 });
 
 test('handover: a card answered while the log was read is not put back', async () => {
@@ -1847,16 +1917,19 @@ test('the backend API version from the heartbeat shows in status, and an old bac
   await old.sync.stop();
 });
 
+const PNG_A = makePng(8, 8);
+const PNG_B = makePng(16, 16);
+
 // Project pictures: a runner with a picture for a project sends it to file
 // storage once, when the backend takes pictures (API 5), and never again
 // for the same copy.
 function setupPictures(opts: { backend?: number; has?: { projectId: string; picture: string }[]; project?: Partial<Project>; uploadFails?: () => Error | undefined } = {}) {
   const h = makeHarness();
   const dir = tmpDir();
-  // A tiny PNG by name only: the bytes don't matter to the sync, which
-  // sends what's in the file.
+  // A tiny PNG: the sync sends what's in the file, once its header says
+  // it's within the icon budget (icon-budget.ts).
   const iconPath = path.join(dir, 'p1-abc123.png');
-  fs.writeFileSync(iconPath, Buffer.from('PNGBYTES'));
+  fs.writeFileSync(iconPath, PNG_A);
   const calls: Call[] = [];
   const uploads: { url: string; bytes: string; mediaType: string }[] = [];
   let project: Project = {
@@ -1904,7 +1977,7 @@ test('project pictures: sent to file storage once the backend takes them, once p
   // The project went up with its icon named, and the picture itself followed.
   const set = calls.filter((c) => c.fn === 'sync:setProjects');
   assert.deepEqual((set[0]!.args.projects as { icon?: unknown }[])[0]!.icon, { symbol: 'leaf', picture: 'p1-abc123', by: 'librarian' });
-  assert.deepEqual(uploads, [{ url: 'https://upload.example/u1', bytes: 'PNGBYTES', mediaType: 'image/png' }]);
+  assert.deepEqual(uploads, [{ url: 'https://upload.example/u1', bytes: PNG_A.toString(), mediaType: 'image/png' }]);
   assert.deepEqual(setIcons()[0]!.args, { key: 'k', runnerId: 'r1', projectId: 'p1', picture: 'p1-abc123', storageId: 'st_1', mediaType: 'image/png' });
   // The list changing again doesn't send the same picture again.
   change({ title: 'Threadbear app' });
@@ -1912,11 +1985,11 @@ test('project pictures: sent to file storage once the backend takes them, once p
   assert.equal(uploads.length, 1);
   // A new copy (a new file name) does.
   const next = path.join(dir, 'p1-def456.png');
-  fs.writeFileSync(next, Buffer.from('NEWBYTES'));
+  fs.writeFileSync(next, PNG_B);
   change({ icon: { image: { path: next, mediaType: 'image/png' }, by: 'mike', updatedAt: '2026-10-28T00:00:00.000Z' } });
   await sync.flushNow();
   assert.equal(uploads.length, 2);
-  assert.equal(uploads[1]!.bytes, 'NEWBYTES');
+  assert.equal(uploads[1]!.bytes, PNG_B.toString());
   assert.equal(setIcons()[1]!.args.picture, 'p1-def456');
   // Back to a symbol only: nothing to upload, and the mirror drops the
   // picture with setProjects (this backend is older than upsertProjects).
@@ -1959,7 +2032,7 @@ test('project pictures: a picture that cannot be read is skipped, not retried un
   assert.equal(sync.status().state, 'ok');
   // Fixed and changed: sent then.
   const fixed = path.join(dir, 'p1-fixed.png');
-  fs.writeFileSync(fixed, Buffer.from('OK'));
+  fs.writeFileSync(fixed, PNG_B);
   change({ icon: { image: { path: fixed, mediaType: 'image/png' }, by: 'librarian', updatedAt: '2026-10-28T00:00:00.000Z' } });
   await sync.flushNow();
   assert.equal(uploads.length, 1);
@@ -4323,6 +4396,25 @@ test('a message row says how many pictures it came with, and goes with it from A
   }
 });
 
+test("a runner's message row goes with its wakeReason only from API 98", async () => {
+  for (const [backend, says] of [[MESSAGE_WAKE_REASON_API_VERSION, true], [MESSAGE_WAKE_REASON_API_VERSION - 1, false]] as const) {
+    const f = setupFull({ apiVersion: backend });
+    const rows = () => f.calls.filter((c) => c.fn === 'sync:appendMessages').flatMap((c) => c.args.messages as MessageDoc[]);
+    f.sync.start();
+    await f.sync.flushNow();
+    const t = f.h.runner.create({ text: 'go', cwd: f.h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+    f.h.adapter.last.init();
+    f.h.adapter.last.result();
+    f.h.runner.send(t.id, 'For everyone: Codex answered.', [], { origin: 'runner', wakeReason: 'Codex answered' });
+    f.h.clock.advance(SYNC_COALESCE_MS);
+    await tick();
+    const note = rows().find((m) => m.threadId === t.id && m.origin === 'runner')!;
+    assert.ok(note, `backend ${backend}: the runner's message went`);
+    assert.equal(note.wakeReason, says ? 'Codex answered' : undefined, `backend ${backend}`);
+    await f.sync.stop();
+  }
+});
+
 // Year-long token… from the Mac's Runners panel (year-token-maker.ts): only
 // a command the main Mac queued (from: "mac") reaches the maker; the phone's
 // can't, and the answer goes back as the call's result.
@@ -4427,5 +4519,35 @@ test("sharing: a thread moving away while a picture goes up leaves the others' p
   await sync.flushNow();
   const added = calls.filter((c) => c.fn === 'sync:addShareImage').map((c) => c.args.threadId);
   assert.ok(added.includes(b!.t.id), "B's picture still went up");
+  await sync.stop();
+});
+
+// Review, 23 Nov 2026: an archived or hibernated thread's row still said it
+// needed Mike, so its held push reached his phone when he left the Mac and
+// one already delivered stayed. Put away, the row says it doesn't; a
+// hibernation ending writes the row again, so the thread can push then.
+test("a thread Mike puts away doesn't need him on the phone's row, and does again when its hibernation ends", async () => {
+  const { h, sync, docs } = setup({ answer: (fn) => (fn === 'sync:heartbeat' ? { apiVersion: BACKEND_API_VERSION } : null) });
+  const a = h.runner.create({ text: 'one', cwd: h.cfg.defaults.cwd, accountId: 'claude-3' }).thread;
+  h.adapter.last.init();
+  h.adapter.last.result();
+  sync.start();
+  await tick(20);
+  await sync.flushNow();
+  const last = () => docs().filter((d) => d.threadId === a.id).at(-1)!;
+  assert.equal(last().needsYou, true, 'an unread finished turn');
+  h.runner.update({ threadId: a.id, snoozedUntil: new Date(h.clock.now() + 60_000).toISOString() });
+  await tick();
+  await sync.flushNow();
+  assert.deepEqual([last().view, last().needsYou], ['hibernating', false]);
+  assert.equal(h.runner.get(a.id).needsYou, true, "the Mac's own summary is as it was");
+  h.clock.advance(60_000);
+  await tick(20);
+  await sync.flushNow();
+  assert.deepEqual([last().view, last().needsYou], ['inbox', true], 'woken by its time, it needs him again');
+  h.runner.update({ threadId: a.id, archived: true });
+  await tick();
+  await sync.flushNow();
+  assert.deepEqual([last().view, last().needsYou], ['den', false]);
   await sync.stop();
 });

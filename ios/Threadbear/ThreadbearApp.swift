@@ -12,6 +12,11 @@ struct ThreadbearApp: App {
     @State private var refusedQuickAsk = false
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        // The old quick ask log kept what was said and spoken: gone on the first launch after.
+        QuickAskLogFile.removeOldLog()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -33,8 +38,13 @@ struct ThreadbearApp: App {
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     quick.scenePhaseChanged(to: phase)
                     switch phase {
-                    case .background: model.wentToBackground()
-                    case .active: model.comingBack()
+                    case .background:
+                        model.wentToBackground()
+                        // About 1.2 GB, and the GPU's off limits in the background.
+                        WhisperEngine.shared.unload()
+                    case .active:
+                        model.comingBack()
+                        Dictation.prepare()
                     default: break
                     }
                 }
@@ -128,6 +138,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ = DictationWords.shared  // takes -ThreadbearAddWords
         #if DEBUG
         WhisperEngine.testFromLaunchArguments()
+        SelfShot.fromLaunchArguments()
         #endif
         return true
     }
@@ -166,6 +177,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// about a thread other than the one on screen.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         Task { @MainActor in completionHandler([.banner, .sound]) }
+    }
+
+    /// The backend's silent push:clear: the thread no longer needs you, so its
+    /// notification comes down (DeliveredNotifications). Background pushes
+    /// need the remote-notification background mode (Info.plist).
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        guard let threadId = userInfo["clear"] as? String else { completionHandler(.noData); return }
+        Task { @MainActor in
+            await DeliveredNotifications.clear(threadId: threadId)
+            completionHandler(.newData)
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {

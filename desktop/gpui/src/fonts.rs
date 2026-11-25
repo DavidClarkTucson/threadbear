@@ -6,6 +6,10 @@
 //! static OTFs for the weights the app draws in, plus obliques for the
 //! italics in replies. Not the variable font: GPUI can't set its roundness
 //! axis, and the static files are a fifth of its size.
+//!
+//! Caveat (https://github.com/googlefonts/caveat, OFL 1.1, licence in
+//! fonts/caveat), bold: the agent's handwritten notes on a review's pictures
+//! (the review canvas), after the Convex Explained doodle kit.
 
 use std::borrow::Cow;
 
@@ -17,30 +21,6 @@ macro_rules! font {
     };
 }
 
-/// Allo's upright files by weight, for a page the app makes itself to
-/// carry the same font (review_pane.rs): a web view can't see a font GPUI
-/// was only handed.
-pub fn allo_weights() -> [(u16, &'static [u8]); 4] {
-    [
-        (
-            400,
-            include_bytes!("../fonts/allo/Allo-Regular.otf").as_slice(),
-        ),
-        (
-            500,
-            include_bytes!("../fonts/allo/Allo-Medium.otf").as_slice(),
-        ),
-        (
-            600,
-            include_bytes!("../fonts/allo/Allo-SemiBold.otf").as_slice(),
-        ),
-        (
-            700,
-            include_bytes!("../fonts/allo/Allo-Bold.otf").as_slice(),
-        ),
-    ]
-}
-
 pub fn register(cx: &App) {
     let fonts = vec![
         font!("Allo-Regular.otf"),
@@ -49,9 +29,13 @@ pub fn register(cx: &App) {
         font!("Allo-SemiBold.otf"),
         font!("Allo-Bold.otf"),
         font!("Allo-BoldOblique.otf"),
+        Cow::Borrowed(include_bytes!("../fonts/caveat/Caveat-Bold.ttf").as_slice()),
     ];
     // A font that won't load leaves the choice falling back to the system's.
     if let Err(error) = cx.text_system().add_fonts(fonts) {
         threadbear_client::log::write("fonts", &format!("bundled fonts did not load: {error:#}"));
     }
 }
+
+/// The family the agent's notes on a review's pictures are written in.
+pub const HANDWRITING: &str = "Caveat";

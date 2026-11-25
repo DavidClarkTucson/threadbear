@@ -25,8 +25,12 @@ const STAGE_INSET: f32 = 14.;
 const CELL_SPACING: f32 = 12.;
 const CELL_PADDING: f32 = 8.;
 const CAPTION_HEIGHT: f32 = 20.;
-/// The film strip's pictures and the rail's, cropped from the top left.
+/// The film strip's pictures, cropped from the top left.
 const STRIP_THUMB: (f32, f32) = (92., 58.);
+/// The film strip's row: its pictures, their names and the room round them.
+const STRIP_ROW: f32 = 96.;
+/// The column back and next each stand in, beside the picture.
+const STEP_COLUMN: f32 = 60.;
 /// What a wheel's line is in points when Shift turns it sideways.
 const WHEEL_LINE: f32 = 16.;
 
@@ -43,16 +47,15 @@ pub(crate) struct StageState {
     pending: Option<ZoomStep>,
     /// The minimap's being dragged.
     minimap_drag: bool,
-    marks_scroll: ScrollHandle,
     strip_scroll: ScrollHandle,
 
-    /// The option and shot the row under the stage last scrolled to.
+    /// The option and shot the film strip last scrolled to.
     followed: Option<(usize, usize)>,
     /// A page shot on show, sealed with its scripts off (`review.media`):
     /// its file and its view, dropped once another shot shows.
     pub(crate) page: Option<(String, Rc<threadbear_web::PanelPage>)>,
     /// Why the page shot on show couldn't show in place, by its file.
-    page_failed: Option<(String, String)>,
+    pub(super) page_failed: Option<(String, String)>,
     /// What the page is waiting for (the runtime), for the dump.
     page_waiting: Option<String>,
     /// The web runtime watched, so the stage draws again as it starts.
@@ -141,13 +144,6 @@ impl StageState {
 
 /// An image's size in pixels, or the Swift app's stand-in when the runner
 /// didn't say (`sourceSize`).
-fn pixels(image: &ImageRef) -> (f64, f64) {
-    match (image.width, image.height) {
-        (Some(w), Some(h)) if w > 0 && h > 0 => (w as f64, h as f64),
-        _ => (1100., 760.),
-    }
-}
-
 fn pt(v: f64) -> Pixels {
     gpui_kit::px(v as f32)
 }
@@ -160,54 +156,72 @@ impl ReviewWindow {
     ) -> AnyElement {
         let dark = cx.theme().is_dark();
         let single = self.session.mode == ReviewMode::Single;
-        let caption = if single {
-            self.session
-                .shown_option()
-                .cloned()
-                .map(|o| self.render_caption(&o, cx))
-        } else {
-            None
-        };
         let images = if single {
             self.render_shot(window, cx)
         } else {
             self.render_gallery(window, cx)
         };
-        let stepper = self.render_stepper(cx);
+        let (back, next) = self.render_steps(cx);
+        // The film strip's row whenever any option has several shots, so
+        // the picture keeps its size from one option to the next. Side by
+        // side they have its room too.
+        let strip = (single
+            && self
+                .session
+                .review()
+                .options
+                .iter()
+                .any(|o| o.shot_count() > 1))
+        .then(|| self.render_strip_row(cx));
         let room = self.stage.room.clone();
         v_flex()
             .id("review-stage")
-            // Its own width whatever the image's: the rail keeps its 340.
             .flex_1()
-            .min_w_0()
-            .h_full()
+            .min_h_0()
+            .w_full()
             .bg(hsla(0., 0., 0., if dark { 0.22 } else { 0.05 }))
-            .children(caption)
             .child(
-                div()
-                    .id("review-images")
-                    .relative()
+                // A shot keeps clear of the title bar and the band, as the
+                // caption and the row of marks once kept it; side by side
+                // they have their own inset.
+                h_flex()
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .overflow_hidden()
+                    .when(single, |s| s.py(px(STAGE_INSET)))
+                    .child(back)
                     .child(
-                        canvas(move |bounds, _, _| room.set(Some(bounds)), |_, _, _, _| {})
-                            .absolute()
-                            .size_full(),
+                        div()
+                            .id("review-images")
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(
+                                canvas(move |bounds, _, _| room.set(Some(bounds)), |_, _, _, _| {})
+                                    .absolute()
+                                    .size_full(),
+                            )
+                            .child(images),
                     )
-                    .child(images),
+                    .child(next),
             )
-            .child(stepper)
+            .children(strip)
             .into_any_element()
     }
 
-    /// Which option and shot this is, and the ways to try it: today's version
-    /// flicked to, the option running live.
-    fn render_caption(&mut self, option: &ReviewOption, cx: &mut Context<Self>) -> AnyElement {
-        let secondary = style::secondary_text(cx);
-        let shown = self.session.shown_shot().unwrap_or_else(|| option.shot(0));
-        let place = rules::caption_where(option, &shown);
+    /// The ways to try the option on show, at the end of the tabs' row:
+    /// today's version flicked to, the option running live.
+    pub(super) fn render_tries(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(option) = self
+            .session
+            .shown_option()
+            .filter(|_| self.session.mode == ReviewMode::Single)
+            .cloned()
+        else {
+            return vec![];
+        };
         let mut buttons: Vec<AnyElement> = vec![];
         if let (Some(baseline), true) = (self.session.baseline().cloned(), self.session.can_peek())
         {
@@ -274,45 +288,7 @@ impl ReviewWindow {
                 .into_any_element(),
             );
         }
-        let height = if buttons.is_empty() {
-            style::natural_line(style::size::WORK + 2.)
-        } else {
-            26.
-        };
-        h_flex()
-            .flex_none()
-            .w_full()
-            .px(px(22.))
-            .pt(px(14.))
-            .gap(px(10.))
-            .items_center()
-            .h(px(14. + height))
-            // On the buttons' first baseline, as the Swift row lines them up:
-            // 2 higher than the middle.
-            .child(
-                div()
-                    .flex_none()
-                    .mb(px(4.))
-                    .max_w(px(520.))
-                    .truncate()
-                    .text_size(px(style::size::WORK + 2.))
-                    .line_height(px(style::natural_line(style::size::WORK + 2.)))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(option.label()),
-            )
-            .child(
-                div()
-                    .mb(px(4.))
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(style::size::WORK))
-                    .line_height(px(style::natural_line(style::size::WORK)))
-                    .text_color(secondary)
-                    .child(place),
-            )
-            .child(div().flex_1().min_w(px(8.)))
-            .children(buttons)
-            .into_any_element()
+        buttons
     }
 
     /// One shot with the whole stage to zoom in. A click goes back to all of
@@ -325,7 +301,7 @@ impl ReviewWindow {
             return self.render_media(&shot, room, window, cx);
         }
         let scale = f64::from(window.scale_factor()).max(1.);
-        let (w, h) = pixels(&shot.image);
+        let (w, h) = super::parts::pixels(&shot.image);
         let peeking = self.session.peeking && self.session.can_peek();
         let path = shot.image.path.clone();
         let zoom = self.stage.follow(
@@ -405,9 +381,11 @@ impl ReviewWindow {
         }
     }
 
-    /// A clip or a page. On a Mac the clip plays on the stage in the
+    /// A clip, a sound or a page. On a Mac the clip plays on the stage in the
     /// system's player, round and round with its controls and its sound on,
-    /// as the Swift window's does: some clips are there to be heard. A page,
+    /// as the Swift window's does: some clips are there to be heard. A sound
+    /// is its waveform with the pane's play bar along the bottom, paused at
+    /// the start, so stepping through music beds doesn't start each. A page,
     /// or a clip anywhere else (or one the open gate won't play), is its
     /// still, fitted, with a button that opens it where it can, through the
     /// gate (the clip in the app this computer plays videos in, the page in
@@ -465,17 +443,71 @@ impl ReviewWindow {
                     .into_any_element();
             }
         }
+        if let Some(sound) = shot.audio().filter(|_| crate::media_view::SHOWN_HERE) {
+            let path = sound.to_owned();
+            if let Ok(view) = crate::media_view::slot(&stage_key(sound), window, |opening| {
+                crate::open_gate::show_media(
+                    &path,
+                    Origin::ThisMac,
+                    crate::media_view::Kind::PaneAudio,
+                    opening,
+                )
+            }) {
+                return div()
+                    .id("review-media")
+                    .absolute()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .relative()
+                            .flex_none()
+                            .w(pt(fit.0))
+                            .h(pt(fit.1))
+                            .child(
+                                img(crate::rows::markdown::file_picture(&shot.image.path))
+                                    .size_full()
+                                    .object_fit(ObjectFit::Fill),
+                            )
+                            // The bar sits in the middle of its slot, at most
+                            // 560 wide (native/media_views.m, layoutInSlot).
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .right_0()
+                                    .bottom(px(16.))
+                                    .h(px(44.))
+                                    .child(view),
+                            ),
+                    )
+                    .into_any_element();
+            }
+        }
         let play_tip = if crate::media_view::SHOWN_HERE {
             "Play it in the app this computer plays videos in"
         } else {
             "Play it in the app this computer plays videos in: this window can't play clips yet"
         };
-        let (icon, words, tip, path) = match (shot.video(), shot.page()) {
-            (Some(video), _) => (
+        let (icon, words, tip, path) = match (shot.video().or(shot.audio()), shot.page()) {
+            (Some(video), _) if shot.video().is_some() => (
                 IconName::Play,
                 "Play the clip",
                 play_tip.to_owned(),
                 video.to_owned(),
+            ),
+            (Some(sound), _) => (
+                IconName::Music,
+                "Play the sound",
+                if crate::media_view::SHOWN_HERE {
+                    "Play it in the app this computer plays sounds in"
+                } else {
+                    "Play it in the app this computer plays sounds in: this window can't play sounds yet"
+                }
+                .to_owned(),
+                sound.to_owned(),
             ),
             // Says why it isn't here: this window does show pages, so "can't
             // show pages yet" sent Mike looking for why it was a button at
@@ -603,7 +635,7 @@ impl ReviewWindow {
     /// The page's view, placed where it's drawn each frame, or None while the
     /// web runtime isn't running here or the gate won't show the file: then
     /// the still and Open the page, as before.
-    fn stage_page(
+    pub(super) fn stage_page(
         &mut self,
         path: &str,
         window: &mut Window,
@@ -819,7 +851,9 @@ impl ReviewWindow {
                     .line_height(px(style::natural_line(style::size::DETAIL)))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(id_color)
-                    .child(option.id.clone()),
+                    .min_w_0()
+                    .truncate()
+                    .child(option.label()),
             )
             .when(count > 1, |s| {
                 s.child(
@@ -830,7 +864,7 @@ impl ReviewWindow {
                         .child(format!("{count} shots")),
                 )
             })
-            .when(recommended, |s| s.child(super::rail::recommended_mark(cx)));
+            .when(recommended, |s| s.child(super::parts::recommended_mark(cx)));
         let picture = crate::highlights::tipped(
             div()
                 .id(("review-cell", index))
@@ -903,9 +937,10 @@ impl ReviewWindow {
             .into_any_element()
     }
 
-    /// The row under the stage: back and next at its ends, and between them the
-    /// option's other shots from the left and the marks from the right.
-    fn render_stepper(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// Back and next, each in a column of its own beside the picture, so
+    /// neither is ever over it (a clip or a page there is a view of its own
+    /// over the window).
+    fn render_steps(&mut self, cx: &mut Context<Self>) -> (AnyElement, AnyElement) {
         let single = self.session.mode == ReviewMode::Single;
         let back_tip = if single {
             "Previous (\u{2190})"
@@ -935,197 +970,47 @@ impl ReviewWindow {
             cx,
         )
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.browse(1, cx)));
-        let strip_option = self
-            .session
-            .focused_option()
-            .filter(|o| single && o.shot_count() > 1)
-            .cloned();
-        // What each wants, and what they get (`ReviewStepperLayout.share`).
-        let width = self.stage.room().map_or(0., |r| f32::from(r.size.width));
-        let marks_wanted = self.marks_width();
-        let strip_wanted = strip_option.as_ref().map_or(0., |o| {
-            let n = o.shot_count() as f32;
-            n * STRIP_THUMB.0 + (n - 1.) * 8. + 6.
-        });
-        let room = width - 44. - 100. - 18. * if strip_option.is_some() { 3. } else { 2. };
-        let (strip_width, marks_width) = rules::stepper_share(
-            f64::from(room),
-            f64::from(strip_wanted),
-            f64::from(marks_wanted),
-        );
-        self.follow_marks();
-        let mut row = h_flex()
-            .flex_none()
-            .w_full()
-            .px(px(22.))
-            .py(px(12.))
-            .gap(px(18.))
-            .items_center()
-            .child(back);
-        if let Some(option) = strip_option {
-            row = row.child(self.render_filmstrip(&option, strip_width as f32, cx));
-        }
-        row.child(div().flex_1())
-            .child(self.render_marks(marks_width as f32, cx))
-            .child(next)
-            .into_any_element()
-    }
-
-    /// How wide the marks and the grid button want to be: each option's letter
-    /// and a 13 point slot per shot, 12 between options, then the button.
-    fn marks_width(&self) -> f32 {
-        // As drawn last time: what the row shows plus what it scrolls past.
-        // Until then the letters' widths are guessed.
-        let drawn =
-            self.stage.marks_scroll.bounds().size.width + self.stage.marks_scroll.max_offset().x;
-        let marks = if drawn > gpui_kit::px(0.) {
-            f32::from(drawn)
-        } else {
-            let options = &self.session.review().options;
-            let letters: f32 = options
-                .iter()
-                .map(|o| o.id.chars().count() as f32 * 8. + 2. + o.shot_count() as f32 * 13.)
-                .sum();
-            letters + 12. * options.len().saturating_sub(1) as f32
-        };
-        marks + 12. + 26.
-    }
-
-    /// Keeps the dot on show in view, not its option: an option with dozens of
-    /// shots is wider than the row.
-    fn follow_marks(&mut self) {
-        let here = (self.session.focused(), self.session.shot());
-        if self.session.mode == ReviewMode::Single && self.stage.followed != Some(here) {
-            self.stage.followed = Some(here);
-            // The row's children: each option's letter, then its dots.
-            let before: usize = self
-                .session
-                .review()
-                .options
-                .iter()
-                .take(here.0)
-                .map(|o| 1 + o.shot_count())
-                .sum();
-            self.stage.marks_scroll.scroll_to_item(before + 1 + here.1);
-            self.stage.strip_scroll.scroll_to_item(here.1);
-        }
-    }
-
-    /// Every option's letter and a dot per shot, scrolling sideways when
-    /// there are too many, then the grid button. A reference's dots are
-    /// hollow: it's there to look at, not to pick.
-    fn render_marks(&mut self, width: f32, cx: &mut Context<Self>) -> AnyElement {
-        let single = self.session.mode == ReviewMode::Single;
-        let (accent, primary, secondary) = (
-            style::control_accent(cx),
-            style::label_text(cx),
-            style::secondary_text(cx),
-        );
-        let faint = style::secondary_text(cx).opacity(0.45);
-        let mut dots = h_flex()
-            .id("review-marks")
-            .flex_none()
-            .max_w(px((width - 12. - 26.).max(0.)))
-            .items_center()
-            .overflow_x_scroll()
-            .track_scroll(&self.stage.marks_scroll);
-        let options = self.session.review().options.clone();
-        for (index, option) in options.iter().enumerate() {
-            let picked = self.session.draft().picked_ids.contains(&option.id);
-            let here = single && self.session.focused() == index;
-            let letter_color = if picked {
-                accent
-            } else if here {
-                primary
-            } else {
-                secondary
-            };
-            dots = dots.child(
-                div()
-                    .flex_none()
-                    .when(index > 0, |s| s.ml(px(12.)))
-                    .pr(px(2.))
-                    .text_size(px(style::size::DETAIL - 1.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(letter_color)
-                    .child(option.id.clone()),
-            );
-            for shot in 0..option.shot_count() {
-                let current = here && self.session.shot() == shot;
-                let color = if picked {
-                    accent
-                } else if current || here {
-                    primary
-                } else {
-                    faint
-                };
-                let side = if current { 10. } else { 7. };
-                let dot = div().size(px(side)).rounded_full().map(|d| {
-                    if option.reference {
-                        d.border(px(1.5)).border_color(color)
-                    } else {
-                        d.bg(color)
-                    }
-                });
-                dots =
-                    dots.child(
-                        crate::highlights::tipped(
-                            div()
-                                .id(SharedString::from(format!(
-                                    "review-mark-{}-{shot}",
-                                    option.id
-                                )))
-                                .flex_none()
-                                .w(px(13.))
-                                .h(px(26.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .cursor_pointer(),
-                            rules::shot_tip(option, shot),
-                        )
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.enlarge(index, shot, cx)
-                        }))
-                        .child(dot),
-                    );
-            }
-        }
-        let all = !single;
-        let grid = crate::highlights::tipped(
+        let column = || {
             div()
-                .id("review-grid")
                 .flex_none()
-                .size(px(26.))
+                .w(px(STEP_COLUMN))
+                .h_full()
                 .flex()
                 .items_center()
                 .justify_center()
-                .cursor_pointer(),
-            "See them all and choose (Esc)",
+        };
+        (
+            column().child(back).into_any_element(),
+            column().child(next).into_any_element(),
         )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.show_all(cx)))
-        .child(
-            Icon::new(IconName::LayoutGrid)
-                .with_size(px(13.))
-                .text_color(if all { primary } else { secondary }),
-        );
+    }
+
+    /// The row under the picture for the shots of the option on show: as
+    /// tall with one shot as with several.
+    fn render_strip_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let option = self
+            .session
+            .focused_option()
+            .filter(|o| self.session.mode == ReviewMode::Single && o.shot_count() > 1)
+            .cloned();
+        let here = (self.session.focused(), self.session.shot());
+        if option.is_some() && self.stage.followed != Some(here) {
+            self.stage.followed = Some(here);
+            self.stage.strip_scroll.scroll_to_item(here.1);
+        }
         h_flex()
             .flex_none()
-            .gap(px(12.))
-            .items_center()
-            .child(dots)
-            .child(grid)
+            .w_full()
+            .h(px(STRIP_ROW))
+            .px(px(22.))
+            .justify_center()
+            .children(option.map(|o| self.render_filmstrip(&o, cx)))
             .into_any_element()
     }
 
     /// The option's shots, scrolling sideways once there are more than the
     /// row has room for; the one on show outlined.
-    fn render_filmstrip(
-        &mut self,
-        option: &ReviewOption,
-        width: f32,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn render_filmstrip(&mut self, option: &ReviewOption, cx: &mut Context<Self>) -> AnyElement {
         let (primary, secondary) = (style::label_text(cx), style::secondary_text(cx));
         let focused = self.session.focused();
         let mut strip = h_flex()
@@ -1140,54 +1025,55 @@ impl ReviewWindow {
                 .title
                 .clone()
                 .unwrap_or_else(|| format!("{}", index + 1));
-            strip =
-                strip.child(
-                    crate::highlights::tipped(
-                        v_flex()
-                            .id(("review-strip", index))
-                            .flex_none()
-                            .gap(px(4.))
-                            .cursor_pointer(),
-                        rules::shot_tip(option, index),
-                    )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            strip = strip.child(
+                crate::highlights::tipped(
+                    v_flex()
+                        .id(("review-strip", index))
+                        .flex_none()
+                        .gap(px(4.))
+                        .cursor_pointer(),
+                    rules::shot_tip(option, index),
+                )
+                .on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.enlarge(focused, index, cx)
-                    }))
-                    .child(
-                        div()
-                            .relative()
-                            .child(
-                                thumb(&shot.image, STRIP_THUMB.0, STRIP_THUMB.1, 4., cx)
-                                    .opacity(if current { 1. } else { 0.55 }),
+                    }),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .child(
+                            super::parts::thumb(&shot.image, STRIP_THUMB.0, STRIP_THUMB.1, 4., cx)
+                                .opacity(if current { 1. } else { 0.55 }),
+                        )
+                        .when(current, |s| {
+                            s.child(
+                                div()
+                                    .absolute()
+                                    .top(px(-3.))
+                                    .left(px(-3.))
+                                    .w(px(STRIP_THUMB.0 + 6.))
+                                    .h(px(STRIP_THUMB.1 + 6.))
+                                    .rounded(px(5.))
+                                    .border_2()
+                                    .border_color(primary),
                             )
-                            .when(current, |s| {
-                                s.child(
-                                    div()
-                                        .absolute()
-                                        .top(px(-3.))
-                                        .left(px(-3.))
-                                        .w(px(STRIP_THUMB.0 + 6.))
-                                        .h(px(STRIP_THUMB.1 + 6.))
-                                        .rounded(px(5.))
-                                        .border_2()
-                                        .border_color(primary),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .w(px(STRIP_THUMB.0))
-                            .truncate()
-                            .text_size(px(style::size::DETAIL - 1.))
-                            .line_height(px(style::natural_line(style::size::DETAIL - 1.)))
-                            .text_color(if current { primary } else { secondary })
-                            .child(title),
-                    ),
-                );
+                        }),
+                )
+                .child(
+                    div()
+                        .w(px(STRIP_THUMB.0))
+                        .truncate()
+                        .text_size(px(style::size::DETAIL - 1.))
+                        .line_height(px(style::natural_line(style::size::DETAIL - 1.)))
+                        .text_color(if current { primary } else { secondary })
+                        .child(title),
+                ),
+            );
         }
         div()
-            .flex_none()
-            .w(px(width.max(0.)))
+            .min_w_0()
+            .max_w_full()
             .overflow_hidden()
             .child(strip)
             .into_any_element()
@@ -1314,26 +1200,6 @@ impl ReviewWindow {
     }
 }
 
-/// A shot small, cropped from its top left, where a mockup's title and
-/// controls are, rather than squashed (`ReviewThumb`).
-pub(super) fn thumb(image: &ImageRef, width: f32, height: f32, radius: f32, cx: &App) -> Div {
-    let (w, h) = pixels(image);
-    let scale = (f64::from(width) / w).max(f64::from(height) / h);
-    div()
-        .flex_none()
-        .w(px(width))
-        .h(px(height))
-        .rounded(px(radius))
-        .overflow_hidden()
-        .bg(style::primary_opacity(cx, 0.08))
-        .child(
-            img(crate::rows::markdown::file_picture(&image.path))
-                .w(px((w * scale) as f32))
-                .h(px((h * scale) as f32))
-                .object_fit(ObjectFit::Fill),
-        )
-}
-
 /// The stage's player for a clip (media_view.rs), one per window.
 pub(super) fn stage_key(path: &str) -> String {
     format!("review stage {path}")
@@ -1366,10 +1232,13 @@ impl ReviewWindow {
     }
 }
 
-/// A clip's or a page's mark on its still in the grid.
+/// A clip's, a sound's or a page's mark on its still in the grid. A sound
+/// stays its waveform there: muted, as cells' clips are, it would say nothing.
 fn media_badge(shot: &ReviewShot) -> Option<AnyElement> {
     let icon = if shot.video().is_some() {
         IconName::Play
+    } else if shot.audio().is_some() {
+        IconName::Music
     } else if shot.page().is_some() {
         IconName::Globe
     } else {
@@ -1395,8 +1264,8 @@ fn media_badge(shot: &ReviewShot) -> Option<AnyElement> {
     )
 }
 
-/// The back and next buttons: a chevron in a 50 by 32 capsule, next a shade
-/// stronger, as it's the way on.
+/// The back and next buttons: a chevron in a circle, next a shade stronger,
+/// as it's the way on.
 fn step_button(
     id: &'static str,
     icon: IconName,
@@ -1415,8 +1284,7 @@ fn step_button(
         div()
             .id(id)
             .flex_none()
-            .w(px(50.))
-            .h(px(32.))
+            .size(px(36.))
             .rounded_full()
             .bg(fill)
             .flex()

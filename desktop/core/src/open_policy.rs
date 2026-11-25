@@ -47,12 +47,38 @@ pub enum LinkKind {
 
 /// The longest link looked at (`LinkPolicy.web`'s limit).
 const MAX_LINK: usize = 8_192;
+/// The longest link that asks: its question shows all of it, and has to fit
+/// on the screen, in an alert that doesn't scroll (Daybreak 167; Gemini's
+/// review). A real `mailto:` or app link is a few hundred at most.
+pub const MAX_ASK_LINK: usize = 1_024;
+
+/// Whether `text` has a character that hides or reorders what's around it:
+/// a control (a line break, a tab), a bidi override or isolate, a zero-width
+/// or other format character (Unicode's Cf), a line or paragraph separator.
+/// A link with one, asked about, could show one thing and open another
+/// (Daybreak 167, 22 Nov 2026). Android and the iPhone ask Unicode for the
+/// same categories.
+pub fn hides_text(text: &str) -> bool {
+    text.chars().any(|c| {
+        c.is_control()
+            || matches!(c as u32,
+                0xAD | 0x600..=0x605 | 0x61C | 0x6DD | 0x70F | 0x890..=0x891 | 0x8E2 | 0x180E
+                | 0x200B..=0x200F | 0x2028..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F
+                | 0xFEFF | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F
+                | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A | 0xE0001 | 0xE0020..=0xE007F)
+    })
+}
 
 /// What `url` is. A link with no scheme is a path, relative or not; the
 /// caller resolves a relative one against the thread's folder.
 pub fn link_kind(url: &str) -> LinkKind {
+    // Checked as given, before the spaces round it are trimmed: a tab or
+    // line break at either end is refused, not cleaned (Codex's review).
+    if url.encode_utf16().count() > MAX_LINK || hides_text(url) {
+        return LinkKind::Refuse;
+    }
     let url = url.trim();
-    if url.is_empty() || url.len() > MAX_LINK || url.chars().any(char::is_control) {
+    if url.is_empty() {
         return LinkKind::Refuse;
     }
     match scheme(url) {
@@ -104,6 +130,14 @@ pub fn link_kind(url: &str) -> LinkKind {
         // A drive-relative path is still a file, never an app's scheme.
         // Its missing root (or an embedded device name) is refused below.
         Some(s) if cfg!(windows) && s.len() == 1 => LinkKind::File(url.to_owned()),
+        // Counted as the phones and the website count it (UTF-16).
+        // One that asks is printable ASCII only: a space, a blank filler
+        // (U+2800, U+3164) or a run of wide letters could push the rest of
+        // it out of sight in the question (Gemini's reviews). A real link
+        // percent-encodes anything else.
+        Some(_) if url.len() > MAX_ASK_LINK || !url.bytes().all(|b| (b'!'..=b'~').contains(&b)) => {
+            LinkKind::Refuse
+        }
         Some(_) => LinkKind::Ask(url.to_owned()),
     }
 }
@@ -271,10 +305,12 @@ const CODE_RUNNER_APPS: &[&str] = &[
 
 /// Where an app the gate hands a file to may be: the Mac's own folders for
 /// apps, an app directly in /Applications or ~/Applications (or their
-/// Utilities), and ~/Library/Application Support (JetBrains Toolbox and
-/// Setapp keep their apps there), none of which a thread confined to its
-/// project can write. Directly, so a repo cloned into ~/Applications isn't
-/// a place apps are installed. `app` is the real path, links followed.
+/// Utilities), and Setapp's apps directly in /Applications/Setapp. Never
+/// under Application Support: a thread may work in a folder there and put
+/// an app in it (Daybreak 160), and an app's place there says nothing about
+/// who made it, so JetBrains Toolbox 1.x's IDEs there ask (Toolbox 2 puts
+/// them in ~/Applications). Directly, so a repo cloned into ~/Applications
+/// isn't a place apps are installed. `app` is the real path, links followed.
 pub fn installed_where_apps_are(app: &Path) -> bool {
     if app.components().any(|c| {
         matches!(
@@ -312,12 +348,16 @@ pub fn installed_where_apps_are(app: &Path) -> bool {
     ]
     .iter()
     .any(|root| app.starts_with(root));
+    // /Applications/Setapp/X.app, and anything inside one.
+    let in_setapp = app
+        .strip_prefix("/Applications/Setapp")
+        .is_ok_and(|rest| is_app(rest.components().next()));
     system
         || in_applications(Path::new("/Applications"))
-        || home.as_ref().is_some_and(|h| {
-            in_applications(&h.join("Applications"))
-                || app.starts_with(h.join("Library/Application Support"))
-        })
+        || in_setapp
+        || home
+            .as_ref()
+            .is_some_and(|h| in_applications(&h.join("Applications")))
 }
 
 pub fn is_code_runner(bundle_id: &str) -> bool {
@@ -1069,9 +1109,8 @@ const RUNS_WHAT_ITS_GIVEN: &[&str] = &[
 /// Where an app may be for an Always to name it: directly in /Applications,
 /// /System/Applications or ~/Applications (or their Utilities), at its real
 /// path, so a link to it isn't what's remembered. Narrower than
-/// `installed_where_apps_are`: a thread may work in a folder under
-/// ~/Library/Application Support and put an app there (Codex's review,
-/// 19 Nov), and Always is for apps Mike installed himself.
+/// `installed_where_apps_are` (no Setapp folder, no system folders but
+/// /System/Applications): Always is for apps Mike installed himself.
 fn rememberable_place(app: &Path) -> bool {
     if real_path(app).ok().as_deref() != Some(app) {
         return false;
@@ -1295,6 +1334,8 @@ pub fn reference_id(url: &str) -> Option<(u64, u64)> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Media {
     Video,
+    /// A sound file, played in the pane's player with no picture.
+    Audio,
     Pdf,
     /// Read-only Quick Look thumbnail of an Office or iWork document.
     Office,
@@ -1304,12 +1345,18 @@ pub enum Media {
 /// movies. WebM, MKV and AVI aren't among them, so they open in their app.
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov"];
 
+/// Sound files AVFoundation plays on every Mac this runs on. Ogg and Opus
+/// aren't among them, so they open in their app.
+const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "aif", "aiff", "caf", "flac", "aac"];
+
 /// What a path's name says it is, for choosing the view. `decide_media`
 /// checks the real file before anything reads it.
 pub fn media_kind(path: &str) -> Option<Media> {
     let ext = extension(Path::new(path));
     if VIDEO_EXTENSIONS.contains(&ext.as_str()) {
         Some(Media::Video)
+    } else if AUDIO_EXTENSIONS.contains(&ext.as_str()) {
+        Some(Media::Audio)
     } else if ext == "pdf" {
         Some(Media::Pdf)
     } else if [
@@ -1390,6 +1437,7 @@ pub fn looks_like_at(
 ) -> bool {
     match kind {
         Media::Video => film_boxes(read_at, len),
+        Media::Audio => sound_file(read_at, len),
         Media::Office => {
             // Current Office, iWork and OpenDocument files are ZIP containers;
             // older Office files use the compound-document header. Quick Look
@@ -1497,6 +1545,44 @@ fn ftyp_is_a_films(read_at: &mut dyn FnMut(u64, &mut [u8]) -> usize, at: u64, si
         .all(|i| !PICTURE_BRANDS.iter().any(|b| brand(i) == *b))
 }
 
+/// The main brands of an MPEG-4 sound file (`.m4a`, an audiobook's `.m4b`).
+/// Plenty are written with a film's brand (`isom`, `mp42`), which pass too.
+const AUDIO_BRANDS: &[&[u8; 4]] = &[b"M4A ", b"M4B ", b"M4P ", b"F4A ", b"F4B "];
+
+/// Whether a file starts the way a sound file does: WAV's `RIFF`/`RF64` with
+/// `WAVE`, AIFF's `FORM` with `AIFF` or `AIFC`, Core Audio's `caff`, FLAC's
+/// `fLaC`, an MP3 or AAC's `ID3` tag or frame sync, or an MPEG-4's `ftyp`
+/// with a sound or film brand. The player only ever gets the file's bytes,
+/// so this is about not handing it something that's plainly another kind.
+fn sound_file(read_at: &mut dyn FnMut(u64, &mut [u8]) -> usize, len: u64) -> bool {
+    let mut head = [0u8; 12];
+    let n = read_at(0, &mut head);
+    if n < 4 || len < 4 {
+        return false;
+    }
+    let at = |i: usize, tag: &[u8; 4]| n >= i + 4 && &head[i..i + 4] == tag;
+    if (at(0, b"RIFF") || at(0, b"RF64")) && at(8, b"WAVE") {
+        return true;
+    }
+    if at(0, b"FORM") && (at(8, b"AIFF") || at(8, b"AIFC")) {
+        return true;
+    }
+    if at(0, b"caff") || at(0, b"fLaC") || head.starts_with(b"ID3") {
+        return true;
+    }
+    // An MPEG audio or ADTS frame: eleven set bits of sync, then a layer.
+    if head[0] == 0xFF
+        && ((head[1] & 0xE0 == 0xE0 && head[1] & 0x06 != 0) || head[1] & 0xF6 == 0xF0)
+    {
+        return true;
+    }
+    if at(4, b"ftyp") && n >= 12 {
+        let brand: [u8; 4] = [head[8], head[9], head[10], head[11]];
+        return AUDIO_BRANDS.contains(&&brand) || film_boxes(read_at, len);
+    }
+    false
+}
+
 /// A native thumbnail's exact filesystem version. mtime alone can be put
 /// back after a write; inode and ctime also detect replacements and edits.
 #[repr(C)]
@@ -1565,18 +1651,23 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
     let name = if given.is_empty() { "That file" } else { given };
     let Some(kind) = media_kind(path) else {
         return MediaVerdict::Refuse(format!(
-            "{name} isn't a document or video this pane can preview, so it opens in its own app."
+            "{name} isn't a document, video or sound file this pane can preview, so it opens in its own app."
         ));
     };
     let (what, verb) = match kind {
         Media::Video => ("a video", "play it"),
+        Media::Audio => ("a sound file", "play it"),
         Media::Pdf => ("a PDF", "show it"),
         Media::Office => ("an Office or iWork document", "show it"),
     };
     if origin == Origin::OtherMac {
         return MediaVerdict::Refuse(format!(
             "{name} is on another Mac, so it can't {} here yet.",
-            if kind == Media::Video { "play" } else { "show" }
+            if matches!(kind, Media::Video | Media::Audio) {
+                "play"
+            } else {
+                "show"
+            }
         ));
     }
     let given_path = Path::new(path);
@@ -1675,7 +1766,8 @@ fn open_without_waiting(real: &Path) -> std::io::Result<std::fs::File> {
     options.open(real)
 }
 
-/// A link shown in a question: long ones cut in the middle (`LinkPolicy.shown`).
+/// A link shown in a refusal: long ones cut in the middle (`LinkPolicy.shown`).
+/// Never in a question about opening one, which shows it whole.
 pub fn shown(url: &str, limit: usize) -> String {
     let count = url.chars().count();
     if count <= limit {
@@ -1686,11 +1778,14 @@ pub fn shown(url: &str, limit: usize) -> String {
     format!("{head}…{tail}")
 }
 
-/// The question for a link that starts another app (`OpenGate.openOther`).
+/// The question for a link that starts another app (`OpenGate.openOther`),
+/// with all of the link in it, as it opens: never cut in the middle, where
+/// what it says to do could hide (Daybreak 167). `link_kind` keeps one that
+/// asks short enough to show whole.
 pub fn link_question(url: &str, app: &str) -> Question {
     Question {
         title: format!("Open this link in {app}?"),
-        detail: format!("It isn't a web page: it starts {app}, which acts on what the link says. It's from a thread, so Threadbear asks first.\n\n{}", shown(url, 300)),
+        detail: format!("It isn't a web page: it starts {app}, which acts on what the link says. It's from a thread, so Threadbear asks first.\n\n{url}"),
         yes: format!("Open in {app}"),
         always: None,
     }
@@ -2946,8 +3041,59 @@ mod tests {
             "/Users/m/dev/proj/Evil.app",
             "/Applications/../Users/m/Evil.app",
             "/tmp/Evil.app",
+            "/Applications/Setapp/repo/Evil.app",
         ] {
             assert!(!installed_where_apps_are(Path::new(no)), "{no}");
+        }
+        assert!(installed_where_apps_are(Path::new(
+            "/Applications/Setapp/CleanShot X.app"
+        )));
+    }
+
+    /// Daybreak 160: a thread may work in a folder under Application
+    /// Support and put an app there, so no app there counts as installed,
+    /// whatever folders it's in (verify-fix: a project in Toolbox's folder
+    /// could copy Toolbox's layout), and a document whose opener is one
+    /// asks.
+    #[cfg(unix)]
+    #[test]
+    fn no_app_under_application_support_counts_as_installed() {
+        let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+        let support = home.join("Library/Application Support");
+        let toolbox = support.join("JetBrains/Toolbox/apps");
+        for no in [
+            support.join("Project/Evil.app"),
+            support.join("Setapp/Evil.app"),
+            support.join("JetBrains/Evil.app"),
+            toolbox.join("IDEA-U/ch-0/233.11799.241/IntelliJ IDEA.app"),
+            toolbox.join("repo/ch-evil/build/Evil.app"),
+            toolbox.join("repo/sub/dir/Evil.app/Contents/MacOS/evil"),
+        ] {
+            assert!(!installed_where_apps_are(&no), "{}", no.display());
+        }
+        assert!(installed_where_apps_are(
+            &home.join("Applications/IntelliJ IDEA.app")
+        ));
+        let s = Scratch::new("appsupport");
+        for doc in [s.file("notes.md", "# hi"), s.file("page.html", "<p>hi</p>")] {
+            let there = |_: &Path| {
+                Some(OpeningApp {
+                    path: support.join("Project/Viewer.app"),
+                    bundle_id: Some("com.example.viewer".into()),
+                    name: "Viewer".into(),
+                })
+            };
+            let FileVerdict::Ask { question, .. } =
+                decide_file(&doc.to_string_lossy(), Origin::ThisMac, &there)
+            else {
+                panic!(
+                    "{} opening in an Application Support app didn't ask",
+                    doc.display()
+                )
+            };
+            assert!(question.detail.contains("Viewer"), "{}", question.detail);
         }
     }
 
@@ -3072,6 +3218,78 @@ mod tests {
             };
             assert_eq!(kind, case["expect"].as_str().unwrap(), "{name}");
         }
+    }
+
+    /// Daybreak 167 (22 Nov 2026): a question about a link that asks showed
+    /// its first 200 and last 100 characters, and opened all of it.
+    #[test]
+    fn a_question_shows_the_whole_link_it_opens() {
+        let long = format!("x-app://do?{}send=everything", "a=1&".repeat(200));
+        let LinkKind::Ask(opened) = link_kind(&long) else {
+            panic!("it asks")
+        };
+        assert_eq!(opened, long, "what opens is the link as written");
+        let question = link_question(&opened, "X");
+        assert!(question.detail.ends_with(&format!("\n\n{long}")));
+        let at_limit = format!("x-app://{}", "a".repeat(MAX_ASK_LINK - 8));
+        assert!(matches!(link_kind(&at_limit), LinkKind::Ask(_)));
+        assert_eq!(link_kind(&format!("{at_limit}a")), LinkKind::Refuse);
+        let web = format!("https://x.dev/{}", "a".repeat(MAX_LINK - 14));
+        assert!(matches!(link_kind(&web), LinkKind::Web(_)));
+        assert_eq!(link_kind(&format!("{web}a")), LinkKind::Refuse);
+        assert!(matches!(
+            link_kind("mailto:mike@example.com?subject=Hi%20there&body=Line%0Atwo"),
+            LinkKind::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn characters_that_hide_text_are_refused() {
+        for c in [
+            "\r",
+            "\t",
+            "\u{7f}",
+            "\u{85}",
+            "\u{202e}",
+            "\u{202d}",
+            "\u{2066}",
+            "\u{2069}",
+            "\u{200e}",
+            "\u{200f}",
+            "\u{61c}",
+            "\u{200b}",
+            "\u{200d}",
+            "\u{2060}",
+            "\u{feff}",
+            "\u{ad}",
+            "\u{2028}",
+            "\u{2029}",
+            "\u{e0001}",
+        ] {
+            for url in [
+                format!("x-app://do?to=me{c}&to=you"),
+                format!("https://example.com/{c}x"),
+                format!("/tmp/a{c}b.md"),
+            ] {
+                assert_eq!(link_kind(&url), LinkKind::Refuse, "{url:?}");
+            }
+        }
+        // One that asks is printable ASCII; letters from any language are
+        // fine percent-encoded, and in a web address.
+        for blank in [
+            "x-app://café/日本",
+            "x-app://a\u{2800}b",
+            "x-app://a\u{3164}b",
+            "x-app://a b",
+            "x-app://Ｗ",
+        ] {
+            assert_eq!(link_kind(blank), LinkKind::Refuse, "{blank:?}");
+        }
+        assert!(matches!(link_kind("x-app://caf%C3%A9"), LinkKind::Ask(_)));
+        assert!(matches!(
+            link_kind("https://example.com/café/日本"),
+            LinkKind::Web(_)
+        ));
     }
 
     #[test]
@@ -3492,11 +3710,31 @@ mod tests {
     }
 
     #[test]
+    fn sound_files_by_their_first_bytes() {
+        let sound = |head: &[u8]| looks_like(Media::Audio, head, head.len() as u64);
+        assert!(sound(b"RIFF\x24\0\0\0WAVEfmt "));
+        assert!(sound(b"FORM\0\0\0\x20AIFFCOMM"));
+        assert!(sound(b"ID3\x04\0\0\0\0\0\0"));
+        assert!(sound(b"\xff\xfb\x90\x64"));
+        assert!(sound(b"\xff\xf1\x50\x80"));
+        assert!(sound(b"fLaC\0\0\0\x22"));
+        assert!(sound(b"\0\0\0\x18ftypM4A \0\0\0\0"));
+        assert!(!sound(b"RIFF\x24\0\0\0AVI LIST"));
+        assert!(!sound(b"#!/bin/sh\necho"));
+        assert!(!sound(b"%PDF-1.7"));
+        assert!(!sound(b"\0\0\0\x18ftypheic\0\0\0\0"));
+        assert!(!sound(b"ID"));
+    }
+
+    #[test]
     fn media_kinds_by_name() {
         assert_eq!(media_kind("/a/b/Launch.MP4"), Some(Media::Video));
         assert_eq!(media_kind("/a/b.m4v"), Some(Media::Video));
         assert_eq!(media_kind("/a/b.pdf"), Some(Media::Pdf));
         assert_eq!(media_kind("/a/b.webm"), None);
+        assert_eq!(media_kind("/a/saved.WAV"), Some(Media::Audio));
+        assert_eq!(media_kind("/a/b.m4a"), Some(Media::Audio));
+        assert_eq!(media_kind("/a/b.ogg"), None);
         assert_eq!(media_kind("/a/.mp4"), None);
         assert!(!looks_like(Media::Video, b"\0\0\0", 3));
     }

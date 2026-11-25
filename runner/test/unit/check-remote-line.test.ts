@@ -14,7 +14,7 @@ import { linuxDf, GiB, setup } from '../helpers/check-remote-harness.ts';
 // Looks every second. A run here takes 15 to 25 s on a loaded Mac (21 Nov:
 // a 20 s cap stopped two that were working), so the cap is 120 s, and the
 // lines a check should leave are 600 s, so one that never leaves still fails
-// at the cap rather than waiting its turn there.
+// at the cap rather than waiting its turn.
 const MAX = '120';
 const ENV = { THREADBEAR_CHECK_POLL_SECS: '1', THREADBEAR_CHECK_MAX_SECS: MAX };
 const linux = { os: 'Linux', df: linuxDf(50 * GiB) };
@@ -86,6 +86,28 @@ test('a slow copy stays in line rather than copying again elsewhere', () => {
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ran on h1 after waiting/);
   assert.deepEqual(r.copies, ['h1']);
+});
+
+test("a landing's check leaves the line for a free host even after a slow copy, and asks its hosts to go first", () => {
+  // 23 Nov: a landing's copy to a loaded Tinker Desk took 949 s, so it stayed
+  // in line there for another 36 minutes, and every landing behind it waited.
+  const s = setup({ h1: { state: 'busy', queue: 600 }, h2: { state: 'busy', freeAfter: 1, ...linux } });
+  fs.writeFileSync(path.join(s.repo, 'change.ts'), '\n');
+  const r = s.run('h1,h2', 0, '', { ...ENV, THREADBEAR_CHECK_FIRST: '1' });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /leaving the line on h1/);
+  assert.match(r.stdout, /ran on h2 now/);
+  assert.deepEqual(r.copies, ['h1', 'h2']);
+  assert.deepEqual(r.turns.trim().split('\n'), ['h1 first wait', 'h2 first now']);
+  // Withdrawn from h1's line, its mark there as a landing's check goes too.
+  assert.match(r.ssh, /^h1 mv '[^']*\/runs\/(\d+-\d+-\d+)' '[^']*\/runs\/\1\.withdrawn'; rm -f '[^']*\/first\/\1'$/m);
+});
+
+test("a check that isn't a landing's takes its turn after any landing's", () => {
+  const s = setup({ h1: { state: 'busy', queue: 1 } });
+  const r = s.run('h1', 3600, '', ENV);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.turns.trim().split('\n'), ['h1 after wait']);
 });
 
 test('a line that clears before the first look runs there, with nothing else to it', () => {

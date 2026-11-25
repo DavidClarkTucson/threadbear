@@ -76,6 +76,15 @@ When("the app's next version is queued behind other work on its Mac", async func
   await this.app.do({ cmd: 'updates', preview: 'queued' });
 });
 
+// Made up as the update is: the mock runner has no thread waiting on the
+// app. Each step adds one to the scenario's list (kept on its world).
+When('{string} is waiting on the app, its fix {string}', async function (this: ThreadbearWorld, title: string, place: string) {
+  const t = await this.until(`a thread called "${title}"`, (d) => this.thread(d, title));
+  const world = this as ThreadbearWorld & { waitingOnApp?: Record<string, string> };
+  world.waitingOnApp = { ...world.waitingOnApp, [t.id]: place };
+  await this.app.do({ cmd: 'updates', waiting: world.waitingOnApp });
+});
+
 When("the app has no update on its way", async function (this: ThreadbearWorld) {
   await this.app.do({ cmd: 'updates', preview: 'none' });
 });
@@ -203,4 +212,8 @@ Then('the update popover says {string}', async function (this: ThreadbearWorld, 
 
 When('the web runtime needs a security update', async function (this: ThreadbearWorld) {
   await this.app.do({ cmd: 'mock', method: 'updates', params: { state: 'idle', webRuntimeProblem: "Web runtime: CEF is over two weeks behind stable. Chromium's sandbox is off." } });
+});
+
+When('the web runtime is behind but waiting on cef-rs', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'mock', method: 'updates', params: { state: 'idle', webRuntimeNote: "Web runtime: CEF is over two weeks behind stable. Waiting on cef-rs to support it. Chromium's sandbox is off." } });
 });

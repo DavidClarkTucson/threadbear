@@ -37,8 +37,8 @@ checkout is the one with `main` checked out.
 runner's own update builds, so a land's test suite doesn't take the Mac
 over: `nice -n 10` by default, or as runner.json's `jobPriority` says
 (`normal`, or `background` for macOS's `taskpolicy -b`, which Mike's
-runners use; `runner/src/background.ts`). The app's update build always
-runs at background priority. Action buttons you press run as normal.
+runners use; `runner/src/background.ts`). The GPUI app's update build goes
+by it too. Action buttons you press run as normal.
 
 ## A new thread
 
@@ -115,14 +115,34 @@ stays. Separate repos do not block one another.
    single file comes across into the file its section went to. The branch
    that brings in such a commit itself, rather than rebasing it onto a
    main that has moved on in what it rewrote, has it made again there with
-   the same tool, its other commits picked as usual.
+   the same tool, its other commits picked as usual. Only a tool main's own
+   `.git-blame-ignore-revs` already lists, command, paths and config exactly,
+   is run, and only with config the branch hasn't changed: the branch's
+   list is anyone's who can commit to it, and Land runs on this Mac, not a
+   check host. One main doesn't list stops the landing before anything
+   runs, with the command shown and how to make that commit again by hand
+   (rebase, run it yourself, commit); one already made on main as it is now
+   lands as a plain commit. A formatter isn't run on a tree that brings its
+   own toolchain file, cargo config, mise or rtx config, a `.config` folder
+   or a link where it formats (names matched without case, as a Mac's disk
+   opens them), as those can change what the command runs. A group check
+   crossing format commits takes their commands from main's list, never
+   from the waiting branches stacked on it, nor a format commit of theirs.
+   And since main's list is what later landings run, a branch that adds or
+   changes a command in it, or changes a config file one runs with (the
+   split tool's script, the toolchain file), stops with what changed shown,
+   and lands only with `tb land --allow-format <id>`, the id it gives for
+   exactly those commands and file contents (the Land chip never passes
+   it; such a branch never rides in another's group check).
    Then it refuses a commit whose `Important:` line git doesn't read as a
    trailer (not in the last paragraph with `Co-Authored-By`), as a release
-   would not flag it and forks wouldn't hear. And it holds a landing while
-   a GitHub workflow it would set off is red on main (below, "Red on
-   GitHub").
+   would not flag it and forks wouldn't hear. And it says in a line when
+   a GitHub workflow it would set off is red on main, and lands anyway
+   (below, "Red on GitHub").
 3. Reads the patch's `check` after rebasing, and runs it in the worktree,
-   if there is one, together with everyone waiting (below). A patch load error or failing check stops here, with
+   if there is one, together with everyone waiting (below). A landing that
+   changes no file from main (a commit with only a trailer) skips the check
+   and lands at once; it leaves no line in the times log, as it ran nothing. A patch load error or failing check stops here, with
    the last lines of its output. Changing the branch or leaving changed
    or untracked files during the check also stops it.
 4. `git -C <mainCheckout> merge --ff-only <checked commit>`. If main's working
@@ -194,57 +214,95 @@ on every push of main for two days (10 to 12 Nov) while GPUI landings went
 on top of it, over a Windows link error, GitHub's Macs' bash 3.2 and Linux's
 words for Finder and ⌘Q. Running the behaviour specs in the quick check
 wouldn't have caught any of that (they pass on Tinker Desk), and all of them
-take 15 to 30 minutes a system, so instead the workflow's own result holds
-the next landing.
+take 15 to 30 minutes a system, so GitHub's own result is watched instead.
 
 The runner, Convex and website tests (`runner.yml`), Android (`android.yml`)
-and the Xcode 26 builds (`xcode-26.yml`) hold too since 19 Nov: `runner.yml`
-was red on Windows from 16 to 19 Nov, and as the daily release waits for
-every workflow to pass on one commit, none went out.
-
-A workflow opts in with a line of its own in its file:
+and the Xcode 26 builds (`xcode-26.yml`) are watched too since 19 Nov:
+`runner.yml` was red on Windows from 16 to 19 Nov, and as the daily release
+waits for every workflow to pass on one commit, none went out. And the
+TypeScript lint (`lint.yml`) since 22 Nov, and the repo guards
+(`guards.yml`) since 23 Nov. A workflow opts in with a line of its own in
+its file (the words are from when it held landings):
 
 ```yaml
 # tb land: hold while red
 ```
 
-After rebasing, `tb land` lists what the branch changes (`git diff
---name-only main...<branch>`), and for each marked workflow whose `on: push:
-paths:` match any of it (any file at all, with no paths) asks GitHub, with
-`gh run list --workflow <file> --branch main --event push`, how its last
-finished run on main went, past runs cancelled for a newer push. It asks
-about `origin`'s repo (`-R owner/name`), not whichever one `gh repo
-set-default` picked, so a fork lands by its own runs while the rest of `gh`
-can still default to the repo it was forked from. If that
-failed, nothing lands, before the check runs: it names the run, which jobs
-and steps failed, any newer run still going, and the files of the branch the
-workflow checks (`runner/src/land-gate.ts`). It asks again once the check
-has passed, just before main moves, as a run going when it started may have
-failed since. A trigger it can't read (an alias, a list over several lines)
-counts as every file, and a whole page of cancelled runs as "couldn't ask".
-A held workflow mustn't cancel its runs on main for newer pushes, or a busy
-day never finishes one and the gate holds on an old red run for hours (12
-Nov): `desktop.yml` cancels in progress only for pull requests, so main's
-runs go one at a time, with the newest push waiting in place of any before it.
+Until 24 Nov a red one held every landing that changed what it checks.
+That held 31% of threads in the days before, 40% of those just went round
+it with `--despite-red`, and `desktop.yml`'s runs take 40 to 80 minutes and
+failed about a third of the time, so it was mostly a detour. Now red holds
+nothing. Instead:
 
-Fix what failed first (`gh run view <id> --log-failed`). The landing that is
-that fix, or one made while main already has a fix GitHub hasn't run yet
-(main is only pushed now and then), goes in with `tb land --despite-red`.
+- **One thread fixes it.** `tb red-watch`, run every 10 minutes by a
+  schedule's check on Mike's Mac (`tb red-watch --quiet`, which prints
+  nothing unless it couldn't do its job, so the schedule never starts an
+  agent), asks GitHub how each marked workflow's last finished run on main
+  went (`runner/src/red-watch.ts`). The first time one is red it starts a
+  thread in the repo's checkout, "Started by GitHub" like the Sentry
+  watch's, with the run, the jobs and steps that failed, and to fix it and
+  land. That thread is the one for the red stretch: a newer failed run is
+  sent to it, never a second thread, and so is the news when the workflow
+  passes again (a failed rerun of the same run counts as newer), as the
+  runner's note ("Sent by the runner: main's CI failed again"), not a
+  message from Mike (until 25 Nov they were stored as his). A start
+  whose answer was lost is found again by its title ("Fix <name> (<file>),
+  red on main") or why in that repo, so it isn't started twice. A later red stretch starts a new thread, unless the last
+  one is still open (not archived), which is told instead; one that was
+  deleted is left alone for the rest of its stretch. What it knows is in
+  `threadbear-land-gate/red-watch/<workflow>.json`.
+- **A landing says so in one line.** After rebasing, `tb land` lists what
+  the branch changes, and for each marked workflow whose `on: push: paths:`
+  match any of it says, when its last run on main is red, `<name>
+  (<file>) is red on main (<run>, failed: <jobs>); this lands anyway, and
+  fix thread <id> is on it` (or that none is yet). Then it lands as usual.
+  `--despite-red` is still taken, and does nothing.
+
+Both ask about `origin`'s repo (`gh -R owner/name`), not whichever one `gh
+repo set-default` picked, so a fork goes by its own runs while the rest of
+`gh` can still default to the repo it was forked from.
+
+A run cancelled for a newer push, or by hand, says nothing about main and
+is passed over. One cancelled because a job ran into its own
+`timeout-minutes` is red: GitHub calls both `cancelled`, and only the job's
+annotation ("exceeded the maximum execution time") tells them apart. From
+22 Nov `runner.yml`'s Mac jobs hit their 30 minutes on every push of main
+and nothing noticed. So a cancelled run has its jobs read, and each
+cancelled job that ran a minute or more its annotations (every page), a
+few runs a look, and what was found is kept by run and attempt in
+`threadbear-land-gate/cancelled-runs.json`. Not only jobs as long as the
+workflow's timeouts are now: a fix that raises one would pass over the run
+that timed out, and the older green run behind it would count. A whole page of cancelled runs,
+or a trigger it can't read (an alias, a list over several lines, which
+counts as every file), is as before.
+A watched workflow mustn't cancel its runs on main for newer pushes, or a
+busy day never finishes one: `desktop.yml` cancels in progress only for
+pull requests, so main's runs go one at a time, with the newest push
+waiting in place of any before it.
+
+The fix thread starts from `gh run view <id> --log-failed`; for a job that
+timed out, `--log`, whose end shows how far it got: in `runner.yml` the
+unit tests print a line a minute with the test files still running, and the
+slowest ones at the end, `runner/test/helpers/progress-reporter.mjs`.
 GitHub's answer is kept in the repo's git folder
-(`threadbear-land-gate/`), shared by every worktree: one from the last
-minute is used without asking again, as a dozen threads landing at once ran
-out GitHub's shared API allowance (13 Nov). When `gh` isn't installed,
-isn't signed in or can't reach GitHub (a 403 for that allowance too), an
-answer from the last half hour still counts, saying how old it is; with
-none, the landing goes ahead and says it couldn't ask. Only `desktop.yml` has the mark
-so far.
+(`threadbear-land-gate/`), shared by every worktree and `tb red-watch`:
+one from the last minute is used without asking again, as a dozen threads
+landing at once ran out GitHub's shared API allowance (13 Nov). When `gh`
+isn't installed, isn't signed in or can't reach GitHub (a 403 for that
+allowance too), an answer from the last half hour still counts; with none,
+there's nothing to say and nothing is started.
 
-In someone else's copy the gate stays out of the way. Since 19 Nov every
+The schedule is Mike's own (Scheduled view, "Red on GitHub"): to watch a
+copy of your own, make one that runs every 10 minutes in the repo's folder
+with `tb red-watch --quiet` as its check, sending to a thread of its own,
+so only a broken check ever reaches it.
+
+In someone else's copy it stays out of the way. Since 19 Nov every
 workflow's jobs only run in `mikecann/threadbear` (or when started by hand),
 as a fork's owner only builds and checks for their own system and their
 pushes were running every job on Linux, Mac, Windows and Android, mostly
 red. A marked workflow whose `if:` names one repo (`github.repository ==
-'owner/name'`) holds only where origin is that repo; in a fork, gh reads the
+'owner/name'`) counts only where origin is that repo; in a fork, gh reads the
 `upstream` remote's runs first, so before this Mike's red Windows build held
 landings that only had to work on a Mac.
 
@@ -267,9 +325,11 @@ their own.
   already on main is left out, a commit made empty is kept). It
   checks that stack once, in its own worktree with HEAD detached at it, and
   fast-forwards main to the top. Its branch moves to its commits as they
-  landed; each of the others finds its result in its entry when it gets
-  the lock, moves its own branch to its commits as they landed, prints
-  them and which branches were in the same check, and exits.
+  landed; each of the others finds its result in its entry within a few
+  seconds, without waiting for the lock (until 24 Nov it waited for it, an
+  hour once behind other groups' checks), moves its own branch to its
+  commits as they landed, prints them and which branches were in the same
+  check, and exits.
 - The group's check runs in the holder's landing process (its tb's, "A
   landing outlives its tb" above), with its environment, so each
   entry also keeps the check hosts its own tb asked for
@@ -284,19 +344,44 @@ their own.
 - An entry is left out, to see to itself later, if it asks for a
   different check (or reads it from another folder), its worktree has
   moved on since it asked, it doesn't go onto the stack cleanly, its tb
-  has gone, or the group's files would be held by a workflow red on
-  GitHub ("Red on GitHub"; the holder asks for the whole stack, and again
-  once the check has passed). A dry run and a branch with a merge on it
+  has gone before any check of it started, or (until 24 Nov, when red
+  stopped holding landings: "Red on GitHub") the group's files would be
+  held by a workflow red on GitHub. A dry run and a branch with a merge on it
   are never put in anyone's check.
 - One whose tb goes during the check (killed: a session restart does
-  that) still lands, as long as its worktree is still on what it asked to
-  land; its branch is moved to what landed for it, or, if that worktree
-  is busy, `threadbear-land-done/<commit>` (beside the lock) says what
-  landed, and its next `tb land` moves it there first. Either way that
-  `tb land` then says there's nothing to land. Only one
-  that has moved on means the check runs again without it. On 12 Nov
-  restarts killed waiting landings again and again, and checking again
-  for each meant two passing group checks in a row landed nothing.
+  that) still lands, as long as its branch still has what it asked to
+  land: as it was, with more on top, or rebased (its next `tb land`
+  rebases before it waits). Its branch is moved to what landed for it
+  if it's still on what it asked, or, if that worktree is busy,
+  `threadbear-land-done/<commit>` (beside the lock) says what landed,
+  and its next `tb land` moves it there first; one rebased meanwhile
+  drops what's already on main. Either way that `tb land` then says
+  there's nothing to land. Only one whose branch was rewritten without
+  those commits (amended, reset) means the check runs again without it.
+  On 12 Nov restarts killed waiting landings again and again, and
+  checking again for each meant two passing group checks in a row landed
+  nothing; on 23 Nov a rebase by a killed landing's next `tb land` threw
+  away two passing checks of six and ten.
+- Once a holder has put it in a check (`inCheckAt` in its entry), a
+  landing stays in the line after its tb has gone, and each holder after
+  carries it, until a check with it passes and it lands, it's refused or
+  set aside to be checked alone, its branch drops those commits, or 12
+  hours go by. So a passing check that still doesn't land (GitHub went
+  red, main's checkout was busy, another's branch was rewritten) never
+  loses it: on 23 Nov one killed by its agent's two-hour limit was in a
+  group that passed and was then held for red, and the next holder landed
+  the rest without it. Its branch's next `tb land` takes its place in the
+  line (one entry per branch), carried as it was, unless it's in the
+  check running then, which decides it. Halved to one, it's still checked
+  with one holder, having no tb to check it alone. Commits count as the same across a rebase
+  only with the same author, message and change (not git's patch id,
+  which ignores whitespace), and a moved branch with a commit made empty
+  on purpose counts as rewritten, as its next rebase would land that
+  commit again. One that leaves the line after a holder stacked it, before
+  the check starts, is left out and the rest stacked again. Older `tb`s
+  (before 23 Nov) don't know `inCheckAt` and drop such an entry when they
+  read the line, so until every queued landing runs this version, one may
+  still be lost that way.
 - A tb killed during a group check leaves its worktree detached at the
   stack (its branch is untouched) and a marker in the worktree's git dir;
   the next `tb land` there checks the branch out again. Commits made on
@@ -313,9 +398,12 @@ their own.
   it has, with how to rejoin, so its thread doesn't think it's still
   queued. Killed outright, its entry is dropped by the next reader. Either
   way it's out: nobody would hear how it went, and it may have been
-  stopped on purpose.
-- A landing made with `tb land --despite-red` is the repair for what's
-  red, so it's a fix in the queue: it goes first on the stack in every
+  stopped on purpose. Not once a check of it has started: then it stays
+  in the line, as above, and says so.
+- Until 24 Nov, when red stopped holding landings (see "Red on GitHub"),
+  a landing made with `tb land --despite-red` was the repair for what's
+  red, so it was a fix in the queue. The flag does nothing now, so no
+  landing is one, but the queue still knows them: it goes first on the stack in every
   group check, outside the group's limit, and the red hold isn't asked
   about its files (the others' still are). So a repair queued behind
   groups failing on main's own error goes into the next check with them,
@@ -367,13 +455,24 @@ their own.
   as being checked. Older holders' records still work, using their branch
   names. For a landing in the running group, a check that runs past the
   usual time says "longer than usual" instead of guessing how much longer.
-  If its group has already landed but another landing gets the lock first,
-  it says it has landed and is waiting for the lock to finish up, without
-  an estimate for another check.
   It says it again every three minutes.
 
 So a landing waits for at most the check that's running and the next one,
 unless a check fails.
+
+The line moves only as fast as the check hosts let its checks start, as
+every landing waits while one does. On 23 Nov landings' checks waited 2.6
+hours in all, holding the lock, behind agents' builds, spec runs and checks
+on Tinker Desk (one copied there for 949 s and then sat 36 minutes in its
+line), while the cloud box could have run several. So a landing's check
+(`THREADBEAR_CHECK_FIRST`, which tb land sets on every check it runs) goes
+ahead of anything else waiting on its host: other checks, GPUI builds and
+measurements wait while it does, and on Tinker Desk `heavy` starts no job
+(`scripts/host-turn.sh`; it still waits for what's already running). And it
+never stays in line on a busy host while another that can run it is free,
+however long its copy there took (`scripts/check-remote.sh`, `leave_line`).
+A check that needs no Mac goes to the cloud box first (runner.json's
+`checkHosts` order), keeping Tinker Desk for the ones that do.
 
 ### Finding who broke a group
 
@@ -452,6 +551,97 @@ Each of those runs leaves a line in the times log with `alone: true`,
 `only` and `passed`, and none of `ok`, `check` and `intact`, so nothing that
 reads the log for whole checks counts one.
 
+### What passed before is skipped
+
+On a Mac with no check host every landing's check ran from scratch: 20 to
+25 minutes, mostly the runner's unit tests (Ville, 21 Nov 2026: "Keep track
+of changes and only run the deltas"). So check.sh records each step, and
+each runner unit test file, that passes, under a key made from what it
+read (`scripts/check-cache.mjs`), and skips it while that key has a pass
+from the last week. The line says ok, as it passed, and why it took no time:
+
+```
+ok    web tests               0s  (skipped: passed with the same inputs 21 Nov 17:04 on thread/4f12cc1e)
+ok    runner unit tests      94s  (skipped 301 test files that passed with what they read now)
+```
+
+- The key is what the files hold and their modes (git's blob ids, and
+  whether each is executable or a link), never a commit, so a
+  pass counts in every worktree and in `tb land`'s own checkout, after a
+  rebase, and after a release comes in. A rebase that changes nothing
+  reruns nothing; a release reruns what its files reach. It holds Node's
+  version and the system too, so a pass on Linux never counts on a Mac.
+- A step's key holds the files it reads (a table in check-cache.mjs, a
+  superset of what check.sh looks at to run it; a step not in it reads
+  everything), its command line and its tool's version (cargo and rustc,
+  swift, npm; asked with `RUSTUP_AUTO_INSTALL=0`, so asking never downloads
+  a toolchain, and a pass isn't recorded under a version that couldn't be
+  read). The TypeScript checks and lint read every code file, as
+  tsc follows imports out of runner/ and lint's type-aware rules read what
+  a file imports.
+- A test file's key holds its imports, followed all the way, and what the
+  code it reaches reads at run time: a folder or file beside it
+  (`path.join(import.meta.dirname, 'experiments')`), a script it starts
+  from there and that script's imports, a whole path it names, and the
+  `package.json` above each module. From the tests' side (tests, their
+  helpers, the scripts they run) every name counts, joined paths
+  (`path.join(ROOT, 'docs', 'protocol')`), the folders a test goes through
+  by name, bare names in a script's loop, and the names in data a test
+  reads (AGENTS.md's). A test that runs a command in the checkout itself
+  (`git grep` with `cwd: REPO`) reads everything. Comment lines, and
+  another test file named, don't count. Every key also holds the runner's
+  packages and lockfile, the test helpers every file loads, git's and npm's
+  settings files, check.sh and check-cache.mjs: changing the check reruns
+  everything. `import type` doesn't count: Node strips it, and the
+  typecheck covers it.
+- On 22 Nov every test file was run under strace on Linux and what each
+  opened compared with its key; the rules above are what that found
+  missing, and check-cache.test.ts keeps each one. A test that reads a
+  file by a name it builds some other way is still missed: say so in the
+  test, with the whole path in a string, or the check skips it after a
+  change to that file. A record past a week doesn't count, GitHub runs
+  everything on main, and `tb land --full` asks for a check that reads no
+  records.
+- In a fork, a test file whose every file, the check's and the test
+  helpers' included, is byte for byte as in Mike's newest release already
+  in HEAD (`refs/threadbear/upstream/<date>`, whose signature the runner
+  checked; never a `release/` tag, which anyone can make) is skipped as
+  passed there: his main takes commits only through his check. Never in
+  Mike's own copy (origin is mikecann/threadbear) or one with no origin;
+  `THREADBEAR_CHECK_TRUST_RELEASE=off` turns it off.
+- A failed run still records the files that passed, so the next check runs
+  the ones that failed and whatever changed since, with no `--only`. A
+  file with a test that skipped itself (no esbuild, not a Mac) isn't
+  recorded, as why it skipped isn't in its key, and nothing is recorded
+  under a key whose files changed while it ran (a test run with
+  `UPDATE_CONTEXT_BUDGET=1` rewrites what it checks).
+- `--all` reads no records (it still writes them). Nor does `--fresh`,
+  which runs no more than the check would otherwise: `tb land --full` asks
+  for it (`THREADBEAR_CHECK_FRESH=1`), and so do the runs that look for who
+  broke a group (above), which must see what fails now. GitHub's runs
+  (`GITHUB_ACTIONS`) keep none.
+- The records are each machine's own: `~/Library/Caches/Threadbear/check-passes`
+  on a Mac, `~/.cache/threadbear/check-passes` elsewhere, shared by every
+  checkout, and on a check host `~/.cache/threadbear-check/passes`, kept
+  between runs. `THREADBEAR_CHECK_PASSES` names another folder or says
+  `off`; `"checkPasses": false` in runner.json turns them off, on the check
+  host too (check.sh sends `--no-records` with the run). A run with a
+  `THREADBEAR_HOME` of its own (a test's) keeps none unless it names a
+  folder, and no test file inherits the folder a check names.
+- Beside them, `test-times` holds how long each runner unit test file took
+  last, and the next run starts the longest first (`node --test` starts
+  them by name, and a long file late in the alphabet held the run up). A
+  file's time only orders the run: it never skips anything.
+
+The runner's code imports itself densely (a test file reaches about 280
+files on median), so a change to `runner/src` still reruns about two
+thirds of the test files, and one to `convex/` most of them. A change to
+desktop/, features/ or the site reruns a few dozen, mostly the tooling
+tests whose scripts name those folders. This took the place of
+`runner/test/tooling-tests.mjs`, which left the slow tooling tests out of
+`--quick` when nothing they read changed: a pass record covers that, once
+each has passed with those files on that machine.
+
 ### Where a landing's time goes
 
 A passing check prints nothing of its own, so each one leaves a line in
@@ -478,7 +668,11 @@ The runner's updater reads it too: a commit with a passing line here from
 a check host, with the runner's typecheck and unit tests run, is built
 without running them again (docs/dev-tools.md, "The runner updating
 itself"). `host` and `steps` are the last run's: a host that dropped out
-partway, or a run that fell back to this Mac, leaves none of its own.
+partway, or a run that fell back to this Mac, leaves none of its own. A
+check split across a Linux host and a Mac (docs/dev-tools.md, section 4)
+has both, `"host":"cloud+tinker-desk"`, and the steps of both halves; tb
+land runs what failed in one on that pair, which sends each step back to
+the host it ran on.
 
 ## Cleaning up
 
@@ -569,7 +763,11 @@ worktree: { setup: "...", check: "...", keep: ["app/.build", "dock/.build"] },
 With `keep`:
 
 - New worktrees are `<repo>-threads/slot-<n>`, not `<id8>`, as the folder
-  outlives the thread.
+  outlives the thread: the first number with no folder that git doesn't
+  still have registered (its folder removed by hand), trying the next when
+  git refuses one, a few times, and deleting the branch a refused add made.
+  On 21 Nov a slot removed by hand would have left every new thread with no
+  spare in the main checkout, and its branch refusing its next try.
 - Cleaning up a landed one detaches it, deletes its branch and locks it
   (`git worktree lock --reason "threadbear spare"`): a spare. Past six
   spares (`MAX_SPARES`), it's removed as before.
@@ -579,6 +777,10 @@ With `keep`:
   isn't: two at once both succeed.) Then `git reset --hard`, `git clean -ffdx` with the kept folders
   left out (an old thread's `node_modules` goes, its build cache stays),
   and `git checkout -b thread/<id8> main`. Setup runs as for a new one.
+  A spare with changes to tracked files is passed over and left unlocked,
+  out of the pool: its cleanup or give-back saw it clean, so someone is
+  working there, and the reset would take their work.
+  `borrow-worktree.sh` does the same.
 - A patch's `teardown` runs before the worktree is set aside, as for one
   that's removed: what the thread made is its own, not the next thread's.
 - A worktree that has to stay (work not on main, uncommitted changes)
@@ -589,7 +791,13 @@ With `keep`:
   again. Only while the folder is still the thread's own checkout, and only
   real folders inside it, never through a link; each is renamed aside right
   after that check, then deleted.
-- The record keeps `keep`, and `spare: true` once it's set aside. A
+- The record keeps `keep`, and `spare: true` once it's set aside. What the
+  record says of the worktree (held, cleanup owed, removed, handed on) is
+  one state type in `runner/src/slot.ts`, with every write in its
+  `writeSlot`; the same module says what each slot folder is on disk
+  (`slotOnDisk`: a spare, a thread's, a borrow, left behind, and the
+  disagreements, like a record whose folder is on another branch), which
+  the borrow sweep picks from. A
   spare's thread, unarchived, never goes back into that folder even though
   it's still there: it's another thread's now. Nor does any thread whose
   worktree was removed, whatever is at that path now: on 8 Nov a removed
@@ -662,6 +870,44 @@ sync-main couldn't borrow one and main wasn't pushed. Now:
   there are six spares already. `thread/borrow-*` branches with no
   checkout and all on main are deleted too. The runner's log says what it
   took back and why.
+
+### A folder a thread works in is never lent
+
+A thread started outside the repo can borrow a slot and move itself there
+(`move_thread`), so its folder is the slot with no worktree record of its
+own. On 22 Nov 2026 the Canvas thread did that with slot-32, landed, gave
+it back and stayed in it. The next morning `borrow-worktree.sh` lent
+slot-32 to another thread, and a minute later the Canvas thread's next turn
+committed on that borrower's branch and left its changes there. Now:
+
+- Nothing hands out a slot an open thread's folder is in.
+  `borrow-worktree.sh` asks `runner/src/lived-in.ts`, which reads every
+  thread record in each runner data dir it knows of
+  (`THREADBEAR_RUNNER_HOME`, `THREADBEAR_HOME`, the default), following
+  links, and passes over such a spare, and a slot number whose folder went
+  but that an open thread's record still names. When a record can't be
+  read it takes no spare and makes a new slot. The runner's own
+  `makeWorktree` does the same (`inUse`), from its threads as each folder
+  is asked about and from other runners' records. An archived thread works
+  nowhere, and a thread still in its own removed or handed-on worktree
+  leaves it at its next turn anyway, so neither holds a slot.
+- A thread with no worktree of its own whose folder is a slot that went to
+  someone else after it moved there never carries on in it
+  (`lentFolder` in `runner/src/runner/worktrees.ts`): a spare or one being
+  claimed, a borrow of another's begun since (the borrow record's `at`), or
+  the worktree of a thread that came to it since. The record's `cwdAt`
+  says when it moved there (its `createdAt` for a record from before), to
+  the second as borrows are stamped, a tie counting as since. Its next
+  turn, after any wait, ends a live CLI there (a give-back in its own session, a Codex session
+  moved in) and, like a thread brought back to a removed worktree, it
+  carries on in a fresh worktree from main (the very slot, when it's a
+  spare nobody else is in), or the main checkout if none can be made, and
+  the thread and agent are told. That covers a thread archived in its
+  borrow, the borrow taken back and lent again, and the thread brought back.
+- A thread put in someone's slot after it was theirs stays: its own borrow,
+  a Lab review's reviewers (made in the thread's folder with
+  `worktree: false`), a helper made there, a move there. So
+  does a borrow from before 17 Nov, which names nobody.
 
 Run in a thread, `tb land` lands the thread's own worktree from that
 worktree, from its repo's main checkout, or from a folder outside git.

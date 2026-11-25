@@ -30,7 +30,12 @@ const message = v.object({
   toolKind: v.optional(v.string()),
   summary: v.optional(v.boolean()),
   plan: v.optional(v.boolean()), // a Plan first plan (API 72), kept out of the turn's fold
+  planDecision: v.optional(v.union(v.literal('go'), v.literal('revise'))), // what became of it (API 76)
   turn: v.optional(v.string()),
+  // What woke a turn and why the runner sent its own message (API 98), so
+  // the page's dividers say what the Mac's do (Codex's review, 23 Nov).
+  wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))),
+  wakeReason: v.optional(v.string()),
   at: v.string(),
 });
 
@@ -46,7 +51,7 @@ export const shareImage = v.object({
   height: v.optional(v.number()),
 });
 
-// A link is one thread's (sync.ts slugFree). Two rows with one slug, from
+// A link is one thread's (sync.ts slugState). Two rows with one slug, from
 // before that was checked, show neither rather than guess which is meant.
 async function threadBySlug(ctx: QueryCtx, slug: string): Promise<Doc<'threads'> | null> {
   if (!slug || slug.length > 100) return null;
@@ -54,7 +59,11 @@ async function threadBySlug(ctx: QueryCtx, slug: string): Promise<Doc<'threads'>
     .query('threads')
     .withIndex('by_share_slug', (q) => q.eq('share.slug', slug))
     .take(2);
-  return rows.length === 1 ? rows[0]! : null;
+  if (rows.length !== 1) return null;
+  // A retired link shows nothing, whatever row has it (Codex Security, 21
+  // Nov 2026, finding 161): the owner putting one back clears its tombstones.
+  if (await ctx.db.query('threadTombstones').withIndex('by_slug', (q) => q.eq('slug', slug)).first()) return null;
+  return rows[0]!;
 }
 
 async function isMike(ctx: QueryCtx, token?: string): Promise<boolean> {
@@ -81,8 +90,14 @@ export const IMAGES_MAX = 300;
 // without the site's address, so a picture is left out rather than handed
 // out raw.
 export function sharedImageUrl(slug: string, id: string): string | null {
-  const site = process.env.CONVEX_SITE_URL;
-  return site ? `${site.replace(/\/+$/, '')}/share/image/${encodeURIComponent(slug)}/${encodeURIComponent(id)}` : null;
+  const site = siteUrl();
+  return site ? `${site}/share/image/${encodeURIComponent(slug)}/${encodeURIComponent(id)}` : null;
+}
+
+// This deployment's website (CONVEX_SITE_URL), without a last slash, or
+// undefined when it isn't set. A shared thread's link is <site>/s/<slug>.
+export function siteUrl(): string | undefined {
+  return process.env.CONVEX_SITE_URL?.replace(/\/+$/, '') || undefined;
 }
 
 // A thread's uploaded pictures from seq `from` on (before `before`, when it's a
@@ -199,7 +214,10 @@ export const view = query({
         ...(m.toolKind ? { toolKind: m.toolKind } : {}),
         ...(m.summary ? { summary: true } : {}),
         ...(m.plan ? { plan: true } : {}),
+        ...(m.plan && m.planDecision ? { planDecision: m.planDecision } : {}),
         ...(m.turn ? { turn: m.turn } : {}),
+        ...(m.wokeBy?.length ? { wokeBy: m.wokeBy.map((w) => ({ kind: w.kind, description: w.description })) } : {}),
+        ...(m.role === 'user' && m.origin === 'runner' && m.wakeReason ? { wakeReason: m.wakeReason } : {}),
         at: m.at,
       });
     }
