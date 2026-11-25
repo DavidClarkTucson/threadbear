@@ -971,8 +971,11 @@ function projectStepThread(schedules?: Parameters<typeof buildThreadbearTools>[3
       await tool('create_project').handler({ title: 'Calendar', folders: [app], goals: 'Voting site', state: 'Landing the fix.' } as never, {} as never);
       s = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;
       s.init();
+      // An earlier card's ask nobody answered: with none, a Done in a
+      // project still going isn't refused at all (this fork, 22 Nov).
       s.text('m0', 'Started the landing.');
-      return s;
+      await endTurn({ needs: 'you', asks: [{ question: 'Should the landing go out tonight?' }] });
+      return nextTurn('go on');
     },
     nextTurn,
   };
