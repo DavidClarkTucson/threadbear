@@ -653,6 +653,17 @@ export function projectStepNudge(projects: { title: string; state: string }[], o
     : '';
   return `${PROJECT_STEP_NUDGE} It's in ${which}. Done means the user can archive the thread: the whole job, not this step. If the next step is theirs (looking at what you made, sending it to someone, a decision), put it on the card as an ask with needs "you". If it's yours to do later, book it with schedule_message, which runs you then.${earlier} If this thread's part really is finished, call end_turn again as you were: this note comes once a turn.`;
 }
+// The open items an earlier note in this thread hasn't listed yet. Once an
+// agent has seen an item in the note and still said Done, it judged it
+// settled: an answer in other words ("Microwave", to "What should the new
+// plug be called?") never counts as answering it, so after the fix of 22 Nov
+// 2026 the same item held up Done three turns running in two threads
+// (b0309cf2, 25731702), with the card sent back as it was each time.
+export function notYetNoted(events: PersistedEvent[], items: string[]): string[] {
+  const cuts = events.flatMap((e) => (e.type === 'thread.rewound' ? [{ from: e.fromSeq, to: e.toSeq }] : []));
+  const notes = events.filter((e) => e.type === 'tool.result' && typeof e.text === 'string' && e.text.startsWith(PROJECT_STEP_NUDGE) && !cuts.some((c) => e.seq >= c.from && e.seq <= c.to)).map((e) => (e as { text: string }).text);
+  return items.filter((i) => !notes.some((n) => n.includes(`"${i}"`)));
+}
 export function projectStepNudged(events: PersistedEvent[]): boolean {
   return nudgedSince(events, PROJECT_STEP_NUDGE);
 }

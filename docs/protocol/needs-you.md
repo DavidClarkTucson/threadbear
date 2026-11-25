@@ -183,7 +183,11 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   another agent's, and nothing an edit cut out), leaving it to the agent
   which still matter. With none of those it isn't refused, since 22 Nov
   2026: the project's state alone changed 2 cards in 19, as a thread doing
-  one job in a big project has finished its part while the project goes on. A card that archives, snoozes or waits on threads or
+  one job in a big project has finished its part while the project goes on.
+  Nor is it refused when every item was listed by an earlier note in the
+  thread (`notYetNoted`): the agent saw them and still said Done, and an
+  answer in other words never counts as answering one, so until 24 Nov the
+  same item held up Done turn after turn. A card that archives, snoozes or waits on threads or
   the app restarting is left alone, and so is a sub-agent's call, as it
   isn't in the thread's events (a Codex sub-agent's, which runs through the
   same handler, is capped at one note a turn in memory). Turns an edit cut

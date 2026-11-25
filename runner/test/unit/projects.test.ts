@@ -878,6 +878,8 @@ test("end_turn: a Done card in a project still going, with earlier items nobody 
   s = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;
   s.init();
   s.text('m5c', 'Noted.');
+  r = await endTurn({ needs: 'you', asks: [{ question: 'Which photo should go on the front page?' }] });
+  assert.equal(r.error, false, r.text);
   s.result('completed');
   // His card answer, a turn later than the card, is.
   h.runner.send(thread.id, "Send the site to Peter's list now?\nWait", [], { answers: [{ action: "Send the site to Peter's list now?", answer: 'Wait' }] });
@@ -886,15 +888,32 @@ test("end_turn: a Done card in a project still going, with earlier items nobody 
   s.text('m6', 'Fixed the review findings.');
   r = await endTurn({ needs: 'nothing', next: ["Load the rest of Peter's photos once he sends them"] });
   assert.ok(r.text.startsWith(PROJECT_STEP_NUDGE), r.text);
-  assert.match(r.text, /"Draft an email telling Peter the site is ready"; "Neon suggested three bigger changes\. Which should I build\?"\./);
+  assert.match(r.text, /"Draft an email telling Peter the site is ready"; "Neon suggested three bigger changes\. Which should I build\?"; "Which photo should go on the front page\?"\./);
   // The ticked one, and one this card already carries, aren't listed.
   assert.doesNotMatch(r.text, /sign-in screen|rest of Peter's photos|Peter's list/);
   // Once a turn: sent again as it was, it's taken.
   r = await endTurn({ needs: 'nothing', next: ["Load the rest of Peter's photos once he sends them"] });
   assert.equal(r.error, false, r.text);
 
+  // The next Done, with only items a note has listed already, is taken:
+  // the agent saw them and judged them settled (b0309cf2, 23 Nov).
+  s.result('completed');
+  h.runner.send(thread.id, 'Microwave');
+  s = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;
+  s.init();
+  s.text('m7', 'Named it.');
+  r = await endTurn({ needs: 'nothing' });
+  assert.equal(r.error, false, r.text);
+
   // A Codex sub-agent's call runs through the same handler and never reaches
   // the thread's events, so the note is capped at once a turn in memory too.
+  s.result('completed');
+  h.runner.send(thread.id, 'One more idea');
+  s = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;
+  s.init();
+  s.text('m7b', 'Asked.');
+  r = await endTurn({ needs: 'you', asks: [{ question: 'Should the site have a guestbook?' }] });
+  assert.equal(r.error, false, r.text);
   s.result('completed');
   h.runner.send(thread.id, 'next bit');
   s = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;
