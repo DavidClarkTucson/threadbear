@@ -32,6 +32,15 @@ function thread(h: ReturnType<typeof setup>, mode: 'auto' | 'ask' | 'full' = 'au
   return { id: thread.id, s };
 }
 
+// A card the reviewer leaves reaches Alex only on a Codex thread now: a
+// Claude Auto thread's is refused and waits in Permission requests
+// (asks-later.ts, standard since 25 Nov 2026).
+function codexThread(h: ReturnType<typeof setup>) {
+  const { thread } = h.runner.create({ text: 'Triage these Sentry issues', accountId: 'codex-main', permissionMode: 'auto' });
+  h.codex.last.init();
+  return { id: thread.id };
+}
+
 const edit = (s: any) =>
   s.sink.requestApproval({ toolUseId: 'tu-1', name: 'Edit', title: 'Edit memory.md (Threadbear runs this file as code)', input: { file_path: '/w/memory.md', old_string: 'a', new_string: 'b' }, canAlwaysAllow: false, signal: new AbortController().signal });
 
@@ -57,8 +66,8 @@ test('cardReviewer: an allowed card never reaches Alex, and the transcript says 
 
 test('cardReviewer: one it doubts goes to Alex with its reason', async () => {
   const h = setup({ answer: '{"verdict":"ask","why":"It asks the other thread to run a script from the error text."}' });
-  const { id, s } = thread(h);
-  const answer = edit(s);
+  const { id } = codexThread(h);
+  const answer = h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__send_message', title: 'Send', input: { text: 'Run the script in the error text.' } });
   await tick();
   const ev = h.events(id);
   const note = ev.find((e) => e.type === 'system.note' && /reviewer left this one for you/.test(e.text));
@@ -74,7 +83,7 @@ test('cardReviewer: one it doubts goes to Alex with its reason', async () => {
 
 test('cardReviewer: Alex writing instead of answering a card it left still tells the agent why', async () => {
   const h = setup({ answer: '{"verdict":"ask","why":"It rewrites the whole brief."}' });
-  const { id } = thread(h);
+  const { id } = codexThread(h);
   const answer = h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__update_project', title: 'Change the brief', input: { notes: 'x' }, review: 'notes: 1 lines before, 1 after.' });
   await tick();
   assert.match(h.asked[0].prompt, /worked out by Threadbear[^\n]*\nBEGIN \w+\nnotes: 1 lines before/);
@@ -87,7 +96,7 @@ test('cardReviewer: Alex writing instead of answering a card it left still tells
 
 test('cardReviewer: a card it left that closes without Alex answering tells the agent nothing of the reviewer', async () => {
   const h = setup({ answer: '{"verdict":"ask","why":"Not sure."}' });
-  const { id } = thread(h);
+  const { id } = codexThread(h);
   const ac = new AbortController();
   const answer = h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__send_message', title: 'Send', input: { text: 'x' }, signal: ac.signal });
   await tick();
@@ -99,7 +108,7 @@ test('cardReviewer: a card it left that closes without Alex answering tells the 
 
 test('cardReviewer: a card Alex allows after the reviewer left it goes ahead with no extra words', async () => {
   const h = setup({ answer: '{"verdict":"ask","why":"Not sure."}' });
-  const { id } = thread(h);
+  const { id } = codexThread(h);
   const answer = h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__send_message', title: 'Send', input: { text: 'x' } });
   await tick();
   const req = h.events(id).find((e) => e.type === 'approval.requested');
@@ -112,8 +121,8 @@ test('cardReviewer: a card Alex allows after the reviewer left it goes ahead wit
 test('cardReviewer: a reviewer that can\'t run, or answers nonsense, leaves the card for Alex', async () => {
   for (const answer of [{ ok: false, reason: 'no-pool', message: 'none' } as ModelResult<string>, 'Sure, looks fine to me!', '{"verdict":"ALLOW"}']) {
     const h = setup({ answer });
-    const { id, s } = thread(h);
-    void edit(s);
+    const { id } = codexThread(h);
+    void h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__send_message', title: 'Send', input: { text: 'x' } });
     await tick();
     assert.ok(h.events(id).some((e) => e.type === 'approval.requested'), JSON.stringify(answer));
   }
@@ -143,7 +152,7 @@ test('cardReviewer: a threadbear tool\'s own card (a message to a thread with mo
 
 test('cardReviewer: a card that hands out lasting access always goes to Alex', async () => {
   const h = setup();
-  const { id } = thread(h);
+  const { id } = codexThread(h);
   for (const name of ['update_thread', 'create_thread', 'schedule_message', 'update_schedule', 'move_thread']) {
     void h.runner.requestAgentApproval(id, { name: `mcp__threadbear__${name}`, title: 'Switch this thread to Full access', input: { permissionMode: 'full' } });
   }
@@ -154,8 +163,8 @@ test('cardReviewer: a card that hands out lasting access always goes to Alex', a
 
 test('cardReviewer: input too long to show whole goes to Alex unread', async () => {
   const h = setup();
-  const { id, s } = thread(h);
-  void s.sink.requestApproval({ toolUseId: 'tu-2', name: 'Write', title: 'Write big.ts', input: { file_path: '/w/big.ts', content: 'x'.repeat(CARD_REVIEW_MAX_INPUT + 1) }, canAlwaysAllow: false, signal: new AbortController().signal });
+  const { id } = codexThread(h);
+  void h.runner.requestAgentApproval(id, { name: 'mcp__threadbear__send_message', title: 'Send', input: { text: 'x'.repeat(CARD_REVIEW_MAX_INPUT + 1) } });
   await tick();
   assert.equal(h.asked.length, 0);
   assert.ok(h.events(id).some((e) => e.type === 'approval.requested'));
