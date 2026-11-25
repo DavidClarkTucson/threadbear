@@ -1,11 +1,9 @@
-// Ask me later (runner/asks-later.ts, experiment asksLater): an Auto
+// Ask me later (runner/asks-later.ts): an Auto
 // thread's card the reviewer won't allow is refused at once, and the
 // question waits in one Permission requests thread, where Always allow
 // saves an exact rule for the folder and Allow once lets the retry through.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import { FakeAccounts, makeHarness, tick, tmpDir, withCodex, type FakeSession } from '../helpers/fakes.ts';
 import { ALLOW_ONCE, BLOCKED_FOR_LATER, INBOX_TITLE, KEEP_BLOCKING, candidateRules, onceKey, readAsksLater, ruleMatches } from '../../src/runner/asks-later.ts';
 import type { GenerateParams, ModelResult } from '../../src/models/index.ts';
@@ -57,13 +55,8 @@ test('asksLater: Allow once matches a retry whose Bash description changed', () 
 
 // ---- the runner ----
 
-function setup(o: { answer?: string; on?: boolean } = {}) {
+function setup(o: { answer?: string } = {}) {
   const home = tmpDir();
-  if (o.on !== false) {
-    const file = path.join(home, 'runner.json');
-    const had = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
-    fs.writeFileSync(file, JSON.stringify({ ...had, experiments: { asksLater: true } }));
-  }
   let asked = 0;
   const models = {
     generate: async (p: GenerateParams): Promise<ModelResult<string>> => {
@@ -170,12 +163,7 @@ test('asksLater: the same call blocked twice puts up one card', async () => {
   assert.equal(inbox(h).cards.length, 1);
 });
 
-test('asksLater: off, or outside Auto, the card waits for the user as before', async () => {
-  const off = setup({ on: false });
-  const t = thread(off);
-  void bash(t.s, 'make deploy');
-  await tick();
-  assert.ok(off.events(t.id).some((e) => e.type === 'approval.requested'));
+test('asksLater: outside Auto, the card waits for the user as before', async () => {
   const on = setup();
   const ask = thread(on, 'ask');
   void bash(ask.s, 'make deploy');

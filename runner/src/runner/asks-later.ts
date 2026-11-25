@@ -1,12 +1,13 @@
-// Ask me later (experiment `asksLater`, David's fork, 21 Nov 2026): an Auto
-// thread never waits on a card. Where the card reviewer (card-review.ts)
-// would hand a card to the user, the action is refused at once and the
-// agent carries on without it. The refused action goes to one Permission
-// requests thread as a question card, which the user answers whenever
-// they like: Always allow (a saved rule for that folder), Allow once (the
-// thread is told to try again, and that one call then goes through) or
-// Keep blocking. Saved rules are checked before the reviewer runs, so an
-// unattended thread slowly stops being blocked on what the user wants.
+// Ask me later (David's fork; tried as an experiment from 21 Nov 2026,
+// standard since 25 Nov): an Auto thread never waits on a card. Where the
+// card reviewer (card-review.ts) would hand a card to the user, the action
+// is refused at once and the agent carries on without it. The refused
+// action goes to one Permission requests thread as a question card, which
+// the user answers whenever they like: Always allow (a saved rule for
+// that folder), Allow once (the thread is told to try again, and that one
+// call then goes through) or Keep blocking. Saved rules are checked
+// before the reviewer runs, so an unattended thread slowly stops being
+// blocked on what the user wants.
 //
 // Why: David, 21 Nov 2026 (thread 80345583): "tasks can run unattended but
 // slowly build out rules to allow things the user might want".
@@ -24,11 +25,9 @@ import type { Runner, ThreadState } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import type { EventBody, Question } from '../protocol.ts';
 import type { QuestionAnswer, ToolApprovalAnswer } from '../adapters/types.ts';
-import { experimentOn } from '../experiments.ts';
 import { remoteCardShowsAll } from '../tools.ts';
 import type { CardForReview } from './card-review.ts';
 
-export const ASKS_LATER = 'asksLater';
 export const INBOX_TITLE = 'Permission requests';
 const FILE = 'asks-later.json';
 // An Allow once that isn't used within a day is dropped.
@@ -205,7 +204,7 @@ function writeAsksLater(home: string, f: AsksLaterFile): void {
 
 export const asksLaterPart = {
   asksLaterOn(this: Runner, st: ThreadState): boolean {
-    return st.rec.permissionMode === 'auto' && st.rec.provider === 'claude' && experimentOn(this.cfg.home, ASKS_LATER);
+    return st.rec.permissionMode === 'auto' && st.rec.provider === 'claude';
   },
 
   // Before the reviewer: a call the user already allowed, once or always.
@@ -315,7 +314,6 @@ export const asksLaterPart = {
 
   // After a restart the cards are gone, but the questions aren't.
   repostLaterAsks(this: Runner): void {
-    if (!experimentOn(this.cfg.home, ASKS_LATER)) return;
     for (const ask of readAsksLater(this.cfg.home).asks) if (ask.status === 'open') this.postLaterAsk(ask);
   },
 };
