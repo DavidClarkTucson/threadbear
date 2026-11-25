@@ -2529,6 +2529,24 @@ impl Composer {
     }
 }
 
+impl Composer {
+    /// The cards just above the box: Claude refused the last turn, so the
+    /// offer to carry on with Codex (RefusalOffer), or else a long
+    /// conversation's Compact or Continue in a new thread (long_thread.rs).
+    fn offers_above(&self, cx: &mut Context<Self>) -> (Option<AnyElement>, Option<AnyElement>) {
+        let (Some(id), Some(app)) = (&self.thread_id, self.app.upgrade()) else {
+            return (None, None);
+        };
+        let refusal = crate::app::Threadbear::refusal_offer(&app, id, cx);
+        let long = if refusal.is_none() {
+            crate::app::Threadbear::long_thread_offer(&app, id, cx)
+        } else {
+            None
+        };
+        (refusal, long)
+    }
+}
+
 impl Render for Composer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The box as it was before an edit that's just gone, first: it
@@ -2645,19 +2663,7 @@ impl Render for Composer {
             let room = (self.card_width.get() - style::zoomed(style::COMPOSER_RADIUS) * 2.).max(0.);
             crate::viewer::action_chips(&summary, room, &icons, window, cx)
         });
-        // Claude refused the last turn: the offer to carry on with Codex,
-        // just above the box (RefusalOffer).
-        let refusal = match (&self.thread_id, self.app.upgrade()) {
-            (Some(id), Some(app)) => crate::app::Threadbear::refusal_offer(&app, id, cx),
-            _ => None,
-        };
-        // A long conversation: Compact or Continue in a new thread (long_thread.rs).
-        let long = match (&self.thread_id, self.app.upgrade()) {
-            (Some(id), Some(app)) if refusal.is_none() => {
-                crate::app::Threadbear::long_thread_offer(&app, id, cx)
-            }
-            _ => None,
-        };
+        let (refusal, long) = self.offers_above(cx);
         let body = v_flex()
             .w_full()
             .gap(px(style::COMPOSER_GAP))
