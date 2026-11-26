@@ -203,7 +203,7 @@ File references are where to look.
   ten minutes),
   `shared-pools.json`, the last pools your Convex backend had, which every
   runner shares, so one starts with them while the backend can't be reached,
-  `asks-later.json`, with the Ask me later experiment on, the rules you
+  `asks-later.json`, once an Auto thread is refused something, the rules you
   saved in Permission requests and the questions waiting there (each with
   the thread's title and the command or file it was refused),
   `profiles/`, the last ten CPU profiles of the runner, made only when

@@ -21,6 +21,7 @@ import { effortTitle, isClaudeModel, modelRow, modelTitle } from './models.ts';
 import { newRuntime } from './runtime.ts';
 import { providerInfo, providerName } from '../providers.ts';
 import { cutSafely } from '../safe-cut.ts';
+import { experimentOn } from '../experiments.ts';
 
 export const newThreadsPart = {
   create(this: Runner, params: {
@@ -276,8 +277,7 @@ export const newThreadsPart = {
       accountId,
       ...(poolId ? { poolId } : {}),
       provider: account.provider,
-      // None named: runner.json's default (a new install's is auto), else full.
-      permissionMode: params.permissionMode ?? this.cfg.defaults.permissionMode ?? 'full',
+      permissionMode: startingMode(this, account.provider, params.permissionMode),
       status: 'idle',
       createdAt: now,
       updatedAt: now,
@@ -369,3 +369,14 @@ export const newThreadsPart = {
 };
 
 export type NewThreadsPart = RunnerPart<typeof newThreadsPart>;
+
+// The mode a new thread starts in. None named: runner.json's default (a new
+// install's is auto), else full. With the autoEverywhere experiment on
+// (David, 25 Nov 2026), a Claude thread starts in Auto whatever it asked
+// for, so what it's refused waits in Permission requests (asks-later.ts).
+// Plan first stays: the user picked it to read a plan first. Codex threads
+// stay too: Auto there acts like Ask before edits and waits on cards.
+function startingMode(r: Runner, provider: Provider, asked: PermissionMode | undefined): PermissionMode {
+  const mode = asked ?? r.cfg.defaults.permissionMode ?? 'full';
+  return mode !== 'plan' && provider === 'claude' && experimentOn(r.cfg.home, 'autoEverywhere') ? 'auto' : mode;
+}
